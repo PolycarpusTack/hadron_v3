@@ -1,0 +1,79 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Hadron",
+  "version": "1.1.0",
+  "identifier": "com.hadron.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Hadron - Smalltalk Crash Analyzer",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; script-src 'self'",
+      "capabilities": [
+        {
+          "identifier": "main-capability",
+          "description": "Capability for the main window",
+          "windows": ["main"],
+          "permissions": [
+            "core:default",
+            "dialog:default",
+            "store:default",
+            "updater:default",
+            "process:default",
+            "notification:default",
+            "window-state:default",
+            "core:app:default",
+            "core:window:default"
+          ]
+        }
+      ]
+    },
+    "withGlobalTauri": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "../python/**/*.py"
+    ],
+    "category": "DeveloperTool",
+    "copyright": "© 2025 Hadron Team",
+    "longDescription": "AI-powered Smalltalk crash log analyzer with intelligent error detection and suggested fixes",
+    "shortDescription": "Smalltalk Crash Analyzer"
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/hadron-team/hadron-desktop/releases/latest/download/latest.json"
+      ],
+      "dialog": true,
+      "pubkey": "",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

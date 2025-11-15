@@ -1,0 +1,82 @@
+import { BarChart3, Star, FileText } from "lucide-react";
+import type { DatabaseStatistics } from "../services/api";
+
+interface AnalyticsDashboardProps {
+  statistics: DatabaseStatistics;
+}
+
+const severityColors: Record<string, string> = {
+  CRITICAL: "bg-red-500",
+  HIGH: "bg-orange-500",
+  MEDIUM: "bg-yellow-500",
+  LOW: "bg-blue-500",
+};
+
+export default function AnalyticsDashboard({ statistics }: AnalyticsDashboardProps) {
+  const totalAnalyses = statistics.severity_breakdown.reduce((sum, [_, count]) => sum + count, 0);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      {/* Total Analyses */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-500/20 rounded-lg">
+            <FileText className="w-5 h-5 text-blue-400" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-400">Total Analyses</p>
+            <p className="text-2xl font-bold">{statistics.total_count}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Favorites */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-yellow-500/20 rounded-lg">
+            <Star className="w-5 h-5 text-yellow-400" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-400">Favorites</p>
+            <p className="text-2xl font-bold">{statistics.favorite_count}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Severity Breakdown */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="p-2 bg-purple-500/20 rounded-lg">
+            <BarChart3 className="w-5 h-5 text-purple-400" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-400">By Severity</p>
+          </div>
+        </div>
+
+        {/* Severity bars */}
+        <div className="space-y-2">
+          {statistics.severity_breakdown
+            .sort((a, b) => b[1] - a[1]) // Sort by count descending
+            .map(([severity, count]) => {
+              const percentage = totalAnalyses > 0 ? (count / totalAnalyses) * 100 : 0;
+              const color = severityColors[severity] || "bg-gray-500";
+
+              return (
+                <div key={severity} className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-400 w-16 uppercase">{severity}</span>
+                  <div className="flex-1 bg-gray-700 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`${color} h-full transition-all duration-300`}
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                  <span className="text-gray-300 w-8 text-right">{count}</span>
+                </div>
+              );
+            })}
+        </div>
+      </div>
+    </div>
+  );
+}
