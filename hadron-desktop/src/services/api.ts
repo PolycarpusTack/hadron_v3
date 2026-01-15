@@ -132,10 +132,36 @@ export async function translateTechnicalContent(
 }
 
 /**
- * Get all analyses from history
+ * Get all analyses from history (with default pagination of 50 items)
  */
 export async function getAllAnalyses(): Promise<Analysis[]> {
   return await invoke<Analysis[]>("get_all_analyses");
+}
+
+/**
+ * Pagination options for list queries
+ */
+export interface PaginationOptions {
+  limit?: number;  // Number of items to return (-1 for unlimited)
+  offset?: number; // Number of items to skip
+}
+
+/**
+ * Get analyses with pagination support
+ * @param options - Pagination options (limit, offset)
+ */
+export async function getAnalysesPaginated(options?: PaginationOptions): Promise<Analysis[]> {
+  return await invoke<Analysis[]>("get_analyses_paginated", {
+    limit: options?.limit,
+    offset: options?.offset,
+  });
+}
+
+/**
+ * Get total count of analyses (useful for pagination UI)
+ */
+export async function getAnalysesCount(): Promise<number> {
+  return await invoke<number>("get_analyses_count");
 }
 
 /**

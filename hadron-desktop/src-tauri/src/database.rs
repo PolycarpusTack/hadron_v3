@@ -331,18 +331,48 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Default page size for paginated queries
+    const DEFAULT_PAGE_SIZE: i64 = 50;
+
+    /// Get all analyses (with optional pagination)
+    /// If limit is None, uses DEFAULT_PAGE_SIZE. Set to -1 for unlimited (legacy behavior).
     pub fn get_all_analyses(&self) -> Result<Vec<Analysis>> {
+        self.get_analyses_paginated(Some(Self::DEFAULT_PAGE_SIZE), Some(0))
+    }
+
+    /// Get analyses with pagination support
+    /// - limit: Number of results to return (None = default, -1 = unlimited)
+    /// - offset: Number of results to skip
+    pub fn get_analyses_paginated(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Analysis>> {
         let conn = self.lock_conn()?;
 
-        let mut stmt = conn.prepare(
+        let actual_limit = limit.unwrap_or(Self::DEFAULT_PAGE_SIZE);
+        let actual_offset = offset.unwrap_or(0);
+
+        // Use different query based on whether we want unlimited
+        let sql = if actual_limit < 0 {
             "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
                     root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
                     tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
                     view_count, analysis_duration_ms, analysis_type
              FROM analyses
              WHERE deleted_at IS NULL
-             ORDER BY analyzed_at DESC",
-        )?;
+             ORDER BY analyzed_at DESC".to_string()
+        } else {
+            format!(
+                "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
+                        root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
+                        tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
+                        view_count, analysis_duration_ms, analysis_type
+                 FROM analyses
+                 WHERE deleted_at IS NULL
+                 ORDER BY analyzed_at DESC
+                 LIMIT {} OFFSET {}",
+                actual_limit, actual_offset
+            )
+        };
+
+        let mut stmt = conn.prepare(&sql)?;
 
         let analyses = stmt
             .query_map([], |row| {
@@ -375,6 +405,16 @@ impl Database {
             .collect::<Result<Vec<_>>>()?;
 
         Ok(analyses)
+    }
+
+    /// Get total count of analyses (for pagination UI)
+    pub fn get_analyses_count(&self) -> Result<i64> {
+        let conn = self.lock_conn()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
     }
 
     pub fn get_analysis_by_id(&self, id: i64) -> Result<Analysis> {
@@ -645,16 +685,37 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Get all translations (with default pagination)
     pub fn get_all_translations(&self) -> Result<Vec<Translation>> {
+        self.get_translations_paginated(Some(Self::DEFAULT_PAGE_SIZE), Some(0))
+    }
+
+    /// Get translations with pagination support
+    pub fn get_translations_paginated(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Translation>> {
         let conn = self.lock_conn()?;
 
-        let mut stmt = conn.prepare(
+        let actual_limit = limit.unwrap_or(Self::DEFAULT_PAGE_SIZE);
+        let actual_offset = offset.unwrap_or(0);
+
+        let sql = if actual_limit < 0 {
             "SELECT id, input_content, translation, translated_at, ai_model, ai_provider,
                     is_favorite, last_viewed_at, view_count
              FROM translations
              WHERE deleted_at IS NULL
-             ORDER BY translated_at DESC",
-        )?;
+             ORDER BY translated_at DESC".to_string()
+        } else {
+            format!(
+                "SELECT id, input_content, translation, translated_at, ai_model, ai_provider,
+                        is_favorite, last_viewed_at, view_count
+                 FROM translations
+                 WHERE deleted_at IS NULL
+                 ORDER BY translated_at DESC
+                 LIMIT {} OFFSET {}",
+                actual_limit, actual_offset
+            )
+        };
+
+        let mut stmt = conn.prepare(&sql)?;
 
         let translations = stmt
             .query_map([], |row| {
@@ -673,6 +734,16 @@ impl Database {
             .collect::<Result<Vec<_>>>()?;
 
         Ok(translations)
+    }
+
+    /// Get total count of translations (for pagination UI)
+    pub fn get_translations_count(&self) -> Result<i64> {
+        let conn = self.lock_conn()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM translations WHERE deleted_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
     }
 
     pub fn get_translation_by_id(&self, id: i64) -> Result<Translation> {

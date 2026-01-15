@@ -377,12 +377,23 @@ def translate_content(content: str) -> Dict[str, str]:
 
 
 def main():
-    """Main entry point."""
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "No content provided"}), file=sys.stderr)
-        sys.exit(1)
+    """Main entry point.
 
-    content = sys.argv[1]
+    Reads content from stdin for security (avoids command injection via CLI args).
+    Falls back to sys.argv[1] for backward compatibility with direct CLI usage.
+    """
+    content = None
+
+    # Prefer stdin for security - avoids command injection vulnerabilities
+    if not sys.stdin.isatty():
+        content = sys.stdin.read()
+    elif len(sys.argv) >= 2:
+        # Fallback for direct CLI usage (backward compatibility)
+        content = sys.argv[1]
+
+    if not content:
+        print(json.dumps({"error": "No content provided. Pass content via stdin or as first argument."}), file=sys.stderr)
+        sys.exit(1)
 
     if not content.strip():
         print(json.dumps({"error": "Empty content provided"}), file=sys.stderr)
