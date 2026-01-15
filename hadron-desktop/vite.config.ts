@@ -17,4 +17,16 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  // Vitest configuration
+  test: {
+    globals: true,
+    // Exclude e2e tests - they use Playwright
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/tests/e2e/**",
+      "**/*.spec.ts",
+    ],
+  },
 }));

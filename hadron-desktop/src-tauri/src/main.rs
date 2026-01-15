@@ -3,6 +3,7 @@
 
 mod commands;
 mod database;
+mod migrations;
 mod python_runner;
 mod model_fetcher;
 mod ai_service;
