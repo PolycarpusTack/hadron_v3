@@ -18,6 +18,32 @@ export default defineConfig(async () => ({
     },
   },
 
+  // Build optimizations
+  build: {
+    // Target modern browsers for smaller output
+    target: "es2020",
+    // Generate source maps for debugging (disable in production if needed)
+    sourcemap: false,
+    // Rollup optimizations
+    rollupOptions: {
+      output: {
+        // Manual chunks for better caching
+        manualChunks: {
+          // Vendor chunk: React and core libraries
+          vendor: ["react", "react-dom"],
+          // UI chunk: icons and UI components
+          ui: ["lucide-react"],
+          // Syntax highlighter is large, separate it
+          highlighter: ["react-syntax-highlighter"],
+          // Date utilities
+          "date-utils": ["date-fns"],
+        },
+      },
+    },
+    // Chunk size warnings threshold
+    chunkSizeWarningLimit: 500,
+  },
+
   // Vitest configuration
   test: {
     globals: true,
