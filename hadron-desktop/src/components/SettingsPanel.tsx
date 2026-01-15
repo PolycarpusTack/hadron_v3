@@ -5,6 +5,7 @@ import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage
 import { checkForUpdates } from "../services/updater";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
+import KeeperSettings from "./KeeperSettings";
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -764,6 +765,9 @@ export default function SettingsPanel({
               </div>
             </div>
           )}
+
+          {/* Keeper Secrets Manager Integration */}
+          <KeeperSettings onConfigChange={onSettingsChange} />
 
           {/* Model Selection */}
           <div>
