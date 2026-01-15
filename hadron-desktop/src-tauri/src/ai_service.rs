@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use log;
+use std::time::Duration;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnalysisResult {
@@ -17,6 +18,97 @@ pub struct AnalysisResult {
     pub was_truncated: Option<bool>,
     pub analysis_duration_ms: Option<i32>,
 }
+
+// ============================================================================
+// Provider Configuration
+// ============================================================================
+
+/// Configuration for an AI provider endpoint
+struct ProviderConfig {
+    name: &'static str,
+    endpoint: &'static str,
+    /// How to include the API key in the request
+    auth_style: AuthStyle,
+    /// How to extract content from the response
+    response_style: ResponseStyle,
+    /// Cost calculation method
+    cost_calculator: CostCalculator,
+}
+
+enum AuthStyle {
+    /// Bearer token in Authorization header
+    Bearer,
+    /// Anthropic-style x-api-key header
+    AnthropicHeader,
+    /// No authentication (local providers)
+    None,
+}
+
+enum ResponseStyle {
+    /// OpenAI-style: choices[0].message.content
+    OpenAI,
+    /// Anthropic-style: content[0].text
+    Anthropic,
+    /// Ollama-style: message.content
+    Ollama,
+}
+
+enum CostCalculator {
+    /// GPT-4 Turbo pricing: $0.01 per 1K tokens
+    Gpt4Turbo,
+    /// Claude 3.5 Sonnet: $3/$15 per M tokens (input/output)
+    Claude35Sonnet,
+    /// Flat rate per request
+    FlatRate(f64),
+    /// Free (local providers)
+    Free,
+}
+
+impl ProviderConfig {
+    fn openai() -> Self {
+        Self {
+            name: "OpenAI",
+            endpoint: "https://api.openai.com/v1/chat/completions",
+            auth_style: AuthStyle::Bearer,
+            response_style: ResponseStyle::OpenAI,
+            cost_calculator: CostCalculator::Gpt4Turbo,
+        }
+    }
+
+    fn anthropic() -> Self {
+        Self {
+            name: "Anthropic",
+            endpoint: "https://api.anthropic.com/v1/messages",
+            auth_style: AuthStyle::AnthropicHeader,
+            response_style: ResponseStyle::Anthropic,
+            cost_calculator: CostCalculator::Claude35Sonnet,
+        }
+    }
+
+    fn zai() -> Self {
+        Self {
+            name: "Z.ai",
+            endpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            auth_style: AuthStyle::Bearer,
+            response_style: ResponseStyle::OpenAI,
+            cost_calculator: CostCalculator::FlatRate(0.001),
+        }
+    }
+
+    fn ollama() -> Self {
+        Self {
+            name: "Ollama",
+            endpoint: "http://127.0.0.1:11434/api/chat",
+            auth_style: AuthStyle::None,
+            response_style: ResponseStyle::Ollama,
+            cost_calculator: CostCalculator::Free,
+        }
+    }
+}
+
+// ============================================================================
+// Prompts
+// ============================================================================
 
 const COMPLETE_ANALYSIS_SYSTEM_PROMPT: &str = "You are an expert VisualWorks Smalltalk developer with 15+ years of experience debugging production issues.
 
@@ -179,18 +271,27 @@ REQUIREMENTS FOR ALL ANALYSES:
 IMPORTANT: Return ONLY valid JSON with all 8 analyses in the root_cause field."#, crash_content)
 }
 
-pub async fn call_openai(
+// ============================================================================
+// Unified HTTP Client
+// ============================================================================
+
+/// Shared HTTP client with configured timeout
+fn create_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+/// Build request body for OpenAI-compatible APIs
+fn build_openai_request(
     system_prompt: &str,
     user_prompt: &str,
-    api_key: &str,
     model: &str,
-) -> Result<AnalysisResult, String> {
-    let client = reqwest::Client::new();
-
-    // GPT-4 and GPT-5 models use different parameter names
+) -> serde_json::Value {
     let is_gpt5 = model.starts_with("gpt-5") || model.starts_with("o1") || model.starts_with("o3");
 
-    let mut request_body = json!({
+    let mut body = json!({
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -199,44 +300,185 @@ pub async fn call_openai(
         "temperature": 0.3
     });
 
-    // Use appropriate token parameter based on model
     if is_gpt5 {
-        request_body["max_completion_tokens"] = json!(4000);
+        body["max_completion_tokens"] = json!(4000);
     } else {
-        request_body["max_tokens"] = json!(4000);
+        body["max_tokens"] = json!(4000);
     }
 
-    let response = client
-        .post("https://api.openai.com/v1/chat/completions")
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
+    body
+}
+
+/// Build request body for Anthropic API
+fn build_anthropic_request(
+    system_prompt: &str,
+    user_prompt: &str,
+    model: &str,
+) -> serde_json::Value {
+    json!({
+        "model": model,
+        "max_tokens": 4000,
+        "system": system_prompt,
+        "messages": [
+            {"role": "user", "content": user_prompt}
+        ]
+    })
+}
+
+/// Build request body for Ollama API
+fn build_ollama_request(
+    system_prompt: &str,
+    user_prompt: &str,
+    model: &str,
+) -> serde_json::Value {
+    json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "stream": false
+    })
+}
+
+/// Response data extracted from provider response
+struct ProviderResponse {
+    content: String,
+    tokens: i32,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+}
+
+/// Extract response data based on provider's response style
+fn extract_response(
+    response_data: &serde_json::Value,
+    style: &ResponseStyle,
+) -> Result<ProviderResponse, String> {
+    match style {
+        ResponseStyle::OpenAI => {
+            let content = response_data["choices"][0]["message"]["content"]
+                .as_str()
+                .ok_or("No content in response")?
+                .to_string();
+            let tokens = response_data["usage"]["total_tokens"]
+                .as_i64()
+                .unwrap_or(0) as i32;
+            Ok(ProviderResponse {
+                content,
+                tokens,
+                input_tokens: None,
+                output_tokens: None,
+            })
+        }
+        ResponseStyle::Anthropic => {
+            let content = response_data["content"][0]["text"]
+                .as_str()
+                .ok_or("No content in response")?
+                .to_string();
+            let input_tokens = response_data["usage"]["input_tokens"].as_i64().unwrap_or(0);
+            let output_tokens = response_data["usage"]["output_tokens"].as_i64().unwrap_or(0);
+            Ok(ProviderResponse {
+                content,
+                tokens: (input_tokens + output_tokens) as i32,
+                input_tokens: Some(input_tokens),
+                output_tokens: Some(output_tokens),
+            })
+        }
+        ResponseStyle::Ollama => {
+            let content = response_data["message"]["content"]
+                .as_str()
+                .ok_or("No content in response")?
+                .to_string();
+            Ok(ProviderResponse {
+                content,
+                tokens: 0,
+                input_tokens: None,
+                output_tokens: None,
+            })
+        }
+    }
+}
+
+/// Calculate cost based on provider's pricing model
+fn calculate_cost(
+    response: &ProviderResponse,
+    calculator: &CostCalculator,
+) -> f64 {
+    match calculator {
+        CostCalculator::Gpt4Turbo => (response.tokens as f64 / 1000.0) * 0.01,
+        CostCalculator::Claude35Sonnet => {
+            let input = response.input_tokens.unwrap_or(0) as f64;
+            let output = response.output_tokens.unwrap_or(0) as f64;
+            (input / 1_000_000.0) * 3.0 + (output / 1_000_000.0) * 15.0
+        }
+        CostCalculator::FlatRate(rate) => *rate,
+        CostCalculator::Free => 0.0,
+    }
+}
+
+/// Unified provider call function
+async fn call_provider(
+    config: ProviderConfig,
+    request_body: serde_json::Value,
+    api_key: &str,
+) -> Result<AnalysisResult, String> {
+    let client = create_http_client();
+
+    // Build request with appropriate auth
+    let mut request = client
+        .post(config.endpoint)
+        .header("Content-Type", "application/json");
+
+    request = match config.auth_style {
+        AuthStyle::Bearer => request.header("Authorization", format!("Bearer {}", api_key)),
+        AuthStyle::AnthropicHeader => request
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01"),
+        AuthStyle::None => request,
+    };
+
+    // Send request
+    let response = request
         .json(&request_body)
         .send()
         .await
-        .map_err(|e| format!("OpenAI API request failed: {}", e))?;
+        .map_err(|e| format!("{} API request failed: {}", config.name, e))?;
 
+    // Check response status
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("OpenAI API error: {}", error_text));
+        return Err(format!("{} API error: {}", config.name, error_text));
     }
 
+    // Parse response
     let response_data: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse OpenAI response: {}", e))?;
+        .map_err(|e| format!("Failed to parse {} response: {}", config.name, e))?;
 
-    let content = response_data["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or("No content in OpenAI response")?;
+    // Extract content and tokens
+    let provider_response = extract_response(&response_data, &config.response_style)
+        .map_err(|e| format!("{} response error: {}", config.name, e))?;
 
-    let tokens = response_data["usage"]["total_tokens"]
-        .as_i64()
-        .unwrap_or(0) as i32;
+    // Calculate cost
+    let cost = calculate_cost(&provider_response, &config.cost_calculator);
 
-    // Rough cost estimate (GPT-4 Turbo pricing)
-    let cost = (tokens as f64 / 1000.0) * 0.01;
+    // Parse the AI's JSON response into our result struct
+    parse_analysis_json(&provider_response.content, provider_response.tokens, cost)
+}
 
-    parse_analysis_json(content, tokens, cost)
+// ============================================================================
+// Public Provider Functions (thin wrappers for backwards compatibility)
+// ============================================================================
+
+pub async fn call_openai(
+    system_prompt: &str,
+    user_prompt: &str,
+    api_key: &str,
+    model: &str,
+) -> Result<AnalysisResult, String> {
+    let request_body = build_openai_request(system_prompt, user_prompt, model);
+    call_provider(ProviderConfig::openai(), request_body, api_key).await
 }
 
 pub async fn call_anthropic(
@@ -245,49 +487,8 @@ pub async fn call_anthropic(
     api_key: &str,
     model: &str,
 ) -> Result<AnalysisResult, String> {
-    let client = reqwest::Client::new();
-
-    let request_body = json!({
-        "model": model,
-        "max_tokens": 4000,
-        "system": system_prompt,
-        "messages": [
-            {"role": "user", "content": user_prompt}
-        ]
-    });
-
-    let response = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("Content-Type", "application/json")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| format!("Anthropic API request failed: {}", e))?;
-
-    if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("Anthropic API error: {}", error_text));
-    }
-
-    let response_data: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Anthropic response: {}", e))?;
-
-    let content = response_data["content"][0]["text"]
-        .as_str()
-        .ok_or("No content in Anthropic response")?;
-
-    let input_tokens = response_data["usage"]["input_tokens"].as_i64().unwrap_or(0);
-    let output_tokens = response_data["usage"]["output_tokens"].as_i64().unwrap_or(0);
-    let tokens = (input_tokens + output_tokens) as i32;
-
-    // Rough cost estimate (Claude 3.5 Sonnet pricing: $3/$15 per M tokens)
-    let cost = (input_tokens as f64 / 1_000_000.0) * 3.0 + (output_tokens as f64 / 1_000_000.0) * 15.0;
-
-    parse_analysis_json(content, tokens, cost)
+    let request_body = build_anthropic_request(system_prompt, user_prompt, model);
+    call_provider(ProviderConfig::anthropic(), request_body, api_key).await
 }
 
 pub async fn call_zai(
@@ -296,51 +497,22 @@ pub async fn call_zai(
     api_key: &str,
     model: &str,
 ) -> Result<AnalysisResult, String> {
-    let client = reqwest::Client::new();
-
-    let request_body = json!({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-    });
-
-    // NOTE: Z.ai endpoint inconsistency - This uses open.bigmodel.cn for chat completions,
-    // while model_fetcher.rs uses api.z.ai for listing models. Consider unifying to a single
-    // endpoint domain to reduce provider-specific surprises and improve maintainability.
-    let response = client
-        .post("https://open.bigmodel.cn/api/paas/v4/chat/completions")
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| format!("Z.ai API request failed: {}", e))?;
-
-    if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("Z.ai API error: {}", error_text));
-    }
-
-    let response_data: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Z.ai response: {}", e))?;
-
-    let content = response_data["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or("No content in Z.ai response")?;
-
-    let tokens = response_data["usage"]["total_tokens"]
-        .as_i64()
-        .unwrap_or(0) as i32;
-
-    // Z.ai is flat $3/month, so cost is minimal per request
-    let cost = 0.001;
-
-    parse_analysis_json(content, tokens, cost)
+    let request_body = build_openai_request(system_prompt, user_prompt, model);
+    call_provider(ProviderConfig::zai(), request_body, api_key).await
 }
+
+pub async fn call_ollama(
+    system_prompt: &str,
+    user_prompt: &str,
+    model: &str,
+) -> Result<AnalysisResult, String> {
+    let request_body = build_ollama_request(system_prompt, user_prompt, model);
+    call_provider(ProviderConfig::ollama(), request_body, "").await
+}
+
+// ============================================================================
+// JSON Parsing
+// ============================================================================
 
 fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<AnalysisResult, String> {
     // Extract JSON from response (look for first { to last }).
@@ -401,75 +573,23 @@ fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<Analysis
     })
 }
 
-pub async fn call_ollama(
-    system_prompt: &str,
-    user_prompt: &str,
-    model: &str,
-) -> Result<AnalysisResult, String> {
-    let client = reqwest::Client::new();
-
-    let request_body = json!({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "stream": false
-    });
-
-    // Ollama runs locally at http://127.0.0.1:11434
-    // No API key required for local Ollama instances
-    let response = client
-        .post("http://127.0.0.1:11434/api/chat")
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| format!("Ollama request failed (is Ollama running?): {}", e))?;
-
-    if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("Ollama API error: {}", error_text));
-    }
-
-    let response_data: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
-
-    // Ollama response structure: {"message": {"content": "..."}, ...}
-    let content = response_data["message"]["content"]
-        .as_str()
-        .ok_or("No content in Ollama response")?;
-
-    // Ollama is local and free: zero tokens and zero cost
-    let tokens = 0;
-    let cost = 0.0;
-
-    parse_analysis_json(content, tokens, cost)
-}
+// ============================================================================
+// Translation (Ollama only)
+// ============================================================================
 
 /// Translate technical content to plain language using Ollama
 pub async fn translate_ollama(
     content: &str,
     model: &str,
 ) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = create_http_client();
 
     let system_prompt = "You are a technical translator. Convert complex technical content into clear, plain language that non-technical users can understand. Maintain accuracy while simplifying jargon and explaining concepts.";
 
     let user_prompt = format!("Translate this technical content to plain language:\n\n{}", content);
 
-    let request_body = json!({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "stream": false
-    });
+    let request_body = build_ollama_request(system_prompt, &user_prompt, model);
 
-    // Ollama runs locally at http://127.0.0.1:11434
     let response = client
         .post("http://127.0.0.1:11434/api/chat")
         .header("Content-Type", "application/json")
@@ -488,7 +608,6 @@ pub async fn translate_ollama(
         .await
         .map_err(|e| format!("Failed to parse Ollama translation response: {}", e))?;
 
-    // Ollama response structure: {"message": {"content": "..."}, ...}
     let translation = response_data["message"]["content"]
         .as_str()
         .ok_or("No content in Ollama translation response")?
@@ -496,6 +615,10 @@ pub async fn translate_ollama(
 
     Ok(translation)
 }
+
+// ============================================================================
+// Main Entry Point
+// ============================================================================
 
 pub async fn analyze_crash_log(
     crash_content: &str,
@@ -513,11 +636,11 @@ pub async fn analyze_crash_log(
     };
 
     let mut result = match provider.to_lowercase().as_str() {
-        "openai" => call_openai(&system_prompt, &user_prompt, api_key, model).await?,
-        "anthropic" => call_anthropic(&system_prompt, &user_prompt, api_key, model).await?,
-        "zai" => call_zai(&system_prompt, &user_prompt, api_key, model).await?,
-        "ollama" => call_ollama(&system_prompt, &user_prompt, model).await?,
-        _ => return Err(format!("Unknown provider: {}", provider))
+        "openai" => call_openai(system_prompt, &user_prompt, api_key, model).await?,
+        "anthropic" => call_anthropic(system_prompt, &user_prompt, api_key, model).await?,
+        "zai" => call_zai(system_prompt, &user_prompt, api_key, model).await?,
+        "ollama" => call_ollama(system_prompt, &user_prompt, model).await?,
+        _ => return Err(format!("Unknown provider: {}. Supported: openai, anthropic, zai, ollama", provider))
     };
 
     // Add analysis duration
