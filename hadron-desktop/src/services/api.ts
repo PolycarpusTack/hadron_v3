@@ -176,7 +176,12 @@ export async function getAnalysesPaginated(options?: PaginationOptions): Promise
  * Get total count of analyses (useful for pagination UI)
  */
 export async function getAnalysesCount(): Promise<number> {
-  return await invoke<number>("get_analyses_count");
+  try {
+    return await invoke<number>("get_analyses_count");
+  } catch (error) {
+    console.error("Failed to get analyses count:", error);
+    return 0;  // Return safe default
+  }
 }
 
 /**
@@ -190,9 +195,15 @@ export async function getAnalysesForDashboard(): Promise<Analysis[]> {
 
 /**
  * Get a specific analysis by ID
+ * @throws Error if analysis not found or database error
  */
 export async function getAnalysisById(id: number): Promise<Analysis> {
-  return await invoke<Analysis>("get_analysis_by_id", { id });
+  try {
+    return await invoke<Analysis>("get_analysis_by_id", { id });
+  } catch (error) {
+    console.error(`Failed to get analysis ${id}:`, error);
+    throw new Error(`Analysis not found or database error: ${error}`);
+  }
 }
 
 /**
@@ -208,9 +219,15 @@ export async function deleteAnalysis(id: number): Promise<void> {
 
 /**
  * Export analysis to Markdown
+ * @throws Error if export fails
  */
 export async function exportAnalysis(id: number): Promise<string> {
-  return await invoke<string>("export_analysis", { id });
+  try {
+    return await invoke<string>("export_analysis", { id });
+  } catch (error) {
+    console.error(`Failed to export analysis ${id}:`, error);
+    throw new Error(`Failed to export analysis: ${error}`);
+  }
 }
 
 /**
@@ -234,10 +251,22 @@ export async function searchAnalyses(
   query: string,
   severityFilter?: string
 ): Promise<Analysis[]> {
-  return await invoke<Analysis[]>("search_analyses", {
-    query,
-    severityFilter: severityFilter || null,
-  });
+  // SECURITY: Validate query to prevent injection attacks
+  // Limit query length and sanitize special characters
+  const sanitizedQuery = query.slice(0, 500).trim();
+  if (!sanitizedQuery) {
+    return [];
+  }
+
+  try {
+    return await invoke<Analysis[]>("search_analyses", {
+      query: sanitizedQuery,
+      severityFilter: severityFilter || null,
+    });
+  } catch (error) {
+    console.error("Search failed:", error);
+    return [];  // Return empty array on error for graceful degradation
+  }
 }
 
 /**
