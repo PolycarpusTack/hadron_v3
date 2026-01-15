@@ -3,6 +3,7 @@ use crate::python_runner::run_python_translation;
 use crate::model_fetcher::{list_models as fetch_models, test_connection as test_api_connection, Model, ConnectionTestResult};
 use crate::ai_service;
 use crate::ai_service::translate_ollama;
+use crate::keeper_service;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -124,6 +125,9 @@ pub struct AnalysisRequest {
     pub provider: String,
     pub analysis_type: String, // "complete" or "specialized"
     pub redact_pii: Option<bool>,
+    /// Optional Keeper secret UID - if provided, API key is fetched from Keeper
+    /// instead of using the api_key field directly
+    pub keeper_secret_uid: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -168,10 +172,19 @@ pub async fn analyze_crash_log(
         crash_content = redact_pii_basic(&crash_content);
     }
 
+    // Resolve API key - prefer Keeper if configured
+    let api_key = if let Some(ref keeper_uid) = request.keeper_secret_uid {
+        log::info!("Fetching API key from Keeper for analysis");
+        keeper_service::get_api_key_from_keeper(keeper_uid)
+            .map_err(|e| format!("Failed to get API key from Keeper: {}", e))?
+    } else {
+        request.api_key.clone()
+    };
+
     // Call Rust AI service
     let result = ai_service::analyze_crash_log(
         &crash_content,
-        &request.api_key,
+        &api_key,
         &request.model,
         &request.provider,
         &request.analysis_type
@@ -607,4 +620,45 @@ pub async fn save_pasted_log(content: String) -> Result<String, String> {
     log::info!("Saved pasted log to temp file: {:?}", file_path);
 
     Ok(file_path.to_string_lossy().to_string())
+}
+
+// ============================================================================
+// Keeper Secrets Manager Commands
+// ============================================================================
+
+/// Initialize Keeper with a one-time access token
+/// This binds the token to this device and enables secure API key retrieval
+#[tauri::command]
+pub async fn initialize_keeper(token: String) -> Result<keeper_service::KeeperInitResult, String> {
+    log::info!("Initializing Keeper connection");
+    keeper_service::initialize_keeper(&token)
+}
+
+/// List available secrets from Keeper (metadata only, not values)
+/// Safe to return to frontend - only shows titles and UIDs
+#[tauri::command]
+pub async fn list_keeper_secrets() -> Result<keeper_service::KeeperSecretsListResult, String> {
+    log::debug!("Listing Keeper secrets");
+    keeper_service::list_keeper_secrets()
+}
+
+/// Get Keeper connection status
+#[tauri::command]
+pub async fn get_keeper_status() -> Result<keeper_service::KeeperStatus, String> {
+    log::debug!("Getting Keeper status");
+    Ok(keeper_service::get_keeper_status())
+}
+
+/// Clear Keeper configuration (disconnect)
+#[tauri::command]
+pub async fn clear_keeper_config() -> Result<(), String> {
+    log::info!("Clearing Keeper configuration");
+    keeper_service::clear_keeper_config()
+}
+
+/// Test Keeper connection by attempting to list secrets
+#[tauri::command]
+pub async fn test_keeper_connection() -> Result<keeper_service::KeeperSecretsListResult, String> {
+    log::info!("Testing Keeper connection");
+    keeper_service::list_keeper_secrets()
 }
