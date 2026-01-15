@@ -7,6 +7,7 @@ mod migrations;
 mod python_runner;
 mod model_fetcher;
 mod ai_service;
+mod keeper_service;
 
 use commands::*;
 use database::Database;
@@ -64,7 +65,13 @@ fn main() {
             list_models,
             test_connection,
             // File Management
-            save_pasted_log
+            save_pasted_log,
+            // Keeper Secrets Manager Integration
+            initialize_keeper,
+            list_keeper_secrets,
+            get_keeper_status,
+            clear_keeper_config,
+            test_keeper_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
