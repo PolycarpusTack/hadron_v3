@@ -99,6 +99,11 @@ pub async fn run_python_translation(
     // Extract JSON from stdout
     let json_start = stdout.find('{').ok_or("No JSON found in output")?;
     let json_end = stdout.rfind('}').ok_or("Malformed JSON in output")?;
+
+    // SECURITY: Validate slice bounds to prevent panic
+    if json_start > json_end {
+        return Err("Malformed JSON: invalid bounds in output".to_string());
+    }
     let json_str = &stdout[json_start..=json_end];
 
     serde_json::from_str(json_str).map_err(|e| format!("Failed to parse JSON: {}", e))
