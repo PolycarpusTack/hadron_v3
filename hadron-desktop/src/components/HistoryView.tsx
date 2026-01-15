@@ -16,6 +16,8 @@ import logger from "../services/logger";
 import type { Analysis, Translation, DatabaseStatistics } from "../services/api";
 import AnalyticsDashboard from "./AnalyticsDashboard";
 import { AnalysisListItem, TranslationListItem } from "./HistoryListItem";
+import { SmartList } from "./VirtualizedList";
+import { useToast } from "./Toast";
 
 interface HistoryViewProps {
   onViewAnalysis: (analysis: Analysis) => void;
@@ -30,6 +32,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statistics, setStatistics] = useState<DatabaseStatistics | null>(null);
+  const toast = useToast();
 
   // Debounce search term for better performance
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
@@ -93,11 +96,12 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
     try {
       await deleteAnalysis(id);
       setAnalyses((prev) => prev.filter((a) => a.id !== id));
+      toast.success("Analysis deleted");
     } catch (err) {
       logger.error('Failed to delete analysis', { id, error: err instanceof Error ? err.message : String(err) });
-      alert("Failed to delete analysis");
+      toast.error("Failed to delete analysis");
     }
-  }, []);
+  }, [toast]);
 
   const handleView = useCallback(async (id: number) => {
     try {
@@ -105,9 +109,9 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
       onViewAnalysis(analysis);
     } catch (err) {
       logger.error('Failed to load analysis', { id, error: err instanceof Error ? err.message : String(err) });
-      alert("Failed to load analysis details");
+      toast.error("Failed to load analysis details");
     }
-  }, [onViewAnalysis]);
+  }, [onViewAnalysis, toast]);
 
   const handleToggleFavorite = useCallback(async (id: number) => {
     try {
@@ -115,11 +119,12 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
       setAnalyses((prev) =>
         prev.map((a) => (a.id === id ? { ...a, is_favorite: newStatus } : a))
       );
+      toast.success(newStatus ? "Added to favorites" : "Removed from favorites");
     } catch (err) {
       logger.error('Failed to toggle favorite', { id, error: err instanceof Error ? err.message : String(err) });
-      alert("Failed to update favorite status");
+      toast.error("Failed to update favorite status");
     }
-  }, []);
+  }, [toast]);
 
   const handleDeleteTranslation = useCallback(async (id: number) => {
     if (!confirm(`Delete this translation?`)) return;
@@ -127,11 +132,12 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
     try {
       await deleteTranslation(id);
       setTranslations((prev) => prev.filter((t) => t.id !== id));
+      toast.success("Translation deleted");
     } catch (err) {
       logger.error('Failed to delete translation', { id, error: err instanceof Error ? err.message : String(err) });
-      alert("Failed to delete translation");
+      toast.error("Failed to delete translation");
     }
-  }, []);
+  }, [toast]);
 
   const handleToggleTranslationFavorite = useCallback(async (id: number) => {
     try {
@@ -139,11 +145,12 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
       setTranslations((prev) =>
         prev.map((t) => (t.id === id ? { ...t, is_favorite: newStatus } : t))
       );
+      toast.success(newStatus ? "Added to favorites" : "Removed from favorites");
     } catch (err) {
       logger.error('Failed to toggle favorite', { id, error: err instanceof Error ? err.message : String(err) });
-      alert("Failed to update favorite status");
+      toast.error("Failed to update favorite status");
     }
-  }, []);
+  }, [toast]);
 
   if (loading) {
     return (
@@ -317,29 +324,41 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {/* Crash Analyses - using memoized list items */}
-          {(currentTab === "all" || currentTab === "analyses") &&
-            analyses.map((analysis) => (
-              <AnalysisListItem
-                key={analysis.id}
-                analysis={analysis}
-                onView={handleView}
-                onDelete={handleDelete}
-                onToggleFavorite={handleToggleFavorite}
-              />
-            ))}
+        <div className="space-y-6">
+          {/* Crash Analyses - using SmartList for incremental loading */}
+          {(currentTab === "all" || currentTab === "analyses") && analyses.length > 0 && (
+            <SmartList
+              items={analyses}
+              initialCount={20}
+              incrementCount={20}
+              keyExtractor={(analysis) => analysis.id}
+              renderItem={(analysis) => (
+                <AnalysisListItem
+                  analysis={analysis}
+                  onView={handleView}
+                  onDelete={handleDelete}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              )}
+            />
+          )}
 
-          {/* Translations - using memoized list items */}
-          {(currentTab === "all" || currentTab === "translations") &&
-            translations.map((translation) => (
-              <TranslationListItem
-                key={translation.id}
-                translation={translation}
-                onDelete={handleDeleteTranslation}
-                onToggleFavorite={handleToggleTranslationFavorite}
-              />
-            ))}
+          {/* Translations - using SmartList for incremental loading */}
+          {(currentTab === "all" || currentTab === "translations") && translations.length > 0 && (
+            <SmartList
+              items={translations}
+              initialCount={20}
+              incrementCount={20}
+              keyExtractor={(translation) => translation.id}
+              renderItem={(translation) => (
+                <TranslationListItem
+                  translation={translation}
+                  onDelete={handleDeleteTranslation}
+                  onToggleFavorite={handleToggleTranslationFavorite}
+                />
+              )}
+            />
+          )}
         </div>
       )}
     </div>

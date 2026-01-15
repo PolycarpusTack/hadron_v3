@@ -8,6 +8,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { analyzeWithResilience } from "./circuit-breaker";
 import { getApiKey, storeApiKey as storeApiKeySecure } from "./secure-storage";
 import { getBooleanSetting } from "../utils/config";
+import { apiCache, CacheKeys, CacheTTL } from "./cache";
 
 export interface AnalysisRequest {
   file_path: string;
@@ -114,6 +115,7 @@ export async function analyzeCrashLog(
 
 /**
  * Translate technical content to plain language
+ * Invalidates translation cache after successful translation
  */
 export async function translateTechnicalContent(
   content: string,
@@ -122,20 +124,28 @@ export async function translateTechnicalContent(
   provider: string = "openai"
 ): Promise<string> {
   const redactPii = getBooleanSetting("pii_redaction_enabled");
-  return await invoke<string>("translate_content", {
+  const result = await invoke<string>("translate_content", {
     content,
     apiKey,
     model,
     provider,
     redactPii,
   });
+  // Invalidate translation cache since new translation was added
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
+  return result;
 }
 
 /**
  * Get all analyses from history (with default pagination of 50 items)
+ * Results are cached for 30 seconds to reduce backend calls
  */
 export async function getAllAnalyses(): Promise<Analysis[]> {
-  return await invoke<Analysis[]>("get_all_analyses");
+  return apiCache.fetch(
+    CacheKeys.ALL_ANALYSES,
+    () => invoke<Analysis[]>("get_all_analyses"),
+    { ttlMs: CacheTTL.DEFAULT }
+  );
 }
 
 /**
@@ -148,13 +158,18 @@ export interface PaginationOptions {
 
 /**
  * Get analyses with pagination support
+ * Results are cached per limit/offset combination
  * @param options - Pagination options (limit, offset)
  */
 export async function getAnalysesPaginated(options?: PaginationOptions): Promise<Analysis[]> {
-  return await invoke<Analysis[]>("get_analyses_paginated", {
-    limit: options?.limit,
-    offset: options?.offset,
-  });
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+
+  return apiCache.fetch(
+    CacheKeys.ANALYSES_PAGINATED(limit, offset),
+    () => invoke<Analysis[]>("get_analyses_paginated", { limit, offset }),
+    { ttlMs: CacheTTL.DEFAULT }
+  );
 }
 
 /**
@@ -165,11 +180,12 @@ export async function getAnalysesCount(): Promise<number> {
 }
 
 /**
- * Get analyses ordered by recency (frontend can slice for "recent" views)
- * Uses the same data as getAllAnalyses, which is already ordered by analyzed_at DESC in the backend.
+ * Get analyses for dashboard display
+ * Limited to 20 most recent analyses for performance
+ * Uses dedicated cache key with shorter TTL for dashboard freshness
  */
 export async function getAnalysesForDashboard(): Promise<Analysis[]> {
-  return await getAllAnalyses();
+  return getAnalysesPaginated({ limit: 20, offset: 0 });
 }
 
 /**
@@ -181,9 +197,13 @@ export async function getAnalysisById(id: number): Promise<Analysis> {
 
 /**
  * Delete an analysis
+ * Invalidates relevant caches after deletion
  */
 export async function deleteAnalysis(id: number): Promise<void> {
-  return await invoke<void>("delete_analysis", { id });
+  await invoke<void>("delete_analysis", { id });
+  // Invalidate all analysis-related caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_STATS);
 }
 
 /**
@@ -195,9 +215,14 @@ export async function exportAnalysis(id: number): Promise<string> {
 
 /**
  * Get database statistics (total count, favorites, severity breakdown)
+ * Results are cached for 30 seconds as this is an expensive aggregation query
  */
 export async function getDatabaseStatistics(): Promise<DatabaseStatistics> {
-  return await invoke<DatabaseStatistics>("get_database_statistics");
+  return apiCache.fetch(
+    CacheKeys.DATABASE_STATS,
+    () => invoke<DatabaseStatistics>("get_database_statistics"),
+    { ttlMs: CacheTTL.STATISTICS }
+  );
 }
 
 /**
@@ -217,11 +242,16 @@ export async function searchAnalyses(
 
 /**
  * Phase 2: Toggle favorite status
+ * Invalidates relevant caches after toggling
  * @param id - Analysis ID
  * @returns New favorite status
  */
 export async function toggleFavorite(id: number): Promise<boolean> {
-  return await invoke<boolean>("toggle_favorite", { id });
+  const result = await invoke<boolean>("toggle_favorite", { id });
+  // Invalidate analysis and stats caches (favorite count changes)
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_STATS);
+  return result;
 }
 
 /**
@@ -275,9 +305,14 @@ export function saveProvider(provider: string): void {
 
 /**
  * Get all translations from history
+ * Results are cached for 30 seconds to reduce backend calls
  */
 export async function getAllTranslations(): Promise<Translation[]> {
-  return await invoke<Translation[]>("get_all_translations");
+  return apiCache.fetch(
+    CacheKeys.ALL_TRANSLATIONS,
+    () => invoke<Translation[]>("get_all_translations"),
+    { ttlMs: CacheTTL.DEFAULT }
+  );
 }
 
 /**
@@ -289,16 +324,21 @@ export async function getTranslationById(id: number): Promise<Translation> {
 
 /**
  * Delete a translation
+ * Invalidates translation cache after deletion
  */
 export async function deleteTranslation(id: number): Promise<void> {
-  return await invoke<void>("delete_translation", { id });
+  await invoke<void>("delete_translation", { id });
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
 }
 
 /**
  * Toggle favorite status for a translation
+ * Invalidates translation cache after toggling
  */
 export async function toggleTranslationFavorite(id: number): Promise<boolean> {
-  return await invoke<boolean>("toggle_translation_favorite", { id });
+  const result = await invoke<boolean>("toggle_translation_favorite", { id });
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
+  return result;
 }
 
 // -------- Provider models (for Settings) --------
@@ -322,4 +362,36 @@ export async function listModels(provider: string, apiKey: string): Promise<Prov
 
 export async function testConnection(provider: string, apiKey: string): Promise<ConnectionTestResult> {
   return await invoke<ConnectionTestResult>("test_connection", { provider, apiKey });
+}
+
+// -------- Cache Utilities --------
+
+/**
+ * Manually invalidate all caches
+ * Useful after bulk operations or when data may be stale
+ */
+export function invalidateAllCaches(): void {
+  apiCache.clear();
+}
+
+/**
+ * Invalidate analysis-related caches
+ */
+export function invalidateAnalysisCaches(): void {
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_STATS);
+}
+
+/**
+ * Invalidate translation-related caches
+ */
+export function invalidateTranslationCaches(): void {
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
+}
+
+/**
+ * Get cache statistics for debugging
+ */
+export function getCacheStats() {
+  return apiCache.getStats();
 }
