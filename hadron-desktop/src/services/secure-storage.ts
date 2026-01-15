@@ -6,6 +6,7 @@
  */
 
 import { Store } from '@tauri-apps/plugin-store';
+import logger from './logger';
 
 let store: Store | null = null;
 
@@ -29,7 +30,7 @@ export async function storeApiKey(provider: string, apiKey: string): Promise<voi
   const s = await getStore();
   await s.set(`${provider}_api_key`, apiKey);
   await s.save(); // Persist to encrypted file
-  console.log(`✅ Stored API key for ${provider} in encrypted storage`);
+  logger.debug('Stored API key in encrypted storage', { provider });
 }
 
 /**
@@ -51,7 +52,7 @@ export async function deleteApiKey(provider: string): Promise<void> {
   const s = await getStore();
   await s.delete(`${provider}_api_key`);
   await s.save();
-  console.log(`🗑️  Deleted API key for ${provider}`);
+  logger.debug('Deleted API key from encrypted storage', { provider });
 }
 
 /**
@@ -97,7 +98,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
     return false; // Already migrated
   }
 
-  console.log('🔄 Migrating from localStorage to encrypted storage...');
+  logger.info('Migrating from localStorage to encrypted storage');
 
   // Migrate API key
   const oldApiKey = localStorage.getItem('ai_api_key');
@@ -105,7 +106,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
     const provider = localStorage.getItem('ai_provider') || 'openai';
     await storeApiKey(provider, oldApiKey);
     localStorage.removeItem('ai_api_key');
-    console.log('✅ Migrated API key');
+    logger.debug('Migrated API key to encrypted storage');
   }
 
   // Migrate other settings
@@ -129,7 +130,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
   await s.set('migration_complete', true);
   await s.save();
 
-  console.log('✅ Migration to encrypted storage complete');
+  logger.info('Migration to encrypted storage complete');
   return true;
 }
 
@@ -140,5 +141,5 @@ export async function clearAll(): Promise<void> {
   const s = await getStore();
   await s.clear();
   await s.save();
-  console.log('🗑️  Cleared all encrypted storage');
+  logger.info('Cleared all encrypted storage');
 }
