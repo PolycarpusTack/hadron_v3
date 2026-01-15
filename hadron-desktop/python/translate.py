@@ -39,11 +39,22 @@ SYSTEM_MESSAGE = (
 )
 
 
-def get_config() -> Dict[str, Any]:
-    """Get configuration from environment variables."""
-    provider = os.getenv('AI_PROVIDER', 'openai')
-    api_key = os.getenv('AI_API_KEY')
-    model = os.getenv('AI_MODEL', 'gpt-4-turbo-preview')
+def get_config(stdin_config: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Get configuration from stdin JSON or environment variables (fallback).
+
+    SECURITY: Prefer stdin_config to avoid API key exposure in environment variables.
+    Environment variables are visible in /proc/<pid>/environ and process listings.
+    """
+    if stdin_config:
+        # Secure path: config passed via stdin
+        provider = stdin_config.get('provider', 'openai')
+        api_key = stdin_config.get('api_key')
+        model = stdin_config.get('model', 'gpt-4-turbo-preview')
+    else:
+        # Fallback for backward compatibility (less secure)
+        provider = os.getenv('AI_PROVIDER', 'openai')
+        api_key = os.getenv('AI_API_KEY')
+        model = os.getenv('AI_MODEL', 'gpt-4-turbo-preview')
 
     if not api_key:
         raise ValueError(
@@ -351,10 +362,10 @@ def translate_with_llamacpp(content: str, config: Dict[str, Any]) -> str:
             raise Exception(f"llama.cpp error: {str(e)}")
 
 
-def translate_content(content: str) -> Dict[str, str]:
+def translate_content(content: str, stdin_config: Dict[str, Any] = None) -> Dict[str, str]:
     """Main translation function."""
     try:
-        config = get_config()
+        config = get_config(stdin_config)
         provider = config['provider'].lower()
 
         if provider == 'anthropic':
@@ -379,14 +390,36 @@ def translate_content(content: str) -> Dict[str, str]:
 def main():
     """Main entry point.
 
-    Reads content from stdin for security (avoids command injection via CLI args).
-    Falls back to sys.argv[1] for backward compatibility with direct CLI usage.
+    SECURITY: Accepts JSON via stdin with format:
+    {"content": "...", "api_key": "...", "model": "...", "provider": "..."}
+
+    This avoids exposing API keys in environment variables (visible in /proc/<pid>/environ).
+    Falls back to plain text stdin + env vars for backward compatibility.
     """
     content = None
+    stdin_config = None
 
     # Prefer stdin for security - avoids command injection vulnerabilities
     if not sys.stdin.isatty():
-        content = sys.stdin.read()
+        stdin_data = sys.stdin.read()
+
+        # Try to parse as JSON first (secure path)
+        try:
+            parsed = json.loads(stdin_data)
+            if isinstance(parsed, dict) and 'content' in parsed:
+                # New secure format: JSON with content and config
+                content = parsed.get('content')
+                stdin_config = {
+                    'api_key': parsed.get('api_key'),
+                    'model': parsed.get('model'),
+                    'provider': parsed.get('provider'),
+                }
+            else:
+                # Plain text content (legacy)
+                content = stdin_data
+        except json.JSONDecodeError:
+            # Plain text content (legacy)
+            content = stdin_data
     elif len(sys.argv) >= 2:
         # Fallback for direct CLI usage (backward compatibility)
         content = sys.argv[1]
@@ -399,7 +432,7 @@ def main():
         print(json.dumps({"error": "Empty content provided"}), file=sys.stderr)
         sys.exit(1)
 
-    result = translate_content(content)
+    result = translate_content(content, stdin_config)
 
     if "error" in result:
         print(json.dumps(result), file=sys.stderr)

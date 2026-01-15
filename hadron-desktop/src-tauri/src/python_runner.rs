@@ -39,22 +39,31 @@ pub async fn run_python_translation(
     // Get the Python translation script path
     let python_script = get_translation_script_path()?;
 
+    // SECURITY: Pass credentials via stdin JSON instead of environment variables
+    // Environment variables are visible in /proc/<pid>/environ and process listings
+    let stdin_payload = serde_json::json!({
+        "content": content,
+        "api_key": api_key,
+        "model": model,
+        "provider": provider
+    });
+    let stdin_json = serde_json::to_string(&stdin_payload)
+        .map_err(|e| format!("Failed to serialize stdin payload: {}", e))?;
+
     // Spawn Python process with stdin pipe (SECURITY: avoids command injection)
     let mut child = Command::new("python")
         .arg(&python_script.to_string_lossy().to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .env("AI_API_KEY", api_key)
-        .env("AI_MODEL", model)
-        .env("AI_PROVIDER", provider)
+        // NOTE: No longer passing credentials via env vars for security
         .spawn()
         .map_err(|e| format!("Failed to spawn Python process: {}", e))?;
 
-    // Write content to stdin (safe from injection)
+    // Write JSON payload to stdin (contains content + credentials securely)
     if let Some(mut stdin) = child.stdin.take() {
         stdin
-            .write_all(content.as_bytes())
+            .write_all(stdin_json.as_bytes())
             .map_err(|e| format!("Failed to write to Python stdin: {}", e))?;
         // stdin is dropped here, closing the pipe
     }
