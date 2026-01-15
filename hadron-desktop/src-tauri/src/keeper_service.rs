@@ -17,10 +17,33 @@ use keeper_secrets_manager_core::{
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Instant;
 use once_cell::sync::Lazy;
 
+/// Cache TTL in seconds (5 minutes)
+const CACHE_TTL_SECS: u64 = 300;
+
 /// Cache for Keeper secrets to avoid repeated API calls
-static SECRETS_CACHE: Lazy<Mutex<Option<Vec<CachedSecret>>>> = Lazy::new(|| Mutex::new(None));
+static SECRETS_CACHE: Lazy<Mutex<Option<SecretsCache>>> = Lazy::new(|| Mutex::new(None));
+
+#[derive(Debug, Clone)]
+struct SecretsCache {
+    secrets: Vec<CachedSecret>,
+    cached_at: Instant,
+}
+
+impl SecretsCache {
+    fn new(secrets: Vec<CachedSecret>) -> Self {
+        Self {
+            secrets,
+            cached_at: Instant::now(),
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        self.cached_at.elapsed().as_secs() > CACHE_TTL_SECS
+    }
+}
 
 #[derive(Debug, Clone)]
 struct CachedSecret {
@@ -119,7 +142,7 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
 
     let secrets_count = secrets.len();
 
-    // Cache the secrets
+    // Cache the secrets with TTL
     let cached: Vec<CachedSecret> = secrets
         .iter()
         .map(|s| CachedSecret {
@@ -131,7 +154,7 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
         .collect();
 
     if let Ok(mut cache) = SECRETS_CACHE.lock() {
-        *cache = Some(cached);
+        *cache = Some(SecretsCache::new(cached));
     }
 
     log::info!("Keeper initialized successfully, found {} secrets", secrets_count);
@@ -169,7 +192,7 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
     let secrets = secrets_manager.get_secrets(Vec::new())
         .map_err(|e| format!("Failed to fetch secrets: {}", format_keeper_error(e)))?;
 
-    // Update cache
+    // Update cache with TTL
     let cached: Vec<CachedSecret> = secrets
         .iter()
         .map(|s| CachedSecret {
@@ -181,7 +204,7 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
         .collect();
 
     if let Ok(mut cache) = SECRETS_CACHE.lock() {
-        *cache = Some(cached);
+        *cache = Some(SecretsCache::new(cached));
     }
 
     // Return only metadata, not values
@@ -204,19 +227,23 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
 /// Get API key from Keeper by secret UID
 /// This is called internally by the backend - the key value never reaches the frontend
 pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<String, String> {
-    // First try the cache
+    // First try the cache (if not expired)
     if let Ok(cache) = SECRETS_CACHE.lock() {
-        if let Some(ref cached_secrets) = *cache {
-            if let Some(secret) = cached_secrets.iter().find(|s| s.uid == secret_uid) {
-                if let Some(ref password) = secret.password {
-                    log::debug!("Retrieved API key from cache for secret: {}", secret.title);
-                    return Ok(password.clone());
+        if let Some(ref secrets_cache) = *cache {
+            if !secrets_cache.is_expired() {
+                if let Some(secret) = secrets_cache.secrets.iter().find(|s| s.uid == secret_uid) {
+                    if let Some(ref password) = secret.password {
+                        log::debug!("Retrieved API key from cache for secret: {}", secret.title);
+                        return Ok(password.clone());
+                    }
                 }
+            } else {
+                log::debug!("Cache expired, fetching fresh secrets from Keeper");
             }
         }
     }
 
-    // Cache miss - fetch from Keeper
+    // Cache miss or expired - fetch from Keeper
     let config_path = get_keeper_config_path()?;
 
     if !config_path.exists() {

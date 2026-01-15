@@ -162,9 +162,17 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
 
   async function handleToggleEnabled() {
     const newConfig = { ...config, enabled: !config.enabled };
-    setConfig(newConfig);
-    await saveKeeperConfig(newConfig);
-    onConfigChange?.();
+    try {
+      await saveKeeperConfig(newConfig);
+      setConfig(newConfig);
+      onConfigChange?.();
+    } catch (error: any) {
+      logger.error("Failed to toggle Keeper", { error });
+      setMessage({
+        type: "error",
+        text: error?.message || "Failed to save configuration",
+      });
+    }
   }
 
   async function handleMapSecret(
@@ -184,9 +192,17 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
       delete newConfig.secretMappings[provider];
     }
 
-    setConfig(newConfig);
-    await saveKeeperConfig(newConfig);
-    onConfigChange?.();
+    try {
+      await saveKeeperConfig(newConfig);
+      setConfig(newConfig);
+      onConfigChange?.();
+    } catch (error: any) {
+      logger.error("Failed to map secret", { error, provider });
+      setMessage({
+        type: "error",
+        text: error?.message || "Failed to save secret mapping",
+      });
+    }
   }
 
   // Render loading state
@@ -353,7 +369,6 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
 
           {(["openai", "anthropic", "zai"] as const).map((provider) => {
             const currentMapping = config.secretMappings[provider];
-            const mappedSecret = secrets.find((s) => s.uid === currentMapping);
             const isMapped = !!currentMapping;
 
             return (
