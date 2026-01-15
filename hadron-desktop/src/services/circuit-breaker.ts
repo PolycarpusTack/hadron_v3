@@ -8,9 +8,21 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import logger from './logger';
-import type { AnalysisRequest, AnalysisResponse } from './api';
+import type { AnalysisResponse } from './api';
 import { getApiKey } from './secure-storage';
 import { getBooleanSetting } from '../utils/config';
+import { getKeeperSecretForProvider } from './keeper';
+
+// Extended AnalysisRequest with Keeper support
+interface AnalysisRequest {
+  file_path: string;
+  api_key: string;
+  model: string;
+  provider: string;
+  analysis_type: string;
+  redact_pii?: boolean;
+  keeper_secret_uid?: string;
+}
 
 // Circuit breaker configuration
 const CIRCUIT_OPTIONS = {
@@ -228,13 +240,19 @@ export async function analyzeWithResilience(
 
       logger.info(attemptMessage, { provider, model, analysisType, attemptNumber, totalProviders });
 
+      // Check if Keeper is configured for this provider
+      const keeperSecretUid = await getKeeperSecretForProvider(provider);
+
       // Ollama runs locally and doesn't need an API key
+      // If Keeper is configured, we don't need a direct API key
       const providerKey = provider === "ollama"
         ? ""
-        : ((await getApiKey(provider)) || apiKey);
+        : keeperSecretUid
+          ? ""  // Keeper will provide the key in the backend
+          : ((await getApiKey(provider)) || apiKey);
 
-      // Only check for API key if not using Ollama
-      if (provider !== "ollama" && !providerKey) {
+      // Only check for API key if not using Ollama and not using Keeper
+      if (provider !== "ollama" && !providerKey && !keeperSecretUid) {
         throw new Error('Missing API key for provider');
       }
 
@@ -250,7 +268,12 @@ export async function analyzeWithResilience(
         provider: provider,
         analysis_type: analysisType,
         redact_pii: redactPii,
+        keeper_secret_uid: keeperSecretUid || undefined,
       };
+
+      if (keeperSecretUid) {
+        logger.info('Using Keeper for API key', { provider });
+      }
 
       const result = await callAIProvider(request);
 
