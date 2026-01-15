@@ -1,11 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, Download, RefreshCw, Check, AlertCircle, Clipboard, Info } from "lucide-react";
 import { getCircuitState } from "../services/circuit-breaker";
 import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage";
 import { checkForUpdates } from "../services/updater";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
-import KeeperSettings from "./KeeperSettings";
+
+// Lazy load KeeperSettings since most users won't use it
+const KeeperSettings = lazy(() => import("./KeeperSettings"));
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -767,7 +769,16 @@ export default function SettingsPanel({
           )}
 
           {/* Keeper Secrets Manager Integration */}
-          <KeeperSettings onConfigChange={onSettingsChange} />
+          <Suspense fallback={
+            <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-500/30">
+              <div className="flex items-center gap-3">
+                <RefreshCw className="w-5 h-5 text-purple-400 animate-spin" />
+                <span className="text-gray-400">Loading Keeper settings...</span>
+              </div>
+            </div>
+          }>
+            <KeeperSettings onConfigChange={onSettingsChange} />
+          </Suspense>
 
           {/* Model Selection */}
           <div>
