@@ -3,6 +3,7 @@
 
 mod commands;
 mod database;
+mod migrations;
 mod python_runner;
 mod model_fetcher;
 mod ai_service;
@@ -38,6 +39,8 @@ fn main() {
             analyze_crash_log,
             translate_content,
             get_all_analyses,
+            get_analyses_paginated,
+            get_analyses_count,
             get_analysis_by_id,
             delete_analysis,
             export_analysis,

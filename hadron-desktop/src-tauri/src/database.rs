@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use crate::migrations;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Analysis {
     pub id: i64,
@@ -82,207 +84,20 @@ impl Database {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
-        conn.pragma_update(None, "mmap_size", "268435456")?; // 256MB (reduced from 30GB)
+        conn.pragma_update(None, "mmap_size", "268435456")?; // 256MB
 
-        // Initialize enhanced schema
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS analyses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT NOT NULL,
-                file_size_kb REAL,
-
-                -- Parsed crash data
-                error_type TEXT,
-                error_message TEXT,
-                severity TEXT CHECK(severity IN ('CRITICAL','HIGH','MEDIUM','LOW')),
-                component TEXT,
-                stack_trace TEXT,
-
-                -- AI analysis results
-                root_cause TEXT,
-                suggested_fixes TEXT,
-                confidence TEXT CHECK(confidence IN ('HIGH','MEDIUM','LOW')),
-
-                -- Metadata
-                analyzed_at TEXT NOT NULL,
-                ai_model TEXT,
-                ai_provider TEXT,
-                tokens_used INTEGER DEFAULT 0,
-                cost REAL DEFAULT 0,
-                was_truncated INTEGER DEFAULT 0,
-                analysis_duration_ms INTEGER,
-
-                -- Full data preservation
-                full_data TEXT,
-
-                -- User interaction
-                is_favorite INTEGER DEFAULT 0,
-                last_viewed_at TEXT,
-                view_count INTEGER DEFAULT 0,
-
-                -- Analysis type
-                analysis_type TEXT DEFAULT 'complete',
-
-                -- Soft delete
-                deleted_at TEXT DEFAULT NULL
-            )",
-            [],
-        )?;
-
-        // Create FTS5 virtual table for full-text search
-        conn.execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS analyses_fts USING fts5(
-                error_type,
-                error_message,
-                root_cause,
-                suggested_fixes,
-                component,
-                stack_trace,
-                content=analyses,
-                content_rowid=id,
-                tokenize='porter unicode61'
-            )",
-            [],
-        )?;
-
-        // Create triggers to keep FTS in sync
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS analyses_ai AFTER INSERT ON analyses BEGIN
-                INSERT INTO analyses_fts(rowid, error_type, error_message, root_cause, suggested_fixes, component, stack_trace)
-                VALUES (new.id, new.error_type, new.error_message, new.root_cause, new.suggested_fixes, new.component, new.stack_trace);
-            END",
-            [],
-        )?;
-
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS analyses_au AFTER UPDATE ON analyses BEGIN
-                UPDATE analyses_fts SET
-                    error_type = new.error_type,
-                    error_message = new.error_message,
-                    root_cause = new.root_cause,
-                    suggested_fixes = new.suggested_fixes,
-                    component = new.component,
-                    stack_trace = new.stack_trace
-                WHERE rowid = new.id;
-            END",
-            [],
-        )?;
-
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS analyses_ad AFTER DELETE ON analyses BEGIN
-                DELETE FROM analyses_fts WHERE rowid = old.id;
-            END",
-            [],
-        )?;
-
-        // Performance indexes
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_analyzed_at ON analyses(analyzed_at DESC)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_severity ON analyses(severity) WHERE deleted_at IS NULL",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_component ON analyses(component) WHERE deleted_at IS NULL",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_favorite ON analyses(is_favorite, analyzed_at DESC) WHERE is_favorite = 1",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_recent ON analyses(last_viewed_at DESC) WHERE last_viewed_at IS NOT NULL",
-            [],
-        )?;
-
-        // Create translations table
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS translations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                input_content TEXT NOT NULL,
-                translation TEXT NOT NULL,
-                translated_at TEXT NOT NULL,
-                ai_model TEXT NOT NULL,
-                ai_provider TEXT NOT NULL,
-                is_favorite INTEGER DEFAULT 0,
-                last_viewed_at TEXT,
-                view_count INTEGER DEFAULT 0,
-                deleted_at TEXT DEFAULT NULL
-            )",
-            [],
-        )?;
-
-        // Create FTS5 virtual table for translations full-text search
-        conn.execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS translations_fts USING fts5(
-                input_content,
-                translation,
-                content=translations,
-                content_rowid=id,
-                tokenize='porter unicode61'
-            )",
-            [],
-        )?;
-
-        // Create triggers to keep translations FTS in sync
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS translations_ai AFTER INSERT ON translations BEGIN
-                INSERT INTO translations_fts(rowid, input_content, translation)
-                VALUES (new.id, new.input_content, new.translation);
-            END",
-            [],
-        )?;
-
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS translations_au AFTER UPDATE ON translations BEGIN
-                UPDATE translations_fts SET
-                    input_content = new.input_content,
-                    translation = new.translation
-                WHERE rowid = new.id;
-            END",
-            [],
-        )?;
-
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS translations_ad AFTER DELETE ON translations BEGIN
-                DELETE FROM translations_fts WHERE rowid = old.id;
-            END",
-            [],
-        )?;
-
-        // Performance indexes for translations
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_translations_date ON translations(translated_at DESC)",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_translations_favorite ON translations(is_favorite, translated_at DESC) WHERE is_favorite = 1",
-            [],
-        )?;
-
-        // === MIGRATIONS ===
-        // Migration: Add analysis_type column if it doesn't exist
-        let has_analysis_type: bool = conn
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('analyses') WHERE name='analysis_type'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0) > 0;
-
-        if !has_analysis_type {
-            log::info!("Running migration: Adding analysis_type column to analyses table");
-            conn.execute(
-                "ALTER TABLE analyses ADD COLUMN analysis_type TEXT DEFAULT 'complete'",
-                [],
-            )?;
-        }
+        // Run versioned migrations
+        migrations::run_migrations(&conn)?;
 
         Ok(Database {
             conn: Mutex::new(conn),
         })
+    }
+
+    /// Get current schema version
+    pub fn get_schema_version(&self) -> Result<i32> {
+        let conn = self.lock_conn()?;
+        migrations::get_current_version(&conn)
     }
 
     fn get_db_path() -> PathBuf {
@@ -331,18 +146,48 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Default page size for paginated queries
+    const DEFAULT_PAGE_SIZE: i64 = 50;
+
+    /// Get all analyses (with optional pagination)
+    /// If limit is None, uses DEFAULT_PAGE_SIZE. Set to -1 for unlimited (legacy behavior).
     pub fn get_all_analyses(&self) -> Result<Vec<Analysis>> {
+        self.get_analyses_paginated(Some(Self::DEFAULT_PAGE_SIZE), Some(0))
+    }
+
+    /// Get analyses with pagination support
+    /// - limit: Number of results to return (None = default, -1 = unlimited)
+    /// - offset: Number of results to skip
+    pub fn get_analyses_paginated(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Analysis>> {
         let conn = self.lock_conn()?;
 
-        let mut stmt = conn.prepare(
+        let actual_limit = limit.unwrap_or(Self::DEFAULT_PAGE_SIZE);
+        let actual_offset = offset.unwrap_or(0);
+
+        // Use different query based on whether we want unlimited
+        let sql = if actual_limit < 0 {
             "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
                     root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
                     tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
                     view_count, analysis_duration_ms, analysis_type
              FROM analyses
              WHERE deleted_at IS NULL
-             ORDER BY analyzed_at DESC",
-        )?;
+             ORDER BY analyzed_at DESC".to_string()
+        } else {
+            format!(
+                "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
+                        root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
+                        tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
+                        view_count, analysis_duration_ms, analysis_type
+                 FROM analyses
+                 WHERE deleted_at IS NULL
+                 ORDER BY analyzed_at DESC
+                 LIMIT {} OFFSET {}",
+                actual_limit, actual_offset
+            )
+        };
+
+        let mut stmt = conn.prepare(&sql)?;
 
         let analyses = stmt
             .query_map([], |row| {
@@ -375,6 +220,16 @@ impl Database {
             .collect::<Result<Vec<_>>>()?;
 
         Ok(analyses)
+    }
+
+    /// Get total count of analyses (for pagination UI)
+    pub fn get_analyses_count(&self) -> Result<i64> {
+        let conn = self.lock_conn()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
     }
 
     pub fn get_analysis_by_id(&self, id: i64) -> Result<Analysis> {
@@ -645,16 +500,37 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Get all translations (with default pagination)
     pub fn get_all_translations(&self) -> Result<Vec<Translation>> {
+        self.get_translations_paginated(Some(Self::DEFAULT_PAGE_SIZE), Some(0))
+    }
+
+    /// Get translations with pagination support
+    pub fn get_translations_paginated(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Translation>> {
         let conn = self.lock_conn()?;
 
-        let mut stmt = conn.prepare(
+        let actual_limit = limit.unwrap_or(Self::DEFAULT_PAGE_SIZE);
+        let actual_offset = offset.unwrap_or(0);
+
+        let sql = if actual_limit < 0 {
             "SELECT id, input_content, translation, translated_at, ai_model, ai_provider,
                     is_favorite, last_viewed_at, view_count
              FROM translations
              WHERE deleted_at IS NULL
-             ORDER BY translated_at DESC",
-        )?;
+             ORDER BY translated_at DESC".to_string()
+        } else {
+            format!(
+                "SELECT id, input_content, translation, translated_at, ai_model, ai_provider,
+                        is_favorite, last_viewed_at, view_count
+                 FROM translations
+                 WHERE deleted_at IS NULL
+                 ORDER BY translated_at DESC
+                 LIMIT {} OFFSET {}",
+                actual_limit, actual_offset
+            )
+        };
+
+        let mut stmt = conn.prepare(&sql)?;
 
         let translations = stmt
             .query_map([], |row| {
@@ -673,6 +549,16 @@ impl Database {
             .collect::<Result<Vec<_>>>()?;
 
         Ok(translations)
+    }
+
+    /// Get total count of translations (for pagination UI)
+    pub fn get_translations_count(&self) -> Result<i64> {
+        let conn = self.lock_conn()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM translations WHERE deleted_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
     }
 
     pub fn get_translation_by_id(&self, id: i64) -> Result<Translation> {
