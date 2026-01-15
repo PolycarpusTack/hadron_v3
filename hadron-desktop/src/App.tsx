@@ -1,12 +1,10 @@
-import { useEffect } from "react";
-import { Settings, FileUp, History, Languages, Activity } from "lucide-react";
+import { useEffect, lazy, Suspense } from "react";
+import { Settings, FileUp, History, Languages, Activity, Loader2 } from "lucide-react";
 import FileDropZone from "./components/FileDropZone";
 import AnalysisResults from "./components/AnalysisResults";
 import SettingsPanel from "./components/SettingsPanel";
 import HistoryView from "./components/HistoryView";
-import AnalysisDetailView from "./components/AnalysisDetailView";
 import TranslateView from "./components/TranslateView";
-import DashboardPanel from "./components/DashboardPanel";
 import { ViewErrorBoundary } from "./components/ErrorBoundary";
 import { analyzeCrashLog, translateTechnicalContent, getStoredModel, getStoredProvider } from "./services/api";
 import { checkAndUpdate } from "./services/updater";
@@ -15,6 +13,20 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAppState } from "./hooks/useAppState";
 import { retryOperation, getUserFriendlyErrorMessage, getRecoverySuggestions } from "./utils/errorHandling";
 import logger from "./services/logger";
+
+// Lazy-loaded components for code splitting
+const AnalysisDetailView = lazy(() => import("./components/AnalysisDetailView"));
+const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
+
+// Loading fallback component
+function LazyLoadFallback() {
+  return (
+    <div className="flex items-center justify-center p-8">
+      <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+      <span className="ml-2 text-gray-400">Loading...</span>
+    </div>
+  );
+}
 
 function App() {
   const { state, actions } = useAppState();
@@ -413,13 +425,15 @@ function App() {
             </ViewErrorBoundary>
           )}
 
-          {/* Detail View */}
+          {/* Detail View - lazy loaded */}
           {currentView === "detail" && selectedAnalysis && (
             <ViewErrorBoundary name="Analysis Details">
-              <AnalysisDetailView
-                analysis={selectedAnalysis}
-                onBack={actions.backToHistory}
-              />
+              <Suspense fallback={<LazyLoadFallback />}>
+                <AnalysisDetailView
+                  analysis={selectedAnalysis}
+                  onBack={actions.backToHistory}
+                />
+              </Suspense>
             </ViewErrorBoundary>
           )}
         </div>
@@ -447,14 +461,18 @@ function App() {
         />
       </ViewErrorBoundary>
 
-      {/* Dashboard Panel */}
-      <ViewErrorBoundary name="Dashboard">
-        <DashboardPanel
-          isOpen={showDashboard}
-          onClose={actions.closeDashboard}
-          onOpenAnalysis={handleOpenFromDashboard}
-        />
-      </ViewErrorBoundary>
+      {/* Dashboard Panel - lazy loaded */}
+      {showDashboard && (
+        <ViewErrorBoundary name="Dashboard">
+          <Suspense fallback={<LazyLoadFallback />}>
+            <DashboardPanel
+              isOpen={showDashboard}
+              onClose={actions.closeDashboard}
+              onOpenAnalysis={handleOpenFromDashboard}
+            />
+          </Suspense>
+        </ViewErrorBoundary>
+      )}
     </div>
   );
 }
