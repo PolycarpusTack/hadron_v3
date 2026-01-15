@@ -11,10 +11,11 @@ import logger from './logger';
 import type { AnalysisRequest, AnalysisResponse } from './api';
 import { getApiKey } from './secure-storage';
 import { getBooleanSetting } from '../utils/config';
+import { apiCache, CacheKeys } from './cache';
 
 // Circuit breaker configuration
 const CIRCUIT_OPTIONS = {
-  timeout: 60000,               // AI calls can take 20-60s for complex analysis (OpenAI, Anthropic)
+  timeout: 20000,               // 20s timeout - fail fast for better UX (was 60s)
   errorThresholdPercentage: 50, // Open circuit at 50% error rate
   resetTimeout: 60000,          // Try again after 1 minute
   volumeThreshold: 3,           // Need minimum 3 requests to calculate error rate
@@ -256,6 +257,10 @@ export async function analyzeWithResilience(
 
       // Record success
       recordSuccess(provider);
+
+      // Invalidate analysis caches since new analysis was added
+      apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+      apiCache.invalidateByPrefix(CacheKeys.PREFIX_STATS);
 
       logger.info('Analysis successful', { provider, model, wasFailover: provider !== preferredProvider });
 
