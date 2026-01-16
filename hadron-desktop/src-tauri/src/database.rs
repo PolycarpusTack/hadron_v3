@@ -156,41 +156,33 @@ impl Database {
     }
 
     /// Get analyses with pagination support
-    /// - limit: Number of results to return (None = default, -1 = unlimited)
-    /// - offset: Number of results to skip
+    /// - limit: Number of results to return (None = default, capped at MAX_PAGE_SIZE)
+    /// - offset: Number of results to skip (must be >= 0)
+    /// SECURITY: Uses parameterized queries to prevent SQL injection
     pub fn get_analyses_paginated(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Analysis>> {
         let conn = self.lock_conn()?;
 
-        let actual_limit = limit.unwrap_or(Self::DEFAULT_PAGE_SIZE);
-        let actual_offset = offset.unwrap_or(0);
+        // SECURITY: Enforce bounds on pagination parameters
+        const MAX_PAGE_SIZE: i64 = 1000;
+        let actual_limit = limit
+            .unwrap_or(Self::DEFAULT_PAGE_SIZE)
+            .max(1)  // At least 1
+            .min(MAX_PAGE_SIZE);  // Cap at MAX_PAGE_SIZE
+        let actual_offset = offset.unwrap_or(0).max(0);  // No negative offsets
 
-        // Use different query based on whether we want unlimited
-        let sql = if actual_limit < 0 {
-            "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
+        let sql = "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
                     root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
                     tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
                     view_count, analysis_duration_ms, analysis_type
              FROM analyses
              WHERE deleted_at IS NULL
-             ORDER BY analyzed_at DESC".to_string()
-        } else {
-            format!(
-                "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
-                        root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
-                        tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
-                        view_count, analysis_duration_ms, analysis_type
-                 FROM analyses
-                 WHERE deleted_at IS NULL
-                 ORDER BY analyzed_at DESC
-                 LIMIT {} OFFSET {}",
-                actual_limit, actual_offset
-            )
-        };
+             ORDER BY analyzed_at DESC
+             LIMIT ?1 OFFSET ?2";
 
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare(sql)?;
 
         let analyses = stmt
-            .query_map([], |row| {
+            .query_map([actual_limit, actual_offset], |row| {
                 Ok(Analysis {
                     id: row.get(0)?,
                     filename: row.get(1)?,
@@ -506,34 +498,29 @@ impl Database {
     }
 
     /// Get translations with pagination support
+    /// SECURITY: Uses parameterized queries to prevent SQL injection
     pub fn get_translations_paginated(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Translation>> {
         let conn = self.lock_conn()?;
 
-        let actual_limit = limit.unwrap_or(Self::DEFAULT_PAGE_SIZE);
-        let actual_offset = offset.unwrap_or(0);
+        // SECURITY: Enforce bounds on pagination parameters
+        const MAX_PAGE_SIZE: i64 = 1000;
+        let actual_limit = limit
+            .unwrap_or(Self::DEFAULT_PAGE_SIZE)
+            .max(1)  // At least 1
+            .min(MAX_PAGE_SIZE);  // Cap at MAX_PAGE_SIZE
+        let actual_offset = offset.unwrap_or(0).max(0);  // No negative offsets
 
-        let sql = if actual_limit < 0 {
-            "SELECT id, input_content, translation, translated_at, ai_model, ai_provider,
+        let sql = "SELECT id, input_content, translation, translated_at, ai_model, ai_provider,
                     is_favorite, last_viewed_at, view_count
              FROM translations
              WHERE deleted_at IS NULL
-             ORDER BY translated_at DESC".to_string()
-        } else {
-            format!(
-                "SELECT id, input_content, translation, translated_at, ai_model, ai_provider,
-                        is_favorite, last_viewed_at, view_count
-                 FROM translations
-                 WHERE deleted_at IS NULL
-                 ORDER BY translated_at DESC
-                 LIMIT {} OFFSET {}",
-                actual_limit, actual_offset
-            )
-        };
+             ORDER BY translated_at DESC
+             LIMIT ?1 OFFSET ?2";
 
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare(sql)?;
 
         let translations = stmt
-            .query_map([], |row| {
+            .query_map([actual_limit, actual_offset], |row| {
                 Ok(Translation {
                     id: row.get(0)?,
                     input_content: row.get(1)?,
