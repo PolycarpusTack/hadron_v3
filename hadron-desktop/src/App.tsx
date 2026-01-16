@@ -1,10 +1,11 @@
-import { useEffect, lazy, Suspense } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { Settings, FileUp, History, Languages, Activity, Loader2 } from "lucide-react";
 import FileDropZone from "./components/FileDropZone";
 import AnalysisResults from "./components/AnalysisResults";
 import SettingsPanel from "./components/SettingsPanel";
 import HistoryView from "./components/HistoryView";
 import TranslateView from "./components/TranslateView";
+import ConsoleViewer from "./components/ConsoleViewer";
 import { ViewErrorBoundary } from "./components/ErrorBoundary";
 import { analyzeCrashLog, translateTechnicalContent, getStoredModel, getStoredProvider } from "./services/api";
 import { checkAndUpdate } from "./services/updater";
@@ -30,6 +31,7 @@ function LazyLoadFallback() {
 
 function App() {
   const { state, actions } = useAppState();
+  const [showConsole, setShowConsole] = useState(false);
 
   // Destructure for cleaner code
   const {
@@ -106,12 +108,15 @@ function App() {
     onViewHistory: () => actions.setView("history"),
     onOpenSettings: () => actions.openSettings(),
     onCloseModal: () => {
-      if (showSettings) {
+      if (showConsole) {
+        setShowConsole(false);
+      } else if (showSettings) {
         actions.closeSettings();
       } else if (currentView === "detail") {
         actions.backToHistory();
       }
     },
+    onToggleConsole: () => setShowConsole(prev => !prev),
   });
 
   // Handle single file analysis
@@ -458,7 +463,7 @@ function App() {
             {apiKey && <span className="ml-4 text-green-600 dark:text-green-400">API Key Set</span>}
           </div>
           <div className="text-xs opacity-60">
-            Shortcuts: Ctrl+N (New) | Ctrl+H (History) | Ctrl+, (Settings) | Esc (Close)
+            Shortcuts: Ctrl+N (New) | Ctrl+H (History) | Ctrl+, (Settings) | Ctrl+Y (Console) | Esc (Close)
           </div>
         </footer>
       </div>
@@ -486,6 +491,12 @@ function App() {
           </Suspense>
         </ViewErrorBoundary>
       )}
+
+      {/* Console Viewer - toggle with Ctrl+Y */}
+      <ConsoleViewer
+        isOpen={showConsole}
+        onClose={() => setShowConsole(false)}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ interface ShortcutHandlers {
   onOpenSettings?: () => void;
   onCloseModal?: () => void;
   onFocusSearch?: () => void;
+  onToggleConsole?: () => void;
 }
 
 /**
@@ -15,6 +16,7 @@ interface ShortcutHandlers {
  * - Ctrl+N: New analysis
  * - Ctrl+H: View history
  * - Ctrl+,: Open settings
+ * - Ctrl+Y: Toggle console/log viewer
  * - Escape: Close modals
  * - Ctrl+F: Focus search (in history view)
  */
@@ -54,6 +56,12 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
           event.preventDefault();
           handlers.onFocusSearch();
         }
+      }
+
+      // Ctrl+Y - Toggle console/log viewer
+      if (isCtrl && event.key === "y") {
+        event.preventDefault();
+        handlers.onToggleConsole?.();
       }
     };
 
