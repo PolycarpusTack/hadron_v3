@@ -300,9 +300,12 @@ function App() {
         </header>
 
         {/* Navigation Tabs */}
-        <div className="mb-6 flex gap-2 border-b border-gray-300 dark:border-gray-700">
+        <nav className="mb-6 flex gap-2 border-b border-gray-300 dark:border-gray-700" role="tablist" aria-label="Main navigation">
           <button
             onClick={() => actions.setView("analyze")}
+            role="tab"
+            aria-selected={currentView === "analyze"}
+            aria-controls="analyze-panel"
             className={`flex items-center gap-2 px-4 py-3 border-b-2 transition ${
               currentView === "analyze"
                 ? "border-blue-500 text-blue-600 dark:text-blue-400"
@@ -314,6 +317,9 @@ function App() {
           </button>
           <button
             onClick={() => actions.setView("translate")}
+            role="tab"
+            aria-selected={currentView === "translate"}
+            aria-controls="translate-panel"
             className={`flex items-center gap-2 px-4 py-3 border-b-2 transition ${
               currentView === "translate"
                 ? "border-blue-500 text-blue-600 dark:text-blue-400"
@@ -325,6 +331,9 @@ function App() {
           </button>
           <button
             onClick={() => actions.setView("history")}
+            role="tab"
+            aria-selected={currentView === "history" || currentView === "detail"}
+            aria-controls="history-panel"
             className={`flex items-center gap-2 px-4 py-3 border-b-2 transition ${
               currentView === "history" || currentView === "detail"
                 ? "border-blue-500 text-blue-600 dark:text-blue-400"
@@ -334,7 +343,7 @@ function App() {
             <History className="w-5 h-5" />
             History
           </button>
-        </div>
+        </nav>
 
         {/* API Key Warning */}
         {!apiKey && (
@@ -367,7 +376,7 @@ function App() {
           {/* Analyze View */}
           {currentView === "analyze" && (
             <ViewErrorBoundary name="Analysis">
-              <>
+              <div id="analyze-panel" role="tabpanel">
                 {batchProgress && (
                   <div className="mb-4 bg-gray-800/60 border border-gray-700 rounded-lg p-4 text-sm">
                     <div className="font-semibold text-gray-100">
@@ -404,24 +413,28 @@ function App() {
                     onNewAnalysis={actions.clearAnalysis}
                   />
                 )}
-              </>
+              </div>
             </ViewErrorBoundary>
           )}
 
           {/* Translate View */}
           {currentView === "translate" && (
             <ViewErrorBoundary name="Translation">
-              <TranslateView
-                onTranslate={handleTranslate}
-                isTranslating={translating}
-              />
+              <div id="translate-panel" role="tabpanel">
+                <TranslateView
+                  onTranslate={handleTranslate}
+                  isTranslating={translating}
+                />
+              </div>
             </ViewErrorBoundary>
           )}
 
           {/* History View */}
           {currentView === "history" && (
             <ViewErrorBoundary name="History">
-              <HistoryView onViewAnalysis={actions.viewAnalysis} />
+              <div id="history-panel" role="tabpanel">
+                <HistoryView onViewAnalysis={actions.viewAnalysis} />
+              </div>
             </ViewErrorBoundary>
           )}
 
