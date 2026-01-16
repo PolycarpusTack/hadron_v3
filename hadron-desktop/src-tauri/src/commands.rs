@@ -9,6 +9,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::State;
+use zeroize::Zeroizing;
 
 /// Maximum file size for crash log analysis (10 MB)
 /// Prevents memory exhaustion from maliciously large files
@@ -192,18 +193,20 @@ pub async fn analyze_crash_log(
     }
 
     // Resolve API key - prefer Keeper if configured
-    let api_key = if let Some(ref keeper_uid) = request.keeper_secret_uid {
+    // SECURITY: Wrap in Zeroizing to ensure key is cleared from memory after use
+    let api_key: Zeroizing<String> = if let Some(ref keeper_uid) = request.keeper_secret_uid {
         log::info!("Fetching API key from Keeper for analysis");
+        // keeper_service already returns Zeroizing<String>
         keeper_service::get_api_key_from_keeper(keeper_uid)
             .map_err(|e| format!("Failed to get API key from Keeper: {}", e))?
     } else {
-        request.api_key.clone()
+        Zeroizing::new(request.api_key.clone())
     };
 
     // Call Rust AI service
     let result = ai_service::analyze_crash_log(
         &crash_content,
-        &api_key,
+        api_key.as_str(),
         &request.model,
         &request.provider,
         &request.analysis_type
@@ -281,6 +284,9 @@ pub async fn translate_content(
     redact_pii: Option<bool>,
     db: State<'_, Database>,
 ) -> Result<String, String> {
+    // SECURITY: Wrap API key in Zeroizing to ensure it's cleared from memory after use
+    let api_key = Zeroizing::new(api_key);
+
     // SECURITY: Validate content size to prevent memory exhaustion
     if content.len() > MAX_TRANSLATION_CONTENT_SIZE {
         return Err(format!(
@@ -309,7 +315,7 @@ pub async fn translate_content(
             })?
     } else {
         // Run Python translation for cloud providers
-        let result = run_python_translation(&content_for_ai, &api_key, &model, &provider)
+        let result = run_python_translation(&content_for_ai, api_key.as_str(), &model, &provider)
             .await
             .map_err(|e| {
                 log::error!("Translation failed: error={}", e);
@@ -520,9 +526,12 @@ pub async fn toggle_translation_favorite(id: i64, db: State<'_, Database>) -> Re
 /// List available models from AI provider
 #[tauri::command]
 pub async fn list_models(provider: String, api_key: String) -> Result<Vec<Model>, String> {
+    // SECURITY: Wrap API key in Zeroizing to ensure it's cleared from memory after use
+    let api_key = Zeroizing::new(api_key);
+
     log::info!("Fetching models: provider={}", provider);
 
-    let models = fetch_models(&provider, &api_key).await?;
+    let models = fetch_models(&provider, api_key.as_str()).await?;
 
     log::info!("Fetched {} models from {}", models.len(), provider);
     Ok(models)
@@ -531,9 +540,12 @@ pub async fn list_models(provider: String, api_key: String) -> Result<Vec<Model>
 /// Test API connection by attempting to list models
 #[tauri::command]
 pub async fn test_connection(provider: String, api_key: String) -> Result<ConnectionTestResult, String> {
+    // SECURITY: Wrap API key in Zeroizing to ensure it's cleared from memory after use
+    let api_key = Zeroizing::new(api_key);
+
     log::info!("Testing connection: provider={}", provider);
 
-    let result = test_api_connection(&provider, &api_key).await?;
+    let result = test_api_connection(&provider, api_key.as_str()).await?;
 
     log::info!("Connection test: provider={}, success={}", provider, result.success);
     Ok(result)
