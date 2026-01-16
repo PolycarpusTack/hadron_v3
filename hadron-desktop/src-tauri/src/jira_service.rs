@@ -10,7 +10,6 @@
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
 use std::time::Duration;
 use once_cell::sync::Lazy;
 use base64::Engine;
@@ -22,18 +21,6 @@ static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
         .build()
         .unwrap_or_else(|_| Client::new())
 });
-
-/// Cached JIRA configuration
-static JIRA_CONFIG_CACHE: Lazy<Mutex<Option<JiraConfigCache>>> = Lazy::new(|| Mutex::new(None));
-
-#[derive(Clone)]
-struct JiraConfigCache {
-    base_url: String,
-    email: String,
-    api_token: String,
-    project_key: String,
-    issue_type: String,
-}
 
 /// JIRA ticket creation request
 #[derive(Debug, Deserialize)]
@@ -47,6 +34,7 @@ pub struct JiraTicketRequest {
 
 /// JIRA ticket creation response
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JiraCreateResponse {
     pub success: bool,
     pub ticket_key: Option<String>,
@@ -79,6 +67,7 @@ struct JiraErrorResponse {
 
 /// JIRA issue creation response
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct JiraIssueResponse {
     id: String,
     key: String,
@@ -110,38 +99,6 @@ fn create_auth_header(email: &str, api_token: &str) -> String {
     let credentials = format!("{}:{}", email, api_token);
     let encoded = base64::engine::general_purpose::STANDARD.encode(credentials);
     format!("Basic {}", encoded)
-}
-
-/// Load JIRA configuration from Tauri Store
-/// This should be called from the frontend to populate the cache
-pub async fn load_jira_config(
-    base_url: String,
-    email: String,
-    api_token: String,
-    project_key: String,
-    issue_type: String,
-) -> Result<(), String> {
-    let config = JiraConfigCache {
-        base_url: base_url.trim_end_matches('/').to_string(),
-        email,
-        api_token,
-        project_key,
-        issue_type,
-    };
-
-    let mut cache = JIRA_CONFIG_CACHE.lock().map_err(|e| format!("Lock error: {}", e))?;
-    *cache = Some(config);
-
-    log::info!("JIRA configuration loaded");
-    Ok(())
-}
-
-/// Clear cached JIRA configuration
-pub fn clear_jira_config() {
-    if let Ok(mut cache) = JIRA_CONFIG_CACHE.lock() {
-        *cache = None;
-        log::info!("JIRA configuration cleared");
-    }
 }
 
 /// Test JIRA connection by fetching projects
