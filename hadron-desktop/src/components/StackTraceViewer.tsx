@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
 
 interface StackFrame {
@@ -17,6 +17,24 @@ interface StackTraceViewerProps {
 export default function StackTraceViewer({ stackTrace, title = "Stack Trace" }: StackTraceViewerProps) {
   const [expandedFrames, setExpandedFrames] = useState<Set<number>>(new Set([0, 1, 2])); // Expand first 3
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // Track timeouts for cleanup to prevent memory leaks
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const setCopiedWithTimeout = useCallback((index: number | null) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setCopiedIndex(index);
+    if (index !== null) {
+      timeoutRef.current = setTimeout(() => setCopiedIndex(null), 2000);
+    }
+  }, []);
 
   // Parse stack trace into frames
   const parseStackTrace = (trace: string): StackFrame[] => {
@@ -89,14 +107,12 @@ export default function StackTraceViewer({ stackTrace, title = "Stack Trace" }: 
 
   const copyFrame = (frame: StackFrame) => {
     navigator.clipboard.writeText(frame.raw);
-    setCopiedIndex(frame.index);
-    setTimeout(() => setCopiedIndex(null), 2000);
+    setCopiedWithTimeout(frame.index);
   };
 
   const copyAll = () => {
     navigator.clipboard.writeText(stackTrace);
-    setCopiedIndex(-1);
-    setTimeout(() => setCopiedIndex(null), 2000);
+    setCopiedWithTimeout(-1);
   };
 
   return (

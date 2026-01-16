@@ -153,8 +153,13 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
         })
         .collect();
 
-    if let Ok(mut cache) = SECRETS_CACHE.lock() {
-        *cache = Some(SecretsCache::new(cached));
+    match SECRETS_CACHE.lock() {
+        Ok(mut cache) => {
+            *cache = Some(SecretsCache::new(cached));
+        }
+        Err(e) => {
+            log::error!("Failed to acquire cache lock during initialization: {}", e);
+        }
     }
 
     log::info!("Keeper initialized successfully, found {} secrets", secrets_count);
@@ -203,8 +208,13 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
         })
         .collect();
 
-    if let Ok(mut cache) = SECRETS_CACHE.lock() {
-        *cache = Some(SecretsCache::new(cached));
+    match SECRETS_CACHE.lock() {
+        Ok(mut cache) => {
+            *cache = Some(SecretsCache::new(cached));
+        }
+        Err(e) => {
+            log::error!("Failed to acquire cache lock while listing secrets: {}", e);
+        }
     }
 
     // Return only metadata, not values
@@ -228,18 +238,23 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
 /// This is called internally by the backend - the key value never reaches the frontend
 pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<String, String> {
     // First try the cache (if not expired)
-    if let Ok(cache) = SECRETS_CACHE.lock() {
-        if let Some(ref secrets_cache) = *cache {
-            if !secrets_cache.is_expired() {
-                if let Some(secret) = secrets_cache.secrets.iter().find(|s| s.uid == secret_uid) {
-                    if let Some(ref password) = secret.password {
-                        log::debug!("Retrieved API key from cache for secret: {}", secret.title);
-                        return Ok(password.clone());
+    match SECRETS_CACHE.lock() {
+        Ok(cache) => {
+            if let Some(ref secrets_cache) = *cache {
+                if !secrets_cache.is_expired() {
+                    if let Some(secret) = secrets_cache.secrets.iter().find(|s| s.uid == secret_uid) {
+                        if let Some(ref password) = secret.password {
+                            log::debug!("Retrieved API key from cache for secret: {}", secret.title);
+                            return Ok(password.clone());
+                        }
                     }
+                } else {
+                    log::debug!("Cache expired, fetching fresh secrets from Keeper");
                 }
-            } else {
-                log::debug!("Cache expired, fetching fresh secrets from Keeper");
             }
+        }
+        Err(e) => {
+            log::warn!("Failed to acquire cache lock, falling back to Keeper fetch: {}", e);
         }
     }
 
@@ -317,8 +332,13 @@ pub fn clear_keeper_config() -> Result<(), String> {
     }
 
     // Clear cache
-    if let Ok(mut cache) = SECRETS_CACHE.lock() {
-        *cache = None;
+    match SECRETS_CACHE.lock() {
+        Ok(mut cache) => {
+            *cache = None;
+        }
+        Err(e) => {
+            log::error!("Failed to acquire cache lock while clearing config: {}", e);
+        }
     }
 
     log::info!("Keeper configuration cleared");

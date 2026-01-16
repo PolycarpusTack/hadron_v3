@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Languages, Copy, Check } from "lucide-react";
 import logger from "../services/logger";
 
@@ -11,6 +11,14 @@ export default function TranslateView({ onTranslate, isTranslating }: TranslateV
   const [input, setInput] = useState("");
   const [translation, setTranslation] = useState("");
   const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   const handleTranslate = async () => {
     if (!input.trim()) return;
@@ -26,7 +34,8 @@ export default function TranslateView({ onTranslate, isTranslating }: TranslateV
   const handleCopy = () => {
     navigator.clipboard.writeText(translation);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setCopied(false), 2000);
   };
 
   const handleClear = () => {
