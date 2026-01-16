@@ -390,11 +390,11 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
                     </option>
                   ))}
                 </select>
-                <div className="w-6 flex justify-center">
+                <div className="w-6 flex justify-center" title={isMapped ? "Linked" : "Not linked"}>
                   {isMapped ? (
-                    <Link className="w-4 h-4 text-green-400" title="Linked" />
+                    <Link className="w-4 h-4 text-green-400" aria-label="Linked" />
                   ) : (
-                    <Unlink className="w-4 h-4 text-gray-500" title="Not linked" />
+                    <Unlink className="w-4 h-4 text-gray-500" aria-label="Not linked" />
                   )}
                 </div>
               </div>
