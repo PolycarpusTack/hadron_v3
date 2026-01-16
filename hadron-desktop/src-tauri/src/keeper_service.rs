@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
 use once_cell::sync::Lazy;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Cache TTL in seconds (5 minutes)
 const CACHE_TTL_SECS: u64 = 300;
@@ -45,12 +46,23 @@ impl SecretsCache {
     }
 }
 
+/// Cached secret with password field that is zeroized on drop
+/// SECURITY: Implements Zeroize to clear passwords from memory when cache is dropped
 #[derive(Debug, Clone)]
 struct CachedSecret {
     uid: String,
     title: String,
     record_type: String,
     password: Option<String>,
+}
+
+impl Drop for CachedSecret {
+    fn drop(&mut self) {
+        // SECURITY: Zero out password when secret is dropped
+        if let Some(ref mut pwd) = self.password {
+            pwd.zeroize();
+        }
+    }
 }
 
 /// Result of initializing Keeper with a one-time token
@@ -236,7 +248,8 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
 
 /// Get API key from Keeper by secret UID
 /// This is called internally by the backend - the key value never reaches the frontend
-pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<String, String> {
+/// SECURITY: Returns Zeroizing<String> to ensure key is cleared from memory after use
+pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, String> {
     // First try the cache (if not expired)
     match SECRETS_CACHE.lock() {
         Ok(cache) => {
@@ -245,7 +258,7 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<String, String> {
                     if let Some(secret) = secrets_cache.secrets.iter().find(|s| s.uid == secret_uid) {
                         if let Some(ref password) = secret.password {
                             log::debug!("Retrieved API key from cache for secret: {}", secret.title);
-                            return Ok(password.clone());
+                            return Ok(Zeroizing::new(password.clone()));
                         }
                     }
                 } else {
@@ -291,7 +304,7 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<String, String> {
 
     log::debug!("Retrieved API key from Keeper for secret: {}", secret.title);
 
-    Ok(password)
+    Ok(Zeroizing::new(password))
 }
 
 /// Get Keeper connection status
