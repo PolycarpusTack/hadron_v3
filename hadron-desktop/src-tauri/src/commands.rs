@@ -11,9 +11,9 @@ use std::path::PathBuf;
 use tauri::State;
 use zeroize::Zeroizing;
 
-/// Maximum file size for crash log analysis (10 MB)
+/// Maximum file size for crash log analysis (5 MB)
 /// Prevents memory exhaustion from maliciously large files
-const MAX_CRASH_LOG_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_CRASH_LOG_SIZE_BYTES: u64 = 5 * 1024 * 1024;
 
 /// Maximum content size for translation (1 MB)
 const MAX_TRANSLATION_CONTENT_SIZE: usize = 1024 * 1024;
@@ -184,7 +184,7 @@ pub async fn analyze_crash_log(
 
     if file_metadata.len() > MAX_CRASH_LOG_SIZE_BYTES {
         return Err(format!(
-            "File too large: {} bytes exceeds maximum of {} bytes (10 MB). Please use a smaller log file.",
+            "File too large: {} bytes exceeds maximum of {} bytes (5 MB). Please use a smaller log file.",
             file_metadata.len(),
             MAX_CRASH_LOG_SIZE_BYTES
         ));
