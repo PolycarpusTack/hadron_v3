@@ -155,7 +155,11 @@ pub async fn analyze_crash_log(
     // SECURITY: Validate file path to prevent path traversal attacks
     let file_path = std::path::Path::new(&request.file_path);
     let canonical_path = std::fs::canonicalize(file_path)
-        .map_err(|e| format!("Invalid file path: {}", e))?;
+        .map_err(|e| {
+            // SECURITY: Log full error but don't expose path details to frontend
+            log::error!("Failed to canonicalize path '{}': {}", request.file_path, e);
+            "Invalid file path: file not found or inaccessible".to_string()
+        })?;
 
     // Block paths containing traversal patterns
     let path_str = canonical_path.to_string_lossy();
@@ -173,7 +177,10 @@ pub async fn analyze_crash_log(
 
     // SECURITY: Validate file size before reading to prevent memory exhaustion
     let file_metadata = std::fs::metadata(&canonical_path)
-        .map_err(|e| format!("Failed to access file: {}", e))?;
+        .map_err(|e| {
+            log::error!("Failed to get metadata for '{}': {}", path_str, e);
+            "Failed to access file: permission denied or file not found".to_string()
+        })?;
 
     if file_metadata.len() > MAX_CRASH_LOG_SIZE_BYTES {
         return Err(format!(
@@ -185,7 +192,10 @@ pub async fn analyze_crash_log(
 
     // Read crash log file (size already validated, path already canonicalized)
     let mut crash_content = std::fs::read_to_string(&canonical_path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+        .map_err(|e| {
+            log::error!("Failed to read file '{}': {}", path_str, e);
+            "Failed to read file: check file permissions".to_string()
+        })?;
 
     // Optionally redact PII before sending to AI providers
     if request.redact_pii.unwrap_or(false) {
@@ -235,7 +245,10 @@ pub async fn analyze_crash_log(
         component: result.component.clone(),
         stack_trace: result.stack_trace.clone(),
         root_cause: result.root_cause.clone(),
-        suggested_fixes: serde_json::to_string(&result.suggested_fixes).unwrap_or_default(),
+        suggested_fixes: serde_json::to_string(&result.suggested_fixes).unwrap_or_else(|e| {
+            log::warn!("Failed to serialize suggested_fixes: {}", e);
+            "[]".to_string()
+        }),
         confidence: Some(result.confidence.to_uppercase()),
         analyzed_at: chrono::Utc::now().to_rfc3339(),
         ai_model: request.model.clone(),
@@ -243,7 +256,10 @@ pub async fn analyze_crash_log(
         tokens_used: result.tokens_used,
         cost: result.cost,
         was_truncated: result.was_truncated.unwrap_or(false),
-        full_data: Some(serde_json::to_string(&result).unwrap_or_default()),
+        full_data: Some(serde_json::to_string(&result).unwrap_or_else(|e| {
+            log::warn!("Failed to serialize full analysis result: {}", e);
+            "{}".to_string()
+        })),
         is_favorite: false,
         last_viewed_at: None,
         view_count: 0,
@@ -399,8 +415,10 @@ pub async fn export_analysis(id: i64, db: State<'_, Database>) -> Result<String,
         .get_analysis_by_id(id)
         .map_err(|e| format!("Database error: {}", e))?;
 
-    let fixes: Vec<String> =
-        serde_json::from_str(&analysis.suggested_fixes).unwrap_or_default();
+    let fixes: Vec<String> = serde_json::from_str(&analysis.suggested_fixes).unwrap_or_else(|e| {
+        log::warn!("Failed to deserialize suggested_fixes for analysis {}: {}", id, e);
+        vec!["(Unable to parse suggested fixes)".to_string()]
+    });
 
     let markdown = format!(
         "# Crash Analysis Report\n\n\
@@ -593,7 +611,10 @@ pub async fn save_analysis(
         component,
         stack_trace,
         root_cause,
-        suggested_fixes: serde_json::to_string(&suggested_fixes).unwrap_or_default(),
+        suggested_fixes: serde_json::to_string(&suggested_fixes).unwrap_or_else(|e| {
+            log::warn!("Failed to serialize suggested_fixes in save_analysis: {}", e);
+            "[]".to_string()
+        }),
         confidence: Some(confidence.to_uppercase()),
         analyzed_at: chrono::Utc::now().to_rfc3339(),
         ai_model: model,

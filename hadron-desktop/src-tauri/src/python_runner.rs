@@ -99,7 +99,30 @@ pub async fn run_python_translation(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Python script failed: {}", stderr));
+        // SECURITY: Log full error for debugging but return sanitized message to frontend
+        log::error!("Python script failed with stderr: {}", stderr);
+
+        // Extract only the last line (usually the actual error) and sanitize
+        let sanitized_error = stderr
+            .lines()
+            .last()
+            .unwrap_or("Unknown error")
+            .trim();
+
+        // Remove file paths and sensitive info from error message
+        let safe_error = if sanitized_error.contains("API") || sanitized_error.contains("key") {
+            "Translation failed: API error (check logs for details)"
+        } else if sanitized_error.contains("ModuleNotFoundError") {
+            "Translation failed: Python dependency missing"
+        } else if sanitized_error.contains("ConnectionError") || sanitized_error.contains("timeout") {
+            "Translation failed: Network error"
+        } else if sanitized_error.len() > 100 {
+            "Translation failed: Internal error (check logs for details)"
+        } else {
+            sanitized_error
+        };
+
+        return Err(format!("Python script failed: {}", safe_error));
     }
 
     // Parse JSON output
