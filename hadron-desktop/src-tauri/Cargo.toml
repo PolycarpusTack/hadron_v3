@@ -3,8 +3,8 @@ name = "hadron-desktop"
 version = "1.1.0"
 description = "Smalltalk Crash Analyzer - Desktop Application"
 authors = ["Hadron Team"]
-license = ""
-repository = ""
+license = "MIT"
+repository = "https://github.com/PolycarpusTack/hadron_v3"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

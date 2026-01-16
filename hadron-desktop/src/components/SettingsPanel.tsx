@@ -1,4 +1,4 @@
-import { useState, useEffect, Suspense, lazy } from "react";
+import { useState, useEffect, Suspense, lazy, useRef, useCallback } from "react";
 import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, Download, RefreshCw, Check, AlertCircle, Clipboard, Info } from "lucide-react";
 import { getCircuitState } from "../services/circuit-breaker";
 import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage";
@@ -84,6 +84,27 @@ export default function SettingsPanel({
     piiRedactionEnabled: false,
     activeProviders: AI_PROVIDERS.reduce((acc, p) => ({ ...acc, [p.value]: p.defaultActive }), {}),
   });
+
+  // Track timeouts for cleanup to prevent memory leaks
+  const timeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
+
+  // Helper to create auto-cleaning timeouts
+  const safeTimeout = useCallback((callback: () => void, delay: number) => {
+    const id = setTimeout(() => {
+      timeoutsRef.current.delete(id);
+      callback();
+    }, delay);
+    timeoutsRef.current.add(id);
+    return id;
+  }, []);
+
+  // Cleanup all timeouts on unmount
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach(clearTimeout);
+      timeoutsRef.current.clear();
+    };
+  }, []);
 
   // Helper to determine API key status
   const getKeyStatus = (provider: string, key: string): { icon: JSX.Element; color: string; label: string } => {
@@ -288,7 +309,7 @@ export default function SettingsPanel({
       }
 
       setSaveMessage("Settings saved successfully! (All API keys encrypted)");
-      setTimeout(() => {
+      safeTimeout(() => {
         setIsSaving(false);
         setSaveMessage(null);
         if (onSettingsChange) onSettingsChange();
@@ -310,7 +331,7 @@ export default function SettingsPanel({
       });
       await deleteApiKey(provider);
       setSaveMessage(`${provider.toUpperCase()} API key cleared from encrypted storage`);
-      setTimeout(() => setSaveMessage(null), 2000);
+      safeTimeout(() => setSaveMessage(null), 2000);
     }
   };
 
@@ -373,7 +394,7 @@ export default function SettingsPanel({
       setConnectionTestResult(`❌ Failed to fetch models: ${error}`);
     } finally {
       setIsRefreshingModels(false);
-      setTimeout(() => setConnectionTestResult(null), 5000);
+      safeTimeout(() => setConnectionTestResult(null), 5000);
     }
   };
 
@@ -405,7 +426,7 @@ export default function SettingsPanel({
       setConnectionTestResult(`❌ Connection test failed: ${error}`);
     } finally {
       setIsTestingConnection(false);
-      setTimeout(() => setConnectionTestResult(null), 5000);
+      safeTimeout(() => setConnectionTestResult(null), 5000);
     }
   };
 
@@ -417,10 +438,10 @@ export default function SettingsPanel({
       await navigator.clipboard.writeText(diagnostics);
 
       setDiagnosticsMessage("✅ Diagnostics copied to clipboard!");
-      setTimeout(() => setDiagnosticsMessage(null), 3000);
+      safeTimeout(() => setDiagnosticsMessage(null), 3000);
     } catch (error) {
       setDiagnosticsMessage(`❌ Failed to export diagnostics: ${error}`);
-      setTimeout(() => setDiagnosticsMessage(null), 5000);
+      safeTimeout(() => setDiagnosticsMessage(null), 5000);
     }
   };
 
