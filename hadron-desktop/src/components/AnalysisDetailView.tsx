@@ -1,10 +1,12 @@
-import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info } from "lucide-react";
+import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import type { Analysis } from "../services/api";
 import StackTraceViewer from "./StackTraceViewer";
 import CollapsibleSection from "./CollapsibleSection";
 import MultiPartAnalysisViewer from "./MultiPartAnalysisViewer";
+import JiraTicketModal from "./JiraTicketModal";
+import { isJiraEnabled } from "../services/jira";
 
 interface AnalysisDetailViewProps {
   analysis: Analysis;
@@ -13,7 +15,14 @@ interface AnalysisDetailViewProps {
 
 export default function AnalysisDetailView({ analysis, onBack }: AnalysisDetailViewProps) {
   const [copied, setCopied] = useState(false);
+  const [showJiraModal, setShowJiraModal] = useState(false);
+  const [jiraEnabled, setJiraEnabled] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Check if JIRA is enabled
+  useEffect(() => {
+    isJiraEnabled().then(setJiraEnabled);
+  }, []);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -140,6 +149,16 @@ ${analysis.suggested_fixes}
             <Download className="w-4 h-4" />
             Export Markdown
           </button>
+          {jiraEnabled && (
+            <button
+              onClick={() => setShowJiraModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition"
+              title="Create JIRA ticket from this analysis"
+            >
+              <Ticket className="w-4 h-4" />
+              Create JIRA Ticket
+            </button>
+          )}
         </div>
       </div>
 
@@ -323,6 +342,13 @@ ${analysis.suggested_fixes}
           )}
         </div>
       </CollapsibleSection>
+
+      {/* JIRA Ticket Modal */}
+      <JiraTicketModal
+        analysis={analysis}
+        isOpen={showJiraModal}
+        onClose={() => setShowJiraModal(false)}
+      />
     </div>
   );
 }

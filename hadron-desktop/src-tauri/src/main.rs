@@ -8,6 +8,7 @@ mod python_runner;
 mod model_fetcher;
 mod ai_service;
 mod keeper_service;
+mod jira_service;
 
 use commands::*;
 use database::Database;
@@ -71,7 +72,10 @@ fn main() {
             list_keeper_secrets,
             get_keeper_status,
             clear_keeper_config,
-            test_keeper_connection
+            test_keeper_connection,
+            // JIRA Integration
+            test_jira_connection,
+            create_jira_ticket
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
