@@ -6,8 +6,9 @@ import { checkForUpdates } from "../services/updater";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
 
-// Lazy load KeeperSettings since most users won't use it
+// Lazy load KeeperSettings and JiraSettings since most users won't use them
 const KeeperSettings = lazy(() => import("./KeeperSettings"));
+const JiraSettings = lazy(() => import("./JiraSettings"));
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -799,6 +800,18 @@ export default function SettingsPanel({
             </div>
           }>
             <KeeperSettings onConfigChange={onSettingsChange} />
+          </Suspense>
+
+          {/* JIRA Integration */}
+          <Suspense fallback={
+            <div className="p-4 bg-blue-500/10 rounded-lg border border-blue-500/30">
+              <div className="flex items-center gap-3">
+                <RefreshCw className="w-5 h-5 text-blue-400 animate-spin" />
+                <span className="text-gray-400">Loading JIRA settings...</span>
+              </div>
+            </div>
+          }>
+            <JiraSettings onConfigChange={onSettingsChange} />
           </Suspense>
 
           {/* Model Selection */}

@@ -4,6 +4,7 @@ use crate::model_fetcher::{list_models as fetch_models, test_connection as test_
 use crate::ai_service;
 use crate::ai_service::translate_ollama;
 use crate::keeper_service;
+use crate::jira_service;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -711,4 +712,33 @@ pub async fn clear_keeper_config() -> Result<(), String> {
 pub async fn test_keeper_connection() -> Result<keeper_service::KeeperSecretsListResult, String> {
     log::info!("Testing Keeper connection");
     keeper_service::list_keeper_secrets()
+}
+
+// ============================================================================
+// JIRA Integration Commands
+// ============================================================================
+
+/// Test JIRA connection
+#[tauri::command]
+pub async fn test_jira_connection(
+    base_url: String,
+    email: String,
+    api_token: String,
+) -> Result<jira_service::JiraTestResponse, String> {
+    log::info!("Testing JIRA connection");
+    jira_service::test_jira_connection(base_url, email, api_token).await
+}
+
+/// Create JIRA ticket from crash analysis
+#[tauri::command]
+pub async fn create_jira_ticket(
+    base_url: String,
+    email: String,
+    api_token: String,
+    project_key: String,
+    issue_type: String,
+    ticket: jira_service::JiraTicketRequest,
+) -> Result<jira_service::JiraCreateResponse, String> {
+    log::info!("Creating JIRA ticket");
+    jira_service::create_jira_ticket(base_url, email, api_token, project_key, issue_type, ticket).await
 }

@@ -38,3 +38,6 @@ zeroize = { version = "1.7", features = ["derive"] }
 
 # Keeper Secrets Manager SDK for secure API key management
 keeper-secrets-manager-core = "17.0"
+
+# Base64 encoding for JIRA Basic Auth
+base64 = "0.21"
