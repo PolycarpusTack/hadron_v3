@@ -138,6 +138,9 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
 
       {/* Drop Zone */}
       <div
+        role="region"
+        aria-label="File upload area"
+        aria-busy={isAnalyzing}
         className={`
           relative border-2 border-dashed rounded-lg p-12 transition-all
           ${isDragging
@@ -223,13 +226,13 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
 
       {/* Paste Log Modal */}
       {showPasteModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="paste-modal-title">
           <div className="bg-gray-800 rounded-lg shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-hidden flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-700">
               <div className="flex items-center gap-3">
                 <ClipboardPaste className="w-6 h-6 text-purple-400" />
-                <h2 className="text-2xl font-bold">Paste Log Content</h2>
+                <h2 id="paste-modal-title" className="text-2xl font-bold">Paste Log Content</h2>
               </div>
               <button
                 onClick={() => {
@@ -237,6 +240,7 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
                   setPastedContent("");
                 }}
                 className="p-2 hover:bg-gray-700 rounded-lg transition"
+                aria-label="Close paste dialog"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -253,6 +257,7 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
                 placeholder="Paste your crash log here..."
                 className="w-full h-64 bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 font-mono text-sm focus:outline-none focus:border-purple-500 resize-none"
                 autoFocus
+                aria-label="Crash log content"
               />
               <p className="text-gray-500 text-sm mt-2">
                 {pastedContent.length} characters • {pastedContent.split('\n').length} lines
