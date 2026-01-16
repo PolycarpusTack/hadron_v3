@@ -14,6 +14,27 @@ import { getBooleanSetting } from '../utils/config';
 import { apiCache, CacheKeys } from './cache';
 import { getKeeperSecretForProvider } from './keeper';
 
+/**
+ * SECURITY: Sanitize error messages before exposing to UI
+ * Removes potentially sensitive information like paths, keys, stack traces
+ */
+function sanitizeErrorMessage(message: string): string {
+  if (!message) return 'Unknown error';
+
+  // Truncate long messages
+  let sanitized = message.length > 200 ? message.slice(0, 200) + '...' : message;
+
+  // Remove file paths (Unix and Windows)
+  sanitized = sanitized.replace(/\/[\w\-./]+/g, '[path]');
+  sanitized = sanitized.replace(/[A-Z]:\\[\w\-\\./]+/gi, '[path]');
+
+  // Remove anything that looks like an API key
+  sanitized = sanitized.replace(/sk-[a-zA-Z0-9]{10,}/g, '[key]');
+  sanitized = sanitized.replace(/api[_-]?key[=:]\s*\S+/gi, '[key]');
+
+  return sanitized;
+}
+
 // Extended AnalysisRequest with Keeper support
 interface AnalysisRequest {
   file_path: string;
@@ -331,8 +352,8 @@ export async function analyzeWithResilience(
     }
   }
 
-  // All providers failed
-  const errorSummary = errors.map(e => `${e.provider}: ${e.error}`).join('; ');
+  // All providers failed - SECURITY: sanitize error messages before exposing
+  const errorSummary = errors.map(e => `${e.provider}: ${sanitizeErrorMessage(e.error)}`).join('; ');
   throw new Error(`All AI providers failed. ${errorSummary}`);
 }
 
