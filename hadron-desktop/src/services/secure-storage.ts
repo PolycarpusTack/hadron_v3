@@ -9,16 +9,38 @@ import { Store } from '@tauri-apps/plugin-store';
 import logger from './logger';
 
 let store: Store | null = null;
+let storeInitPromise: Promise<Store> | null = null;
 
 /**
  * Get or create the encrypted store instance
+ * Uses a promise-based mutex to prevent race conditions during initialization
  */
 async function getStore(): Promise<Store> {
-  if (!store) {
-    // Store is automatically encrypted at rest by Tauri
-    store = await Store.load('settings.json');
+  // If store is already initialized, return it immediately
+  if (store) {
+    return store;
   }
-  return store;
+
+  // If initialization is in progress, wait for it
+  if (storeInitPromise) {
+    return storeInitPromise;
+  }
+
+  // Start initialization and store the promise to prevent concurrent init
+  storeInitPromise = (async () => {
+    try {
+      // Store is automatically encrypted at rest by Tauri
+      const newStore = await Store.load('settings.json');
+      store = newStore;
+      return newStore;
+    } catch (error) {
+      // Reset promise on error so retry is possible
+      storeInitPromise = null;
+      throw error;
+    }
+  })();
+
+  return storeInitPromise;
 }
 
 /**

@@ -151,8 +151,27 @@ pub async fn analyze_crash_log(
     log::info!("Starting crash analysis: file={}, provider={}, model={}, type={}",
         request.file_path, request.provider, request.model, request.analysis_type);
 
+    // SECURITY: Validate file path to prevent path traversal attacks
+    let file_path = std::path::Path::new(&request.file_path);
+    let canonical_path = std::fs::canonicalize(file_path)
+        .map_err(|e| format!("Invalid file path: {}", e))?;
+
+    // Block paths containing traversal patterns
+    let path_str = canonical_path.to_string_lossy();
+    if path_str.contains("..") {
+        return Err("Invalid file path: path traversal not allowed".to_string());
+    }
+
+    // Block access to sensitive system directories
+    let blocked_prefixes = ["/etc", "/var", "/usr", "/bin", "/sbin", "/root", "/sys", "/proc"];
+    for prefix in &blocked_prefixes {
+        if path_str.starts_with(prefix) {
+            return Err(format!("Access denied: cannot read files from {}", prefix));
+        }
+    }
+
     // SECURITY: Validate file size before reading to prevent memory exhaustion
-    let file_metadata = std::fs::metadata(&request.file_path)
+    let file_metadata = std::fs::metadata(&canonical_path)
         .map_err(|e| format!("Failed to access file: {}", e))?;
 
     if file_metadata.len() > MAX_CRASH_LOG_SIZE_BYTES {
@@ -163,8 +182,8 @@ pub async fn analyze_crash_log(
         ));
     }
 
-    // Read crash log file (size already validated)
-    let mut crash_content = std::fs::read_to_string(&request.file_path)
+    // Read crash log file (size already validated, path already canonicalized)
+    let mut crash_content = std::fs::read_to_string(&canonical_path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
     // Optionally redact PII before sending to AI providers
@@ -195,10 +214,8 @@ pub async fn analyze_crash_log(
 
     log::debug!("AI analysis completed successfully: file={}", request.file_path);
 
-    // Get file size
-    let file_size_kb = std::fs::metadata(&request.file_path)
-        .map(|m| m.len() as f64 / 1024.0)
-        .unwrap_or(0.0);
+    // Get file size (reuse already-fetched metadata)
+    let file_size_kb = file_metadata.len() as f64 / 1024.0;
 
     // Create analysis with all new fields
     let analysis = Analysis {

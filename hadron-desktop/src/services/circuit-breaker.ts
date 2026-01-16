@@ -84,41 +84,57 @@ function shouldReset(breaker: CircuitState): boolean {
 
 /**
  * Record success for a provider
+ * NOTE: Updates are atomic in JavaScript's single-threaded event loop,
+ * but we use Object.assign for clarity and to batch all updates together.
  */
 function recordSuccess(provider: string): void {
   const breaker = getBreaker(provider);
-  breaker.successes++;
-  breaker.totalCalls++;
-  breaker.lastSuccessTime = Date.now();
+  const wasOpen = breaker.isOpen;
 
-  if (breaker.isOpen) {
-    breaker.isOpen = false;
+  // Batch all updates together for atomic modification
+  Object.assign(breaker, {
+    successes: breaker.successes + 1,
+    totalCalls: breaker.totalCalls + 1,
+    lastSuccessTime: Date.now(),
+    isOpen: false,  // Always close on success
+  });
+
+  if (wasOpen) {
     logger.info('Circuit breaker CLOSED - recovered', { provider });
   }
 }
 
 /**
  * Record failure for a provider
+ * NOTE: Updates are atomic in JavaScript's single-threaded event loop,
+ * but we use Object.assign for clarity and to batch all updates together.
  */
 function recordFailure(provider: string): void {
   const breaker = getBreaker(provider);
-  breaker.failures++;
-  breaker.totalCalls++;
-  breaker.lastFailureTime = Date.now();
 
-  // Check if we should open the circuit
-  if (breaker.totalCalls >= CIRCUIT_OPTIONS.volumeThreshold) {
-    const errorRate = (breaker.failures / breaker.totalCalls) * 100;
+  // Calculate new values before mutation
+  const newFailures = breaker.failures + 1;
+  const newTotalCalls = breaker.totalCalls + 1;
+  const errorRate = (newFailures / newTotalCalls) * 100;
+  const shouldOpen = newTotalCalls >= CIRCUIT_OPTIONS.volumeThreshold &&
+                     errorRate >= CIRCUIT_OPTIONS.errorThresholdPercentage &&
+                     !breaker.isOpen;
 
-    if (errorRate >= CIRCUIT_OPTIONS.errorThresholdPercentage && !breaker.isOpen) {
-      breaker.isOpen = true;
-      logger.warn('Circuit breaker OPENED - too many failures', {
-        provider,
-        errorRate: errorRate.toFixed(1),
-        failures: breaker.failures,
-        total: breaker.totalCalls
-      });
-    }
+  // Batch all updates together for atomic modification
+  Object.assign(breaker, {
+    failures: newFailures,
+    totalCalls: newTotalCalls,
+    lastFailureTime: Date.now(),
+    isOpen: shouldOpen ? true : breaker.isOpen,
+  });
+
+  if (shouldOpen) {
+    logger.warn('Circuit breaker OPENED - too many failures', {
+      provider,
+      errorRate: errorRate.toFixed(1),
+      failures: newFailures,
+      total: newTotalCalls
+    });
   }
 }
 
