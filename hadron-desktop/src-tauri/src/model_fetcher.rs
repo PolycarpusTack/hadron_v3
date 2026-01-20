@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Model {
@@ -30,7 +30,10 @@ pub async fn list_models(provider: &str, api_key: &str) -> Result<Vec<Model>, St
 }
 
 /// Test API connection by attempting to list models
-pub async fn test_connection(provider: &str, api_key: &str) -> Result<ConnectionTestResult, String> {
+pub async fn test_connection(
+    provider: &str,
+    api_key: &str,
+) -> Result<ConnectionTestResult, String> {
     match list_models(provider, api_key).await {
         Ok(models) => Ok(ConnectionTestResult {
             success: true,
@@ -72,38 +75,114 @@ async fn list_openai_models(client: &Client, api_key: &str) -> Result<Vec<Model>
         .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
-    // Filter to chat-capable models
-    let filtered_models: Vec<Model> = models_response.data
+    // Filter to models suitable for code analysis
+    // Prioritize: GPT-4 variants, o1/o3 reasoning models, GPT-4o
+    // Exclude: embeddings, audio, vision-only, realtime, fine-tuned, GPT-3.5 (too weak)
+    let filtered_models: Vec<Model> = models_response
+        .data
         .into_iter()
         .filter(|m| {
-            m.id.starts_with("gpt-") &&
-            !m.id.contains("instruct") &&
-            !m.id.contains("embedding") &&
-            !m.id.contains("audio") &&
-            !m.id.contains("tts") &&
-            !m.id.contains("whisper")
+            let id = m.id.to_lowercase();
+
+            // Must be a GPT or reasoning model
+            let is_gpt = id.starts_with("gpt-4") || id.starts_with("gpt-5");
+            let is_reasoning = id.starts_with("o1") || id.starts_with("o3");
+
+            // Exclude non-coding models
+            let excluded = id.contains("instruct") ||
+                id.contains("embedding") ||
+                id.contains("audio") ||
+                id.contains("tts") ||
+                id.contains("whisper") ||
+                id.contains("realtime") ||
+                id.contains("vision") ||
+                id.contains("dall") ||
+                id.contains("search") ||
+                id.starts_with("ft:") ||  // Fine-tuned models
+                id.starts_with("gpt-3"); // GPT-3.5 too weak for code analysis
+
+            (is_gpt || is_reasoning) && !excluded
         })
         .map(|m| {
-            let context = if m.id.contains("gpt-4-turbo") || m.id.contains("gpt-5") {
+            let id_lower = m.id.to_lowercase();
+
+            // Determine context window
+            let context = if id_lower.contains("gpt-4-turbo")
+                || id_lower.contains("gpt-4o")
+                || id_lower.contains("gpt-5")
+                || id_lower.contains("gpt-4.1")
+                || id_lower.starts_with("o1")
+                || id_lower.starts_with("o3")
+            {
                 Some(128000)
-            } else if m.id.contains("gpt-4") {
+            } else if id_lower.contains("gpt-4-32k") {
+                Some(32768)
+            } else if id_lower.contains("gpt-4") {
                 Some(8192)
-            } else if m.id.contains("gpt-3.5-turbo") {
-                Some(16384)
             } else {
-                None
+                Some(128000) // Default for newer models
+            };
+
+            // Categorize for UI display
+            let category = if id_lower.starts_with("o1") || id_lower.starts_with("o3") {
+                "reasoning" // Best for complex analysis
+            } else if id_lower.contains("gpt-4o") {
+                "fast" // Fast and capable
+            } else if id_lower.contains("gpt-4-turbo") || id_lower.contains("gpt-4.1") {
+                "recommended" // Best balance
+            } else if id_lower.contains("gpt-5") {
+                "latest"
+            } else {
+                "standard"
             };
 
             Model {
                 id: m.id.clone(),
-                label: format_model_label(&m.id),
+                label: format_openai_model_label(&m.id),
                 context,
-                category: Some("chat".to_string()),
+                category: Some(category.to_string()),
             }
         })
         .collect();
 
-    Ok(filtered_models)
+    // Sort: recommended first, then by name
+    let mut sorted = filtered_models;
+    sorted.sort_by(|a, b| {
+        let cat_order = |cat: &Option<String>| match cat.as_deref() {
+            Some("recommended") => 0,
+            Some("latest") => 1,
+            Some("reasoning") => 2,
+            Some("fast") => 3,
+            _ => 4,
+        };
+        cat_order(&a.category)
+            .cmp(&cat_order(&b.category))
+            .then_with(|| b.id.cmp(&a.id)) // Newer versions first (descending)
+    });
+
+    Ok(sorted)
+}
+
+/// Format OpenAI model ID to friendly label with category hint
+fn format_openai_model_label(id: &str) -> String {
+    let id_lower = id.to_lowercase();
+
+    // Add category suffix for clarity
+    let suffix = if id_lower.starts_with("o1") || id_lower.starts_with("o3") {
+        " (Reasoning)"
+    } else if id_lower.contains("gpt-4o") && !id_lower.contains("mini") {
+        " (Fast)"
+    } else if id_lower.contains("gpt-4o-mini") {
+        " (Fast/Cheap)"
+    } else if id_lower.contains("gpt-4-turbo") || id_lower.contains("gpt-4.1") {
+        " (Recommended)"
+    } else if id_lower.contains("gpt-5") {
+        " (Latest)"
+    } else {
+        ""
+    };
+
+    format!("{}{}", format_model_label(id), suffix)
 }
 
 async fn list_anthropic_models(client: &Client, api_key: &str) -> Result<Vec<Model>, String> {
@@ -140,7 +219,8 @@ async fn list_anthropic_models(client: &Client, api_key: &str) -> Result<Vec<Mod
         return Ok(get_anthropic_fallback_models());
     }
 
-    let filtered_models: Vec<Model> = models_response.data
+    let filtered_models: Vec<Model> = models_response
+        .data
         .into_iter()
         .filter(|m| m.id.starts_with("claude-"))
         .map(|m| Model {
@@ -219,7 +299,8 @@ async fn list_zai_models(client: &Client, api_key: &str) -> Result<Vec<Model>, S
 
     match models_response {
         Ok(resp) => {
-            let filtered_models: Vec<Model> = resp.data
+            let filtered_models: Vec<Model> = resp
+                .data
                 .into_iter()
                 .filter(|m| m.id.starts_with("glm-"))
                 .map(|m| Model {
@@ -235,7 +316,7 @@ async fn list_zai_models(client: &Client, api_key: &str) -> Result<Vec<Model>, S
             } else {
                 Ok(filtered_models)
             }
-        },
+        }
         Err(_) => Ok(get_zai_fallback_models()),
     }
 }
@@ -302,7 +383,8 @@ async fn list_ollama_models(client: &Client) -> Result<Vec<Model>, String> {
         .await
         .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
 
-    let models = body.models
+    let models = body
+        .models
         .into_iter()
         .map(|m| Model {
             id: m.name.clone(),

@@ -8,11 +8,11 @@
 //! - Tokens are never logged or exposed to frontend
 //! - All API calls use HTTPS
 
+use base64::Engine;
+use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use once_cell::sync::Lazy;
-use base64::Engine;
 
 /// HTTP client with connection pooling
 static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
@@ -24,6 +24,7 @@ static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
 
 /// JIRA ticket creation request
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct JiraTicketRequest {
     pub summary: String,
     pub description: String,
@@ -140,7 +141,10 @@ pub async fn test_jira_connection(
 
         Ok(JiraTestResponse {
             success: true,
-            message: format!("Connected successfully. Found {} projects.", project_infos.len()),
+            message: format!(
+                "Connected successfully. Found {} projects.",
+                project_infos.len()
+            ),
             projects: Some(project_infos),
         })
     } else if status == reqwest::StatusCode::UNAUTHORIZED {
@@ -159,7 +163,11 @@ pub async fn test_jira_connection(
         let error_text = response.text().await.unwrap_or_default();
         Ok(JiraTestResponse {
             success: false,
-            message: format!("Connection failed (HTTP {}): {}", status.as_u16(), error_text),
+            message: format!(
+                "Connection failed (HTTP {}): {}",
+                status.as_u16(),
+                error_text
+            ),
             projects: None,
         })
     }
@@ -243,17 +251,18 @@ pub async fn create_jira_ticket(
         let error_body = response.text().await.unwrap_or_default();
 
         // Try to parse JIRA error response
-        let error_message = if let Ok(jira_error) = serde_json::from_str::<JiraErrorResponse>(&error_body) {
-            if let Some(messages) = jira_error.error_messages {
-                messages.join(", ")
-            } else if let Some(errors) = jira_error.errors {
-                errors.to_string()
+        let error_message =
+            if let Ok(jira_error) = serde_json::from_str::<JiraErrorResponse>(&error_body) {
+                if let Some(messages) = jira_error.error_messages {
+                    messages.join(", ")
+                } else if let Some(errors) = jira_error.errors {
+                    errors.to_string()
+                } else {
+                    error_body.clone()
+                }
             } else {
-                error_body.clone()
-            }
-        } else {
-            error_body
-        };
+                error_body
+            };
 
         log::error!("JIRA ticket creation failed: {}", error_message);
 

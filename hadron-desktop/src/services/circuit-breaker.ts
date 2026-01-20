@@ -35,7 +35,7 @@ function sanitizeErrorMessage(message: string): string {
   return sanitized;
 }
 
-// Extended AnalysisRequest with Keeper support
+// Extended AnalysisRequest with Keeper support and token-safe analysis
 interface AnalysisRequest {
   file_path: string;
   api_key: string;
@@ -44,11 +44,13 @@ interface AnalysisRequest {
   analysis_type: string;
   redact_pii?: boolean;
   keeper_secret_uid?: string;
+  // Token-safe analysis mode: "quick" | "deep_scan" | "auto"
+  analysis_mode?: string;
 }
 
 // Circuit breaker configuration
 const CIRCUIT_OPTIONS = {
-  timeout: 20000,               // 20s timeout - fail fast for better UX (was 60s)
+  timeout: 120000,              // 120s timeout - large file analysis can take 30-60+ seconds
   errorThresholdPercentage: 50, // Open circuit at 50% error rate
   resetTimeout: 60000,          // Try again after 1 minute
   volumeThreshold: 3,           // Need minimum 3 requests to calculate error rate
@@ -228,6 +230,7 @@ function defaultModelForProvider(provider: string, currentModel: string): string
  * @param model - AI model to use
  * @param preferredProvider - User's preferred provider
  * @param analysisType - Type of analysis ("complete" or "specialized")
+ * @param analysisMode - Token-safe analysis mode ("quick", "deep_scan", or "auto")
  * @returns Analysis result from the first successful provider
  * @throws Error if all providers fail
  */
@@ -236,7 +239,8 @@ export async function analyzeWithResilience(
   apiKey: string,
   model: string,
   preferredProvider: string,
-  analysisType: string = "complete"
+  analysisType: string = "complete",
+  analysisMode: string = "auto"
 ): Promise<AnalysisResponse> {
 
   // Build fallback chain: preferred → alternatives
@@ -307,6 +311,7 @@ export async function analyzeWithResilience(
         analysis_type: analysisType,
         redact_pii: redactPii,
         keeper_secret_uid: keeperSecretUid || undefined,
+        analysis_mode: analysisMode,
       };
 
       if (keeperSecretUid) {

@@ -100,11 +100,17 @@ export async function storeSetting(key: string, value: string | number | boolean
 
 /**
  * Get a setting
+ * Note: Properly handles falsy default values like false, 0, or empty string
  */
 export async function getSetting<T = string>(key: string, defaultValue?: T): Promise<T | null> {
   const s = await getStore();
   const value = await s.get<T>(key);
-  return value !== null && value !== undefined ? value : (defaultValue || null);
+  // FIX: Use strict undefined check to preserve falsy defaults like false, 0, ''
+  if (value !== null && value !== undefined) {
+    return value;
+  }
+  // Return defaultValue if provided (even if falsy), otherwise null
+  return defaultValue !== undefined ? defaultValue : null;
 }
 
 /**

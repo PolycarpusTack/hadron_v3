@@ -42,7 +42,9 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
 
       return {
         available: false,
-        currentVersion: '1.0.0', // Fallback to package version
+        // Note: When no update is available, we don't have access to currentVersion
+        // from the check() response, so we indicate unknown. The UI should handle this.
+        currentVersion: 'unknown',
       };
     }
   } catch (error) {
@@ -81,7 +83,10 @@ export async function downloadAndInstall(
           break;
         case 'Progress':
           downloaded += event.data.chunkLength;
-          const progress = Math.round((downloaded / contentLength) * 100);
+          // SECURITY: Guard against division by zero when contentLength is 0 or unknown
+          const progress = contentLength > 0
+            ? Math.round((downloaded / contentLength) * 100)
+            : 0;
           console.log(`⬇️  Progress: ${progress}%`);
           if (onProgress) {
             onProgress(downloaded, contentLength);

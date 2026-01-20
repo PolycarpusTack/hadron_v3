@@ -1,0 +1,98 @@
+# Collection-related crash patterns
+
+[[pattern]]
+id = "COLL-001"
+name = "OrderedCollection Index Out of Bounds"
+description = "Accessing an OrderedCollection at an invalid index"
+category = "collection_error"
+priority = 60
+enabled = true
+tags = ["collection", "ordered_collection", "index"]
+
+[pattern.matchers]
+exception_type = "SubscriptOutOfBounds"
+stack_contains_any = ["OrderedCollection>>at:", "OrderedCollection>>at:put:"]
+
+[pattern.matchers.context]
+receiver_class = { contains = "OrderedCollection" }
+receiver_is_collection = true
+
+[pattern.analysis]
+root_cause = "Code accessed OrderedCollection at index beyond lastIndex"
+root_cause_plain = "The system tried to access an item in a list at a position that doesn't exist"
+severity = "high"
+data_at_risk = false
+fix_summary = "Validate index before access or use #at:ifAbsent:"
+fix_code_hints = [
+    "Replace: collection at: index",
+    "With: collection at: index ifAbsent: [defaultValue]"
+]
+workarounds = []
+affected_features = []
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "COLL-002"
+name = "Dictionary Key Not Found"
+description = "Accessing a Dictionary with a key that doesn't exist"
+category = "collection_error"
+priority = 55
+enabled = true
+tags = ["collection", "dictionary", "key"]
+
+[pattern.matchers]
+exception_type = "KeyNotFound"
+stack_contains_any = ["Dictionary>>at:", "IdentityDictionary>>at:"]
+
+[pattern.analysis]
+root_cause = "Dictionary lookup with non-existent key"
+root_cause_plain = "The system tried to look up a value using a key that isn't in the dictionary"
+severity = "medium"
+data_at_risk = false
+fix_summary = "Use #at:ifAbsent: or check #includesKey: first"
+fix_code_hints = [
+    "Replace: dict at: key",
+    "With: dict at: key ifAbsent: [nil]"
+]
+workarounds = []
+affected_features = []
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "COLL-003"
+name = "Empty Collection Access"
+description = "Attempting to access first/last element of empty collection"
+category = "collection_error"
+priority = 55
+enabled = true
+tags = ["collection", "empty", "first", "last"]
+
+[pattern.matchers]
+exception_type = "SubscriptOutOfBounds"
+stack_contains_any = ["Collection>>first", "Collection>>last", "OrderedCollection>>first", "OrderedCollection>>last"]
+
+[pattern.matchers.context]
+receiver_is_collection = true
+collection_size = "empty"
+
+[pattern.analysis]
+root_cause = "Code accessed first/last element of an empty collection"
+root_cause_plain = "The system tried to get the first or last item from an empty list"
+severity = "medium"
+data_at_risk = false
+fix_summary = "Check if collection is empty before accessing first/last"
+fix_code_hints = [
+    "Add: collection isEmpty ifTrue: [^nil]",
+    "Or use: collection ifEmpty: [^nil] ifNotEmpty: [:c | c first]"
+]
+workarounds = []
+affected_features = []
+
+[pattern.versioning]
+pattern_version = "1.0.0"

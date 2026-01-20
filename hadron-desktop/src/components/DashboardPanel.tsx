@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { X, Activity } from "lucide-react";
+import { X, Activity, Database, ChevronDown, ChevronRight } from "lucide-react";
 import type { Analysis, DatabaseStatistics } from "../services/api";
 import { getAnalysesForDashboard, getDatabaseStatistics } from "../services/api";
 import { aggregateByField, countLast7Days, findSimilarAnalyses, formatDate } from "../utils/dashboard";
+import PatternBrowser from "./PatternBrowser";
 
 interface DashboardPanelProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ export default function DashboardPanel({ isOpen, onClose, onOpenAnalysis }: Dash
   const [selectedBaseId, setSelectedBaseId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPatternBrowser, setShowPatternBrowser] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -302,6 +304,32 @@ export default function DashboardPanel({ isOpen, onClose, onOpenAnalysis }: Dash
               </div>
             </div>
           )}
+
+          {/* Pattern Browser */}
+          <div>
+            <button
+              onClick={() => setShowPatternBrowser(!showPatternBrowser)}
+              className="flex items-center justify-between w-full text-left"
+            >
+              <div className="flex items-center gap-2">
+                <Database className="w-5 h-5 text-blue-400" />
+                <h3 className="text-lg font-semibold">Known Patterns</h3>
+              </div>
+              {showPatternBrowser ? (
+                <ChevronDown className="w-5 h-5 text-gray-400" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-gray-400" />
+              )}
+            </button>
+            <p className="text-sm text-gray-400 mt-1 mb-3">
+              Browse and filter crash patterns used for automatic detection
+            </p>
+            {showPatternBrowser && (
+              <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-4">
+                <PatternBrowser />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -21,22 +21,67 @@ let logBuffer: LogEntry[] = [];
 let logIdCounter = 0;
 let logChangeListeners: (() => void)[] = [];
 
-// Helper function to sanitize sensitive data
-function sanitize(data: any): any {
-  if (typeof data !== 'object' || data === null) {
+// Sensitive key patterns to redact
+const SENSITIVE_KEY_PATTERNS = ['apikey', 'api_key', 'password', 'token', 'secret', 'authorization', 'credential', 'bearer'];
+
+// Sensitive value patterns (e.g., OpenAI API keys)
+const SENSITIVE_VALUE_PATTERNS = [
+  /^sk-[A-Za-z0-9]{10,}/, // OpenAI/Anthropic API keys
+  /^Bearer\s+.+/i,        // Bearer tokens
+];
+
+/**
+ * Deep recursive sanitization of sensitive data in log metadata
+ * Handles nested objects and arrays to prevent API key leakage
+ */
+function sanitize(data: any, depth: number = 0): any {
+  // Prevent infinite recursion on deeply nested or circular structures
+  const MAX_DEPTH = 10;
+  if (depth > MAX_DEPTH) {
+    return '[MAX_DEPTH_EXCEEDED]';
+  }
+
+  // Handle null/undefined
+  if (data === null || data === undefined) {
     return data;
   }
 
-  const sanitized = { ...data };
-  const sensitiveKeys = ['apiKey', 'api_key', 'password', 'token', 'secret'];
-
-  for (const key of Object.keys(sanitized)) {
-    if (sensitiveKeys.some(sk => key.toLowerCase().includes(sk))) {
-      sanitized[key] = '***REDACTED***';
+  // Handle strings - check for sensitive value patterns
+  if (typeof data === 'string') {
+    for (const pattern of SENSITIVE_VALUE_PATTERNS) {
+      if (pattern.test(data)) {
+        return '***REDACTED***';
+      }
     }
+    return data;
   }
 
-  return sanitized;
+  // Handle arrays - recursively sanitize each element
+  if (Array.isArray(data)) {
+    return data.map(item => sanitize(item, depth + 1));
+  }
+
+  // Handle objects - recursively sanitize
+  if (typeof data === 'object') {
+    const sanitized: Record<string, any> = {};
+
+    for (const key of Object.keys(data)) {
+      const lowerKey = key.toLowerCase();
+
+      // Check if key matches sensitive patterns
+      if (SENSITIVE_KEY_PATTERNS.some(pattern => lowerKey.includes(pattern))) {
+        sanitized[key] = '***REDACTED***';
+      } else {
+        // Recursively sanitize nested values
+        sanitized[key] = sanitize(data[key], depth + 1);
+      }
+    }
+
+    return sanitized;
+  }
+
+  // Return primitives (numbers, booleans) as-is
+  return data;
 }
 
 // Add log entry to buffer

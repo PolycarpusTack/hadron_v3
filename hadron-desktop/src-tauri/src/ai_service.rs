@@ -1,7 +1,14 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use log;
 use std::time::Duration;
+
+use crate::deep_scan::{ChunkAnalysis, DeepScanRunner};
+use crate::evidence_extractor::{EvidenceExtractor, ExtractionConfig};
+use crate::token_budget::{AnalysisStrategy, BudgetAnalysis, TokenBudgeter};
+
+// ============================================================================
+// Analysis Result with Token-Safe Metadata
+// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnalysisResult {
@@ -17,6 +24,121 @@ pub struct AnalysisResult {
     pub cost: f64,
     pub was_truncated: Option<bool>,
     pub analysis_duration_ms: Option<i32>,
+    /// Raw JSON response for WHATS'ON enhanced analyses
+    /// This contains the full structured analysis that can be parsed by the frontend
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_enhanced_json: Option<String>,
+    /// Token-safe analysis metadata
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analysis_meta: Option<AnalysisMeta>,
+}
+
+/// Metadata about the token-safe analysis process
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalysisMeta {
+    /// Analysis mode used
+    pub mode: AnalysisMode,
+    /// What was included in the analysis
+    pub coverage: AnalysisCoverage,
+    /// Token estimates
+    pub token_estimates: TokenEstimates,
+    /// Evidence extraction summary (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence_summary: Option<String>,
+    /// Number of chunks analyzed (for deep scan)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunks_analyzed: Option<usize>,
+}
+
+/// Analysis mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnalysisMode {
+    /// Single API call, content fit within budget
+    Quick,
+    /// Evidence extraction was used to reduce size
+    QuickWithExtraction,
+    /// Deep scan map-reduce was used
+    DeepScan,
+}
+
+/// What data was included in the analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalysisCoverage {
+    /// Structured crash data was included
+    pub structured_included: bool,
+    /// How walkback was included
+    pub walkback_coverage: WalkbackCoverage,
+    /// How DB sessions were included
+    pub db_sessions_coverage: DataCoverage,
+    /// How windows list was included
+    pub windows_coverage: DataCoverage,
+}
+
+/// How the walkback was covered
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WalkbackCoverage {
+    /// No walkback in source data
+    None,
+    /// Full walkback included
+    Full,
+    /// Preview + extracted evidence only
+    Preview,
+    /// Deep scanned via map-reduce
+    DeepScanned,
+}
+
+/// How a data section was covered
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DataCoverage {
+    /// Not present in source
+    None,
+    /// Fully included
+    Full,
+    /// Summarized/capped
+    Summarized,
+    /// Excluded due to budget
+    Excluded,
+}
+
+/// Token usage estimates
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenEstimates {
+    /// Estimated input tokens
+    pub estimated_input_tokens: u32,
+    /// Safe budget for input
+    pub budget_input_tokens: u32,
+    /// Reserved for output
+    pub reserve_output_tokens: u32,
+    /// Budget utilization (0.0-1.0+)
+    pub utilization: f32,
+}
+
+// ============================================================================
+// Analysis Request Configuration
+// ============================================================================
+
+/// Configuration for token-safe analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenSafeConfig {
+    /// Force a specific analysis mode (None = auto-select)
+    pub force_mode: Option<AnalysisMode>,
+    /// Maximum preview lines for extraction
+    pub max_preview_lines: usize,
+    /// Maximum matched lines for extraction
+    pub max_matched_lines: usize,
+    /// Enable deep scan fallback
+    pub enable_deep_scan: bool,
+}
+
+impl Default for TokenSafeConfig {
+    fn default() -> Self {
+        Self {
+            force_mode: None,
+            max_preview_lines: 300,
+            max_matched_lines: 200,
+            enable_deep_scan: true,
+        }
+    }
 }
 
 // ============================================================================
@@ -124,8 +246,67 @@ You provide COMPLETE, COMPREHENSIVE analysis in a structured 10-part format that
 const SPECIALIZED_ANALYSIS_SYSTEM_PROMPT: &str = "You are an expert VisualWorks Smalltalk developer specialized in deep crash log analysis.
 Perform multiple specialized analyses from different perspectives: patterns, recommendations, memory, database, performance, root cause, general, and basic.";
 
+// ============================================================================
+// WHATS'ON Enhanced Analysis Prompts
+// ============================================================================
+
+const WHATSON_SYSTEM_PROMPT: &str = r#"You are an expert VisualWorks Smalltalk developer with 20+ years of experience specializing in the WHATS'ON broadcast management system (MediaGeniX/Mediagenix).
+
+## Your Expertise
+
+### VisualWorks Smalltalk Runtime
+- Message-passing semantics, method lookup chains, and doesNotUnderstand: handling
+- Block closures, continuations, and non-local returns
+- Memory management: oldSpace, newSpace, perm space, and garbage collection
+- Process scheduling, semaphores, and shared queues
+- Exception handling: on:do:, ensure:, ifCurtailed:
+
+### WHATS'ON Domain Knowledge
+
+#### Namespace Conventions
+- **PSI.*** - Program Schedule Interface (core scheduling engine)
+- **BM.*** - Broadcast Management (transmission/playout)
+- **PL.*** - Playlist management and automation
+- **WOn.*** - WHATS'ON application framework
+- **EX.*** - External integrations and adapters
+- **Core.*** - Foundation classes and utilities
+
+#### Key Entities
+- **PSITxBlock** - Transmission block representing scheduled airtime
+- **BMProgramSegmentDurations** - Duration calculations for program segments
+- **BMScheduleEntry** - Individual schedule entries with timing constraints
+- **PLPlaylistItem** - Items in automation playlists
+- **PSIChannel** - Broadcast channel configuration
+- **BMAsRunLog** - As-run logging for compliance
+- **WOnTransaction** - Business transaction wrapper
+
+#### Critical Subsystems
+- **Schedule Engine** - Real-time schedule optimization
+- **Duration Calculator** - Frame-accurate timing (handles drop-frame, PAL/NTSC)
+- **Conflict Resolver** - Schedule conflict detection and resolution
+- **Playlist Generator** - Automated playlist creation from schedules
+- **Rights Validator** - Content rights and holdback checking
+- **Integration Hub** - Traffic, automation, and MAM system interfaces
+
+### Broadcast Domain
+- EPG (Electronic Program Guide) generation and distribution
+- Traffic and scheduling workflows (proposals, contracts, orders)
+- Automation system integration (playlist formats, event triggers)
+- Frame-accurate timing calculations (timecodes, durations, offsets)
+- Regulatory compliance (as-run logs, content ratings, accessibility)
+
+## Analysis Approach
+When analyzing crashes:
+1. Identify the exact failure point in the WHATS'ON class hierarchy
+2. Trace the business operation being performed (scheduling, playout, etc.)
+3. Consider database session state and Oracle-specific issues
+4. Evaluate memory pressure and object lifecycle
+5. Map technical errors to business impact
+6. Provide actionable fixes with code examples"#;
+
 fn get_complete_analysis_prompt(crash_content: &str) -> String {
-    format!(r#"Analyze this VisualWorks Smalltalk crash log with a COMPLETE, COMPREHENSIVE approach following a structured 10-part format.
+    format!(
+        r#"Analyze this VisualWorks Smalltalk crash log with a COMPLETE, COMPREHENSIVE approach following a structured 10-part format.
 
 CRASH LOG:
 {}
@@ -170,11 +351,14 @@ REQUIREMENTS:
 - Make analysis comprehensive and actionable
 - Use markdown formatting within the root_cause field
 
-IMPORTANT: Return ONLY valid JSON, no additional text outside the JSON structure."#, crash_content)
+IMPORTANT: Return ONLY valid JSON, no additional text outside the JSON structure."#,
+        crash_content
+    )
 }
 
 fn get_specialized_analysis_prompt(crash_content: &str) -> String {
-    format!(r#"Analyze this VisualWorks Smalltalk crash log using SPECIALIZED ANALYSES SUITE - perform ALL 8 analyses from different perspectives.
+    format!(
+        r#"Analyze this VisualWorks Smalltalk crash log using SPECIALIZED ANALYSES SUITE - perform ALL 8 analyses from different perspectives.
 
 CRASH LOG:
 {}
@@ -268,27 +452,236 @@ REQUIREMENTS FOR ALL ANALYSES:
 - Use markdown formatting in root_cause field
 - Make each analysis actionable and specific
 
-IMPORTANT: Return ONLY valid JSON with all 8 analyses in the root_cause field."#, crash_content)
+IMPORTANT: Return ONLY valid JSON with all 8 analyses in the root_cause field."#,
+        crash_content
+    )
+}
+
+fn get_whatson_analysis_prompt(crash_content: &str) -> String {
+    format!(
+        r#"Analyze this WHATS'ON/VisualWorks Smalltalk crash log and provide a comprehensive structured analysis.
+
+CRASH LOG:
+{}
+
+═══════════════════════════════════════════════════════════════════
+WHATS'ON ENHANCED ANALYSIS - STRUCTURED OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════
+
+Analyze the crash log and return a JSON object with the following structure.
+Be thorough and specific. Use your knowledge of WHATS'ON namespaces (PSI.*, BM.*, PL.*, WOn.*, EX.*) and broadcast domain.
+
+OUTPUT FORMAT (JSON):
+{{
+  "summary": {{
+    "title": "Brief descriptive title of the crash (50 chars max)",
+    "severity": "critical|high|medium|low",
+    "category": "scheduling|playout|database|memory|integration|ui|rights|timing|other",
+    "confidence": "high|medium|low",
+    "affectedWorkflow": "Brief description of the business workflow affected"
+  }},
+  "rootCause": {{
+    "technical": "Detailed technical explanation of why the crash occurred",
+    "plainEnglish": "Non-technical explanation suitable for business users",
+    "affectedMethod": "ClassName>>methodName where the error originated",
+    "affectedModule": "WHATS'ON module/namespace affected (e.g., PSI.ScheduleEngine)",
+    "triggerCondition": "What specific condition triggered this crash"
+  }},
+  "userScenario": {{
+    "description": "What the user was trying to accomplish",
+    "workflow": "The business workflow being executed (e.g., Schedule Publication)",
+    "steps": [
+      {{
+        "step": 1,
+        "action": "User action description",
+        "details": "Additional context",
+        "isCrashPoint": false
+      }},
+      {{
+        "step": 2,
+        "action": "Next action where crash occurred",
+        "details": "This is where the system failed",
+        "isCrashPoint": true
+      }}
+    ],
+    "expectedResult": "What should have happened",
+    "actualResult": "What actually happened (the crash)",
+    "reproductionLikelihood": "always|often|sometimes|rarely|unknown"
+  }},
+  "suggestedFix": {{
+    "summary": "One-line summary of the recommended fix",
+    "reasoning": "Why this fix addresses the root cause",
+    "explanation": "Detailed explanation of the fix approach",
+    "codeChanges": [
+      {{
+        "file": "ClassName or method location",
+        "description": "What needs to change",
+        "before": "Problematic code snippet (if identifiable)",
+        "after": "Suggested fix code",
+        "priority": "P0|P1|P2"
+      }}
+    ],
+    "complexity": "simple|moderate|complex",
+    "estimatedEffort": "hours|days|weeks",
+    "riskLevel": "low|medium|high"
+  }},
+  "systemWarnings": [
+    {{
+      "source": "memory|database|process|network|configuration|other",
+      "severity": "critical|warning|info",
+      "title": "Short warning title",
+      "description": "Detailed warning description",
+      "recommendation": "What to do about this warning",
+      "contributedToCrash": true
+    }}
+  ],
+  "impactAnalysis": {{
+    "dataAtRisk": "none|low|moderate|high|critical",
+    "dataRiskDescription": "What data may have been affected",
+    "directlyAffected": [
+      {{
+        "feature": "Feature name",
+        "module": "Module name",
+        "description": "How it's affected",
+        "severity": "critical|high|medium|low"
+      }}
+    ],
+    "potentiallyAffected": [
+      {{
+        "feature": "Feature name",
+        "module": "Module name",
+        "description": "Why it might be affected",
+        "severity": "medium|low"
+      }}
+    ]
+  }},
+  "testScenarios": [
+    {{
+      "id": "TC001",
+      "name": "Test scenario name",
+      "priority": "P0|P1|P2",
+      "type": "regression|smoke|integration|unit",
+      "description": "What this test validates",
+      "steps": "Step by step test procedure",
+      "expectedResult": "Expected outcome",
+      "dataRequirements": "Test data needed"
+    }}
+  ],
+  "environment": {{
+    "application": {{
+      "version": "Extracted version if available",
+      "build": "Build info if available",
+      "configuration": "Relevant config details"
+    }},
+    "platform": {{
+      "os": "Operating system",
+      "memory": "Memory info if available",
+      "user": "Username if available"
+    }},
+    "database": {{
+      "type": "Oracle/other",
+      "connectionInfo": "Relevant connection details",
+      "sessionState": "Session state info if available"
+    }}
+  }},
+  "context": {{
+    "receiver": {{
+      "class": "Class name of the receiver object",
+      "state": "Known state of the receiver",
+      "description": "What this object represents"
+    }},
+    "arguments": [
+      {{
+        "name": "Argument name",
+        "value": "Argument value",
+        "type": "Argument type"
+      }}
+    ],
+    "relatedObjects": [
+      {{
+        "name": "Related object name",
+        "class": "Class",
+        "relationship": "How it relates to the crash"
+      }}
+    ]
+  }},
+  "memoryAnalysis": {{
+    "oldSpace": {{
+      "used": "Value if available",
+      "total": "Value if available",
+      "percentUsed": 0
+    }},
+    "newSpace": {{
+      "used": "Value if available",
+      "total": "Value if available",
+      "percentUsed": 0
+    }},
+    "permSpace": {{
+      "used": "Value if available",
+      "total": "Value if available",
+      "percentUsed": 0
+    }},
+    "warnings": ["Memory-related warnings"]
+  }},
+  "databaseAnalysis": {{
+    "connections": [
+      {{
+        "name": "Connection name",
+        "status": "Status",
+        "database": "Database name"
+      }}
+    ],
+    "activeSessions": [
+      {{
+        "id": "Session ID",
+        "status": "Status",
+        "lastOperation": "Last operation"
+      }}
+    ],
+    "warnings": ["Database-related warnings"],
+    "transactionState": "open|committed|rolled_back|unknown"
+  }},
+  "stackTrace": {{
+    "frames": [
+      {{
+        "index": 0,
+        "method": "ClassName>>methodName",
+        "type": "error|application|framework|library",
+        "isErrorOrigin": true,
+        "context": "Additional context for this frame"
+      }}
+    ],
+    "totalFrames": 0,
+    "errorFrame": "ClassName>>methodName where error originated"
+  }}
+}}
+
+IMPORTANT GUIDELINES:
+1. Extract as much information as possible from the crash log
+2. Use "unknown" or null for fields where information is not available
+3. Be specific about WHATS'ON classes and namespaces
+4. Provide actionable fixes with real Smalltalk code examples where possible
+5. Map technical issues to business impact
+6. Consider Oracle database specifics common in WHATS'ON deployments
+7. Return ONLY valid JSON, no additional text outside the JSON structure"#,
+        crash_content
+    )
 }
 
 // ============================================================================
 // Unified HTTP Client
 // ============================================================================
 
-/// Shared HTTP client with configured timeout
+/// Shared HTTP client with configured timeout (5 minutes for large crash logs)
 fn create_http_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
+        .timeout(Duration::from_secs(300))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 }
 
 /// Build request body for OpenAI-compatible APIs
-fn build_openai_request(
-    system_prompt: &str,
-    user_prompt: &str,
-    model: &str,
-) -> serde_json::Value {
+fn build_openai_request(system_prompt: &str, user_prompt: &str, model: &str) -> serde_json::Value {
     let is_gpt5 = model.starts_with("gpt-5") || model.starts_with("o1") || model.starts_with("o3");
 
     let mut body = json!({
@@ -326,11 +719,7 @@ fn build_anthropic_request(
 }
 
 /// Build request body for Ollama API
-fn build_ollama_request(
-    system_prompt: &str,
-    user_prompt: &str,
-    model: &str,
-) -> serde_json::Value {
+fn build_ollama_request(system_prompt: &str, user_prompt: &str, model: &str) -> serde_json::Value {
     json!({
         "model": model,
         "messages": [
@@ -360,9 +749,7 @@ fn extract_response(
                 .as_str()
                 .ok_or("No content in response")?
                 .to_string();
-            let tokens = response_data["usage"]["total_tokens"]
-                .as_i64()
-                .unwrap_or(0) as i32;
+            let tokens = response_data["usage"]["total_tokens"].as_i64().unwrap_or(0) as i32;
             Ok(ProviderResponse {
                 content,
                 tokens,
@@ -376,7 +763,9 @@ fn extract_response(
                 .ok_or("No content in response")?
                 .to_string();
             let input_tokens = response_data["usage"]["input_tokens"].as_i64().unwrap_or(0);
-            let output_tokens = response_data["usage"]["output_tokens"].as_i64().unwrap_or(0);
+            let output_tokens = response_data["usage"]["output_tokens"]
+                .as_i64()
+                .unwrap_or(0);
             Ok(ProviderResponse {
                 content,
                 tokens: (input_tokens + output_tokens) as i32,
@@ -400,10 +789,7 @@ fn extract_response(
 }
 
 /// Calculate cost based on provider's pricing model
-fn calculate_cost(
-    response: &ProviderResponse,
-    calculator: &CostCalculator,
-) -> f64 {
+fn calculate_cost(response: &ProviderResponse, calculator: &CostCalculator) -> f64 {
     match calculator {
         CostCalculator::Gpt4Turbo => (response.tokens as f64 / 1000.0) * 0.01,
         CostCalculator::Claude35Sonnet => {
@@ -446,7 +832,10 @@ async fn call_provider(
 
     // Check response status
     if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         return Err(format!("{} API error: {}", config.name, error_text));
     }
 
@@ -523,11 +912,93 @@ fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<Analysis
 
         match serde_json::from_str::<serde_json::Value>(json_str) {
             Ok(parsed) => {
+                // Check if this is a WHATS'ON enhanced analysis (has "summary" and "rootCause" objects)
+                let is_whatson_format =
+                    parsed.get("summary").is_some() && parsed.get("rootCause").is_some();
+
+                if is_whatson_format {
+                    // WHATS'ON Enhanced format - extract fields from the enhanced structure
+                    let summary = &parsed["summary"];
+                    let root_cause_obj = &parsed["rootCause"];
+                    let suggested_fix = &parsed["suggestedFix"];
+
+                    // Extract display-friendly root cause text
+                    let root_cause_text = root_cause_obj["plainEnglish"]
+                        .as_str()
+                        .or_else(|| root_cause_obj["technical"].as_str())
+                        .unwrap_or("See detailed analysis");
+
+                    // Extract suggested fixes from code changes
+                    let suggested_fixes: Vec<String> = suggested_fix["codeChanges"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|change| {
+                                    let priority = change["priority"].as_str().unwrap_or("P1");
+                                    let desc = change["description"].as_str()?;
+                                    Some(format!("{} - {}", priority, desc))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_else(|| {
+                            // Fallback: use the summary as a single fix
+                            suggested_fix["summary"]
+                                .as_str()
+                                .map(|s| vec![s.to_string()])
+                                .unwrap_or_default()
+                        });
+
+                    return Ok(AnalysisResult {
+                        error_type: summary["title"]
+                            .as_str()
+                            .unwrap_or("WHATS'ON Crash")
+                            .to_string(),
+                        error_message: summary["affectedWorkflow"].as_str().map(|s| s.to_string()),
+                        severity: summary["severity"]
+                            .as_str()
+                            .unwrap_or("medium")
+                            .to_lowercase(),
+                        root_cause: format!(
+                            "{}\n\n**Technical:** {}",
+                            root_cause_text,
+                            root_cause_obj["technical"].as_str().unwrap_or("")
+                        ),
+                        suggested_fixes,
+                        component: root_cause_obj["affectedModule"]
+                            .as_str()
+                            .map(|s| s.to_string()),
+                        stack_trace: parsed["stackTrace"]["errorFrame"]
+                            .as_str()
+                            .map(|s| s.to_string()),
+                        confidence: summary["confidence"]
+                            .as_str()
+                            .unwrap_or("medium")
+                            .to_string(),
+                        tokens_used: tokens,
+                        cost,
+                        was_truncated: Some(false),
+                        analysis_duration_ms: None,
+                        // Store the raw JSON for frontend parsing
+                        raw_enhanced_json: Some(json_str.to_string()),
+                        analysis_meta: None,
+                    });
+                }
+
+                // Standard format (complete/specialized analysis)
                 return Ok(AnalysisResult {
-                    error_type: parsed["error_type"].as_str().unwrap_or("Unknown").to_string(),
+                    error_type: parsed["error_type"]
+                        .as_str()
+                        .unwrap_or("Unknown")
+                        .to_string(),
                     error_message: parsed["error_message"].as_str().map(|s| s.to_string()),
-                    severity: parsed["severity"].as_str().unwrap_or("medium").to_lowercase(),
-                    root_cause: parsed["root_cause"].as_str().unwrap_or("Unable to determine root cause").to_string(),
+                    severity: parsed["severity"]
+                        .as_str()
+                        .unwrap_or("medium")
+                        .to_lowercase(),
+                    root_cause: parsed["root_cause"]
+                        .as_str()
+                        .unwrap_or("Unable to determine root cause")
+                        .to_string(),
                     suggested_fixes: parsed["suggested_fixes"]
                         .as_array()
                         .map(|arr| {
@@ -538,11 +1009,16 @@ fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<Analysis
                         .unwrap_or_default(),
                     component: parsed["component"].as_str().map(|s| s.to_string()),
                     stack_trace: parsed["stack_trace"].as_str().map(|s| s.to_string()),
-                    confidence: parsed["confidence"].as_str().unwrap_or("medium").to_string(),
+                    confidence: parsed["confidence"]
+                        .as_str()
+                        .unwrap_or("medium")
+                        .to_string(),
                     tokens_used: tokens,
                     cost,
                     was_truncated: Some(false),
                     analysis_duration_ms: None,
+                    raw_enhanced_json: None,
+                    analysis_meta: None,
                 });
             }
             Err(e) => {
@@ -570,7 +1046,33 @@ fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<Analysis
         cost,
         was_truncated: Some(false),
         analysis_duration_ms: None,
+        raw_enhanced_json: None,
+        analysis_meta: None,
     })
+}
+
+/// Helper to add analysis metadata to a result
+fn add_analysis_meta(
+    mut result: AnalysisResult,
+    mode: AnalysisMode,
+    coverage: AnalysisCoverage,
+    budget_analysis: &BudgetAnalysis,
+    evidence_summary: Option<String>,
+    chunks_analyzed: Option<usize>,
+) -> AnalysisResult {
+    result.analysis_meta = Some(AnalysisMeta {
+        mode,
+        coverage,
+        token_estimates: TokenEstimates {
+            estimated_input_tokens: budget_analysis.estimated_input_tokens,
+            budget_input_tokens: budget_analysis.safe_input_budget,
+            reserve_output_tokens: 6000, // Standard reserve
+            utilization: budget_analysis.utilization,
+        },
+        evidence_summary,
+        chunks_analyzed,
+    });
+    result
 }
 
 // ============================================================================
@@ -578,15 +1080,15 @@ fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<Analysis
 // ============================================================================
 
 /// Translate technical content to plain language using Ollama
-pub async fn translate_ollama(
-    content: &str,
-    model: &str,
-) -> Result<String, String> {
+pub async fn translate_ollama(content: &str, model: &str) -> Result<String, String> {
     let client = create_http_client();
 
     let system_prompt = "You are a technical translator. Convert complex technical content into clear, plain language that non-technical users can understand. Maintain accuracy while simplifying jargon and explaining concepts.";
 
-    let user_prompt = format!("Translate this technical content to plain language:\n\n{}", content);
+    let user_prompt = format!(
+        "Translate this technical content to plain language:\n\n{}",
+        content
+    );
 
     let request_body = build_ollama_request(system_prompt, &user_prompt, model);
 
@@ -596,10 +1098,18 @@ pub async fn translate_ollama(
         .json(&request_body)
         .send()
         .await
-        .map_err(|e| format!("Ollama translation request failed (is Ollama running?): {}", e))?;
+        .map_err(|e| {
+            format!(
+                "Ollama translation request failed (is Ollama running?): {}",
+                e
+            )
+        })?;
 
     if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         return Err(format!("Ollama translation error: {}", error_text));
     }
 
@@ -629,10 +1139,19 @@ pub async fn analyze_crash_log(
 ) -> Result<AnalysisResult, String> {
     let start_time = std::time::Instant::now();
 
-    let (system_prompt, user_prompt) = if analysis_type == "complete" {
-        (COMPLETE_ANALYSIS_SYSTEM_PROMPT, get_complete_analysis_prompt(crash_content))
-    } else {
-        (SPECIALIZED_ANALYSIS_SYSTEM_PROMPT, get_specialized_analysis_prompt(crash_content))
+    let (system_prompt, user_prompt) = match analysis_type {
+        "complete" => (
+            COMPLETE_ANALYSIS_SYSTEM_PROMPT,
+            get_complete_analysis_prompt(crash_content),
+        ),
+        "whatson" => (
+            WHATSON_SYSTEM_PROMPT,
+            get_whatson_analysis_prompt(crash_content),
+        ),
+        _ => (
+            SPECIALIZED_ANALYSIS_SYSTEM_PROMPT,
+            get_specialized_analysis_prompt(crash_content),
+        ),
     };
 
     let mut result = match provider.to_lowercase().as_str() {
@@ -640,11 +1159,388 @@ pub async fn analyze_crash_log(
         "anthropic" => call_anthropic(system_prompt, &user_prompt, api_key, model).await?,
         "zai" => call_zai(system_prompt, &user_prompt, api_key, model).await?,
         "ollama" => call_ollama(system_prompt, &user_prompt, model).await?,
-        _ => return Err(format!("Unknown provider: {}. Supported: openai, anthropic, zai, ollama", provider))
+        _ => {
+            return Err(format!(
+                "Unknown provider: {}. Supported: openai, anthropic, zai, ollama",
+                provider
+            ))
+        }
     };
 
     // Add analysis duration
     result.analysis_duration_ms = Some(start_time.elapsed().as_millis() as i32);
 
     Ok(result)
+}
+
+// ============================================================================
+// Token-Safe Analysis Entry Point
+// ============================================================================
+
+/// Analyze crash log with token budgeting to prevent context_length_exceeded errors.
+///
+/// This function:
+/// 1. Estimates token usage and selects optimal strategy
+/// 2. Uses evidence extraction for large inputs
+/// 3. Falls back to deep scan (map-reduce) for very large inputs
+///
+/// # Arguments
+/// * `crash_content` - The crash log content (may include raw walkback)
+/// * `raw_walkback` - Optional separate raw walkback text
+/// * `api_key` - API key for the provider
+/// * `model` - Model identifier
+/// * `provider` - Provider name (openai, anthropic, zai, ollama)
+/// * `analysis_type` - Type of analysis (complete, whatson, specialized)
+/// * `config` - Optional token-safe configuration
+pub async fn analyze_crash_log_safe(
+    crash_content: &str,
+    raw_walkback: Option<&str>,
+    api_key: &str,
+    model: &str,
+    provider: &str,
+    analysis_type: &str,
+    config: Option<TokenSafeConfig>,
+) -> Result<AnalysisResult, String> {
+    let start_time = std::time::Instant::now();
+    let config = config.unwrap_or_default();
+
+    // Initialize token budgeter
+    let budgeter = TokenBudgeter::new(model);
+
+    // Get system prompt to estimate its tokens
+    let system_prompt = match analysis_type {
+        "complete" => COMPLETE_ANALYSIS_SYSTEM_PROMPT,
+        "whatson" => WHATSON_SYSTEM_PROMPT,
+        _ => SPECIALIZED_ANALYSIS_SYSTEM_PROMPT,
+    };
+    let system_tokens = crate::token_budget::estimate_tokens(system_prompt);
+
+    // Analyze budget
+    let budget_analysis = budgeter.analyze(crash_content, raw_walkback, system_tokens);
+
+    log::info!(
+        "Token budget analysis: strategy={:?}, utilization={:.1}%, estimated={}, budget={}",
+        budget_analysis.strategy,
+        budget_analysis.utilization * 100.0,
+        budget_analysis.estimated_input_tokens,
+        budget_analysis.safe_input_budget
+    );
+
+    // Determine actual mode to use
+    // Note: DeepScan requires raw_walkback data; fall back to extraction if not available
+    let mode = config.force_mode.unwrap_or({
+        match budget_analysis.strategy {
+            AnalysisStrategy::SingleCall => AnalysisMode::Quick,
+            AnalysisStrategy::ExtractionRequired => AnalysisMode::QuickWithExtraction,
+            AnalysisStrategy::DeepScanRequired | AnalysisStrategy::InputTooLarge => {
+                if config.enable_deep_scan && raw_walkback.is_some() {
+                    AnalysisMode::DeepScan
+                } else {
+                    // Fall back to extraction if deep scan disabled or no raw walkback available
+                    AnalysisMode::QuickWithExtraction
+                }
+            }
+        }
+    });
+
+    // Execute based on mode
+    let mut result = match mode {
+        AnalysisMode::Quick => {
+            // Direct analysis - content fits
+            analyze_quick(
+                crash_content,
+                raw_walkback,
+                api_key,
+                model,
+                provider,
+                analysis_type,
+                &budget_analysis,
+            )
+            .await?
+        }
+        AnalysisMode::QuickWithExtraction => {
+            // Extract evidence to reduce size
+            analyze_with_extraction(
+                crash_content,
+                raw_walkback,
+                api_key,
+                model,
+                provider,
+                analysis_type,
+                &budget_analysis,
+                &config,
+            )
+            .await?
+        }
+        AnalysisMode::DeepScan => {
+            // Map-reduce for very large inputs - requires raw_walkback
+            if raw_walkback.is_some() {
+                analyze_deep_scan(
+                    crash_content,
+                    raw_walkback,
+                    api_key,
+                    model,
+                    provider,
+                    analysis_type,
+                    &budget_analysis,
+                    &config,
+                )
+                .await?
+            } else {
+                // Fall back to extraction if deep scan was forced but walkback not available
+                log::warn!(
+                    "DeepScan mode requested but raw_walkback not available, falling back to extraction"
+                );
+                analyze_with_extraction(
+                    crash_content,
+                    raw_walkback,
+                    api_key,
+                    model,
+                    provider,
+                    analysis_type,
+                    &budget_analysis,
+                    &config,
+                )
+                .await?
+            }
+        }
+    };
+
+    // Add analysis duration
+    result.analysis_duration_ms = Some(start_time.elapsed().as_millis() as i32);
+
+    Ok(result)
+}
+
+/// Quick analysis - content fits within budget
+async fn analyze_quick(
+    crash_content: &str,
+    raw_walkback: Option<&str>,
+    api_key: &str,
+    model: &str,
+    provider: &str,
+    analysis_type: &str,
+    budget_analysis: &BudgetAnalysis,
+) -> Result<AnalysisResult, String> {
+    // Combine content if walkback provided
+    let full_content = match raw_walkback {
+        Some(wb) => format!("{}\n\n--- RAW WALKBACK ---\n{}", crash_content, wb),
+        None => crash_content.to_string(),
+    };
+
+    // Run standard analysis
+    let result = analyze_crash_log(&full_content, api_key, model, provider, analysis_type).await?;
+
+    // Add metadata
+    let coverage = AnalysisCoverage {
+        structured_included: true,
+        walkback_coverage: if raw_walkback.is_some() {
+            WalkbackCoverage::Full
+        } else {
+            WalkbackCoverage::None
+        },
+        db_sessions_coverage: DataCoverage::Full,
+        windows_coverage: DataCoverage::Full,
+    };
+
+    Ok(add_analysis_meta(
+        result,
+        AnalysisMode::Quick,
+        coverage,
+        budget_analysis,
+        None,
+        None,
+    ))
+}
+
+/// Analysis with evidence extraction
+#[allow(clippy::too_many_arguments)]
+async fn analyze_with_extraction(
+    crash_content: &str,
+    raw_walkback: Option<&str>,
+    api_key: &str,
+    model: &str,
+    provider: &str,
+    analysis_type: &str,
+    budget_analysis: &BudgetAnalysis,
+    config: &TokenSafeConfig,
+) -> Result<AnalysisResult, String> {
+    // Extract evidence from walkback if present
+    let (evidence_pack, evidence_summary) = if let Some(wb) = raw_walkback {
+        let extractor = EvidenceExtractor::with_config(ExtractionConfig::with_caps(
+            config
+                .max_preview_lines
+                .min(budget_analysis.recommended_preview_lines),
+            config
+                .max_matched_lines
+                .min(budget_analysis.recommended_matched_lines),
+        ));
+        let pack = extractor.extract(wb);
+        let summary = pack.summary();
+        (Some(pack), Some(summary))
+    } else {
+        (None, None)
+    };
+
+    // Build prompt with evidence pack instead of full walkback
+    let prompt_content = match &evidence_pack {
+        Some(pack) => format!(
+            "{}\n\n--- EVIDENCE PACK (extracted from {} lines) ---\n{}",
+            crash_content,
+            pack.stats.total_lines,
+            pack.format_for_prompt()
+        ),
+        None => crash_content.to_string(),
+    };
+
+    // Run analysis
+    let result =
+        analyze_crash_log(&prompt_content, api_key, model, provider, analysis_type).await?;
+
+    // Add metadata
+    let coverage = AnalysisCoverage {
+        structured_included: true,
+        walkback_coverage: if evidence_pack.is_some() {
+            WalkbackCoverage::Preview
+        } else {
+            WalkbackCoverage::None
+        },
+        db_sessions_coverage: if budget_analysis.include_full_db_sessions {
+            DataCoverage::Full
+        } else {
+            DataCoverage::Summarized
+        },
+        windows_coverage: if budget_analysis.include_full_windows {
+            DataCoverage::Full
+        } else {
+            DataCoverage::Summarized
+        },
+    };
+
+    Ok(add_analysis_meta(
+        result,
+        AnalysisMode::QuickWithExtraction,
+        coverage,
+        budget_analysis,
+        evidence_summary,
+        None,
+    ))
+}
+
+/// Deep scan analysis with map-reduce
+#[allow(clippy::too_many_arguments)]
+async fn analyze_deep_scan(
+    crash_content: &str,
+    raw_walkback: Option<&str>,
+    api_key: &str,
+    model: &str,
+    provider: &str,
+    analysis_type: &str,
+    budget_analysis: &BudgetAnalysis,
+    config: &TokenSafeConfig,
+) -> Result<AnalysisResult, String> {
+    let walkback = raw_walkback.ok_or("Deep scan requires raw walkback data")?;
+
+    log::info!("Starting deep scan analysis with map-reduce pattern");
+
+    // Initialize components
+    let runner = DeepScanRunner::for_model(model);
+    let extractor = EvidenceExtractor::with_config(ExtractionConfig::with_caps(
+        config.max_preview_lines,
+        config.max_matched_lines,
+    ));
+
+    // Extract evidence for context
+    let evidence_pack = extractor.extract(walkback);
+    let evidence_summary = evidence_pack.summary();
+
+    // Prepare chunks
+    let chunks = runner.prepare_chunks(walkback);
+    log::info!("Deep scan: processing {} chunks", chunks.len());
+
+    // Map phase: analyze each chunk
+    let mut chunk_analyses = Vec::new();
+    for chunk in &chunks {
+        log::debug!("Analyzing chunk {}/{}", chunk.index + 1, chunk.total);
+
+        let (system_prompt, user_prompt) = runner.get_map_prompt(chunk);
+
+        // Call provider
+        let response = match provider.to_lowercase().as_str() {
+            "openai" => call_openai(&system_prompt, &user_prompt, api_key, model).await,
+            "anthropic" => call_anthropic(&system_prompt, &user_prompt, api_key, model).await,
+            "zai" => call_zai(&system_prompt, &user_prompt, api_key, model).await,
+            "ollama" => call_ollama(&system_prompt, &user_prompt, model).await,
+            _ => Err(format!("Unknown provider: {}", provider)),
+        };
+
+        match response {
+            Ok(result) => {
+                // Parse chunk result
+                match DeepScanRunner::parse_chunk_result(&result.root_cause, chunk.index) {
+                    Ok(analysis) => chunk_analyses.push(analysis),
+                    Err(e) => {
+                        log::warn!("Failed to parse chunk {} result: {}", chunk.index, e);
+                        // Create default analysis for failed chunk
+                        chunk_analyses.push(ChunkAnalysis {
+                            chunk_index: chunk.index,
+                            summary: format!("Analysis failed: {}", e),
+                            relevance_score: 1,
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Chunk {} analysis failed: {}", chunk.index, e);
+                chunk_analyses.push(ChunkAnalysis {
+                    chunk_index: chunk.index,
+                    summary: format!("API call failed: {}", e),
+                    relevance_score: 0,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+
+    // Filter low-relevance chunks for synthesis
+    let relevant_analyses = runner.filter_for_synthesis(chunk_analyses.clone());
+    log::info!(
+        "Deep scan: {} of {} chunks passed relevance filter",
+        relevant_analyses.len(),
+        chunk_analyses.len()
+    );
+
+    // Reduce phase: synthesize final result
+    let (system_prompt, user_prompt) = runner.get_reduce_prompt(
+        crash_content,
+        &evidence_pack,
+        &relevant_analyses,
+        analysis_type,
+    );
+
+    let result = match provider.to_lowercase().as_str() {
+        "openai" => call_openai(&system_prompt, &user_prompt, api_key, model).await?,
+        "anthropic" => call_anthropic(&system_prompt, &user_prompt, api_key, model).await?,
+        "zai" => call_zai(&system_prompt, &user_prompt, api_key, model).await?,
+        "ollama" => call_ollama(&system_prompt, &user_prompt, model).await?,
+        _ => return Err(format!("Unknown provider: {}", provider)),
+    };
+
+    // Add metadata
+    let coverage = AnalysisCoverage {
+        structured_included: true,
+        walkback_coverage: WalkbackCoverage::DeepScanned,
+        db_sessions_coverage: DataCoverage::Summarized,
+        windows_coverage: DataCoverage::Excluded,
+    };
+
+    Ok(add_analysis_meta(
+        result,
+        AnalysisMode::DeepScan,
+        coverage,
+        budget_analysis,
+        Some(evidence_summary),
+        Some(chunks.len()),
+    ))
 }

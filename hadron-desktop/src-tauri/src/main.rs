@@ -1,21 +1,36 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai_service;
 mod commands;
 mod database;
-mod migrations;
-mod python_runner;
-mod model_fetcher;
-mod ai_service;
-mod keeper_service;
+mod export;
 mod jira_service;
+mod keeper_service;
+mod migrations;
+mod model_fetcher;
+mod models;
+mod parser;
+mod patterns;
+mod python_runner;
+mod signature;
+// Token-safe analysis modules
+mod chunker;
+mod deep_scan;
+mod evidence_extractor;
+mod token_budget;
 
 use commands::*;
 use database::Database;
+use std::sync::{Arc, RwLock};
 
 fn main() {
-    // Initialize database
-    let db = Database::new().expect("Failed to initialize database");
+    // Initialize database wrapped in Arc for safe sharing across spawn_blocking tasks
+    let db = Arc::new(Database::new().expect("Failed to initialize database"));
+
+    // Initialize pattern engine with built-in patterns
+    let pattern_engine = patterns::create_pattern_engine(None);
+    let pattern_engine_state = PatternEngineState(RwLock::new(pattern_engine));
 
     tauri::Builder::default()
         .plugin(
@@ -23,12 +38,12 @@ fn main() {
                 .targets([
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
-                        file_name: Some("hadron".to_string())
+                        file_name: Some("hadron".to_string()),
                     }),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
                 .level(log::LevelFilter::Info)
-                .build()
+                .build(),
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -37,6 +52,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(db)
+        .manage(pattern_engine_state)
         .invoke_handler(tauri::generate_handler![
             analyze_crash_log,
             translate_content,
@@ -62,6 +78,47 @@ fn main() {
             get_translation_by_id,
             delete_translation,
             toggle_translation_favorite,
+            // Tag Management
+            create_tag,
+            update_tag,
+            delete_tag,
+            get_all_tags,
+            add_tag_to_analysis,
+            remove_tag_from_analysis,
+            get_tags_for_analysis,
+            add_tag_to_translation,
+            remove_tag_from_translation,
+            get_tags_for_translation,
+            // Advanced Filtering
+            get_analyses_filtered,
+            // Bulk Operations
+            bulk_delete_analyses,
+            bulk_delete_translations,
+            bulk_add_tag_to_analyses,
+            bulk_remove_tag_from_analyses,
+            bulk_set_favorite_analyses,
+            bulk_set_favorite_translations,
+            // Archive System
+            archive_analysis,
+            restore_analysis,
+            get_archived_analyses,
+            permanently_delete_analysis,
+            bulk_archive_analyses,
+            // Notes System
+            add_note_to_analysis,
+            update_note,
+            delete_note,
+            get_notes_for_analysis,
+            get_note_count,
+            analysis_has_notes,
+            // Translation Archive System
+            archive_translation,
+            restore_translation,
+            // Similar Crash Detection & Analytics
+            get_similar_analyses,
+            count_similar_analyses,
+            get_trend_data,
+            get_top_error_patterns,
             // Model Management
             list_models,
             test_connection,
@@ -75,7 +132,45 @@ fn main() {
             test_keeper_connection,
             // JIRA Integration
             test_jira_connection,
-            create_jira_ticket
+            create_jira_ticket,
+            // Crash Signatures
+            compute_crash_signature,
+            register_crash_signature,
+            get_signature_occurrences,
+            get_top_signatures,
+            update_signature_status,
+            link_ticket_to_signature,
+            // WCR Parser
+            parse_crash_file,
+            parse_crash_content,
+            parse_crash_files_batch,
+            // Known Patterns
+            match_patterns,
+            get_best_pattern_match,
+            list_patterns,
+            get_pattern_by_id,
+            reload_patterns,
+            quick_pattern_match,
+            // Report Export
+            generate_report,
+            get_export_formats,
+            get_audience_options,
+            preview_report,
+            // Sensitive Content Detection
+            check_sensitive_content,
+            sanitize_content,
+            // Pattern Filtering
+            get_patterns_by_category,
+            get_patterns_by_tag,
+            get_pattern_tags,
+            get_pattern_categories,
+            // Multi-Format Export
+            generate_report_multi,
+            // Database Admin
+            get_database_info,
+            // Performance Trace Analysis
+            analyze_performance_trace,
+            get_file_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

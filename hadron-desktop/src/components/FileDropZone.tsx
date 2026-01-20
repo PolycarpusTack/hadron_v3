@@ -1,20 +1,69 @@
-import { useState, useCallback } from "react";
-import { Upload, FileText, Loader2, ClipboardPaste, X } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { Upload, FileText, Loader2, ClipboardPaste, X, Clock, AlertTriangle, AlertCircle, Info, Zap, Search, Settings2 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import logger from "../services/logger";
+import type { Analysis, AnalysisMode } from "../services/api";
+import { formatDistanceToNow } from "date-fns";
+import AnalysisProgressBar from "./AnalysisProgressBar";
 
 interface FileDropZoneProps {
-  onFileSelect: (filePath: string, analysisType: string) => void;
-  onBatchSelect?: (filePaths: string[], analysisType: string) => void;
+  onFileSelect: (filePath: string, analysisType: string, analysisMode: AnalysisMode) => void;
+  onBatchSelect?: (filePaths: string[], analysisType: string, analysisMode: AnalysisMode) => void;
+  onOpenAnalysis?: (analysis: Analysis) => void;
   isAnalyzing: boolean;
 }
 
-export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing }: FileDropZoneProps) {
+export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalysis, isAnalyzing }: FileDropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const [analysisType, setAnalysisType] = useState<"complete" | "specialized">((localStorage.getItem("analysis_default_type") as "complete" | "specialized") || "complete");
+  const [analysisType, setAnalysisType] = useState<"complete" | "specialized" | "whatson">((localStorage.getItem("analysis_default_type") as "complete" | "specialized" | "whatson") || "whatson");
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>((localStorage.getItem("analysis_default_mode") as AnalysisMode) || "auto");
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pastedContent, setPastedContent] = useState("");
+  const [recentAnalyses, setRecentAnalyses] = useState<Analysis[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
+
+  // Fetch recent analyses on mount
+  useEffect(() => {
+    async function fetchRecent() {
+      try {
+        const recent = await invoke<Analysis[]>("get_recent", { limit: 5 });
+        setRecentAnalyses(recent);
+      } catch (error) {
+        logger.error("Failed to fetch recent analyses", { error });
+      } finally {
+        setLoadingRecent(false);
+      }
+    }
+    fetchRecent();
+  }, []);
+
+  // Get severity icon and color
+  const getSeverityIcon = (severity: string) => {
+    switch (severity.toUpperCase()) {
+      case "CRITICAL":
+        return <AlertCircle className="w-5 h-5 text-red-500" />;
+      case "HIGH":
+        return <AlertTriangle className="w-5 h-5 text-orange-400" />;
+      case "MEDIUM":
+        return <Info className="w-5 h-5 text-yellow-400" />;
+      default:
+        return <FileText className="w-5 h-5 text-blue-400" />;
+    }
+  };
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity.toUpperCase()) {
+      case "CRITICAL":
+        return "text-red-400";
+      case "HIGH":
+        return "text-orange-400";
+      case "MEDIUM":
+        return "text-yellow-400";
+      default:
+        return "text-blue-400";
+    }
+  };
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -60,16 +109,16 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
 
       // If a batch handler is provided and we have multiple files, run batch
       if (paths.length > 1 && onBatchSelect) {
-        onBatchSelect(paths, analysisType);
+        onBatchSelect(paths, analysisType, analysisMode);
       } else {
         // Single file fallback
-        onFileSelect(paths[0], analysisType);
+        onFileSelect(paths[0], analysisType, analysisMode);
       }
     } catch (error) {
       logger.error('File selection failed', { error: error instanceof Error ? error.message : String(error) });
       alert("Failed to select file. Please try again.");
     }
-  }, [onFileSelect, isAnalyzing, analysisType]);
+  }, [onFileSelect, onBatchSelect, isAnalyzing, analysisType, analysisMode]);
 
   const handlePasteLog = useCallback(async () => {
     if (isAnalyzing || !pastedContent.trim()) return;
@@ -83,12 +132,12 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
       // Close modal and analyze
       setShowPasteModal(false);
       setPastedContent("");
-      onFileSelect(tempFilePath, analysisType);
+      onFileSelect(tempFilePath, analysisType, analysisMode);
     } catch (error) {
       logger.error('Failed to save pasted log', { error: error instanceof Error ? error.message : String(error) });
       alert("Failed to process pasted content. Please try again.");
     }
-  }, [pastedContent, onFileSelect, isAnalyzing, analysisType]);
+  }, [pastedContent, onFileSelect, isAnalyzing, analysisType, analysisMode]);
 
   return (
     <div className="w-full space-y-6">
@@ -96,6 +145,26 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
       <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
         <h3 className="text-lg font-semibold mb-4">Select Analysis Type</h3>
         <div className="space-y-3">
+          <label className="flex items-start gap-3 p-4 border border-emerald-600 rounded-lg cursor-pointer hover:bg-gray-700/50 transition bg-emerald-900/20">
+            <input
+              type="radio"
+              name="analysisType"
+              value="whatson"
+              checked={analysisType === "whatson"}
+              onChange={() => setAnalysisType("whatson")}
+              disabled={isAnalyzing}
+              className="mt-1"
+            />
+            <div className="flex-1">
+              <div className="font-semibold text-emerald-400">WHATS'ON Enhanced (Recommended)</div>
+              <div className="text-sm text-gray-400 mt-1">
+                Domain-specific analysis for WHATS'ON/MediaGeniX crashes with structured JSON output.
+                Includes root cause, user scenario reconstruction, impact analysis, suggested fixes with code,
+                test scenarios, and environment context. Best for broadcast scheduling crashes.
+              </div>
+            </div>
+          </label>
+
           <label className="flex items-start gap-3 p-4 border border-gray-600 rounded-lg cursor-pointer hover:bg-gray-700/50 transition">
             <input
               type="radio"
@@ -136,6 +205,67 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
         </div>
       </div>
 
+      {/* Analysis Mode Selection - Token-Safe */}
+      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Settings2 className="w-4 h-4 text-gray-400" />
+          <h4 className="text-sm font-semibold text-gray-300">Analysis Mode</h4>
+          <span className="text-xs px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded">Token-Safe</span>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              setAnalysisMode("auto");
+              localStorage.setItem("analysis_default_mode", "auto");
+            }}
+            disabled={isAnalyzing}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition text-sm ${
+              analysisMode === "auto"
+                ? "bg-cyan-600 text-white"
+                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+            } ${isAnalyzing ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            <Settings2 className="w-4 h-4" />
+            Auto
+          </button>
+          <button
+            onClick={() => {
+              setAnalysisMode("quick");
+              localStorage.setItem("analysis_default_mode", "quick");
+            }}
+            disabled={isAnalyzing}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition text-sm ${
+              analysisMode === "quick"
+                ? "bg-green-600 text-white"
+                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+            } ${isAnalyzing ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            <Zap className="w-4 h-4" />
+            Quick
+          </button>
+          <button
+            onClick={() => {
+              setAnalysisMode("deep_scan");
+              localStorage.setItem("analysis_default_mode", "deep_scan");
+            }}
+            disabled={isAnalyzing}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition text-sm ${
+              analysisMode === "deep_scan"
+                ? "bg-purple-600 text-white"
+                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+            } ${isAnalyzing ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            <Search className="w-4 h-4" />
+            Deep Scan
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          {analysisMode === "auto" && "Automatically selects the best mode based on file size. Recommended for most use cases."}
+          {analysisMode === "quick" && "Fast analysis using evidence extraction. Best for small to medium files (<100KB)."}
+          {analysisMode === "deep_scan" && "Map-reduce chunked analysis for very large files. May take longer but provides complete coverage."}
+        </p>
+      </div>
+
       {/* Drop Zone */}
       <div
         role="region"
@@ -155,15 +285,13 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
       >
         <div className="flex flex-col items-center justify-center">
           {isAnalyzing ? (
-            <>
-              <Loader2 className="w-16 h-16 text-blue-400 mb-4 animate-spin" />
-              <p className="text-xl font-semibold mb-2">
+            <div className="w-full max-w-md">
+              <Loader2 className="w-12 h-12 text-blue-400 mb-4 animate-spin mx-auto" />
+              <p className="text-xl font-semibold mb-4 text-center">
                 Analyzing crash log...
               </p>
-              <p className="text-gray-400">
-                This may take 10-30 seconds
-              </p>
-            </>
+              <AnalysisProgressBar isAnalyzing={isAnalyzing} />
+            </div>
           ) : (
             <>
               <Upload className="w-16 h-16 text-gray-400 mb-4" />
@@ -201,26 +329,46 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, isAnalyzing 
 
       {/* Recent Analyses Preview */}
       <div className="mt-8">
-        <h3 className="text-lg font-semibold mb-4 text-gray-300">
-          Recent Analyses
-        </h3>
+        <div className="flex items-center gap-2 mb-4">
+          <Clock className="w-5 h-5 text-gray-400" />
+          <h3 className="text-lg font-semibold text-gray-300">
+            Recent Analyses
+          </h3>
+        </div>
         <div className="space-y-2">
-          {/* Placeholder - will be replaced with actual history */}
-          <div className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition cursor-pointer">
-            <FileText className="w-5 h-5 text-red-400" />
-            <div className="flex-1 text-left">
-              <p className="font-medium">WCR_5-2_11-23-15.txt</p>
-              <p className="text-sm text-gray-400">HIGH severity • 2 hours ago</p>
+          {loadingRecent ? (
+            <div className="flex items-center justify-center p-4">
+              <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+              <span className="ml-2 text-gray-400 text-sm">Loading recent analyses...</span>
             </div>
-          </div>
-
-          <div className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition cursor-pointer">
-            <FileText className="w-5 h-5 text-yellow-400" />
-            <div className="flex-1 text-left">
-              <p className="font-medium">WCR_16-4_11-40-58.txt</p>
-              <p className="text-sm text-gray-400">MEDIUM severity • Yesterday</p>
+          ) : recentAnalyses.length === 0 ? (
+            <div className="text-center p-4 text-gray-500">
+              <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No analyses yet. Upload a crash log to get started.</p>
             </div>
-          </div>
+          ) : (
+            recentAnalyses.map((analysis) => (
+              <button
+                key={analysis.id}
+                onClick={() => onOpenAnalysis?.(analysis)}
+                disabled={!onOpenAnalysis}
+                className="w-full flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg hover:bg-gray-700/70 transition text-left disabled:opacity-50 disabled:cursor-default"
+              >
+                {getSeverityIcon(analysis.severity)}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{analysis.filename}</p>
+                  <p className="text-sm text-gray-400">
+                    <span className={getSeverityColor(analysis.severity)}>{analysis.severity}</span>
+                    {" • "}
+                    {formatDistanceToNow(new Date(analysis.analyzed_at), { addSuffix: true })}
+                  </p>
+                </div>
+                <span className="text-xs text-gray-500 px-2 py-1 bg-gray-800 rounded">
+                  {analysis.analysis_type || "complete"}
+                </span>
+              </button>
+            ))
+          )}
         </div>
       </div>
 

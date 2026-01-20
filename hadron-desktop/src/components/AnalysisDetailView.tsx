@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket } from "lucide-react";
+import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import type { Analysis } from "../services/api";
@@ -6,6 +6,7 @@ import StackTraceViewer from "./StackTraceViewer";
 import CollapsibleSection from "./CollapsibleSection";
 import MultiPartAnalysisViewer from "./MultiPartAnalysisViewer";
 import JiraTicketModal from "./JiraTicketModal";
+import ExportDialog from "./ExportDialog";
 import { isJiraEnabled } from "../services/jira";
 
 interface AnalysisDetailViewProps {
@@ -16,6 +17,7 @@ interface AnalysisDetailViewProps {
 export default function AnalysisDetailView({ analysis, onBack }: AnalysisDetailViewProps) {
   const [copied, setCopied] = useState(false);
   const [showJiraModal, setShowJiraModal] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const [jiraEnabled, setJiraEnabled] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -144,10 +146,19 @@ ${analysis.suggested_fixes}
           </button>
           <button
             onClick={handleExportMarkdown}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+            title="Quick export to Markdown"
           >
             <Download className="w-4 h-4" />
-            Export Markdown
+            Quick Export
+          </button>
+          <button
+            onClick={() => setShowExportDialog(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+            title="Advanced export options"
+          >
+            <Settings2 className="w-4 h-4" />
+            Export Options
           </button>
           {jiraEnabled && (
             <button
@@ -185,6 +196,49 @@ ${analysis.suggested_fixes}
             {analysis.severity.toUpperCase()}
           </span>
         </div>
+
+        {/* Token-Safe Analysis Metadata */}
+        {analysis.analysis_mode && (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {/* Analysis Mode Badge */}
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium ${
+              analysis.analysis_mode === "Deep Scan"
+                ? "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                : analysis.analysis_mode?.includes("Extracted")
+                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                  : "bg-green-500/20 text-green-400 border border-green-500/30"
+            }`}>
+              {analysis.analysis_mode === "Deep Scan" ? (
+                <Search className="w-3.5 h-3.5" />
+              ) : (
+                <Zap className="w-3.5 h-3.5" />
+              )}
+              {analysis.analysis_mode}
+            </span>
+
+            {/* Token Utilization Badge */}
+            {analysis.token_utilization !== undefined && (
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium ${
+                analysis.token_utilization > 80
+                  ? "bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                  : analysis.token_utilization > 50
+                    ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                    : "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+              }`}>
+                <Gauge className="w-3.5 h-3.5" />
+                {analysis.token_utilization.toFixed(0)}% Token Usage
+              </span>
+            )}
+
+            {/* Coverage Summary */}
+            {analysis.coverage_summary && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-700/50 text-gray-300 border border-gray-600">
+                <Info className="w-3.5 h-3.5" />
+                {analysis.coverage_summary}
+              </span>
+            )}
+          </div>
+        )}
 
         {analysis.was_truncated && (
           <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-sm text-yellow-400">
@@ -340,6 +394,36 @@ ${analysis.suggested_fixes}
               <span className="ml-2">{analysis.view_count}</span>
             </div>
           )}
+          {analysis.analysis_mode && (
+            <div>
+              <span className="text-gray-400">Analysis Mode:</span>
+              <span className={`ml-2 font-semibold ${
+                analysis.analysis_mode === 'Deep Scan' ? 'text-purple-400' :
+                analysis.analysis_mode?.includes('Extracted') ? 'text-amber-400' :
+                'text-green-400'
+              }`}>
+                {analysis.analysis_mode}
+              </span>
+            </div>
+          )}
+          {analysis.token_utilization !== undefined && (
+            <div>
+              <span className="text-gray-400">Token Utilization:</span>
+              <span className={`ml-2 font-semibold ${
+                analysis.token_utilization > 80 ? 'text-orange-400' :
+                analysis.token_utilization > 50 ? 'text-yellow-400' :
+                'text-cyan-400'
+              }`}>
+                {analysis.token_utilization.toFixed(1)}%
+              </span>
+            </div>
+          )}
+          {analysis.coverage_summary && (
+            <div className="col-span-2">
+              <span className="text-gray-400">Coverage:</span>
+              <span className="ml-2">{analysis.coverage_summary}</span>
+            </div>
+          )}
         </div>
       </CollapsibleSection>
 
@@ -348,6 +432,13 @@ ${analysis.suggested_fixes}
         analysis={analysis}
         isOpen={showJiraModal}
         onClose={() => setShowJiraModal(false)}
+      />
+
+      {/* Export Dialog */}
+      <ExportDialog
+        analysis={analysis}
+        isOpen={showExportDialog}
+        onClose={() => setShowExportDialog(false)}
       />
     </div>
   );

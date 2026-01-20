@@ -1,0 +1,106 @@
+# Null/Nil reference crash patterns
+
+[[pattern]]
+id = "NIL-001"
+name = "Message Not Understood by UndefinedObject"
+description = "A message was sent to nil (UndefinedObject)"
+category = "null_reference"
+priority = 60
+enabled = true
+tags = ["nil", "null", "undefined", "message"]
+
+[pattern.matchers]
+exception_type = "MessageNotUnderstood"
+
+[pattern.matchers.context]
+receiver_class = "UndefinedObject"
+
+[pattern.analysis]
+root_cause = "A message was sent to nil - the receiver object was not initialized or was cleared"
+root_cause_plain = "The system tried to use something that doesn't exist (a nil/null value)"
+severity = "high"
+data_at_risk = false
+fix_summary = "Add nil check before sending message, or ensure object is properly initialized"
+fix_details = """
+Common causes of nil receivers:
+1. Failed database lookups returning nil instead of raising error
+2. Uninitialized instance variables
+3. Cleared references after object deletion
+4. Race conditions in multi-threaded code
+"""
+fix_code_hints = [
+    "Add: object ifNil: [^self] before sending messages",
+    "Use: object ifNotNil: [:o | o doSomething]",
+    "Check initialization in #initialize method"
+]
+workarounds = []
+affected_features = []
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "NIL-002"
+name = "Nil Used as Block Argument"
+description = "Nil was passed where a block was expected"
+category = "null_reference"
+priority = 55
+enabled = true
+tags = ["nil", "block", "closure"]
+
+[pattern.matchers]
+exception_type = "MessageNotUnderstood"
+stack_contains_any = ["value", "value:", "valueWithArguments:"]
+
+[pattern.matchers.context]
+receiver_class = "UndefinedObject"
+
+[pattern.analysis]
+root_cause = "Nil was passed where a block closure was expected"
+root_cause_plain = "The system expected a piece of code (block) but received nothing (nil)"
+severity = "medium"
+data_at_risk = false
+fix_summary = "Ensure block parameter is provided, or use a default block"
+fix_code_hints = [
+    "Add default: aBlock ifNil: [aBlock := [:x | x]]",
+    "Validate block parameter: aBlock isNil ifTrue: [^self error: 'Block required']"
+]
+workarounds = []
+affected_features = []
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "NIL-003"
+name = "Nil in Collection Operation"
+description = "Nil element encountered during collection iteration"
+category = "null_reference"
+priority = 50
+enabled = true
+tags = ["nil", "collection", "iteration"]
+
+[pattern.matchers]
+exception_type = "MessageNotUnderstood"
+stack_contains_any = ["do:", "collect:", "select:", "detect:", "inject:into:"]
+
+[pattern.matchers.context]
+receiver_class = "UndefinedObject"
+
+[pattern.analysis]
+root_cause = "A nil element was found in a collection during iteration"
+root_cause_plain = "The system found a missing item (nil) while processing a list"
+severity = "medium"
+data_at_risk = false
+fix_summary = "Filter out nil elements before iteration, or handle nil in the block"
+fix_code_hints = [
+    "Use: collection select: [:each | each notNil] before iteration",
+    "Or: collection do: [:each | each ifNotNil: [each doSomething]]"
+]
+workarounds = []
+affected_features = []
+
+[pattern.versioning]
+pattern_version = "1.0.0"

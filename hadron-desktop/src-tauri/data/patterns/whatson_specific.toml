@@ -1,0 +1,193 @@
+# WHATS'ON specific crash patterns
+
+[[pattern]]
+id = "WHATSON-002"
+name = "Continuity Planner Active Transaction Warning"
+description = "Database transaction left open during UI operation"
+category = "whats_on_specific"
+priority = 65
+enabled = true
+tags = ["whatson", "continuity", "transaction", "data_integrity"]
+
+[pattern.matchers]
+stack_contains_any = ["ContinuityPlanner", "PLContinuityPlan"]
+
+[pattern.matchers.database]
+has_active_transaction = true
+
+[pattern.analysis]
+root_cause = "Crash occurred with active database transaction - uncommitted changes may be lost"
+root_cause_plain = "The system crashed while saving changes, so some edits may not have been saved"
+severity = "critical"
+data_at_risk = true
+fix_summary = "Verify data integrity; uncommitted changes are lost on crash"
+fix_details = """
+An active transaction (xactYes) was present at crash time. This means:
+1. Some database changes may not have been committed
+2. Locks may still be held (until session timeout)
+3. Data may be in an inconsistent state
+"""
+fix_code_hints = []
+workarounds = [
+    "Check the affected schedule for missing changes",
+    "Verify schedule integrity before approval"
+]
+affected_features = ["Schedule editing", "Data integrity"]
+
+[[pattern.analysis.investigation_queries]]
+name = "Check for locked records"
+description = "Find any records still locked by the crashed session"
+sql = """
+SELECT * FROM V$LOCKED_OBJECT
+WHERE SESSION_ID IN (SELECT SID FROM V$SESSION WHERE USERNAME = 'WHATSON')
+"""
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "WHATSON-003"
+name = "Schedule Import Segment Mismatch"
+description = "Imported schedule has inconsistent segment data"
+category = "whats_on_specific"
+priority = 70
+enabled = true
+tags = ["whatson", "import", "segments", "data_integrity"]
+
+[pattern.matchers]
+exception_type = "SubscriptOutOfBounds"
+stack_contains_any = ["Import", "Schedule"]
+stack_contains = ["Segment"]
+
+[pattern.matchers.context]
+has_business_objects = ["BMProgramSegmentDurations", "TimeAllocation"]
+
+[pattern.analysis]
+root_cause = "Schedule import created TxBlocks with mismatched segment/duration counts"
+root_cause_plain = "The schedule import didn't properly create matching segment data, causing later crashes"
+severity = "high"
+data_at_risk = true
+fix_summary = "Investigate import source; add validation during import"
+fix_details = """
+The import process should validate that:
+1. Each segment has a corresponding duration record
+2. Segment counts match between source and destination
+3. All required business objects are created together
+"""
+fix_code_hints = [
+    "Add import validation step",
+    "Create segments and durations in same transaction"
+]
+workarounds = [
+    "Re-import the schedule",
+    "Manually correct segment data"
+]
+affected_features = ["Schedule Import", "Continuity Planner"]
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+tickets = ["IMPORT-1234"]
+
+
+[[pattern]]
+id = "WHATSON-004"
+name = "MediaGeniX Domain Object Not Found"
+description = "Attempt to access a deleted or non-existent domain object"
+category = "whats_on_specific"
+priority = 55
+enabled = true
+tags = ["whatson", "domain", "deleted", "reference"]
+
+[pattern.matchers]
+exception_type = "MessageNotUnderstood"
+stack_contains_any = ["MediaGeniX", "PSI", "BM", "PL", "WOn"]
+
+[pattern.matchers.context]
+receiver_class = "UndefinedObject"
+
+[pattern.analysis]
+root_cause = "A reference to a MediaGeniX domain object returned nil - the object may have been deleted"
+root_cause_plain = "The system tried to access an item that no longer exists in the database"
+severity = "high"
+data_at_risk = false
+fix_summary = "Check object existence before access; handle deleted objects gracefully"
+fix_code_hints = [
+    "Add: domainObject ifNil: [^self handleDeletedObject]",
+    "Use refresh before access: domainObject refresh ifNil: [...]"
+]
+workarounds = [
+    "Refresh the view",
+    "Close and reopen the window"
+]
+affected_features = []
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "WHATSON-005"
+name = "Channel Schedule Overlap Detection"
+description = "Crash during schedule overlap validation"
+category = "whats_on_specific"
+priority = 60
+enabled = true
+tags = ["whatson", "schedule", "overlap", "validation"]
+
+[pattern.matchers]
+exception_type = "SubscriptOutOfBounds"
+stack_contains_any = ["Overlap", "Schedule", "TimeAllocation"]
+stack_contains = ["Channel"]
+
+[pattern.analysis]
+root_cause = "Error during schedule overlap detection algorithm"
+root_cause_plain = "The system crashed while checking if TV programs overlap on a channel"
+severity = "medium"
+data_at_risk = false
+fix_summary = "Review overlap detection algorithm for edge cases"
+fix_code_hints = [
+    "Check for empty schedule before overlap detection",
+    "Handle boundary conditions at day start/end"
+]
+workarounds = [
+    "Check schedule data for inconsistencies",
+    "Remove problematic time allocations manually"
+]
+affected_features = ["Schedule validation", "Overlap detection"]
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "WHATSON-006"
+name = "Program Search Index Error"
+description = "Error during program search or index access"
+category = "whats_on_specific"
+priority = 50
+enabled = true
+tags = ["whatson", "search", "program", "index"]
+
+[pattern.matchers]
+stack_contains_any = ["Search", "Program", "Index"]
+exception_type = ".*Error.*"
+
+[pattern.analysis]
+root_cause = "Search index may be corrupted or out of sync with database"
+root_cause_plain = "The program search feature encountered an error, possibly due to outdated search data"
+severity = "medium"
+data_at_risk = false
+fix_summary = "Rebuild search index; check for data inconsistencies"
+fix_code_hints = [
+    "Trigger index rebuild",
+    "Check index synchronization status"
+]
+workarounds = [
+    "Use direct database queries instead of search",
+    "Rebuild the search index"
+]
+affected_features = ["Program search", "Quick search"]
+
+[pattern.versioning]
+pattern_version = "1.0.0"

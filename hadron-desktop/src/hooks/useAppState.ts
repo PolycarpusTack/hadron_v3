@@ -9,14 +9,14 @@
  */
 
 import { useReducer, useCallback } from 'react';
-import type { AnalysisResult } from '../types';
+import type { AnalysisResult, SensitiveContentResult, CodeAnalysisResult, CodeAnalyzerTab, CodeInput } from '../types';
 import type { Analysis } from '../services/api';
 
 // ============================================================================
 // State Types
 // ============================================================================
 
-export type View = 'analyze' | 'history' | 'detail' | 'translate';
+export type View = 'analyze' | 'history' | 'detail' | 'translate' | 'performance';
 
 export interface BatchProgress {
   total: number;
@@ -28,6 +28,12 @@ export interface BatchProgress {
 export interface ErrorState {
   message: string;
   suggestions: string[];
+}
+
+export interface PendingAnalysis {
+  filePath: string;
+  content: string;
+  analysisType: string;
 }
 
 export interface AppState {
@@ -52,8 +58,14 @@ export interface AppState {
   analysisResult: AnalysisResult | null;
   selectedAnalysis: Analysis | null;
 
-  // Translation
+  // Translation / Code Analyzer
   translating: boolean;
+
+  // Code Analyzer
+  codeAnalyzerTab: CodeAnalyzerTab;
+  codeAnalyzing: boolean;
+  codeAnalysisResult: CodeAnalysisResult | null;
+  codeInput: CodeInput | null;
 
   // Batch Processing
   batchProgress: BatchProgress | null;
@@ -61,6 +73,14 @@ export interface AppState {
 
   // Error Handling
   error: ErrorState | null;
+
+  // Export Dialog
+  exportDialogOpen: boolean;
+  exportAnalysisId: number | null;
+
+  // Sensitive Content Warning
+  sensitiveWarning: SensitiveContentResult | null;
+  pendingAnalysis: PendingAnalysis | null;
 }
 
 // ============================================================================
@@ -99,6 +119,14 @@ export type AppAction =
   | { type: 'TRANSLATION_COMPLETE' }
   | { type: 'TRANSLATION_ERROR'; payload: ErrorState }
 
+  // Code Analyzer
+  | { type: 'SET_CODE_ANALYZER_TAB'; payload: CodeAnalyzerTab }
+  | { type: 'SET_CODE_INPUT'; payload: CodeInput }
+  | { type: 'START_CODE_ANALYSIS' }
+  | { type: 'CODE_ANALYSIS_SUCCESS'; payload: CodeAnalysisResult }
+  | { type: 'CODE_ANALYSIS_ERROR'; payload: ErrorState }
+  | { type: 'CLEAR_CODE_ANALYSIS' }
+
   // Batch Processing
   | { type: 'START_BATCH'; payload: { total: number } }
   | { type: 'BATCH_PROGRESS'; payload: Partial<BatchProgress> }
@@ -107,7 +135,16 @@ export type AppAction =
 
   // Error Handling
   | { type: 'SET_ERROR'; payload: ErrorState }
-  | { type: 'CLEAR_ERROR' };
+  | { type: 'CLEAR_ERROR' }
+
+  // Export Dialog
+  | { type: 'OPEN_EXPORT_DIALOG'; payload: number }
+  | { type: 'CLOSE_EXPORT_DIALOG' }
+
+  // Sensitive Content Warning
+  | { type: 'SHOW_SENSITIVE_WARNING'; payload: { result: SensitiveContentResult; pending: PendingAnalysis } }
+  | { type: 'DISMISS_SENSITIVE_WARNING' }
+  | { type: 'PROCEED_DESPITE_WARNING' };
 
 // ============================================================================
 // Initial State
@@ -124,9 +161,19 @@ export const initialState: AppState = {
   analysisResult: null,
   selectedAnalysis: null,
   translating: false,
+  // Code Analyzer
+  codeAnalyzerTab: 'overview',
+  codeAnalyzing: false,
+  codeAnalysisResult: null,
+  codeInput: null,
+  // Batch
   batchProgress: null,
   batchSummary: null,
   error: null,
+  exportDialogOpen: false,
+  exportAnalysisId: null,
+  sensitiveWarning: null,
+  pendingAnalysis: null,
 };
 
 // ============================================================================
@@ -243,6 +290,53 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         error: action.payload,
       };
 
+    // Code Analyzer
+    case 'SET_CODE_ANALYZER_TAB':
+      return {
+        ...state,
+        codeAnalyzerTab: action.payload,
+      };
+
+    case 'SET_CODE_INPUT':
+      return {
+        ...state,
+        codeInput: action.payload,
+        codeAnalysisResult: null,
+        codeAnalyzerTab: 'overview',
+      };
+
+    case 'START_CODE_ANALYSIS':
+      return {
+        ...state,
+        codeAnalyzing: true,
+        error: null,
+      };
+
+    case 'CODE_ANALYSIS_SUCCESS':
+      return {
+        ...state,
+        codeAnalyzing: false,
+        codeAnalysisResult: action.payload,
+        codeAnalyzerTab: 'overview',
+        error: null,
+      };
+
+    case 'CODE_ANALYSIS_ERROR':
+      return {
+        ...state,
+        codeAnalyzing: false,
+        error: action.payload,
+      };
+
+    case 'CLEAR_CODE_ANALYSIS':
+      return {
+        ...state,
+        codeAnalysisResult: null,
+        codeInput: null,
+        codeAnalyzerTab: 'overview',
+        error: null,
+      };
+
     // Batch Processing
     case 'START_BATCH':
       return {
@@ -290,6 +384,43 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case 'CLEAR_ERROR':
       return { ...state, error: null };
+
+    // Export Dialog
+    case 'OPEN_EXPORT_DIALOG':
+      return {
+        ...state,
+        exportDialogOpen: true,
+        exportAnalysisId: action.payload,
+      };
+
+    case 'CLOSE_EXPORT_DIALOG':
+      return {
+        ...state,
+        exportDialogOpen: false,
+        exportAnalysisId: null,
+      };
+
+    // Sensitive Content Warning
+    case 'SHOW_SENSITIVE_WARNING':
+      return {
+        ...state,
+        sensitiveWarning: action.payload.result,
+        pendingAnalysis: action.payload.pending,
+      };
+
+    case 'DISMISS_SENSITIVE_WARNING':
+      return {
+        ...state,
+        sensitiveWarning: null,
+        pendingAnalysis: null,
+      };
+
+    case 'PROCEED_DESPITE_WARNING':
+      return {
+        ...state,
+        sensitiveWarning: null,
+        // Keep pendingAnalysis so caller can use it
+      };
 
     default:
       return state;
@@ -366,6 +497,27 @@ export function useAppState() {
       []
     ),
 
+    // Code Analyzer
+    setCodeAnalyzerTab: useCallback(
+      (tab: CodeAnalyzerTab) => dispatch({ type: 'SET_CODE_ANALYZER_TAB', payload: tab }),
+      []
+    ),
+    setCodeInput: useCallback(
+      (input: CodeInput) => dispatch({ type: 'SET_CODE_INPUT', payload: input }),
+      []
+    ),
+    startCodeAnalysis: useCallback(() => dispatch({ type: 'START_CODE_ANALYSIS' }), []),
+    codeAnalysisSuccess: useCallback(
+      (result: CodeAnalysisResult) => dispatch({ type: 'CODE_ANALYSIS_SUCCESS', payload: result }),
+      []
+    ),
+    codeAnalysisError: useCallback(
+      (message: string, suggestions: string[] = []) =>
+        dispatch({ type: 'CODE_ANALYSIS_ERROR', payload: { message, suggestions } }),
+      []
+    ),
+    clearCodeAnalysis: useCallback(() => dispatch({ type: 'CLEAR_CODE_ANALYSIS' }), []),
+
     // Batch Processing
     startBatch: useCallback(
       (total: number) => dispatch({ type: 'START_BATCH', payload: { total } }),
@@ -389,6 +541,22 @@ export function useAppState() {
       []
     ),
     clearError: useCallback(() => dispatch({ type: 'CLEAR_ERROR' }), []),
+
+    // Export Dialog
+    openExportDialog: useCallback(
+      (analysisId: number) => dispatch({ type: 'OPEN_EXPORT_DIALOG', payload: analysisId }),
+      []
+    ),
+    closeExportDialog: useCallback(() => dispatch({ type: 'CLOSE_EXPORT_DIALOG' }), []),
+
+    // Sensitive Content Warning
+    showSensitiveWarning: useCallback(
+      (result: SensitiveContentResult, pending: PendingAnalysis) =>
+        dispatch({ type: 'SHOW_SENSITIVE_WARNING', payload: { result, pending } }),
+      []
+    ),
+    dismissSensitiveWarning: useCallback(() => dispatch({ type: 'DISMISS_SENSITIVE_WARNING' }), []),
+    proceedDespiteWarning: useCallback(() => dispatch({ type: 'PROCEED_DESPITE_WARNING' }), []),
   };
 
   return { state, actions, dispatch };

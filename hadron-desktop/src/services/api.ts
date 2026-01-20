@@ -9,6 +9,7 @@ import { analyzeWithResilience } from "./circuit-breaker";
 import { getApiKey, storeApiKey as storeApiKeySecure } from "./secure-storage";
 import { getBooleanSetting } from "../utils/config";
 import { apiCache, CacheKeys, CacheTTL } from "./cache";
+import type { AnalysisNote, TrendDataPoint, ErrorPatternCount } from "../types";
 
 export interface AnalysisRequest {
   file_path: string;
@@ -17,6 +18,8 @@ export interface AnalysisRequest {
   provider: string;
   analysis_type: string; // "complete" or "specialized"
   redact_pii?: boolean;
+  // Token-safe analysis mode
+  analysis_mode?: AnalysisMode;
 }
 
 export interface AnalysisResponse {
@@ -28,7 +31,14 @@ export interface AnalysisResponse {
   suggested_fixes: string[];
   analyzed_at: string;
   cost: number;
+  // Token-safe analysis metadata
+  analysis_mode?: string; // "Quick", "Quick (Extracted)", "Deep Scan"
+  coverage_summary?: string;
+  token_utilization?: number;
 }
+
+// Analysis modes for token-safe processing
+export type AnalysisMode = "quick" | "deep_scan" | "auto";
 
 export interface Analysis {
   id: number;
@@ -51,8 +61,14 @@ export interface Analysis {
   // Phase 2: Just the essentials
   is_favorite: boolean;
   view_count: number;
-  analysis_type: string; // "complete" or "specialized"
+  analysis_type: string; // "complete" | "specialized" | "whatson"
   analysis_duration_ms?: number;
+  // WHATS'ON Enhanced fields
+  full_data?: string; // JSON string containing WhatsOnEnhancedAnalysis for whatson type
+  // Token-safe analysis metadata
+  analysis_mode?: string; // "Quick", "Quick (Extracted)", "Deep Scan"
+  coverage_summary?: string;
+  token_utilization?: number;
 }
 
 export interface Translation {
@@ -107,10 +123,11 @@ export async function analyzeCrashLog(
   apiKey: string,
   model: string = "gpt-4-turbo-preview",
   provider: string = "openai",
-  analysisType: string = "complete"
+  analysisType: string = "complete",
+  analysisMode: AnalysisMode = "auto"
 ): Promise<AnalysisResponse> {
-  // Use circuit breaker with automatic failover
-  return await analyzeWithResilience(filePath, apiKey, model, provider, analysisType);
+  // Use circuit breaker with automatic failover and token-safe analysis
+  return await analyzeWithResilience(filePath, apiKey, model, provider, analysisType, analysisMode);
 }
 
 /**
@@ -284,6 +301,18 @@ export async function toggleFavorite(id: number): Promise<boolean> {
 }
 
 /**
+ * Advanced filtering for analyses with pagination
+ * Supports filtering by severity, type, date range, tags, cost, etc.
+ * @param options - Filter options
+ * @returns Filtered results with pagination metadata
+ */
+export async function getAnalysesFiltered(
+  options: AdvancedFilterOptions
+): Promise<FilteredResults<Analysis>> {
+  return await invoke<FilteredResults<Analysis>>("get_analyses_filtered", { options });
+}
+
+/**
  * Get AI provider from local storage
  */
 export function getStoredProvider(): string {
@@ -423,4 +452,539 @@ export function invalidateTranslationCaches(): void {
  */
 export function getCacheStats() {
   return apiCache.getStats();
+}
+
+// ============================================================================
+// Sensitive Content Detection
+// ============================================================================
+
+import type {
+  SensitiveContentResult,
+  ReportAudience,
+  MultiExportRequest,
+  ExportResponse,
+  PatternSummary,
+  DatabaseInfo,
+  ExportFormatOption,
+  AudienceOption,
+  AdvancedFilterOptions,
+  FilteredResults,
+} from "../types";
+
+/**
+ * Check content for sensitive data before sending to AI
+ * @param content - The content to check
+ * @returns Result with warnings and detected types
+ */
+export async function checkSensitiveContent(content: string): Promise<SensitiveContentResult> {
+  return await invoke<SensitiveContentResult>("check_sensitive_content", { content });
+}
+
+/**
+ * Sanitize content for a specific audience
+ * @param content - The content to sanitize
+ * @param audience - Target audience (technical, support, customer, executive)
+ * @returns Sanitized content
+ */
+export async function sanitizeContent(content: string, audience: ReportAudience): Promise<string> {
+  return await invoke<string>("sanitize_content", { content, audience });
+}
+
+// ============================================================================
+// Pattern Filtering
+// ============================================================================
+
+/**
+ * Get patterns filtered by category
+ * @param category - Category name (e.g., "DatabaseError", "CollectionError")
+ * @returns List of patterns in that category
+ */
+export async function getPatternsByCategory(category: string): Promise<PatternSummary[]> {
+  return await invoke<PatternSummary[]>("get_patterns_by_category", { category });
+}
+
+/**
+ * Get patterns filtered by tag
+ * @param tag - Tag name
+ * @returns List of patterns with that tag
+ */
+export async function getPatternsByTag(tag: string): Promise<PatternSummary[]> {
+  return await invoke<PatternSummary[]>("get_patterns_by_tag", { tag });
+}
+
+/**
+ * Get all unique tags from patterns
+ * @returns List of unique tag names
+ */
+export async function getPatternTags(): Promise<string[]> {
+  return await invoke<string[]>("get_pattern_tags");
+}
+
+/**
+ * Get all unique categories from patterns
+ * @returns List of unique category names
+ */
+export async function getPatternCategories(): Promise<string[]> {
+  return await invoke<string[]>("get_pattern_categories");
+}
+
+/**
+ * Get all patterns
+ * @returns List of all pattern summaries
+ */
+export async function listPatterns(): Promise<PatternSummary[]> {
+  return await invoke<PatternSummary[]>("list_patterns");
+}
+
+// ============================================================================
+// Multi-Format Export
+// ============================================================================
+
+/**
+ * Generate reports in multiple formats at once
+ * @param request - Export request with formats array
+ * @returns Array of export responses
+ */
+export async function generateReportMulti(request: MultiExportRequest): Promise<ExportResponse[]> {
+  return await invoke<ExportResponse[]>("generate_report_multi", { request });
+}
+
+/**
+ * Get available export formats
+ * @returns List of supported export formats
+ */
+export async function getExportFormats(): Promise<ExportFormatOption[]> {
+  return await invoke<ExportFormatOption[]>("get_export_formats");
+}
+
+/**
+ * Get available audience options
+ * @returns List of supported audience options
+ */
+export async function getAudienceOptions(): Promise<AudienceOption[]> {
+  return await invoke<AudienceOption[]>("get_audience_options");
+}
+
+/**
+ * Preview a report without saving
+ * @param crashContent - Crash log content
+ * @param fileName - Original file name
+ * @param format - Export format (markdown, html, json)
+ * @param audience - Target audience
+ * @returns Preview content as string
+ */
+export async function previewReport(
+  crashContent: string,
+  fileName: string,
+  format: string,
+  audience: ReportAudience
+): Promise<string> {
+  return await invoke<string>("preview_report", {
+    crashContent,
+    fileName,
+    format,
+    audience,
+  });
+}
+
+// ============================================================================
+// Database Admin
+// ============================================================================
+
+/**
+ * Get database admin information
+ * @returns Database info including schema version, counts, migration status
+ */
+export async function getDatabaseInfo(): Promise<DatabaseInfo> {
+  return await invoke<DatabaseInfo>("get_database_info");
+}
+
+// ============================================================================
+// Tag Management
+// ============================================================================
+
+import type { Tag } from "../types";
+
+/**
+ * Create a new tag
+ * @param name - Tag name (must be unique)
+ * @param color - Tag color (hex format, e.g., "#EF4444")
+ * @returns Created tag
+ */
+export async function createTag(name: string, color: string): Promise<Tag> {
+  const tag = await invoke<Tag>("create_tag", { name, color });
+  // Invalidate tag cache
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  return tag;
+}
+
+/**
+ * Update an existing tag
+ * @param id - Tag ID
+ * @param updates - Fields to update (name and/or color)
+ * @returns Updated tag
+ */
+export async function updateTag(
+  id: number,
+  updates: { name?: string; color?: string }
+): Promise<Tag> {
+  const tag = await invoke<Tag>("update_tag", {
+    id,
+    name: updates.name,
+    color: updates.color,
+  });
+  // Invalidate tag cache
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  return tag;
+}
+
+/**
+ * Delete a tag (cascades to remove from all analyses and translations)
+ * @param id - Tag ID to delete
+ */
+export async function deleteTag(id: number): Promise<void> {
+  await invoke<void>("delete_tag", { id });
+  // Invalidate tag cache
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+}
+
+/**
+ * Get all tags ordered by usage count
+ * @returns List of all tags
+ */
+export async function getAllTags(): Promise<Tag[]> {
+  return apiCache.fetch(
+    CacheKeys.ALL_TAGS,
+    () => invoke<Tag[]>("get_all_tags"),
+    { ttlMs: CacheTTL.DEFAULT }
+  );
+}
+
+/**
+ * Add a tag to an analysis
+ * @param analysisId - Analysis ID
+ * @param tagId - Tag ID to add
+ */
+export async function addTagToAnalysis(analysisId: number, tagId: number): Promise<void> {
+  await invoke<void>("add_tag_to_analysis", { analysisId, tagId });
+  // Invalidate relevant caches
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+}
+
+/**
+ * Remove a tag from an analysis
+ * @param analysisId - Analysis ID
+ * @param tagId - Tag ID to remove
+ */
+export async function removeTagFromAnalysis(analysisId: number, tagId: number): Promise<void> {
+  await invoke<void>("remove_tag_from_analysis", { analysisId, tagId });
+  // Invalidate relevant caches
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+}
+
+/**
+ * Get all tags for a specific analysis
+ * @param analysisId - Analysis ID
+ * @returns Tags associated with the analysis
+ */
+export async function getTagsForAnalysis(analysisId: number): Promise<Tag[]> {
+  return invoke<Tag[]>("get_tags_for_analysis", { analysisId });
+}
+
+/**
+ * Add a tag to a translation
+ * @param translationId - Translation ID
+ * @param tagId - Tag ID to add
+ */
+export async function addTagToTranslation(translationId: number, tagId: number): Promise<void> {
+  await invoke<void>("add_tag_to_translation", { translationId, tagId });
+  // Invalidate relevant caches
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
+}
+
+/**
+ * Remove a tag from a translation
+ * @param translationId - Translation ID
+ * @param tagId - Tag ID to remove
+ */
+export async function removeTagFromTranslation(translationId: number, tagId: number): Promise<void> {
+  await invoke<void>("remove_tag_from_translation", { translationId, tagId });
+  // Invalidate relevant caches
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
+}
+
+/**
+ * Get all tags for a specific translation
+ * @param translationId - Translation ID
+ * @returns Tags associated with the translation
+ */
+export async function getTagsForTranslation(translationId: number): Promise<Tag[]> {
+  return invoke<Tag[]>("get_tags_for_translation", { translationId });
+}
+
+// ============================================================================
+// Bulk Operations
+// ============================================================================
+
+import type { BulkOperationResult } from "../types";
+
+/**
+ * Delete multiple analyses in a single operation
+ * @param ids - Array of analysis IDs to delete
+ * @returns Result with success count
+ */
+export async function bulkDeleteAnalyses(ids: number[]): Promise<BulkOperationResult> {
+  const result = await invoke<BulkOperationResult>("bulk_delete_analyses", { ids });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_STATS);
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  return result;
+}
+
+/**
+ * Delete multiple translations in a single operation
+ * @param ids - Array of translation IDs to delete
+ * @returns Result with success count
+ */
+export async function bulkDeleteTranslations(ids: number[]): Promise<BulkOperationResult> {
+  const result = await invoke<BulkOperationResult>("bulk_delete_translations", { ids });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  return result;
+}
+
+/**
+ * Add a tag to multiple analyses
+ * @param analysisIds - Array of analysis IDs
+ * @param tagId - Tag ID to add
+ * @returns Result with success count
+ */
+export async function bulkAddTagToAnalyses(analysisIds: number[], tagId: number): Promise<BulkOperationResult> {
+  const result = await invoke<BulkOperationResult>("bulk_add_tag_to_analyses", { analysisIds, tagId });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  return result;
+}
+
+/**
+ * Remove a tag from multiple analyses
+ * @param analysisIds - Array of analysis IDs
+ * @param tagId - Tag ID to remove
+ * @returns Result with success count
+ */
+export async function bulkRemoveTagFromAnalyses(analysisIds: number[], tagId: number): Promise<BulkOperationResult> {
+  const result = await invoke<BulkOperationResult>("bulk_remove_tag_from_analyses", { analysisIds, tagId });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  return result;
+}
+
+/**
+ * Set favorite status for multiple analyses
+ * @param analysisIds - Array of analysis IDs
+ * @param favorite - Whether to favorite or unfavorite
+ * @returns Result with success count
+ */
+export async function bulkSetFavoriteAnalyses(analysisIds: number[], favorite: boolean): Promise<BulkOperationResult> {
+  const result = await invoke<BulkOperationResult>("bulk_set_favorite_analyses", { analysisIds, favorite });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_STATS);
+  return result;
+}
+
+/**
+ * Set favorite status for multiple translations
+ * @param translationIds - Array of translation IDs
+ * @param favorite - Whether to favorite or unfavorite
+ * @returns Result with success count
+ */
+export async function bulkSetFavoriteTranslations(translationIds: number[], favorite: boolean): Promise<BulkOperationResult> {
+  const result = await invoke<BulkOperationResult>("bulk_set_favorite_translations", { translationIds, favorite });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
+  return result;
+}
+
+// ============================================================================
+// Archive System
+// ============================================================================
+
+/**
+ * Archive an analysis (soft delete)
+ * @param id - Analysis ID to archive
+ */
+export async function archiveAnalysis(id: number): Promise<void> {
+  await invoke("archive_analysis", { id });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+}
+
+/**
+ * Restore an archived analysis
+ * @param id - Analysis ID to restore
+ */
+export async function restoreAnalysis(id: number): Promise<void> {
+  await invoke("restore_analysis", { id });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+}
+
+/**
+ * Get all archived analyses
+ * @returns Array of archived analyses
+ */
+export async function getArchivedAnalyses(): Promise<Analysis[]> {
+  return await invoke<Analysis[]>("get_archived_analyses");
+}
+
+/**
+ * Permanently delete an analysis
+ * @param id - Analysis ID to permanently delete
+ */
+export async function permanentlyDeleteAnalysis(id: number): Promise<void> {
+  await invoke("permanently_delete_analysis", { id });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+}
+
+/**
+ * Bulk archive analyses
+ * @param ids - Array of analysis IDs to archive
+ * @returns Result with success count
+ */
+export async function bulkArchiveAnalyses(ids: number[]): Promise<BulkOperationResult> {
+  const result = await invoke<BulkOperationResult>("bulk_archive_analyses", { ids });
+  // Invalidate caches
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  return result;
+}
+
+// ============================================================================
+// Notes System
+// ============================================================================
+
+/**
+ * Add a note to an analysis
+ * @param analysisId - Analysis ID
+ * @param content - Note content
+ * @returns Created note
+ */
+export async function addNoteToAnalysis(analysisId: number, content: string): Promise<AnalysisNote> {
+  return await invoke<AnalysisNote>("add_note_to_analysis", { analysisId, content });
+}
+
+/**
+ * Update a note
+ * @param id - Note ID
+ * @param content - New content
+ * @returns Updated note
+ */
+export async function updateNote(id: number, content: string): Promise<AnalysisNote> {
+  return await invoke<AnalysisNote>("update_note", { id, content });
+}
+
+/**
+ * Delete a note
+ * @param id - Note ID to delete
+ */
+export async function deleteNote(id: number): Promise<void> {
+  await invoke("delete_note", { id });
+}
+
+/**
+ * Get all notes for an analysis
+ * @param analysisId - Analysis ID
+ * @returns Array of notes
+ */
+export async function getNotesForAnalysis(analysisId: number): Promise<AnalysisNote[]> {
+  return await invoke<AnalysisNote[]>("get_notes_for_analysis", { analysisId });
+}
+
+/**
+ * Get note count for an analysis
+ * @param analysisId - Analysis ID
+ * @returns Note count
+ */
+export async function getNoteCount(analysisId: number): Promise<number> {
+  return await invoke<number>("get_note_count", { analysisId });
+}
+
+/**
+ * Check if an analysis has any notes
+ * @param analysisId - Analysis ID
+ * @returns True if the analysis has notes
+ */
+export async function analysisHasNotes(analysisId: number): Promise<boolean> {
+  return await invoke<boolean>("analysis_has_notes", { analysisId });
+}
+
+// ============================================================================
+// Translation Archive System
+// ============================================================================
+
+/**
+ * Archive a translation (soft delete)
+ * @param id - Translation ID to archive
+ */
+export async function archiveTranslation(id: number): Promise<void> {
+  await invoke("archive_translation", { id });
+}
+
+/**
+ * Restore an archived translation
+ * @param id - Translation ID to restore
+ */
+export async function restoreTranslation(id: number): Promise<void> {
+  await invoke("restore_translation", { id });
+}
+
+// ============================================================================
+// Similar Crash Detection & Analytics
+// ============================================================================
+
+/**
+ * Get similar analyses based on error signature
+ * @param analysisId - Analysis ID to find similar crashes for
+ * @param limit - Max number of results (default 10)
+ * @returns Array of similar analyses
+ */
+export async function getSimilarAnalyses(analysisId: number, limit?: number): Promise<Analysis[]> {
+  return await invoke<Analysis[]>("get_similar_analyses", { analysisId, limit });
+}
+
+/**
+ * Count similar analyses for an analysis
+ * @param analysisId - Analysis ID
+ * @returns Number of similar analyses
+ */
+export async function countSimilarAnalyses(analysisId: number): Promise<number> {
+  return await invoke<number>("count_similar_analyses", { analysisId });
+}
+
+/**
+ * Get trend data for analytics
+ * @param period - Period type: "day", "week", or "month"
+ * @param rangeDays - Number of days to include
+ * @returns Array of trend data points
+ */
+export async function getTrendData(period: string, rangeDays: number): Promise<TrendDataPoint[]> {
+  return await invoke<TrendDataPoint[]>("get_trend_data", { period, rangeDays });
+}
+
+/**
+ * Get top error patterns
+ * @param limit - Max number of patterns (default 10)
+ * @returns Array of error pattern counts
+ */
+export async function getTopErrorPatterns(limit?: number): Promise<ErrorPatternCount[]> {
+  return await invoke<ErrorPatternCount[]>("get_top_error_patterns", { limit });
 }
