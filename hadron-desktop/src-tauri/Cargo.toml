@@ -25,7 +25,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rusqlite = { version = "0.30", features = ["bundled"] }
 tokio = { version = "1.35", features = ["full"] }
-chrono = "0.4"
+async-fs = "2.1"
+chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 dirs = "5.0"
 log = "0.4"
@@ -41,3 +42,20 @@ keeper-secrets-manager-core = "17.0"
 
 # Base64 encoding for JIRA Basic Auth
 base64 = "0.21"
+
+# Hex encoding for signature hashes
+hex = "0.4"
+
+# Parser dependencies
+lazy_static = "1.4"
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Pattern matching dependencies
+toml = "0.8"
+glob = "0.3"
+semver = "1.0"
+
+# Report generation dependencies
+minijinja = "2.0"
+uuid = { version = "1.6", features = ["v4"] }

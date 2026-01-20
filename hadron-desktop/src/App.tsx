@@ -1,13 +1,21 @@
 import { useEffect, useState, lazy, Suspense } from "react";
-import { Settings, FileUp, History, Languages, Activity, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import FileDropZone from "./components/FileDropZone";
 import AnalysisResults from "./components/AnalysisResults";
 import SettingsPanel from "./components/SettingsPanel";
 import HistoryView from "./components/HistoryView";
-import TranslateView from "./components/TranslateView";
+import CodeAnalyzerView from "./components/CodeAnalyzerView";
+import PerformanceAnalyzerView from "./components/PerformanceAnalyzerView";
 import ConsoleViewer from "./components/ConsoleViewer";
+import Splashscreen from "./components/Splashscreen";
 import { ViewErrorBoundary } from "./components/ErrorBoundary";
-import { analyzeCrashLog, translateTechnicalContent, getStoredModel, getStoredProvider } from "./services/api";
+import Navigation from "./components/Navigation";
+import ErrorDisplay from "./components/ErrorDisplay";
+import ApiKeyWarning from "./components/ApiKeyWarning";
+import BatchProgressDisplay from "./components/BatchProgressDisplay";
+import AppHeader from "./components/AppHeader";
+import AppFooter from "./components/AppFooter";
+import { analyzeCrashLog, translateTechnicalContent, getStoredModel, getStoredProvider, type AnalysisMode } from "./services/api";
 import { checkAndUpdate } from "./services/updater";
 import { getApiKey, migrateFromLocalStorage } from "./services/secure-storage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -17,6 +25,7 @@ import logger from "./services/logger";
 
 // Lazy-loaded components for code splitting
 const AnalysisDetailView = lazy(() => import("./components/AnalysisDetailView"));
+const WhatsOnDetailView = lazy(() => import("./components/WhatsOnDetailView"));
 const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
 
 // Loading fallback component
@@ -32,10 +41,10 @@ function LazyLoadFallback() {
 function App() {
   const { state, actions } = useAppState();
   const [showConsole, setShowConsole] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   // Destructure for cleaner code
   const {
-    isInitializing,
     currentView,
     showSettings,
     showDashboard,
@@ -44,10 +53,14 @@ function App() {
     analyzing,
     analysisResult,
     selectedAnalysis,
-    translating,
     batchProgress,
     batchSummary,
     error,
+    // Code Analyzer
+    codeAnalyzerTab,
+    codeAnalyzing,
+    codeAnalysisResult,
+    codeInput,
   } = state;
 
   // Initialize app on mount
@@ -120,7 +133,7 @@ function App() {
   });
 
   // Handle single file analysis
-  const handleFileSelect = async (filePath: string, analysisType: string = "complete") => {
+  const handleFileSelect = async (filePath: string, analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
     actions.startAnalysis();
 
     try {
@@ -131,10 +144,10 @@ function App() {
       const model = getStoredModel();
       const provider = getStoredProvider();
 
-      logger.info('Starting crash analysis', { filePath, model, provider, analysisType });
+      logger.info('Starting crash analysis', { filePath, model, provider, analysisType, analysisMode });
 
       const result = await retryOperation(
-        () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType),
+        () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType, analysisMode),
         { maxAttempts: 3, delayMs: 1000, backoff: true }
       );
 
@@ -169,7 +182,7 @@ function App() {
   };
 
   // Handle batch file analysis
-  const handleBatchSelect = async (filePaths: string[], analysisType: string = "complete") => {
+  const handleBatchSelect = async (filePaths: string[], analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
     if (!filePaths || filePaths.length === 0) return;
 
     actions.startBatch(filePaths.length);
@@ -181,20 +194,24 @@ function App() {
 
       const model = getStoredModel();
       const provider = getStoredProvider();
+
+      // Track counts locally to avoid stale state reads in loop
+      let processedCount = 0;
       let failedCount = 0;
 
       for (const filePath of filePaths) {
-        actions.batchProgress({ currentFile: filePath });
+        // Update current file being processed
+        actions.batchProgress({ currentFile: filePath, processed: processedCount, failed: failedCount });
 
         try {
-          logger.info("Starting batch crash analysis", { filePath, model, provider, analysisType });
+          logger.info("Starting batch crash analysis", { filePath, model, provider, analysisType, analysisMode });
 
           await retryOperation(
-            () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType),
+            () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType, analysisMode),
             { maxAttempts: 3, delayMs: 1000, backoff: true }
           );
 
-          logger.info("Batch analysis succeeded", { filePath, model, provider, analysisType });
+          logger.info("Batch analysis succeeded", { filePath, model, provider, analysisType, analysisMode });
         } catch (err) {
           logger.error("Batch analysis failed", {
             error: err instanceof Error ? err.message : String(err),
@@ -202,11 +219,11 @@ function App() {
             provider: getStoredProvider(),
             model: getStoredModel(),
           });
-
           failedCount += 1;
-          actions.batchProgress({ failed: (batchProgress?.failed || 0) + 1 });
         } finally {
-          actions.batchProgress({ processed: (batchProgress?.processed || 0) + 1 });
+          processedCount += 1;
+          // Update progress with local counts (avoids stale state issue)
+          actions.batchProgress({ processed: processedCount, failed: failedCount });
         }
       }
 
@@ -219,9 +236,9 @@ function App() {
     }
   };
 
-  // Handle translation
-  const handleTranslate = async (content: string): Promise<string> => {
-    actions.startTranslation();
+  // Handle code analysis
+  const handleCodeAnalysis = async (code: string, filename: string, language: string) => {
+    actions.startCodeAnalysis();
 
     try {
       if (!apiKey) {
@@ -231,12 +248,111 @@ function App() {
       const model = getStoredModel();
       const provider = getStoredProvider();
 
-      const translation = await translateTechnicalContent(content, apiKey, model, provider);
-      actions.translationComplete();
-      return translation;
+      logger.info('Starting code analysis', { filename, language, model, provider });
+
+      // Full code analysis prompt
+      const analysisPrompt = `You are an expert code reviewer. Analyze this ${language} code and return a comprehensive JSON response.
+
+FILENAME: ${filename}
+LANGUAGE: ${language}
+
+CODE:
+${code}
+
+Return a JSON object with this EXACT structure:
+{
+  "summary": "2-3 sentence description of what this code does and its purpose",
+  "issues": [
+    {
+      "id": 1,
+      "severity": "critical|high|medium|low",
+      "category": "security|performance|error|best-practice",
+      "line": <line number>,
+      "title": "Short issue title",
+      "description": "What's wrong and why it matters",
+      "technical": "Technical details and evidence from the code",
+      "fix": "Suggested fix with code example",
+      "complexity": "Low|Medium|High",
+      "impact": "Real-world impact if not fixed"
+    }
+  ],
+  "walkthrough": [
+    {
+      "lines": "1-10",
+      "title": "Section name (e.g., 'Imports', 'Main Function', 'Error Handling')",
+      "code": "the actual code snippet for these lines",
+      "whatItDoes": "Clear explanation of what this code does",
+      "whyItMatters": "Why this section is important",
+      "evidence": "Specific code tokens/patterns that support the explanation",
+      "dependencies": [{"name": "dependency name", "type": "import|variable|function|table", "note": "brief note"}],
+      "impact": "What happens if this code is changed or removed",
+      "testability": "How to test this section",
+      "eli5": "Simple analogy a beginner would understand",
+      "quality": "Code quality observations for this section"
+    }
+  ],
+  "optimizedCode": "Improved version of the full code with issues fixed, or null if no improvements needed",
+  "qualityScores": {
+    "overall": <0-100>,
+    "security": <0-100>,
+    "performance": <0-100>,
+    "maintainability": <0-100>,
+    "bestPractices": <0-100>
+  },
+  "glossary": [
+    {"term": "Technical term used", "definition": "Clear definition"}
+  ]
+}
+
+IMPORTANT INSTRUCTIONS:
+1. Find ALL issues - security vulnerabilities, performance problems, bugs, and best practice violations
+2. Create walkthrough sections for logical code blocks (imports, functions, classes, etc.)
+3. Be specific with line numbers and code references
+4. Provide actionable fixes with actual code
+5. Return ONLY valid JSON, no markdown or additional text`;
+
+      const response = await translateTechnicalContent(analysisPrompt, apiKey, model, provider);
+
+      // Parse the JSON response
+      let result;
+      try {
+        // Extract JSON from response
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          // Ensure all required fields exist with defaults
+          result = {
+            summary: parsed.summary || "Analysis complete.",
+            issues: (parsed.issues || []).map((issue: Record<string, unknown>, idx: number) => ({
+              ...issue,
+              id: issue.id || idx + 1,
+              severity: issue.severity || "medium",
+              category: issue.category || "best-practice",
+              line: issue.line || 1,
+              impact: issue.impact || "Review recommended"
+            })),
+            walkthrough: parsed.walkthrough || [],
+            optimizedCode: parsed.optimizedCode || null,
+            qualityScores: parsed.qualityScores || {
+              overall: 50, security: 50, performance: 50, maintainability: 50, bestPractices: 50
+            },
+            glossary: parsed.glossary || []
+          };
+        } else {
+          throw new Error("No JSON found in response");
+        }
+      } catch (parseError) {
+        logger.error('Failed to parse code analysis response', { error: parseError });
+        // Show error to user instead of silently falling back to demo data
+        const errorMessage = parseError instanceof Error ? parseError.message : 'Unknown parsing error';
+        throw new Error(`Failed to parse AI response: ${errorMessage}. The AI may have returned malformed JSON. Please try again.`);
+      }
+
+      actions.codeAnalysisSuccess(result);
+      return result;
     } catch (err) {
       const friendlyError = getUserFriendlyErrorMessage(err);
-      actions.translationError(friendlyError);
+      actions.codeAnalysisError(friendlyError);
       throw err;
     }
   };
@@ -258,18 +374,13 @@ function App() {
     }
   };
 
-  // Loading screen during initialization
-  if (isInitializing) {
+  // Splashscreen on app start - only show for minimum time, don't block on initialization
+  if (showSplash) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
-        <div className="text-center">
-          <div className="mb-4">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-          </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Hadron</h2>
-          <p className="text-gray-400">Initializing...</p>
-        </div>
-      </div>
+      <Splashscreen
+        onComplete={() => setShowSplash(false)}
+        minDisplayTime={1500}
+      />
     );
   }
 
@@ -277,104 +388,19 @@ function App() {
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 dark:from-gray-900 dark:to-gray-800 bg-gray-50 text-gray-900 dark:text-white p-8 transition-colors duration-200">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <header className="mb-8 flex justify-between items-start">
-          <div>
-            <h1 className="text-4xl font-bold mb-2">Hadron</h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              Smalltalk Crash Analyzer powered by AI
-            </p>
-          </div>
-
-          {/* Header Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={actions.openDashboard}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg transition"
-            >
-              <Activity className="w-5 h-5" />
-              Dashboard
-            </button>
-            <button
-              onClick={actions.openSettings}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg transition"
-            >
-              <Settings className="w-5 h-5" />
-              Settings
-            </button>
-          </div>
-        </header>
+        <AppHeader
+          onOpenDashboard={actions.openDashboard}
+          onOpenSettings={actions.openSettings}
+        />
 
         {/* Navigation Tabs */}
-        <nav className="mb-6 flex gap-2 border-b border-gray-300 dark:border-gray-700" role="tablist" aria-label="Main navigation">
-          <button
-            onClick={() => actions.setView("analyze")}
-            role="tab"
-            aria-selected={currentView === "analyze"}
-            aria-controls="analyze-panel"
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition ${
-              currentView === "analyze"
-                ? "border-blue-500 text-blue-600 dark:text-blue-400"
-                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-            }`}
-          >
-            <FileUp className="w-5 h-5" />
-            Analyze
-          </button>
-          <button
-            onClick={() => actions.setView("translate")}
-            role="tab"
-            aria-selected={currentView === "translate"}
-            aria-controls="translate-panel"
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition ${
-              currentView === "translate"
-                ? "border-blue-500 text-blue-600 dark:text-blue-400"
-                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-            }`}
-          >
-            <Languages className="w-5 h-5" />
-            Translate
-          </button>
-          <button
-            onClick={() => actions.setView("history")}
-            role="tab"
-            aria-selected={currentView === "history" || currentView === "detail"}
-            aria-controls="history-panel"
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition ${
-              currentView === "history" || currentView === "detail"
-                ? "border-blue-500 text-blue-600 dark:text-blue-400"
-                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-            }`}
-          >
-            <History className="w-5 h-5" />
-            History
-          </button>
-        </nav>
+        <Navigation currentView={currentView} onViewChange={actions.setView} />
 
         {/* API Key Warning */}
-        {!apiKey && (
-          <div className="mb-6 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
-            <p className="text-yellow-400">
-              Warning: API Key Required - Please set your OpenAI API key in Settings to analyze crash logs
-            </p>
-          </div>
-        )}
+        <ApiKeyWarning hasApiKey={!!apiKey} />
 
         {/* Error Display */}
-        {error && (
-          <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-lg p-4">
-            <p className="text-red-400 font-semibold mb-2">Error: {error.message}</p>
-            {error.suggestions.length > 0 && (
-              <div className="mt-3 text-sm text-red-300">
-                <p className="font-semibold mb-1">Try these solutions:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  {error.suggestions.map((suggestion, index) => (
-                    <li key={index}>{suggestion}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
+        <ErrorDisplay error={error} />
 
         {/* Main Content */}
         <div className="space-y-6">
@@ -382,32 +408,16 @@ function App() {
           {currentView === "analyze" && (
             <ViewErrorBoundary name="Analysis">
               <div id="analyze-panel" role="tabpanel">
-                {batchProgress && (
-                  <div className="mb-4 bg-gray-800/60 border border-gray-700 rounded-lg p-4 text-sm">
-                    <div className="font-semibold text-gray-100">
-                      Batch analysis: {batchProgress.processed} / {batchProgress.total} completed
-                    </div>
-                    {batchProgress.currentFile && (
-                      <div className="text-xs text-gray-400 truncate mt-1">
-                        Current file: {batchProgress.currentFile}
-                      </div>
-                    )}
-                    {batchProgress.failed > 0 && (
-                      <div className="text-xs text-red-400 mt-1">
-                        Failed: {batchProgress.failed}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {batchSummary && !analyzing && (
-                  <div className="mb-4 bg-gray-800/40 border border-gray-700 rounded-lg p-3 text-xs text-gray-300">
-                    {batchSummary}
-                  </div>
-                )}
+                <BatchProgressDisplay
+                  batchProgress={batchProgress}
+                  batchSummary={batchSummary}
+                  isAnalyzing={analyzing}
+                />
                 {!analysisResult && (
                   <FileDropZone
                     onFileSelect={handleFileSelect}
                     onBatchSelect={handleBatchSelect}
+                    onOpenAnalysis={(analysis) => actions.viewAnalysis(analysis)}
                     isAnalyzing={analyzing}
                   />
                 )}
@@ -422,13 +432,19 @@ function App() {
             </ViewErrorBoundary>
           )}
 
-          {/* Translate View */}
+          {/* Code Analyzer View */}
           {currentView === "translate" && (
-            <ViewErrorBoundary name="Translation">
+            <ViewErrorBoundary name="Code Analyzer">
               <div id="translate-panel" role="tabpanel">
-                <TranslateView
-                  onTranslate={handleTranslate}
-                  isTranslating={translating}
+                <CodeAnalyzerView
+                  onAnalyze={handleCodeAnalysis}
+                  isAnalyzing={codeAnalyzing}
+                  analysisResult={codeAnalysisResult}
+                  codeInput={codeInput}
+                  activeTab={codeAnalyzerTab}
+                  onTabChange={actions.setCodeAnalyzerTab}
+                  onSetInput={actions.setCodeInput}
+                  onClear={actions.clearCodeAnalysis}
                 />
               </div>
             </ViewErrorBoundary>
@@ -443,29 +459,37 @@ function App() {
             </ViewErrorBoundary>
           )}
 
+          {/* Performance Analyzer View */}
+          {currentView === "performance" && (
+            <ViewErrorBoundary name="Performance">
+              <div id="performance-panel" role="tabpanel">
+                <PerformanceAnalyzerView />
+              </div>
+            </ViewErrorBoundary>
+          )}
+
           {/* Detail View - lazy loaded */}
           {currentView === "detail" && selectedAnalysis && (
             <ViewErrorBoundary name="Analysis Details">
               <Suspense fallback={<LazyLoadFallback />}>
-                <AnalysisDetailView
-                  analysis={selectedAnalysis}
-                  onBack={actions.backToHistory}
-                />
+                {selectedAnalysis.analysis_type === "whatson" ? (
+                  <WhatsOnDetailView
+                    analysis={selectedAnalysis}
+                    onBack={actions.backToHistory}
+                  />
+                ) : (
+                  <AnalysisDetailView
+                    analysis={selectedAnalysis}
+                    onBack={actions.backToHistory}
+                  />
+                )}
               </Suspense>
             </ViewErrorBoundary>
           )}
         </div>
 
         {/* Footer */}
-        <footer className="mt-12 text-center text-gray-400 dark:text-gray-500 text-sm">
-          <div className="mb-2">
-            Phase 1: Desktop Foundation | v1.0.0
-            {apiKey && <span className="ml-4 text-green-600 dark:text-green-400">API Key Set</span>}
-          </div>
-          <div className="text-xs opacity-60">
-            Shortcuts: Ctrl+N (New) | Ctrl+H (History) | Ctrl+, (Settings) | Ctrl+Y (Console) | Esc (Close)
-          </div>
-        </footer>
+        <AppFooter hasApiKey={!!apiKey} />
       </div>
 
       {/* Settings Panel */}

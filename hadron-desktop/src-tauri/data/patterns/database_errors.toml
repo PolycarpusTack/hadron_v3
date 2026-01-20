@@ -1,0 +1,149 @@
+# Database-related crash patterns
+
+[[pattern]]
+id = "DB-PG-001"
+name = "PostgreSQL Prepared Statement Cache Miss"
+description = "Connection pooler invalidated prepared statement"
+category = "database_error"
+priority = 75
+enabled = true
+tags = ["database", "postgresql", "pgbouncer", "prepared_statement"]
+
+[pattern.matchers]
+exception_type = ".*Error.*"
+
+[pattern.matchers.exception_message]
+contains = "prepared statement"
+
+[pattern.matchers.database]
+backend = "postgresql"
+error_contains = "does not exist"
+
+[pattern.analysis]
+root_cause = "Prepared statement was invalidated by connection pooling (PgBouncer/pgpool)"
+root_cause_plain = "The database connection was reused and the saved query was lost"
+severity = "high"
+data_at_risk = false
+fix_summary = "Configure connection pooler for session mode or handle statement recreation"
+fix_details = """
+When using PgBouncer in 'transaction' mode, prepared statements are not preserved
+between transactions. Solutions:
+1. Use 'session' mode in PgBouncer
+2. Disable prepared statements in the application
+3. Handle ERROR 26000 by recreating the statement
+"""
+fix_code_hints = [
+    "PgBouncer: pool_mode = session",
+    "Application: Catch 26000 and retry with fresh statement"
+]
+workarounds = ["Restart application to clear statement cache"]
+affected_features = ["All database operations"]
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "DB-ORA-001"
+name = "Oracle Deadlock Detected"
+description = "Database deadlock between concurrent operations"
+category = "database_error"
+priority = 80
+enabled = true
+tags = ["database", "oracle", "deadlock", "concurrency"]
+
+[pattern.matchers]
+[pattern.matchers.exception_message]
+regex = "ORA-00060"
+
+[pattern.matchers.database]
+backend = "oracle"
+
+[pattern.analysis]
+root_cause = "Two or more transactions waiting for each other's locks"
+root_cause_plain = "Two operations are stuck waiting for each other, causing a deadlock"
+severity = "high"
+data_at_risk = true
+fix_summary = "Review transaction isolation and locking patterns"
+fix_details = """
+ORA-00060 indicates a deadlock between sessions. The database automatically
+rolls back one transaction. Investigate:
+1. Which tables are involved
+2. Lock ordering consistency
+3. Transaction scope (can it be smaller?)
+"""
+fix_code_hints = [
+    "Ensure consistent lock ordering across operations",
+    "Reduce transaction duration",
+    "Consider using SELECT FOR UPDATE NOWAIT"
+]
+workarounds = ["Retry the operation"]
+affected_features = ["Concurrent editing operations"]
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "DB-ORA-002"
+name = "Oracle Unique Constraint Violation"
+description = "Attempt to insert duplicate value in unique column"
+category = "database_error"
+priority = 65
+enabled = true
+tags = ["database", "oracle", "constraint", "unique"]
+
+[pattern.matchers]
+[pattern.matchers.exception_message]
+regex = "ORA-00001"
+
+[pattern.matchers.database]
+backend = "oracle"
+
+[pattern.analysis]
+root_cause = "Attempt to insert or update a record with a duplicate unique key value"
+root_cause_plain = "The system tried to save a record with a value that already exists and must be unique"
+severity = "medium"
+data_at_risk = false
+fix_summary = "Check for existing record before insert, or handle duplicate gracefully"
+fix_code_hints = [
+    "Add check before insert: SELECT COUNT(*) FROM table WHERE unique_col = ?",
+    "Use MERGE statement for upsert semantics"
+]
+workarounds = ["Check if record already exists"]
+affected_features = []
+
+[pattern.versioning]
+pattern_version = "1.0.0"
+
+
+[[pattern]]
+id = "DB-CONN-001"
+name = "Database Connection Timeout"
+description = "Failed to establish database connection within timeout period"
+category = "database_error"
+priority = 70
+enabled = true
+tags = ["database", "connection", "timeout"]
+
+[pattern.matchers]
+stack_contains_any = ["connect", "Connection", "login"]
+
+[pattern.matchers.exception_message]
+contains = "timeout"
+
+[pattern.analysis]
+root_cause = "Database connection could not be established within the configured timeout"
+root_cause_plain = "The system couldn't connect to the database in time - the server may be slow or unreachable"
+severity = "high"
+data_at_risk = false
+fix_summary = "Check database server availability, network connectivity, and timeout settings"
+fix_code_hints = [
+    "Increase connection timeout if server is slow",
+    "Check network connectivity to database server"
+]
+workarounds = ["Wait and retry", "Check database server is running"]
+affected_features = ["Application startup", "All database operations"]
+
+[pattern.versioning]
+pattern_version = "1.0.0"

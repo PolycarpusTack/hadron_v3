@@ -6,7 +6,7 @@
 use rusqlite::{Connection, Result};
 
 /// Current schema version. Increment when adding new migrations.
-pub const CURRENT_SCHEMA_VERSION: i32 = 3;
+pub const CURRENT_SCHEMA_VERSION: i32 = 5;
 
 /// Migration function type
 type MigrationFn = fn(&Connection) -> Result<()>;
@@ -34,6 +34,16 @@ const MIGRATIONS: &[Migration] = &[
         version: 3,
         name: "add_translations_table",
         up: migration_003_add_translations_table,
+    },
+    Migration {
+        version: 4,
+        name: "add_crash_signatures",
+        up: migration_004_add_crash_signatures,
+    },
+    Migration {
+        version: 5,
+        name: "history_enhancements",
+        up: migration_005_history_enhancements,
     },
 ];
 
@@ -104,11 +114,15 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         }
     }
 
-    log::info!("All migrations completed. Schema version: {}", CURRENT_SCHEMA_VERSION);
+    log::info!(
+        "All migrations completed. Schema version: {}",
+        CURRENT_SCHEMA_VERSION
+    );
     Ok(())
 }
 
 /// Check if database needs migration
+#[allow(dead_code)]
 pub fn needs_migration(conn: &Connection) -> Result<bool> {
     init_migration_table(conn)?;
     let current = get_current_version(conn)?;
@@ -231,7 +245,8 @@ fn migration_002_add_analysis_type(conn: &Connection) -> Result<()> {
             [],
             |row| row.get::<_, i32>(0),
         )
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     if !has_column {
         conn.execute(
@@ -313,6 +328,294 @@ fn migration_003_add_translations_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Migration 4: Add crash signatures tables for deduplication
+fn migration_004_add_crash_signatures(conn: &Connection) -> Result<()> {
+    // Create crash_signatures table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS crash_signatures (
+            -- Primary key: the signature hash (12 chars)
+            hash TEXT PRIMARY KEY,
+
+            -- Human-readable canonical form
+            canonical TEXT NOT NULL,
+
+            -- Component data (JSON)
+            components_json TEXT NOT NULL,
+
+            -- Timestamps (ISO 8601)
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+
+            -- Occurrence tracking
+            occurrence_count INTEGER NOT NULL DEFAULT 1,
+
+            -- Ticket linking
+            linked_ticket_system TEXT,
+            linked_ticket_id TEXT,
+            linked_ticket_url TEXT,
+
+            -- Status: new, investigating, fix_in_progress, fixed, wont_fix, duplicate
+            status TEXT NOT NULL DEFAULT 'new',
+            status_metadata_json TEXT,
+
+            -- Notes
+            notes TEXT,
+
+            -- Audit
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        [],
+    )?;
+
+    // Create index for status filtering
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signatures_status ON crash_signatures(status)",
+        [],
+    )?;
+
+    // Create index for ticket lookup
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signatures_ticket ON crash_signatures(linked_ticket_system, linked_ticket_id)",
+        [],
+    )?;
+
+    // Create index for occurrence count (for sorting)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_signatures_occurrences ON crash_signatures(occurrence_count DESC)",
+        [],
+    )?;
+
+    // Junction table: which analyses have which signatures
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS analysis_signatures (
+            analysis_id INTEGER NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+            signature_hash TEXT NOT NULL REFERENCES crash_signatures(hash) ON DELETE CASCADE,
+
+            -- When this occurrence was recorded
+            matched_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+            PRIMARY KEY (analysis_id, signature_hash)
+        )",
+        [],
+    )?;
+
+    // Create index for finding all analyses with a signature
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analysis_signatures_hash ON analysis_signatures(signature_hash)",
+        [],
+    )?;
+
+    // Signature relationships (for duplicate tracking)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS signature_relationships (
+            from_hash TEXT NOT NULL REFERENCES crash_signatures(hash) ON DELETE CASCADE,
+            to_hash TEXT NOT NULL REFERENCES crash_signatures(hash) ON DELETE CASCADE,
+            relationship TEXT NOT NULL,  -- 'duplicate_of', 'related_to', 'superseded_by'
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+            PRIMARY KEY (from_hash, to_hash, relationship)
+        )",
+        [],
+    )?;
+
+    Ok(())
+}
+
+/// Migration 5: History Tab Enhancements - Tags, Archive, Notes
+fn migration_005_history_enhancements(conn: &Connection) -> Result<()> {
+    // ========================================================================
+    // Tags System
+    // ========================================================================
+
+    // User-defined tags
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            color TEXT NOT NULL DEFAULT '#6B7280',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            usage_count INTEGER NOT NULL DEFAULT 0
+        )",
+        [],
+    )?;
+
+    // Many-to-many: Analysis <-> Tags
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS analysis_tags (
+            analysis_id INTEGER NOT NULL,
+            tag_id INTEGER NOT NULL,
+            tagged_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (analysis_id, tag_id),
+            FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // Many-to-many: Translation <-> Tags
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS translation_tags (
+            translation_id INTEGER NOT NULL,
+            tag_id INTEGER NOT NULL,
+            tagged_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (translation_id, tag_id),
+            FOREIGN KEY (translation_id) REFERENCES translations(id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // ========================================================================
+    // Archive System
+    // ========================================================================
+
+    // Archive table for soft-deleted items (for permanent deletion recovery)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS archived_analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            original_id INTEGER NOT NULL,
+            archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+            archived_by TEXT,
+            data_json TEXT NOT NULL,
+            restore_eligible_until TEXT
+        )",
+        [],
+    )?;
+
+    // ========================================================================
+    // Notes System
+    // ========================================================================
+
+    // User notes/comments on analyses
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS analysis_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            analysis_id INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT,
+            FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // ========================================================================
+    // Schema Modifications
+    // ========================================================================
+
+    // Add error_signature column to analyses (for duplicate detection)
+    let has_error_signature: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('analyses') WHERE name='error_signature'",
+            [],
+            |row| row.get::<_, i32>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !has_error_signature {
+        conn.execute("ALTER TABLE analyses ADD COLUMN error_signature TEXT", [])?;
+    }
+
+    // Add source_type column to analyses
+    let has_source_type: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('analyses') WHERE name='source_type'",
+            [],
+            |row| row.get::<_, i32>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !has_source_type {
+        conn.execute(
+            "ALTER TABLE analyses ADD COLUMN source_type TEXT DEFAULT 'file'",
+            [],
+        )?;
+    }
+
+    // Add translation_type column to translations (for code_analysis distinction)
+    let has_translation_type: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('translations') WHERE name='translation_type'",
+            [],
+            |row| row.get::<_, i32>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !has_translation_type {
+        conn.execute(
+            "ALTER TABLE translations ADD COLUMN translation_type TEXT DEFAULT 'technical'",
+            [],
+        )?;
+    }
+
+    // ========================================================================
+    // Indexes
+    // ========================================================================
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analyses_error_signature ON analyses(error_signature)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analyses_analysis_type ON analyses(analysis_type)",
+        [],
+    )?;
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)", [])?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analysis_tags_tag ON analysis_tags(tag_id)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analysis_notes_analysis ON analysis_notes(analysis_id)",
+        [],
+    )?;
+
+    // ========================================================================
+    // Seed Default Tags
+    // ========================================================================
+
+    // Insert default tags (ignore if already exist)
+    let default_tags = [
+        ("production", "#EF4444"),    // red
+        ("staging", "#F97316"),       // orange
+        ("development", "#22C55E"),   // green
+        ("resolved", "#10B981"),      // emerald
+        ("investigating", "#EAB308"), // yellow
+        ("needs-review", "#8B5CF6"),  // violet
+        ("recurring", "#EC4899"),     // pink
+        ("critical-path", "#DC2626"), // dark red
+    ];
+
+    for (name, color) in &default_tags {
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (name, color) VALUES (?1, ?2)",
+            rusqlite::params![name, color],
+        )?;
+    }
+
+    // ========================================================================
+    // Generate Error Signatures for Existing Data
+    // ========================================================================
+
+    conn.execute(
+        "UPDATE analyses SET error_signature =
+            LOWER(COALESCE(error_type, 'unknown')) || ':' || LOWER(COALESCE(component, 'unknown'))
+         WHERE error_signature IS NULL",
+        [],
+    )?;
+
+    Ok(())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -346,11 +649,33 @@ mod tests {
         let version = get_current_version(&conn).unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
-        // Verify only 3 migration records exist
+        // Verify only 5 migration records exist
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 3);
+        assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn test_tags_table_created() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Verify tags table exists
+        let exists: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tags'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 1);
+
+        // Verify default tags are seeded
+        let tag_count: i32 = conn
+            .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(tag_count, 8);
     }
 
     #[test]

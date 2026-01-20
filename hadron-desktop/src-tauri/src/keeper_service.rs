@@ -11,14 +11,14 @@
 
 use keeper_secrets_manager_core::{
     core::{ClientOptions, SecretsManager},
-    storage::FileKeyValueStorage,
     custom_error::KSMRError,
+    storage::FileKeyValueStorage,
 };
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
-use once_cell::sync::Lazy;
 use zeroize::{Zeroize, Zeroizing};
 
 /// Cache TTL in seconds (5 minutes)
@@ -49,6 +49,7 @@ impl SecretsCache {
 /// Cached secret with password field that is zeroized on drop
 /// SECURITY: Implements Zeroize to clear passwords from memory when cache is dropped
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct CachedSecret {
     uid: String,
     title: String,
@@ -113,11 +114,47 @@ fn get_keeper_config_path() -> Result<PathBuf, String> {
 /// Convert KSMRError to a user-friendly string
 fn format_keeper_error(e: KSMRError) -> String {
     match e {
-        KSMRError::NetworkError(msg) => format!("Network error: {}", msg),
-        KSMRError::AuthenticationError(msg) => format!("Authentication failed: {}", msg),
-        KSMRError::ConfigurationError(msg) => format!("Configuration error: {}", msg),
+        KSMRError::HTTPError(msg) => format!("Network error: {}", msg),
+        KSMRError::StorageError(msg) => format!("Storage error: {}", msg),
+        KSMRError::CryptoError(msg) => format!("Authentication error: {}", msg),
+        KSMRError::SecretManagerCreationError(msg) => format!("Configuration error: {}", msg),
+        KSMRError::KeyNotFoundError(msg) => format!("Key not found: {}", msg),
+        KSMRError::RecordDataError(msg) => format!("Record data error: {}", msg),
+        KSMRError::CustomError(msg) => format!("Error: {}", msg),
         _ => format!("Keeper error: {:?}", e),
     }
+}
+
+/// Helper to extract a string value from a serde_json::Value
+fn value_to_string(value: serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(s) => Some(s),
+        serde_json::Value::Array(arr) => {
+            // If array, try to get first string element
+            arr.into_iter().find_map(|v| {
+                if let serde_json::Value::String(s) = v {
+                    Some(s)
+                } else {
+                    None
+                }
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Try to get a field value as Option<String>, ignoring errors
+fn get_field_as_string(
+    record: &keeper_secrets_manager_core::dto::dtos::Record,
+    field_type: &str,
+    is_standard: bool,
+) -> Option<String> {
+    let result = if is_standard {
+        record.get_standard_field_value(field_type, true)
+    } else {
+        record.get_custom_field_value(field_type, true)
+    };
+    result.ok().and_then(value_to_string)
 }
 
 /// Check if Keeper is configured (config file exists)
@@ -133,23 +170,28 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
     let config_path = get_keeper_config_path()?;
     let config_path_str = config_path.to_string_lossy().to_string();
 
-    log::info!("Initializing Keeper with one-time token at: {}", config_path_str);
+    log::info!(
+        "Initializing Keeper with one-time token at: {}",
+        config_path_str
+    );
 
     // Create storage for Keeper config
-    let storage = FileKeyValueStorage::new_config_storage(config_path_str)
-        .map_err(|e| format!("Failed to create Keeper storage: {}", format_keeper_error(e)))?;
+    let storage = FileKeyValueStorage::new_config_storage(config_path_str).map_err(|e| {
+        format!(
+            "Failed to create Keeper storage: {}",
+            format_keeper_error(e)
+        )
+    })?;
 
     // Initialize with one-time token
-    let options = ClientOptions::new_client_options_with_token(
-        one_time_token.to_string(),
-        storage,
-    );
+    let options = ClientOptions::new_client_options_with_token(one_time_token.to_string(), storage);
 
     let mut secrets_manager = SecretsManager::new(options)
         .map_err(|e| format!("Failed to create Keeper client: {}", format_keeper_error(e)))?;
 
     // Perform initial fetch to bind the token (required by Keeper)
-    let secrets = secrets_manager.get_secrets(Vec::new())
+    let secrets = secrets_manager
+        .get_secrets(Vec::new())
         .map_err(|e| format!("Failed to fetch secrets: {}", format_keeper_error(e)))?;
 
     let secrets_count = secrets.len();
@@ -161,7 +203,7 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
             uid: s.uid.clone(),
             title: s.title.clone(),
             record_type: s.record_type.clone(),
-            password: s.get_standard_field_value("password", true),
+            password: get_field_as_string(s, "password", true),
         })
         .collect();
 
@@ -174,11 +216,17 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
         }
     }
 
-    log::info!("Keeper initialized successfully, found {} secrets", secrets_count);
+    log::info!(
+        "Keeper initialized successfully, found {} secrets",
+        secrets_count
+    );
 
     Ok(KeeperInitResult {
         success: true,
-        message: format!("Connected to Keeper. Found {} secrets available.", secrets_count),
+        message: format!(
+            "Connected to Keeper. Found {} secrets available.",
+            secrets_count
+        ),
         secrets_count: Some(secrets_count),
     })
 }
@@ -206,7 +254,8 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
     let mut secrets_manager = SecretsManager::new(options)
         .map_err(|e| format!("Failed to create Keeper client: {}", format_keeper_error(e)))?;
 
-    let secrets = secrets_manager.get_secrets(Vec::new())
+    let secrets = secrets_manager
+        .get_secrets(Vec::new())
         .map_err(|e| format!("Failed to fetch secrets: {}", format_keeper_error(e)))?;
 
     // Update cache with TTL
@@ -216,7 +265,7 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
             uid: s.uid.clone(),
             title: s.title.clone(),
             record_type: s.record_type.clone(),
-            password: s.get_standard_field_value("password", true),
+            password: get_field_as_string(s, "password", true),
         })
         .collect();
 
@@ -255,9 +304,13 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, St
         Ok(cache) => {
             if let Some(ref secrets_cache) = *cache {
                 if !secrets_cache.is_expired() {
-                    if let Some(secret) = secrets_cache.secrets.iter().find(|s| s.uid == secret_uid) {
+                    if let Some(secret) = secrets_cache.secrets.iter().find(|s| s.uid == secret_uid)
+                    {
                         if let Some(ref password) = secret.password {
-                            log::debug!("Retrieved API key from cache for secret: {}", secret.title);
+                            log::debug!(
+                                "Retrieved API key from cache for secret: {}",
+                                secret.title
+                            );
                             return Ok(Zeroizing::new(password.clone()));
                         }
                     }
@@ -267,7 +320,10 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, St
             }
         }
         Err(e) => {
-            log::warn!("Failed to acquire cache lock, falling back to Keeper fetch: {}", e);
+            log::warn!(
+                "Failed to acquire cache lock, falling back to Keeper fetch: {}",
+                e
+            );
         }
     }
 
@@ -289,17 +345,20 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, St
         .map_err(|e| format!("Failed to create Keeper client: {}", format_keeper_error(e)))?;
 
     // Fetch specific secret by UID
-    let secrets = secrets_manager.get_secrets(vec![secret_uid.to_string()])
+    let secrets = secrets_manager
+        .get_secrets(vec![secret_uid.to_string()])
         .map_err(|e| format!("Failed to fetch secret: {}", format_keeper_error(e)))?;
 
-    let secret = secrets.first()
+    let secret = secrets
+        .first()
         .ok_or_else(|| format!("Secret not found: {}", secret_uid))?;
 
     // Try to get password field (most common for API keys)
-    let password = secret.get_standard_field_value("password", true)
-        .or_else(|| secret.get_custom_field_value("API Key", true))
-        .or_else(|| secret.get_custom_field_value("api_key", true))
-        .or_else(|| secret.get_custom_field_value("apiKey", true))
+    // Check standard password field first, then try common custom field names
+    let password = get_field_as_string(secret, "password", true)
+        .or_else(|| get_field_as_string(secret, "API Key", false))
+        .or_else(|| get_field_as_string(secret, "api_key", false))
+        .or_else(|| get_field_as_string(secret, "apiKey", false))
         .ok_or_else(|| "No password or API key field found in secret".to_string())?;
 
     log::debug!("Retrieved API key from Keeper for secret: {}", secret.title);

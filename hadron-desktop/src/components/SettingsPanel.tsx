@@ -6,9 +6,10 @@ import { checkForUpdates } from "../services/updater";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
 
-// Lazy load KeeperSettings and JiraSettings since most users won't use them
+// Lazy load KeeperSettings, JiraSettings, and DatabaseAdminSection since most users won't use them
 const KeeperSettings = lazy(() => import("./KeeperSettings"));
 const JiraSettings = lazy(() => import("./JiraSettings"));
+const DatabaseAdminSection = lazy(() => import("./DatabaseAdminSection"));
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -963,6 +964,20 @@ export default function SettingsPanel({
               </div>
             )}
           </div>
+
+          {/* Database Admin Section */}
+          <Suspense fallback={
+            <div className="p-4 bg-gray-500/10 rounded-lg border border-gray-500/30">
+              <div className="flex items-center gap-3">
+                <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
+                <span className="text-gray-400">Loading database info...</span>
+              </div>
+            </div>
+          }>
+            <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+              <DatabaseAdminSection onRefresh={onSettingsChange} />
+            </div>
+          </Suspense>
         </div>
 
         {/* Footer */}

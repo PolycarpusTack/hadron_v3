@@ -45,6 +45,17 @@ pub struct Translation {
     pub view_count: i32,
 }
 
+/// User-defined tag for organizing analyses and translations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tag {
+    pub id: i64,
+    pub name: String,
+    pub color: String,
+    pub usage_count: i32,
+    pub created_at: String,
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
 }
@@ -60,14 +71,12 @@ impl Drop for Database {
 
 impl Database {
     /// Helper method to acquire lock with proper error handling
-    fn lock_conn(&self) -> Result<std::sync::MutexGuard<Connection>> {
-        self.conn.lock()
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Database mutex poisoned: {}", e)
-                ))
-            ))
+    fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        self.conn.lock().map_err(|e| {
+            rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(
+                format!("Database mutex poisoned: {}", e),
+            )))
+        })
     }
 
     pub fn new() -> Result<Self> {
@@ -158,17 +167,21 @@ impl Database {
     /// Get analyses with pagination support
     /// - limit: Number of results to return (None = default, capped at MAX_PAGE_SIZE)
     /// - offset: Number of results to skip (must be >= 0)
+    ///
     /// SECURITY: Uses parameterized queries to prevent SQL injection
-    pub fn get_analyses_paginated(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Analysis>> {
+    pub fn get_analyses_paginated(
+        &self,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<Analysis>> {
         let conn = self.lock_conn()?;
 
         // SECURITY: Enforce bounds on pagination parameters
         const MAX_PAGE_SIZE: i64 = 1000;
         let actual_limit = limit
             .unwrap_or(Self::DEFAULT_PAGE_SIZE)
-            .max(1)  // At least 1
-            .min(MAX_PAGE_SIZE);  // Cap at MAX_PAGE_SIZE
-        let actual_offset = offset.unwrap_or(0).max(0);  // No negative offsets
+            .clamp(1, MAX_PAGE_SIZE);
+        let actual_offset = offset.unwrap_or(0).max(0); // No negative offsets
 
         let sql = "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
                     root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
@@ -206,7 +219,9 @@ impl Database {
                     last_viewed_at: row.get(19)?,
                     view_count: row.get(20)?,
                     analysis_duration_ms: row.get(21)?,
-                    analysis_type: row.get::<_, Option<String>>(22)?.unwrap_or_else(|| "complete".to_string()),
+                    analysis_type: row
+                        .get::<_, Option<String>>(22)?
+                        .unwrap_or_else(|| "complete".to_string()),
                 })
             })?
             .collect::<Result<Vec<_>>>()?;
@@ -274,12 +289,19 @@ impl Database {
     pub fn delete_analysis(&self, id: i64) -> Result<()> {
         let conn = self.lock_conn()?;
         // Soft delete
-        conn.execute("UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?1", params![id])?;
+        conn.execute(
+            "UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?1",
+            params![id],
+        )?;
         Ok(())
     }
 
     // Full-text search using FTS5
-    pub fn search_analyses(&self, query: &str, severity_filter: Option<&str>) -> Result<Vec<Analysis>> {
+    pub fn search_analyses(
+        &self,
+        query: &str,
+        severity_filter: Option<&str>,
+    ) -> Result<Vec<Analysis>> {
         let conn = self.lock_conn()?;
 
         let sql = if severity_filter.is_some() {
@@ -346,7 +368,9 @@ impl Database {
             last_viewed_at: row.get(19)?,
             view_count: row.get(20)?,
             analysis_duration_ms: row.get(21)?,
-            analysis_type: row.get::<_, Option<String>>(22)?.unwrap_or_else(|| "complete".to_string()),
+            analysis_type: row
+                .get::<_, Option<String>>(22)?
+                .unwrap_or_else(|| "complete".to_string()),
         })
     }
 
@@ -443,7 +467,10 @@ impl Database {
     // Optimize FTS index
     pub fn optimize_fts(&self) -> Result<()> {
         let conn = self.lock_conn()?;
-        conn.execute("INSERT INTO analyses_fts(analyses_fts) VALUES('optimize')", [])?;
+        conn.execute(
+            "INSERT INTO analyses_fts(analyses_fts) VALUES('optimize')",
+            [],
+        )?;
         Ok(())
     }
 
@@ -499,16 +526,19 @@ impl Database {
 
     /// Get translations with pagination support
     /// SECURITY: Uses parameterized queries to prevent SQL injection
-    pub fn get_translations_paginated(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Translation>> {
+    pub fn get_translations_paginated(
+        &self,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<Translation>> {
         let conn = self.lock_conn()?;
 
         // SECURITY: Enforce bounds on pagination parameters
         const MAX_PAGE_SIZE: i64 = 1000;
         let actual_limit = limit
             .unwrap_or(Self::DEFAULT_PAGE_SIZE)
-            .max(1)  // At least 1
-            .min(MAX_PAGE_SIZE);  // Cap at MAX_PAGE_SIZE
-        let actual_offset = offset.unwrap_or(0).max(0);  // No negative offsets
+            .clamp(1, MAX_PAGE_SIZE);
+        let actual_offset = offset.unwrap_or(0).max(0); // No negative offsets
 
         let sql = "SELECT id, input_content, translation, translated_at, ai_model, ai_provider,
                     is_favorite, last_viewed_at, view_count
@@ -575,7 +605,10 @@ impl Database {
 
     pub fn delete_translation(&self, id: i64) -> Result<()> {
         let conn = self.lock_conn()?;
-        conn.execute("UPDATE translations SET deleted_at = datetime('now') WHERE id = ?1", params![id])?;
+        conn.execute(
+            "UPDATE translations SET deleted_at = datetime('now') WHERE id = ?1",
+            params![id],
+        )?;
         Ok(())
     }
 
@@ -597,4 +630,1203 @@ impl Database {
 
         Ok(new_value != 0)
     }
+
+    // =========================================================================
+    // Crash Signature Methods
+    // =========================================================================
+
+    /// Upsert a crash signature
+    pub fn upsert_signature(&self, signature: &crate::signature::CrashSignature) -> Result<bool> {
+        let conn = self.lock_conn()?;
+        crate::signature::upsert_signature(&conn, signature)
+    }
+
+    /// Find a signature by hash
+    pub fn find_signature_by_hash(
+        &self,
+        hash: &str,
+    ) -> Result<Option<crate::signature::CrashSignature>> {
+        let conn = self.lock_conn()?;
+        crate::signature::find_signature_by_hash(&conn, hash)
+    }
+
+    /// Link an analysis to a signature
+    pub fn link_analysis_to_signature(&self, analysis_id: i64, signature_hash: &str) -> Result<()> {
+        let conn = self.lock_conn()?;
+        crate::signature::link_analysis_to_signature(&conn, analysis_id, signature_hash)
+    }
+
+    /// Get analyses for a signature
+    pub fn get_analyses_for_signature(
+        &self,
+        hash: &str,
+    ) -> Result<Vec<crate::signature::CrashFileSummary>> {
+        let conn = self.lock_conn()?;
+        crate::signature::get_analyses_for_signature(&conn, hash)
+    }
+
+    /// Get top signatures
+    pub fn get_top_signatures(
+        &self,
+        limit: usize,
+        status_filter: Option<&str>,
+    ) -> Result<Vec<crate::signature::CrashSignature>> {
+        let conn = self.lock_conn()?;
+        crate::signature::get_top_signatures(&conn, limit, status_filter)
+    }
+
+    /// Update signature status
+    pub fn update_signature_status(
+        &self,
+        hash: &str,
+        status: &str,
+        metadata: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.lock_conn()?;
+        crate::signature::update_signature_status(&conn, hash, status, metadata)
+    }
+
+    /// Link a ticket to a signature
+    pub fn link_ticket_to_signature(
+        &self,
+        hash: &str,
+        ticket_id: &str,
+        ticket_url: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.lock_conn()?;
+        crate::signature::link_ticket_to_signature(&conn, hash, ticket_id, ticket_url)
+    }
+
+    // =========================================================================
+    // Tag Management Methods
+    // =========================================================================
+
+    /// Create a new tag
+    pub fn create_tag(&self, name: &str, color: &str) -> Result<Tag> {
+        let conn = self.lock_conn()?;
+
+        conn.execute(
+            "INSERT INTO tags (name, color) VALUES (?1, ?2)",
+            params![name, color],
+        )?;
+
+        let id = conn.last_insert_rowid();
+
+        conn.query_row(
+            "SELECT id, name, color, usage_count, created_at FROM tags WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(Tag {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    usage_count: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            },
+        )
+    }
+
+    /// Update an existing tag
+    pub fn update_tag(&self, id: i64, name: Option<&str>, color: Option<&str>) -> Result<Tag> {
+        let conn = self.lock_conn()?;
+
+        // Build dynamic UPDATE query based on which fields are provided
+        if let Some(n) = name {
+            conn.execute("UPDATE tags SET name = ?1 WHERE id = ?2", params![n, id])?;
+        }
+        if let Some(c) = color {
+            conn.execute("UPDATE tags SET color = ?1 WHERE id = ?2", params![c, id])?;
+        }
+
+        conn.query_row(
+            "SELECT id, name, color, usage_count, created_at FROM tags WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(Tag {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    usage_count: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            },
+        )
+    }
+
+    /// Delete a tag (cascade removes from all analysis_tags and translation_tags)
+    pub fn delete_tag(&self, id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute("DELETE FROM tags WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Get all tags ordered by usage count (most used first)
+    pub fn get_all_tags(&self) -> Result<Vec<Tag>> {
+        let conn = self.lock_conn()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, name, color, usage_count, created_at FROM tags ORDER BY usage_count DESC, name ASC"
+        )?;
+
+        let tags = stmt
+            .query_map([], |row| {
+                Ok(Tag {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    usage_count: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(tags)
+    }
+
+    /// Add a tag to an analysis
+    pub fn add_tag_to_analysis(&self, analysis_id: i64, tag_id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+
+        // Insert into junction table (IGNORE if already exists)
+        conn.execute(
+            "INSERT OR IGNORE INTO analysis_tags (analysis_id, tag_id) VALUES (?1, ?2)",
+            params![analysis_id, tag_id],
+        )?;
+
+        // Increment usage count only if a new row was inserted
+        if conn.changes() > 0 {
+            conn.execute(
+                "UPDATE tags SET usage_count = usage_count + 1 WHERE id = ?1",
+                params![tag_id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Remove a tag from an analysis
+    pub fn remove_tag_from_analysis(&self, analysis_id: i64, tag_id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+
+        conn.execute(
+            "DELETE FROM analysis_tags WHERE analysis_id = ?1 AND tag_id = ?2",
+            params![analysis_id, tag_id],
+        )?;
+
+        // Decrement usage count only if a row was deleted
+        if conn.changes() > 0 {
+            conn.execute(
+                "UPDATE tags SET usage_count = MAX(0, usage_count - 1) WHERE id = ?1",
+                params![tag_id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Get all tags for a specific analysis
+    pub fn get_tags_for_analysis(&self, analysis_id: i64) -> Result<Vec<Tag>> {
+        let conn = self.lock_conn()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.name, t.color, t.usage_count, t.created_at
+             FROM tags t
+             JOIN analysis_tags at ON t.id = at.tag_id
+             WHERE at.analysis_id = ?1
+             ORDER BY t.name ASC",
+        )?;
+
+        let tags = stmt
+            .query_map(params![analysis_id], |row| {
+                Ok(Tag {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    usage_count: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(tags)
+    }
+
+    /// Add a tag to a translation
+    pub fn add_tag_to_translation(&self, translation_id: i64, tag_id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+
+        conn.execute(
+            "INSERT OR IGNORE INTO translation_tags (translation_id, tag_id) VALUES (?1, ?2)",
+            params![translation_id, tag_id],
+        )?;
+
+        if conn.changes() > 0 {
+            conn.execute(
+                "UPDATE tags SET usage_count = usage_count + 1 WHERE id = ?1",
+                params![tag_id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Remove a tag from a translation
+    pub fn remove_tag_from_translation(&self, translation_id: i64, tag_id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+
+        conn.execute(
+            "DELETE FROM translation_tags WHERE translation_id = ?1 AND tag_id = ?2",
+            params![translation_id, tag_id],
+        )?;
+
+        if conn.changes() > 0 {
+            conn.execute(
+                "UPDATE tags SET usage_count = MAX(0, usage_count - 1) WHERE id = ?1",
+                params![tag_id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Get all tags for a specific translation
+    pub fn get_tags_for_translation(&self, translation_id: i64) -> Result<Vec<Tag>> {
+        let conn = self.lock_conn()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.name, t.color, t.usage_count, t.created_at
+             FROM tags t
+             JOIN translation_tags tt ON t.id = tt.tag_id
+             WHERE tt.translation_id = ?1
+             ORDER BY t.name ASC",
+        )?;
+
+        let tags = stmt
+            .query_map(params![translation_id], |row| {
+                Ok(Tag {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    usage_count: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(tags)
+    }
+
+    // =========================================================================
+    // Advanced Filtering Methods
+    // =========================================================================
+
+    /// Get analyses with advanced filtering options
+    pub fn get_analyses_filtered(
+        &self,
+        options: &crate::commands::AdvancedFilterOptions,
+    ) -> Result<crate::commands::FilteredResults<Analysis>> {
+        let conn = self.lock_conn()?;
+
+        // Build dynamic WHERE clause
+        let mut conditions: Vec<String> = Vec::new();
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        // Soft delete filter (default: exclude deleted)
+        if !options.include_archived.unwrap_or(false) {
+            conditions.push("a.deleted_at IS NULL".to_string());
+        }
+
+        // Favorites filter
+        if options.favorites_only.unwrap_or(false) {
+            conditions.push("a.is_favorite = 1".to_string());
+        }
+
+        // Severity filter
+        if let Some(ref severities) = options.severities {
+            if !severities.is_empty() {
+                let placeholders: Vec<String> = severities
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("?{}", params.len() + i + 1))
+                    .collect();
+                conditions.push(format!(
+                    "LOWER(a.severity) IN ({})",
+                    placeholders.join(", ")
+                ));
+                for s in severities {
+                    params.push(Box::new(s.to_lowercase()));
+                }
+            }
+        }
+
+        // Analysis type filter
+        if let Some(ref types) = options.analysis_types {
+            if !types.is_empty() {
+                let placeholders: Vec<String> = types
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("?{}", params.len() + i + 1))
+                    .collect();
+                conditions.push(format!("a.analysis_type IN ({})", placeholders.join(", ")));
+                for t in types {
+                    params.push(Box::new(t.clone()));
+                }
+            }
+        }
+
+        // Analysis mode filter (e.g., "Quick", "Deep Scan")
+        if let Some(ref modes) = options.analysis_modes {
+            if !modes.is_empty() {
+                let placeholders: Vec<String> = modes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("?{}", params.len() + i + 1))
+                    .collect();
+                // analysis_mode is stored in full_data JSON, use json_extract
+                conditions.push(format!(
+                    "json_extract(a.full_data, '$.analysis_mode') IN ({})",
+                    placeholders.join(", ")
+                ));
+                for m in modes {
+                    params.push(Box::new(m.clone()));
+                }
+            }
+        }
+
+        // Full-text search filter
+        if let Some(ref search) = options.search {
+            let search_trimmed = search.trim();
+            if !search_trimmed.is_empty() {
+                // Search across multiple fields using LIKE for simplicity
+                // For FTS, we could use the analyses_fts table but LIKE is simpler for cross-field search
+                params.push(Box::new(format!("%{}%", search_trimmed)));
+                let param_idx = params.len();
+                conditions.push(format!(
+                    "(a.filename LIKE ?{idx} OR a.error_type LIKE ?{idx} OR a.error_message LIKE ?{idx} OR a.root_cause LIKE ?{idx} OR a.component LIKE ?{idx})",
+                    idx = param_idx
+                ));
+            }
+        }
+
+        // Tag filter
+        if let Some(ref tag_ids) = options.tag_ids {
+            if !tag_ids.is_empty() {
+                let tag_mode = options.tag_mode.as_deref().unwrap_or("any");
+                if tag_mode == "all" {
+                    // AND mode: analysis must have ALL specified tags
+                    for (i, tag_id) in tag_ids.iter().enumerate() {
+                        params.push(Box::new(*tag_id));
+                        conditions.push(format!(
+                            "EXISTS (SELECT 1 FROM analysis_tags at{i} WHERE at{i}.analysis_id = a.id AND at{i}.tag_id = ?{})",
+                            params.len()
+                        ));
+                    }
+                } else {
+                    // OR mode (default): analysis must have ANY of the specified tags
+                    let placeholders: Vec<String> = tag_ids
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| format!("?{}", params.len() + i + 1))
+                        .collect();
+                    conditions.push(format!(
+                        "EXISTS (SELECT 1 FROM analysis_tags at WHERE at.analysis_id = a.id AND at.tag_id IN ({}))",
+                        placeholders.join(", ")
+                    ));
+                    for tid in tag_ids {
+                        params.push(Box::new(*tid));
+                    }
+                }
+            }
+        }
+
+        // Date range filter
+        if let Some(ref date_from) = options.date_from {
+            params.push(Box::new(date_from.clone()));
+            conditions.push(format!("a.analyzed_at >= ?{}", params.len()));
+        }
+        if let Some(ref date_to) = options.date_to {
+            params.push(Box::new(date_to.clone()));
+            conditions.push(format!("a.analyzed_at <= ?{}", params.len()));
+        }
+
+        // Cost range filter
+        if let Some(cost_min) = options.cost_min {
+            params.push(Box::new(cost_min));
+            conditions.push(format!("a.cost >= ?{}", params.len()));
+        }
+        if let Some(cost_max) = options.cost_max {
+            params.push(Box::new(cost_max));
+            conditions.push(format!("a.cost <= ?{}", params.len()));
+        }
+
+        // Build WHERE clause
+        let where_clause = if conditions.is_empty() {
+            "1=1".to_string()
+        } else {
+            conditions.join(" AND ")
+        };
+
+        // Sort configuration
+        let sort_field = match options.sort_by.as_deref() {
+            Some("severity") => "a.severity",
+            Some("cost") => "a.cost",
+            Some("fileSize") => "a.file_size_kb",
+            Some("filename") => "a.filename",
+            _ => "a.analyzed_at", // default: date
+        };
+        let sort_order = match options.sort_order.as_deref() {
+            Some("asc") => "ASC",
+            _ => "DESC",
+        };
+
+        // Pagination
+        let limit = options.limit.unwrap_or(50).clamp(1, 1000);
+        let offset = options.offset.unwrap_or(0).max(0);
+        let page = offset / limit;
+
+        // Count total matching records
+        let count_sql = format!("SELECT COUNT(*) FROM analyses a WHERE {}", where_clause);
+
+        // Convert params to references for rusqlite
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+        let total_count: i64 =
+            conn.query_row(&count_sql, param_refs.as_slice(), |row| row.get(0))?;
+
+        // Main query
+        let sql = format!(
+            "SELECT a.id, a.filename, a.file_size_kb, a.error_type, a.error_message,
+                    a.severity, a.component, a.stack_trace, a.root_cause, a.suggested_fixes,
+                    a.confidence, a.analyzed_at, a.ai_model, a.ai_provider, a.tokens_used,
+                    a.cost, a.was_truncated, a.full_data, a.is_favorite, a.last_viewed_at,
+                    a.view_count, a.analysis_duration_ms, a.analysis_type
+             FROM analyses a
+             WHERE {}
+             ORDER BY {} {}
+             LIMIT {} OFFSET {}",
+            where_clause, sort_field, sort_order, limit, offset
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+
+        let analyses = stmt
+            .query_map(param_refs.as_slice(), |row| {
+                Ok(Analysis {
+                    id: row.get(0)?,
+                    filename: row.get(1)?,
+                    file_size_kb: row.get(2)?,
+                    error_type: row.get(3)?,
+                    error_message: row.get(4)?,
+                    severity: row.get(5)?,
+                    component: row.get(6)?,
+                    stack_trace: row.get(7)?,
+                    root_cause: row.get(8)?,
+                    suggested_fixes: row.get(9)?,
+                    confidence: row.get(10)?,
+                    analyzed_at: row.get(11)?,
+                    ai_model: row.get(12)?,
+                    ai_provider: row.get(13)?,
+                    tokens_used: row.get(14)?,
+                    cost: row.get(15)?,
+                    was_truncated: row.get::<_, i32>(16)? != 0,
+                    full_data: row.get(17)?,
+                    is_favorite: row.get::<_, i32>(18)? != 0,
+                    last_viewed_at: row.get(19)?,
+                    view_count: row.get(20)?,
+                    analysis_duration_ms: row.get(21)?,
+                    analysis_type: row
+                        .get::<_, Option<String>>(22)?
+                        .unwrap_or_else(|| "complete".to_string()),
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+
+        let has_more = (offset + limit) < total_count;
+
+        Ok(crate::commands::FilteredResults {
+            items: analyses,
+            total_count,
+            page,
+            page_size: limit,
+            has_more,
+        })
+    }
+
+    // =========================================================================
+    // Bulk Operations
+    // =========================================================================
+
+    /// Delete multiple analyses in a single transaction
+    /// Returns the number of successfully deleted analyses
+    pub fn bulk_delete_analyses(&self, ids: &[i64]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.lock_conn()?;
+
+        // Use a transaction for atomicity
+        conn.execute("BEGIN TRANSACTION", [])?;
+
+        let mut deleted = 0;
+        for id in ids {
+            match conn.execute("DELETE FROM analyses WHERE id = ?1", params![id]) {
+                Ok(count) => deleted += count,
+                Err(e) => {
+                    conn.execute("ROLLBACK", [])?;
+                    return Err(e);
+                }
+            }
+        }
+
+        conn.execute("COMMIT", [])?;
+        Ok(deleted)
+    }
+
+    /// Delete multiple translations in a single transaction
+    pub fn bulk_delete_translations(&self, ids: &[i64]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.lock_conn()?;
+
+        conn.execute("BEGIN TRANSACTION", [])?;
+
+        let mut deleted = 0;
+        for id in ids {
+            match conn.execute("DELETE FROM translations WHERE id = ?1", params![id]) {
+                Ok(count) => deleted += count,
+                Err(e) => {
+                    conn.execute("ROLLBACK", [])?;
+                    return Err(e);
+                }
+            }
+        }
+
+        conn.execute("COMMIT", [])?;
+        Ok(deleted)
+    }
+
+    /// Add a tag to multiple analyses
+    /// Returns the number of successful additions (skips duplicates)
+    pub fn bulk_add_tag_to_analyses(&self, analysis_ids: &[i64], tag_id: i64) -> Result<usize> {
+        if analysis_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.lock_conn()?;
+
+        conn.execute("BEGIN TRANSACTION", [])?;
+
+        let mut added = 0;
+        for analysis_id in analysis_ids {
+            // INSERT OR IGNORE to skip duplicates
+            match conn.execute(
+                "INSERT OR IGNORE INTO analysis_tags (analysis_id, tag_id) VALUES (?1, ?2)",
+                params![analysis_id, tag_id],
+            ) {
+                Ok(count) => added += count,
+                Err(e) => {
+                    conn.execute("ROLLBACK", [])?;
+                    return Err(e);
+                }
+            }
+        }
+
+        // Update tag usage count
+        conn.execute(
+            "UPDATE tags SET usage_count = (
+                SELECT COUNT(*) FROM analysis_tags WHERE tag_id = ?1
+            ) + (
+                SELECT COUNT(*) FROM translation_tags WHERE tag_id = ?1
+            ) WHERE id = ?1",
+            params![tag_id],
+        )?;
+
+        conn.execute("COMMIT", [])?;
+        Ok(added)
+    }
+
+    /// Remove a tag from multiple analyses
+    pub fn bulk_remove_tag_from_analyses(
+        &self,
+        analysis_ids: &[i64],
+        tag_id: i64,
+    ) -> Result<usize> {
+        if analysis_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.lock_conn()?;
+
+        conn.execute("BEGIN TRANSACTION", [])?;
+
+        let mut removed = 0;
+        for analysis_id in analysis_ids {
+            match conn.execute(
+                "DELETE FROM analysis_tags WHERE analysis_id = ?1 AND tag_id = ?2",
+                params![analysis_id, tag_id],
+            ) {
+                Ok(count) => removed += count,
+                Err(e) => {
+                    conn.execute("ROLLBACK", [])?;
+                    return Err(e);
+                }
+            }
+        }
+
+        // Update tag usage count
+        conn.execute(
+            "UPDATE tags SET usage_count = (
+                SELECT COUNT(*) FROM analysis_tags WHERE tag_id = ?1
+            ) + (
+                SELECT COUNT(*) FROM translation_tags WHERE tag_id = ?1
+            ) WHERE id = ?1",
+            params![tag_id],
+        )?;
+
+        conn.execute("COMMIT", [])?;
+        Ok(removed)
+    }
+
+    /// Set favorite status for multiple analyses
+    pub fn bulk_set_favorite_analyses(
+        &self,
+        analysis_ids: &[i64],
+        favorite: bool,
+    ) -> Result<usize> {
+        if analysis_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.lock_conn()?;
+
+        conn.execute("BEGIN TRANSACTION", [])?;
+
+        let mut updated = 0;
+        for analysis_id in analysis_ids {
+            match conn.execute(
+                "UPDATE analyses SET is_favorite = ?1 WHERE id = ?2",
+                params![favorite as i32, analysis_id],
+            ) {
+                Ok(count) => updated += count,
+                Err(e) => {
+                    conn.execute("ROLLBACK", [])?;
+                    return Err(e);
+                }
+            }
+        }
+
+        conn.execute("COMMIT", [])?;
+        Ok(updated)
+    }
+
+    /// Set favorite status for multiple translations
+    pub fn bulk_set_favorite_translations(
+        &self,
+        translation_ids: &[i64],
+        favorite: bool,
+    ) -> Result<usize> {
+        if translation_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.lock_conn()?;
+
+        conn.execute("BEGIN TRANSACTION", [])?;
+
+        let mut updated = 0;
+        for translation_id in translation_ids {
+            match conn.execute(
+                "UPDATE translations SET is_favorite = ?1 WHERE id = ?2",
+                params![favorite as i32, translation_id],
+            ) {
+                Ok(count) => updated += count,
+                Err(e) => {
+                    conn.execute("ROLLBACK", [])?;
+                    return Err(e);
+                }
+            }
+        }
+
+        conn.execute("COMMIT", [])?;
+        Ok(updated)
+    }
+
+    // =========================================================================
+    // Archive System
+    // =========================================================================
+
+    /// Archive an analysis (soft delete - sets deleted_at timestamp)
+    pub fn archive_analysis(&self, id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Restore an archived analysis (clears deleted_at timestamp)
+    pub fn restore_analysis(&self, id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "UPDATE analyses SET deleted_at = NULL WHERE id = ?1 AND deleted_at IS NOT NULL",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Get all archived analyses
+    pub fn get_archived_analyses(&self) -> Result<Vec<Analysis>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, filename, file_size_kb, error_type, error_message, severity,
+                    component, stack_trace, root_cause, suggested_fixes, confidence,
+                    analyzed_at, ai_model, ai_provider, tokens_used, cost, was_truncated,
+                    full_data, is_favorite, last_viewed_at, view_count, analysis_duration_ms,
+                    COALESCE(analysis_type, 'complete') as analysis_type
+             FROM analyses
+             WHERE deleted_at IS NOT NULL
+             ORDER BY deleted_at DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(Analysis {
+                id: row.get(0)?,
+                filename: row.get(1)?,
+                file_size_kb: row.get(2)?,
+                error_type: row.get(3)?,
+                error_message: row.get(4)?,
+                severity: row.get(5)?,
+                component: row.get(6)?,
+                stack_trace: row.get(7)?,
+                root_cause: row.get(8)?,
+                suggested_fixes: row.get(9)?,
+                confidence: row.get(10)?,
+                analyzed_at: row.get(11)?,
+                ai_model: row.get(12)?,
+                ai_provider: row.get(13)?,
+                tokens_used: row.get(14)?,
+                cost: row.get(15)?,
+                was_truncated: row.get(16)?,
+                full_data: row.get(17)?,
+                is_favorite: row.get(18)?,
+                last_viewed_at: row.get(19)?,
+                view_count: row.get(20)?,
+                analysis_duration_ms: row.get(21)?,
+                analysis_type: row.get(22)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Permanently delete an analysis (from archive)
+    pub fn permanently_delete_analysis(&self, id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute("DELETE FROM analyses WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Archive a translation (soft delete)
+    pub fn archive_translation(&self, id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "UPDATE translations SET deleted_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Restore an archived translation
+    pub fn restore_translation(&self, id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "UPDATE translations SET deleted_at = NULL WHERE id = ?1 AND deleted_at IS NOT NULL",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Bulk archive analyses
+    pub fn bulk_archive_analyses(&self, ids: &[i64]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.lock_conn()?;
+        conn.execute("BEGIN TRANSACTION", [])?;
+
+        let mut archived = 0;
+        for id in ids {
+            match conn.execute(
+                "UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL",
+                params![id],
+            ) {
+                Ok(count) => archived += count,
+                Err(e) => {
+                    conn.execute("ROLLBACK", [])?;
+                    return Err(e);
+                }
+            }
+        }
+
+        conn.execute("COMMIT", [])?;
+        Ok(archived)
+    }
+
+    // =========================================================================
+    // Notes System
+    // =========================================================================
+
+    /// Add a note to an analysis
+    pub fn add_note(&self, analysis_id: i64, content: &str) -> Result<AnalysisNote> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO analysis_notes (analysis_id, content) VALUES (?1, ?2)",
+            params![analysis_id, content],
+        )?;
+
+        let id = conn.last_insert_rowid();
+        let note = conn.query_row(
+            "SELECT id, analysis_id, content, created_at, updated_at FROM analysis_notes WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(AnalysisNote {
+                    id: row.get(0)?,
+                    analysis_id: row.get(1)?,
+                    content: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            },
+        )?;
+
+        Ok(note)
+    }
+
+    /// Update a note
+    pub fn update_note(&self, id: i64, content: &str) -> Result<AnalysisNote> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "UPDATE analysis_notes SET content = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![content, id],
+        )?;
+
+        let note = conn.query_row(
+            "SELECT id, analysis_id, content, created_at, updated_at FROM analysis_notes WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(AnalysisNote {
+                    id: row.get(0)?,
+                    analysis_id: row.get(1)?,
+                    content: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            },
+        )?;
+
+        Ok(note)
+    }
+
+    /// Delete a note
+    pub fn delete_note(&self, id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute("DELETE FROM analysis_notes WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Get all notes for an analysis
+    pub fn get_notes_for_analysis(&self, analysis_id: i64) -> Result<Vec<AnalysisNote>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, analysis_id, content, created_at, updated_at
+             FROM analysis_notes
+             WHERE analysis_id = ?1
+             ORDER BY created_at DESC",
+        )?;
+
+        let rows = stmt.query_map(params![analysis_id], |row| {
+            Ok(AnalysisNote {
+                id: row.get(0)?,
+                analysis_id: row.get(1)?,
+                content: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Check if an analysis has notes
+    pub fn analysis_has_notes(&self, analysis_id: i64) -> Result<bool> {
+        let conn = self.lock_conn()?;
+        let count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM analysis_notes WHERE analysis_id = ?1",
+            params![analysis_id],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// Get note count for an analysis
+    pub fn get_note_count(&self, analysis_id: i64) -> Result<i32> {
+        let conn = self.lock_conn()?;
+        let count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM analysis_notes WHERE analysis_id = ?1",
+            params![analysis_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+}
+
+/// Analysis note struct
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisNote {
+    pub id: i64,
+    pub analysis_id: i64,
+    pub content: String,
+    pub created_at: String,
+    pub updated_at: Option<String>,
+}
+
+impl Database {
+    // =========================================================================
+    // Similar Crash Detection
+    // =========================================================================
+
+    /// Get similar analyses based on error signature
+    pub fn get_similar_analyses(&self, analysis_id: i64, limit: i32) -> Result<Vec<Analysis>> {
+        let conn = self.lock_conn()?;
+
+        // First get the error signature of the target analysis
+        let signature: Option<String> = conn
+            .query_row(
+                "SELECT error_signature FROM analyses WHERE id = ?1",
+                params![analysis_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let signature = match signature {
+            Some(s) if !s.is_empty() => s,
+            _ => {
+                // Generate signature from error_type and component
+                let (error_type, component): (String, Option<String>) = conn.query_row(
+                    "SELECT error_type, component FROM analyses WHERE id = ?1",
+                    params![analysis_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                format!(
+                    "{}:{}",
+                    error_type.to_lowercase(),
+                    component
+                        .unwrap_or_else(|| "unknown".to_string())
+                        .to_lowercase()
+                )
+            }
+        };
+
+        // Find similar analyses (excluding the original)
+        let mut stmt = conn.prepare(
+            "SELECT id, filename, file_size_kb, error_type, error_message, severity,
+                    component, stack_trace, root_cause, suggested_fixes, confidence,
+                    analyzed_at, ai_model, ai_provider, tokens_used, cost, was_truncated,
+                    full_data, is_favorite, last_viewed_at, view_count, analysis_duration_ms,
+                    COALESCE(analysis_type, 'complete') as analysis_type
+             FROM analyses
+             WHERE error_signature = ?1
+               AND id != ?2
+               AND deleted_at IS NULL
+             ORDER BY analyzed_at DESC
+             LIMIT ?3",
+        )?;
+
+        let rows = stmt.query_map(params![signature, analysis_id, limit], |row| {
+            Ok(Analysis {
+                id: row.get(0)?,
+                filename: row.get(1)?,
+                file_size_kb: row.get(2)?,
+                error_type: row.get(3)?,
+                error_message: row.get(4)?,
+                severity: row.get(5)?,
+                component: row.get(6)?,
+                stack_trace: row.get(7)?,
+                root_cause: row.get(8)?,
+                suggested_fixes: row.get(9)?,
+                confidence: row.get(10)?,
+                analyzed_at: row.get(11)?,
+                ai_model: row.get(12)?,
+                ai_provider: row.get(13)?,
+                tokens_used: row.get(14)?,
+                cost: row.get(15)?,
+                was_truncated: row.get(16)?,
+                full_data: row.get(17)?,
+                is_favorite: row.get(18)?,
+                last_viewed_at: row.get(19)?,
+                view_count: row.get(20)?,
+                analysis_duration_ms: row.get(21)?,
+                analysis_type: row.get(22)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Count similar analyses for an analysis
+    pub fn count_similar_analyses(&self, analysis_id: i64) -> Result<i32> {
+        let conn = self.lock_conn()?;
+
+        // Get the error signature
+        let signature: Option<String> = conn
+            .query_row(
+                "SELECT error_signature FROM analyses WHERE id = ?1",
+                params![analysis_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let signature = match signature {
+            Some(s) if !s.is_empty() => s,
+            _ => {
+                // Generate signature from error_type and component
+                let (error_type, component): (String, Option<String>) = conn.query_row(
+                    "SELECT error_type, component FROM analyses WHERE id = ?1",
+                    params![analysis_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                format!(
+                    "{}:{}",
+                    error_type.to_lowercase(),
+                    component
+                        .unwrap_or_else(|| "unknown".to_string())
+                        .to_lowercase()
+                )
+            }
+        };
+
+        let count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses
+             WHERE error_signature = ?1
+               AND id != ?2
+               AND deleted_at IS NULL",
+            params![signature, analysis_id],
+            |row| row.get(0),
+        )?;
+
+        Ok(count)
+    }
+
+    // =========================================================================
+    // Trend Analytics
+    // =========================================================================
+
+    /// Get trend data for a period
+    pub fn get_trend_data(&self, period: &str, range_days: i32) -> Result<Vec<TrendDataPoint>> {
+        let conn = self.lock_conn()?;
+
+        // Determine grouping based on period
+        let date_format = match period {
+            "day" => "%Y-%m-%d",
+            "week" => "%Y-%W",
+            "month" => "%Y-%m",
+            _ => "%Y-%m-%d",
+        };
+
+        let mut stmt = conn.prepare(&format!(
+            "SELECT
+                strftime('{}', analyzed_at) as period_key,
+                COUNT(*) as total,
+                SUM(CASE WHEN LOWER(severity) = 'critical' THEN 1 ELSE 0 END) as critical_count,
+                SUM(CASE WHEN LOWER(severity) = 'high' THEN 1 ELSE 0 END) as high_count,
+                SUM(CASE WHEN LOWER(severity) = 'medium' THEN 1 ELSE 0 END) as medium_count,
+                SUM(CASE WHEN LOWER(severity) = 'low' THEN 1 ELSE 0 END) as low_count,
+                SUM(CASE WHEN analysis_type = 'whatson' THEN 1 ELSE 0 END) as whatson_count,
+                SUM(CASE WHEN analysis_type = 'complete' THEN 1 ELSE 0 END) as complete_count,
+                SUM(CASE WHEN analysis_type = 'specialized' THEN 1 ELSE 0 END) as specialized_count,
+                SUM(cost) as total_cost
+             FROM analyses
+             WHERE deleted_at IS NULL
+               AND analyzed_at >= datetime('now', '-{} days')
+             GROUP BY period_key
+             ORDER BY period_key ASC",
+            date_format, range_days
+        ))?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(TrendDataPoint {
+                period: row.get(0)?,
+                total: row.get(1)?,
+                critical_count: row.get(2)?,
+                high_count: row.get(3)?,
+                medium_count: row.get(4)?,
+                low_count: row.get(5)?,
+                whatson_count: row.get(6)?,
+                complete_count: row.get(7)?,
+                specialized_count: row.get(8)?,
+                total_cost: row.get(9)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Get top error patterns
+    pub fn get_top_error_patterns(&self, limit: i32) -> Result<Vec<ErrorPatternCount>> {
+        let conn = self.lock_conn()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT error_signature, error_type, component, COUNT(*) as count
+             FROM analyses
+             WHERE deleted_at IS NULL
+               AND error_signature IS NOT NULL
+             GROUP BY error_signature
+             ORDER BY count DESC
+             LIMIT ?1",
+        )?;
+
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(ErrorPatternCount {
+                signature: row.get(0)?,
+                error_type: row.get(1)?,
+                component: row.get(2)?,
+                count: row.get(3)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+}
+
+/// Trend data point for analytics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendDataPoint {
+    pub period: String,
+    pub total: i32,
+    pub critical_count: i32,
+    pub high_count: i32,
+    pub medium_count: i32,
+    pub low_count: i32,
+    pub whatson_count: i32,
+    pub complete_count: i32,
+    pub specialized_count: i32,
+    pub total_cost: f64,
+}
+
+/// Error pattern count for analytics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorPatternCount {
+    pub signature: String,
+    pub error_type: String,
+    pub component: Option<String>,
+    pub count: i32,
 }

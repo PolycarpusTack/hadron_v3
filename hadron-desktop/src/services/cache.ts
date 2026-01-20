@@ -257,10 +257,16 @@ export const CacheKeys = {
   ALL_TRANSLATIONS: "translations:all",
   TRANSLATION_BY_ID: (id: number) => `translations:id:${id}`,
 
+  // Tag-related keys
+  ALL_TAGS: "tags:all",
+  TAGS_FOR_ANALYSIS: (id: number) => `tags:analysis:${id}`,
+  TAGS_FOR_TRANSLATION: (id: number) => `tags:translation:${id}`,
+
   // Prefixes for bulk invalidation
   PREFIX_ANALYSES: "analyses:",
   PREFIX_TRANSLATIONS: "translations:",
   PREFIX_STATS: "stats:",
+  PREFIX_TAGS: "tags:",
 } as const;
 
 // ============================================================================

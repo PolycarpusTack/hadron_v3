@@ -1,5 +1,7 @@
-import { BarChart3, Star, FileText } from "lucide-react";
+import { useState } from "react";
+import { BarChart3, Star, FileText, TrendingUp, ChevronDown, ChevronUp } from "lucide-react";
 import type { DatabaseStatistics } from "../services/api";
+import { TrendChart } from "./TrendChart";
 
 interface AnalyticsDashboardProps {
   statistics: DatabaseStatistics;
@@ -14,9 +16,11 @@ const severityColors: Record<string, string> = {
 
 export default function AnalyticsDashboard({ statistics }: AnalyticsDashboardProps) {
   const totalAnalyses = statistics.severity_breakdown.reduce((sum, [_, count]) => sum + count, 0);
+  const [showTrends, setShowTrends] = useState(false);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <div className="space-y-4 mb-6">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {/* Total Analyses */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
         <div className="flex items-center gap-3">
@@ -77,6 +81,26 @@ export default function AnalyticsDashboard({ statistics }: AnalyticsDashboardPro
             })}
         </div>
       </div>
+    </div>
+
+      {/* Trend Chart Toggle */}
+      <button
+        onClick={() => setShowTrends(!showTrends)}
+        className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-gray-800/50
+                   border border-gray-700 rounded-lg text-gray-400 hover:text-white
+                   hover:bg-gray-800 transition"
+      >
+        <TrendingUp className="w-4 h-4" />
+        <span className="text-sm">{showTrends ? "Hide" : "Show"} Trend Analysis</span>
+        {showTrends ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+      </button>
+
+      {/* Trend Chart (Collapsible) */}
+      {showTrends && (
+        <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+          <TrendChart period="day" rangeDays={30} />
+        </div>
+      )}
     </div>
   );
 }

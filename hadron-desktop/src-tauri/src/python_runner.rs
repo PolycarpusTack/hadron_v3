@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::process::{Command, Stdio};
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -11,8 +11,8 @@ pub struct PythonTranslationResult {
 
 // Note: Analysis functions removed - now handled by Rust ai_service module
 
-/// Maximum time to wait for Python translation (2 minutes)
-const PYTHON_TIMEOUT_SECS: u64 = 120;
+/// Maximum time to wait for Python translation (5 minutes for complex code analysis)
+const PYTHON_TIMEOUT_SECS: u64 = 300;
 
 /// Maximum content size to process (1MB) - prevents memory exhaustion
 const MAX_CONTENT_SIZE: usize = 1024 * 1024;
@@ -52,7 +52,7 @@ pub async fn run_python_translation(
 
     // Spawn Python process with stdin pipe (SECURITY: avoids command injection)
     let mut child = Command::new("python")
-        .arg(&python_script.to_string_lossy().to_string())
+        .arg(python_script.to_string_lossy().to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -84,7 +84,10 @@ pub async fn run_python_translation(
                         let _ = child.kill();
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
-                            format!("Python process timed out after {} seconds", PYTHON_TIMEOUT_SECS),
+                            format!(
+                                "Python process timed out after {} seconds",
+                                PYTHON_TIMEOUT_SECS
+                            ),
                         ));
                     }
                     std::thread::sleep(Duration::from_millis(100));
@@ -103,18 +106,15 @@ pub async fn run_python_translation(
         log::error!("Python script failed with stderr: {}", stderr);
 
         // Extract only the last line (usually the actual error) and sanitize
-        let sanitized_error = stderr
-            .lines()
-            .last()
-            .unwrap_or("Unknown error")
-            .trim();
+        let sanitized_error = stderr.lines().last().unwrap_or("Unknown error").trim();
 
         // Remove file paths and sensitive info from error message
         let safe_error = if sanitized_error.contains("API") || sanitized_error.contains("key") {
             "Translation failed: API error (check logs for details)"
         } else if sanitized_error.contains("ModuleNotFoundError") {
             "Translation failed: Python dependency missing"
-        } else if sanitized_error.contains("ConnectionError") || sanitized_error.contains("timeout") {
+        } else if sanitized_error.contains("ConnectionError") || sanitized_error.contains("timeout")
+        {
             "Translation failed: Network error"
         } else if sanitized_error.len() > 100 {
             "Translation failed: Internal error (check logs for details)"
@@ -169,8 +169,8 @@ fn get_translation_script_path() -> Result<PathBuf, String> {
     #[cfg(not(debug_assertions))]
     {
         // In production, look for script relative to executable
-        let mut path = std::env::current_exe()
-            .map_err(|e| format!("Failed to get executable path: {}", e))?;
+        let mut path =
+            std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
 
         // Remove executable name to get directory
         path.pop();
