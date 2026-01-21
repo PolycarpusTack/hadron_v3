@@ -34,8 +34,8 @@ export interface AnalysisResult {
   analysis_duration_ms?: number;
 
   // WHATS'ON Enhanced fields
-  full_data?: string; // JSON string containing WhatsOnEnhancedAnalysis
-  analysis_type?: "complete" | "specialized" | "whatson";
+  full_data?: string; // JSON string containing WhatsOnEnhancedAnalysis or QuickAnalysis
+  analysis_type?: "complete" | "specialized" | "whatson" | "comprehensive" | "quick" | "performance" | "code";
 }
 
 export interface Settings {
@@ -50,7 +50,14 @@ export type Severity = "critical" | "high" | "medium" | "low";
 // WHATS'ON Enhanced Analysis Types
 // ============================================================================
 
-export type AnalysisType = "complete" | "specialized" | "whatson";
+export type AnalysisType =
+  | "complete"
+  | "specialized"
+  | "whatson"
+  | "comprehensive"
+  | "quick"
+  | "performance"
+  | "code";
 
 export interface WhatsOnAnalysisSummary {
   title: string;

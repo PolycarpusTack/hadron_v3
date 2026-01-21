@@ -15,7 +15,7 @@ import ApiKeyWarning from "./components/ApiKeyWarning";
 import BatchProgressDisplay from "./components/BatchProgressDisplay";
 import AppHeader from "./components/AppHeader";
 import AppFooter from "./components/AppFooter";
-import { analyzeCrashLog, translateTechnicalContent, getStoredModel, getStoredProvider, type AnalysisMode } from "./services/api";
+import { analyzeCrashLog, translateTechnicalContent, getStoredModel, getStoredProvider, getAnalysisById, saveExternalAnalysis, type AnalysisMode } from "./services/api";
 import { checkAndUpdate } from "./services/updater";
 import { getApiKey, migrateFromLocalStorage } from "./services/secure-storage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -26,6 +26,7 @@ import logger from "./services/logger";
 // Lazy-loaded components for code splitting
 const AnalysisDetailView = lazy(() => import("./components/AnalysisDetailView"));
 const WhatsOnDetailView = lazy(() => import("./components/WhatsOnDetailView"));
+const QuickAnalysisDetailView = lazy(() => import("./components/QuickAnalysisDetailView"));
 const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
 
 // Loading fallback component
@@ -146,26 +147,37 @@ function App() {
 
       logger.info('Starting crash analysis', { filePath, model, provider, analysisType, analysisMode });
 
+      // For comprehensive/deep scan analysis, don't retry - it's expensive and takes several minutes
+      // For quick analysis, allow retries
+      const isComprehensive = analysisType === 'comprehensive' || analysisMode === 'deep_scan';
       const result = await retryOperation(
         () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType, analysisMode),
-        { maxAttempts: 3, delayMs: 1000, backoff: true }
+        { maxAttempts: isComprehensive ? 1 : 3, delayMs: 1000, backoff: true }
       );
 
-      actions.analysisSuccess({
+      logger.info('Analysis backend completed', {
         id: result.id,
         filename: result.filename,
-        file_size_kb: 0,
-        error_type: result.error_type,
-        severity: result.severity.toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
-        root_cause: result.root_cause,
-        suggested_fixes: JSON.stringify(result.suggested_fixes),
-        analyzed_at: result.analyzed_at,
-        ai_model: getStoredModel() || "unknown",
-        tokens_used: 0,
-        cost: result.cost,
-        was_truncated: false,
-        is_favorite: false,
-        view_count: 0,
+        severity: result.severity,
+        analysisMode: result.analysis_mode
+      });
+
+      // Fetch the full analysis from database (includes full_data with structured JSON)
+      const fullAnalysis = await getAnalysisById(result.id);
+
+      logger.info('Full analysis fetched from database', {
+        id: fullAnalysis.id,
+        analysisType: fullAnalysis.analysis_type,
+        hasFullData: !!fullAnalysis.full_data,
+        fullDataLength: fullAnalysis.full_data?.length
+      });
+
+      // Navigate directly to detail view with full analysis data
+      actions.viewAnalysis(fullAnalysis);
+
+      logger.info('Navigating to detail view', {
+        id: result.id,
+        analysisType: fullAnalysis.analysis_type
       });
     } catch (err) {
       logger.error('Analysis failed', {
@@ -349,6 +361,48 @@ IMPORTANT INSTRUCTIONS:
       }
 
       actions.codeAnalysisSuccess(result);
+
+      const severityRank: Record<string, number> = {
+        critical: 4,
+        high: 3,
+        medium: 2,
+        low: 1,
+      };
+      const issueSeverities = result.issues.map((issue: { severity?: string }) =>
+        (issue.severity || "medium").toLowerCase()
+      );
+      const topSeverity = issueSeverities.reduce((current: string, next: string) => {
+        return (severityRank[next] || 0) > (severityRank[current] || 0) ? next : current;
+      }, "medium");
+
+      try {
+        await saveExternalAnalysis({
+          filename,
+          file_size_kb: code.length / 1024,
+          summary: result.summary,
+          severity: topSeverity,
+          analysis_type: "code",
+          suggested_fixes: result.issues
+            .map((issue: { title?: string; fix?: string }) =>
+              [issue.title, issue.fix].filter(Boolean).join(": ")
+            )
+            .filter((fix: string) => fix.trim().length > 0),
+          ai_model: model,
+          ai_provider: provider,
+          full_data: {
+            ...result,
+            language,
+          },
+          component: language,
+          error_type: "CodeReview",
+        });
+      } catch (saveError) {
+        logger.warn("Failed to save code analysis to history", {
+          filename,
+          error: saveError instanceof Error ? saveError.message : String(saveError),
+        });
+      }
+
       return result;
     } catch (err) {
       const friendlyError = getUserFriendlyErrorMessage(err);
@@ -472,8 +526,14 @@ IMPORTANT INSTRUCTIONS:
           {currentView === "detail" && selectedAnalysis && (
             <ViewErrorBoundary name="Analysis Details">
               <Suspense fallback={<LazyLoadFallback />}>
-                {selectedAnalysis.analysis_type === "whatson" ? (
+                {/* Route to appropriate detail view based on analysis type */}
+                {(selectedAnalysis.analysis_type === "whatson" || selectedAnalysis.analysis_type === "comprehensive") ? (
                   <WhatsOnDetailView
+                    analysis={selectedAnalysis}
+                    onBack={actions.backToHistory}
+                  />
+                ) : selectedAnalysis.analysis_type === "quick" ? (
+                  <QuickAnalysisDetailView
                     analysis={selectedAnalysis}
                     onBack={actions.backToHistory}
                   />

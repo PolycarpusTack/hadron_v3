@@ -206,6 +206,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         selectedAnalysis: action.payload,
         currentView: 'detail',
+        analyzing: false,  // Ensure analyzing is stopped when viewing
+        error: null,
       };
 
     case 'BACK_TO_HISTORY':

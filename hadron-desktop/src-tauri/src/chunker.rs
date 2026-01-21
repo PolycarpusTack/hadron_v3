@@ -58,10 +58,35 @@ impl ChunkConfig {
         // This leaves room for system prompt + chunk content + response
         let chunk_budget = safe_budget / 4;
 
+        // For large context models (>50K safe budget), use larger chunks
+        // to reduce total chunk count and API calls
+        let (target, max, overlap) = if safe_budget > 100_000 {
+            // Large context (128K+ models like GPT-4 Turbo, Claude)
+            // Use 30K-40K token chunks to keep chunk count around 15-20
+            (
+                chunk_budget.min(30_000),
+                chunk_budget.min(40_000),
+                150_usize,
+            )
+        } else if safe_budget > 50_000 {
+            // Medium-large context (64K models)
+            (
+                chunk_budget.min(10_000),
+                chunk_budget.min(15_000),
+                75_usize,
+            )
+        } else if safe_budget > 20_000 {
+            // Medium context (32K models)
+            (chunk_budget.min(6_000), chunk_budget.min(8_000), 50_usize)
+        } else {
+            // Small context (8K models) - original conservative settings
+            (chunk_budget.min(4_000), chunk_budget.min(6_000), 50_usize)
+        };
+
         Self {
-            target_tokens_per_chunk: chunk_budget.min(4000),
-            max_tokens_per_chunk: (chunk_budget * 3 / 2).min(6000),
-            overlap_lines: 50,
+            target_tokens_per_chunk: target,
+            max_tokens_per_chunk: max,
+            overlap_lines: overlap,
             min_lines_per_chunk: 20,
         }
     }
@@ -151,15 +176,21 @@ impl Chunker {
             });
 
             // Move to next chunk with overlap
+            // Use saturating_sub to prevent overflow when chunk_end < overlap_lines
             current_start = if chunk_end >= total_lines {
                 total_lines
             } else {
-                (chunk_end - self.config.overlap_lines).max(current_start + 1)
+                chunk_end.saturating_sub(self.config.overlap_lines).max(current_start + 1)
             };
 
             // Safety check to prevent infinite loops
-            if chunks.len() > 100 {
-                log::warn!("Chunker hit safety limit of 100 chunks");
+            // Allow up to 50 chunks for reasonable processing time
+            if chunks.len() > 50 {
+                log::warn!(
+                    "Chunker hit safety limit of 50 chunks (processed {} of {} lines)",
+                    chunk_end,
+                    total_lines
+                );
                 break;
             }
         }

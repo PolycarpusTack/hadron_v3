@@ -50,7 +50,7 @@ interface AnalysisRequest {
 
 // Circuit breaker configuration
 const CIRCUIT_OPTIONS = {
-  timeout: 120000,              // 120s timeout - large file analysis can take 30-60+ seconds
+  timeout: 300000,              // 5 minute timeout - deep scan with 50+ chunks can take 3-4 minutes
   errorThresholdPercentage: 50, // Open circuit at 50% error rate
   resetTimeout: 60000,          // Try again after 1 minute
   volumeThreshold: 3,           // Need minimum 3 requests to calculate error rate

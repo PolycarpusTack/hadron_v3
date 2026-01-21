@@ -12,12 +12,19 @@ pub fn get_model_context_limit(model: &str) -> u32 {
     let model_lower = model.to_lowercase();
 
     // OpenAI models
-    if model_lower.starts_with("gpt-4-turbo") || model_lower.contains("gpt-4o") {
+    // GPT-4 Turbo variants (128K context): gpt-4-turbo, gpt-4o, gpt-4.1, gpt-4.5, etc.
+    if model_lower.starts_with("gpt-4-turbo")
+        || model_lower.contains("gpt-4o")
+        || model_lower.starts_with("gpt-4.1")
+        || model_lower.starts_with("gpt-4.5")
+        || model_lower.starts_with("gpt-4-1")
+    {
         return 128_000;
     }
     if model_lower.starts_with("gpt-4-32k") {
         return 32_768;
     }
+    // Legacy GPT-4 (8K context) - only if no turbo/4o/4.x variant
     if model_lower.starts_with("gpt-4") && !model_lower.contains("turbo") {
         return 8_192;
     }

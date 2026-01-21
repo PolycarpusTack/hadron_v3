@@ -109,18 +109,30 @@ export const AnalysisListItem = memo(function AnalysisListItem({
             </span>
             <span
               className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                analysis.analysis_type === "whatson"
+                analysis.analysis_type === "whatson" || analysis.analysis_type === "comprehensive"
                   ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                  : analysis.analysis_type === "specialized"
-                    ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-                    : "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                  : analysis.analysis_type === "quick"
+                    ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"
+                    : analysis.analysis_type === "performance"
+                      ? "bg-orange-500/20 text-orange-400 border-orange-500/30"
+                      : analysis.analysis_type === "code"
+                        ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/30"
+                        : analysis.analysis_type === "specialized"
+                          ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                          : "bg-blue-500/20 text-blue-400 border-blue-500/30"
               }`}
             >
-              {analysis.analysis_type === "whatson"
-                ? "WHATS'ON"
-                : analysis.analysis_type === "specialized"
-                  ? "SPECIALIZED"
-                  : "COMPLETE"}
+              {analysis.analysis_type === "whatson" || analysis.analysis_type === "comprehensive"
+                ? "COMPREHENSIVE"
+                : analysis.analysis_type === "quick"
+                  ? "QUICK"
+                  : analysis.analysis_type === "performance"
+                    ? "PERFORMANCE"
+                    : analysis.analysis_type === "code"
+                      ? "CODE"
+                      : analysis.analysis_type === "specialized"
+                        ? "SPECIALIZED"
+                        : "COMPLETE"}
             </span>
             {/* Token-safe analysis mode badge */}
             {analysis.analysis_mode && (

@@ -16,7 +16,7 @@ export interface AnalysisRequest {
   api_key: string;
   model: string;
   provider: string;
-  analysis_type: string; // "complete" or "specialized"
+  analysis_type: string; // "comprehensive" | "quick" (or legacy: "complete" | "specialized" | "whatson")
   redact_pii?: boolean;
   // Token-safe analysis mode
   analysis_mode?: AnalysisMode;
@@ -61,10 +61,10 @@ export interface Analysis {
   // Phase 2: Just the essentials
   is_favorite: boolean;
   view_count: number;
-  analysis_type: string; // "complete" | "specialized" | "whatson"
+  analysis_type: string; // "comprehensive" | "quick" (or legacy: "complete" | "specialized" | "whatson")
   analysis_duration_ms?: number;
-  // WHATS'ON Enhanced fields
-  full_data?: string; // JSON string containing WhatsOnEnhancedAnalysis for whatson type
+  // Enhanced analysis fields
+  full_data?: string; // JSON string containing structured analysis (Comprehensive or Quick)
   // Token-safe analysis metadata
   analysis_mode?: string; // "Quick", "Quick (Extracted)", "Deep Scan"
   coverage_summary?: string;
@@ -151,6 +151,32 @@ export async function translateTechnicalContent(
   // Invalidate translation cache since new translation was added
   apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
   return result;
+}
+
+export interface ExternalAnalysisRequest {
+  filename: string;
+  file_size_kb?: number;
+  summary: string;
+  severity?: string;
+  analysis_type: string;
+  suggested_fixes?: string[];
+  ai_model?: string;
+  ai_provider?: string;
+  full_data?: Record<string, unknown>;
+  component?: string;
+  error_type?: string;
+}
+
+/**
+ * Save an external analysis result to history (e.g., code analysis)
+ */
+export async function saveExternalAnalysis(
+  request: ExternalAnalysisRequest
+): Promise<number> {
+  const id = await invoke<number>("save_external_analysis", { request });
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_STATS);
+  return id;
 }
 
 /**
