@@ -826,34 +826,72 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
             {/* Type Filter Pills */}
             <span className="text-sm text-gray-400">Type:</span>
             <button
-              onClick={() => toggleAnalysisType("whatson")}
+              onClick={() => {
+                // Toggle both comprehensive and whatson (legacy) for backward compatibility
+                toggleAnalysisType("comprehensive");
+                if (!filters.analysisTypes.includes("comprehensive")) {
+                  // Adding - also add whatson
+                  if (!filters.analysisTypes.includes("whatson")) {
+                    toggleAnalysisType("whatson");
+                  }
+                }
+              }}
               className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.analysisTypes.includes("whatson")
-                  ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-purple-500/30"
-              }`}
-            >
-              WHATS'ON
-            </button>
-            <button
-              onClick={() => toggleAnalysisType("complete")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.analysisTypes.includes("complete")
-                  ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-cyan-500/30"
-              }`}
-            >
-              Complete
-            </button>
-            <button
-              onClick={() => toggleAnalysisType("specialized")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.analysisTypes.includes("specialized")
+                filters.analysisTypes.includes("comprehensive") || filters.analysisTypes.includes("whatson")
                   ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
                   : "bg-gray-800 text-gray-400 border-gray-600 hover:border-emerald-500/30"
               }`}
             >
-              Specialized
+              Comprehensive
+            </button>
+            <button
+              onClick={() => toggleAnalysisType("quick")}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                filters.analysisTypes.includes("quick")
+                  ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"
+                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-cyan-500/30"
+              }`}
+            >
+              Quick
+            </button>
+            <button
+              onClick={() => toggleAnalysisType("performance")}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                filters.analysisTypes.includes("performance")
+                  ? "bg-orange-500/20 text-orange-400 border-orange-500/30"
+                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-orange-500/30"
+              }`}
+            >
+              Performance
+            </button>
+            <button
+              onClick={() => toggleAnalysisType("code")}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                filters.analysisTypes.includes("code")
+                  ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/30"
+                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-indigo-500/30"
+              }`}
+            >
+              Code
+            </button>
+            <button
+              onClick={() => {
+                // Toggle legacy types (complete/specialized)
+                toggleAnalysisType("complete");
+                if (!filters.analysisTypes.includes("complete")) {
+                  // Adding - also add specialized
+                  if (!filters.analysisTypes.includes("specialized")) {
+                    toggleAnalysisType("specialized");
+                  }
+                }
+              }}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                filters.analysisTypes.includes("complete") || filters.analysisTypes.includes("specialized")
+                  ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-purple-500/30"
+              }`}
+            >
+              Legacy
             </button>
 
             {/* Clear All Filters */}

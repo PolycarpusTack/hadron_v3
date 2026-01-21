@@ -19,8 +19,12 @@ interface AdvancedFilterPanelProps {
 // Analysis types for filtering
 const ANALYSIS_TYPES = [
   { value: "whatson", label: "WHATS'ON" },
+  { value: "comprehensive", label: "Comprehensive" },
+  { value: "quick", label: "Quick" },
   { value: "complete", label: "Complete" },
   { value: "specialized", label: "Specialized" },
+  { value: "performance", label: "Performance" },
+  { value: "code", label: "Code" },
 ];
 
 // Analysis modes

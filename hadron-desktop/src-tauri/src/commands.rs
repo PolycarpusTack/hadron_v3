@@ -18,6 +18,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, State};
 use tokio::fs as async_fs;
 use zeroize::Zeroizing;
@@ -152,6 +153,17 @@ async fn validate_file_path(raw_path: &str, max_size: u64) -> Result<std::path::
     }
 
     Ok(canonical_path)
+}
+
+fn normalize_severity(severity: &str) -> String {
+    match severity.to_lowercase().as_str() {
+        "critical" => "CRITICAL".to_string(),
+        "high" => "HIGH".to_string(),
+        "medium" => "MEDIUM".to_string(),
+        "low" => "LOW".to_string(),
+        "info" => "LOW".to_string(),
+        _ => "MEDIUM".to_string(),
+    }
 }
 
 // PERFORMANCE: Pre-compiled regexes for PII redaction (compiled once, reused forever)
@@ -772,9 +784,12 @@ pub async fn analyze_crash_log(
         },
     );
 
-    log::debug!(
-        "AI analysis completed successfully: file={}",
-        request.file_path
+    log::info!(
+        "AI analysis completed: file={}, severity={}, confidence={}, has_enhanced_json={}",
+        request.file_path,
+        result.severity,
+        result.confidence,
+        result.raw_enhanced_json.is_some()
     );
 
     // Get file size (reuse already-fetched metadata)
@@ -828,6 +843,15 @@ pub async fn analyze_crash_log(
     let response_root_cause = analysis.root_cause.clone();
     let response_analyzed_at = analysis.analyzed_at.clone();
     let response_cost = analysis.cost;
+
+    // Log analysis details before insert
+    log::info!(
+        "Inserting analysis: type={}, severity={}, confidence={:?}, full_data_len={}",
+        analysis.analysis_type,
+        analysis.severity,
+        analysis.confidence,
+        analysis.full_data.as_ref().map(|s| s.len()).unwrap_or(0)
+    );
 
     // Save to database (use spawn_blocking to avoid blocking async runtime)
     let db_clone = Arc::clone(&db);
@@ -991,6 +1015,89 @@ pub async fn translate_content(
     );
 
     Ok(translation_text)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExternalAnalysisRequest {
+    pub filename: String,
+    pub file_size_kb: Option<f64>,
+    pub summary: String,
+    pub severity: Option<String>,
+    pub analysis_type: String,
+    pub suggested_fixes: Option<Vec<String>>,
+    pub ai_model: Option<String>,
+    pub ai_provider: Option<String>,
+    pub full_data: Option<serde_json::Value>,
+    pub component: Option<String>,
+    pub error_type: Option<String>,
+}
+
+/// Save an external analysis result to history (e.g., code analysis)
+#[tauri::command]
+pub async fn save_external_analysis(
+    request: ExternalAnalysisRequest,
+    db: DbState<'_>,
+) -> Result<i64, String> {
+    let severity = normalize_severity(request.severity.as_deref().unwrap_or("medium"));
+    let suggested_fixes = request.suggested_fixes.unwrap_or_default();
+
+    let analysis = Analysis {
+        id: 0,
+        filename: request.filename.clone(),
+        file_size_kb: request.file_size_kb.unwrap_or(0.0),
+        error_type: request.error_type.unwrap_or_else(|| "ExternalAnalysis".to_string()),
+        error_message: None,
+        severity,
+        component: request.component,
+        stack_trace: None,
+        root_cause: request.summary,
+        suggested_fixes: serde_json::to_string(&suggested_fixes).unwrap_or_else(|e| {
+            log::warn!("Failed to serialize suggested_fixes: {}", e);
+            "[]".to_string()
+        }),
+        confidence: None,
+        analyzed_at: chrono::Utc::now().to_rfc3339(),
+        ai_model: request.ai_model.unwrap_or_else(|| "unknown".to_string()),
+        ai_provider: request.ai_provider,
+        tokens_used: 0,
+        cost: 0.0,
+        was_truncated: false,
+        full_data: request.full_data.map(|value| {
+            serde_json::to_string(&value).unwrap_or_else(|e| {
+                log::warn!("Failed to serialize external analysis full_data: {}", e);
+                "{}".to_string()
+            })
+        }),
+        is_favorite: false,
+        last_viewed_at: None,
+        view_count: 0,
+        analysis_duration_ms: None,
+        analysis_type: request.analysis_type,
+    };
+
+    let db_clone = Arc::clone(&db);
+    let filename_for_log = analysis.filename.clone();
+    let analysis_type_for_log = analysis.analysis_type.clone();
+    let id = tauri::async_runtime::spawn_blocking(move || db_clone.insert_analysis(&analysis))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| {
+            log::error!(
+                "Database insert failed for external analysis: file={}, error={}",
+                filename_for_log,
+                e
+            );
+            format!("Database error: {}", e)
+        })?;
+
+    log::info!(
+        "External analysis saved: id={}, file={}, type={}",
+        id,
+        filename_for_log,
+        analysis_type_for_log
+    );
+
+    Ok(id)
 }
 
 /// Get all analyses from history (with default pagination)
@@ -3351,8 +3458,10 @@ pub struct PerformanceAnalysisResult {
 #[tauri::command]
 pub async fn analyze_performance_trace(
     file_path: String,
+    db: DbState<'_>,
 ) -> Result<PerformanceAnalysisResult, String> {
     log::info!("Analyzing performance trace: {}", file_path);
+    let start_time = Instant::now();
 
     // SECURITY: Validate file path before reading (canonicalization, blocklist, size limit)
     let canonical_path = validate_file_path(&file_path, MAX_PERFORMANCE_TRACE_SIZE_BYTES).await?;
@@ -3368,6 +3477,14 @@ pub async fn analyze_performance_trace(
             );
             "Failed to read file: check file permissions".to_string()
         })?;
+    let metadata = async_fs::metadata(&canonical_path).await.map_err(|e| {
+        log::error!(
+            "Failed to read performance trace metadata '{}': {}",
+            canonical_path.display(),
+            e
+        );
+        "Failed to read file metadata".to_string()
+    })?;
 
     let filename = canonical_path
         .file_name()
@@ -3376,9 +3493,74 @@ pub async fn analyze_performance_trace(
         .to_string();
 
     // Move CPU-bound parsing to blocking thread pool to avoid starving the async executor
-    tauri::async_runtime::spawn_blocking(move || parse_performance_trace(&content, &filename))
+    let filename_for_parse = filename.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || parse_performance_trace(&content, &filename_for_parse))
+        .await
+        .map_err(|e| format!("Task error: {}", e))??;
+
+    let duration_ms = start_time.elapsed().as_millis() as i32;
+    let severity = normalize_severity(&result.overall_severity);
+    let suggested_fixes: Vec<String> = result
+        .recommendations
+        .iter()
+        .map(|rec| format!("{}: {}", rec.title, rec.description))
+        .collect();
+
+    let analysis = Analysis {
+        id: 0,
+        filename: filename.clone(),
+        file_size_kb: metadata.len() as f64 / 1024.0,
+        error_type: "PerformanceTrace".to_string(),
+        error_message: None,
+        severity,
+        component: None,
+        stack_trace: None,
+        root_cause: result.summary.clone(),
+        suggested_fixes: serde_json::to_string(&suggested_fixes).unwrap_or_else(|e| {
+            log::warn!("Failed to serialize performance suggestions: {}", e);
+            "[]".to_string()
+        }),
+        confidence: None,
+        analyzed_at: chrono::Utc::now().to_rfc3339(),
+        ai_model: "performance-analyzer".to_string(),
+        ai_provider: Some("local".to_string()),
+        tokens_used: 0,
+        cost: 0.0,
+        was_truncated: false,
+        full_data: Some(serde_json::to_string(&result).unwrap_or_else(|e| {
+            log::warn!("Failed to serialize performance analysis result: {}", e);
+            "{}".to_string()
+        })),
+        is_favorite: false,
+        last_viewed_at: None,
+        view_count: 0,
+        analysis_duration_ms: Some(duration_ms),
+        analysis_type: "performance".to_string(),
+    };
+
+    let db_clone = Arc::clone(&db);
+    let file_path_for_log = file_path.clone();
+    let severity_for_log = analysis.severity.clone();
+    let id = tauri::async_runtime::spawn_blocking(move || db_clone.insert_analysis(&analysis))
         .await
         .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| {
+            log::error!(
+                "Database insert failed for performance analysis: file={}, error={}",
+                file_path_for_log,
+                e
+            );
+            format!("Database error: {}", e)
+        })?;
+
+    log::info!(
+        "Performance analysis saved: id={}, file={}, severity={}",
+        id,
+        file_path,
+        severity_for_log
+    );
+
+    Ok(result)
 }
 
 /// Get file stats (size) for a file path

@@ -16,7 +16,17 @@ interface FileDropZoneProps {
 
 export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalysis, isAnalyzing }: FileDropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const [analysisType, setAnalysisType] = useState<"complete" | "specialized" | "whatson">((localStorage.getItem("analysis_default_type") as "complete" | "specialized" | "whatson") || "whatson");
+  const [analysisType, setAnalysisType] = useState<"comprehensive" | "quick">(() => {
+    const stored = localStorage.getItem("analysis_default_type");
+    // Migrate old values to new types
+    if (stored === "whatson" || stored === "complete" || stored === "specialized" || stored === "comprehensive") {
+      return "comprehensive";
+    }
+    if (stored === "quick") {
+      return "quick";
+    }
+    return "comprehensive";
+  });
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>((localStorage.getItem("analysis_default_mode") as AnalysisMode) || "auto");
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pastedContent, setPastedContent] = useState("");
@@ -144,62 +154,88 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
       {/* Analysis Type Selection */}
       <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
         <h3 className="text-lg font-semibold mb-4">Select Analysis Type</h3>
-        <div className="space-y-3">
-          <label className="flex items-start gap-3 p-4 border border-emerald-600 rounded-lg cursor-pointer hover:bg-gray-700/50 transition bg-emerald-900/20">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Comprehensive Analysis */}
+          <label
+            className={`flex flex-col p-5 border-2 rounded-xl cursor-pointer transition-all ${
+              analysisType === "comprehensive"
+                ? "border-emerald-500 bg-emerald-900/20 shadow-lg shadow-emerald-500/10"
+                : "border-gray-600 hover:border-gray-500 hover:bg-gray-700/30"
+            } ${isAnalyzing ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
             <input
               type="radio"
               name="analysisType"
-              value="whatson"
-              checked={analysisType === "whatson"}
-              onChange={() => setAnalysisType("whatson")}
+              value="comprehensive"
+              checked={analysisType === "comprehensive"}
+              onChange={() => {
+                setAnalysisType("comprehensive");
+                localStorage.setItem("analysis_default_type", "comprehensive");
+              }}
               disabled={isAnalyzing}
-              className="mt-1"
+              className="sr-only"
             />
-            <div className="flex-1">
-              <div className="font-semibold text-emerald-400">WHATS'ON Enhanced (Recommended)</div>
-              <div className="text-sm text-gray-400 mt-1">
-                Domain-specific analysis for WHATS'ON/MediaGeniX crashes with structured JSON output.
-                Includes root cause, user scenario reconstruction, impact analysis, suggested fixes with code,
-                test scenarios, and environment context. Best for broadcast scheduling crashes.
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <div className="font-bold text-lg text-emerald-400">Comprehensive</div>
+                <div className="text-xs text-gray-500">Full analysis with all context</div>
               </div>
+              <div className="flex flex-col items-end text-xs">
+                <span className="text-emerald-400 font-medium">~$0.05-0.15</span>
+                <span className="text-gray-500">~30-60s</span>
+              </div>
+            </div>
+            <div className="text-sm text-gray-400 mb-3">
+              Deep analysis with domain knowledge, structured JSON output, 7 detailed tabs covering all aspects of the crash.
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {["Root Cause", "Impact", "Testing", "Stack Trace", "Context", "Environment", "Database", "Memory"].map((feature) => (
+                <span key={feature} className="px-2 py-0.5 text-xs bg-emerald-500/20 text-emerald-300 rounded">
+                  {feature}
+                </span>
+              ))}
             </div>
           </label>
 
-          <label className="flex items-start gap-3 p-4 border border-gray-600 rounded-lg cursor-pointer hover:bg-gray-700/50 transition">
+          {/* Quick Analysis */}
+          <label
+            className={`flex flex-col p-5 border-2 rounded-xl cursor-pointer transition-all ${
+              analysisType === "quick"
+                ? "border-cyan-500 bg-cyan-900/20 shadow-lg shadow-cyan-500/10"
+                : "border-gray-600 hover:border-gray-500 hover:bg-gray-700/30"
+            } ${isAnalyzing ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
             <input
               type="radio"
               name="analysisType"
-              value="complete"
-              checked={analysisType === "complete"}
-              onChange={() => setAnalysisType("complete")}
+              value="quick"
+              checked={analysisType === "quick"}
+              onChange={() => {
+                setAnalysisType("quick");
+                localStorage.setItem("analysis_default_type", "quick");
+              }}
               disabled={isAnalyzing}
-              className="mt-1"
+              className="sr-only"
             />
-            <div className="flex-1">
-              <div className="font-semibold text-blue-400">Complete Analysis</div>
-              <div className="text-sm text-gray-400 mt-1">
-                Comprehensive standalone analysis with 10 structured parts including error classification,
-                root cause analysis, remediation steps (P0/P1/P2), reproduction steps, and monitoring recommendations.
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <div className="font-bold text-lg text-cyan-400">Quick</div>
+                <div className="text-xs text-gray-500">Fast root cause identification</div>
+              </div>
+              <div className="flex flex-col items-end text-xs">
+                <span className="text-cyan-400 font-medium">~$0.01-0.03</span>
+                <span className="text-gray-500">~10-20s</span>
               </div>
             </div>
-          </label>
-
-          <label className="flex items-start gap-3 p-4 border border-gray-600 rounded-lg cursor-pointer hover:bg-gray-700/50 transition">
-            <input
-              type="radio"
-              name="analysisType"
-              value="specialized"
-              checked={analysisType === "specialized"}
-              onChange={() => setAnalysisType("specialized")}
-              disabled={isAnalyzing}
-              className="mt-1"
-            />
-            <div className="flex-1">
-              <div className="font-semibold text-purple-400">Specialized Analyses Suite</div>
-              <div className="text-sm text-gray-400 mt-1">
-                Execute 8 focused analyses in sequence: Pattern Analysis, Recommendations, Memory Analysis,
-                Database Analysis, Performance Analysis, Deep Root Cause Analysis, General Analysis, and Basic Analysis.
-              </div>
+            <div className="text-sm text-gray-400 mb-3">
+              Rapid analysis focused on identifying the problem and providing actionable solutions. Best for quick triage.
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {["Root Cause", "Workaround", "Solution", "Explanation"].map((feature) => (
+                <span key={feature} className="px-2 py-0.5 text-xs bg-cyan-500/20 text-cyan-300 rounded">
+                  {feature}
+                </span>
+              ))}
             </div>
           </label>
         </div>

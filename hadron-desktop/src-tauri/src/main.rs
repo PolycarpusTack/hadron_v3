@@ -56,6 +56,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             analyze_crash_log,
             translate_content,
+            save_external_analysis,
             get_all_analyses,
             get_analyses_paginated,
             get_analyses_count,

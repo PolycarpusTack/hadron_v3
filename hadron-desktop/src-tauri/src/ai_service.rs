@@ -304,6 +304,64 @@ When analyzing crashes:
 5. Map technical errors to business impact
 6. Provide actionable fixes with code examples"#;
 
+// ============================================================================
+// Quick Analysis Prompts
+// ============================================================================
+
+const QUICK_ANALYSIS_SYSTEM_PROMPT: &str = r#"You are an expert VisualWorks Smalltalk developer. Your task is to quickly analyze crash logs and provide focused, actionable information.
+
+You understand:
+- VisualWorks Smalltalk runtime, message passing, and stack traces
+- Common crash patterns (nil receiver, collection bounds, type errors)
+- WHATS'ON/MediaGeniX broadcast scheduling domain
+
+Keep responses concise and actionable. Focus on what matters most: the cause and the fix."#;
+
+fn get_quick_analysis_prompt(crash_content: &str) -> String {
+    format!(
+        r#"Analyze this crash log quickly and provide ONLY the essential information.
+
+CRASH LOG:
+```
+{}
+```
+
+Return a JSON object with this EXACT structure:
+{{
+  "rootCause": {{
+    "title": "Brief title (max 10 words)",
+    "technical": "Technical explanation of what went wrong (2-3 sentences)",
+    "plainEnglish": "Simple explanation anyone can understand (1-2 sentences)",
+    "affectedComponent": "The class or method that failed"
+  }},
+  "workaround": {{
+    "available": true/false,
+    "steps": ["Step 1", "Step 2"],
+    "limitations": "What this workaround doesn't fix"
+  }},
+  "solution": {{
+    "summary": "One sentence describing the proper fix",
+    "steps": ["Implementation step 1", "Implementation step 2", "Implementation step 3"],
+    "codeExample": "Optional: short code example if helpful",
+    "complexity": "Low|Medium|High"
+  }},
+  "explanation": {{
+    "whyThisWorks": "Why the solution addresses the root cause (2-3 sentences)",
+    "prevention": "How to prevent this in the future (1-2 sentences)"
+  }},
+  "severity": "critical|high|medium|low",
+  "errorType": "Brief error type classification"
+}}
+
+IMPORTANT:
+- Be concise - this is a quick triage analysis
+- Focus on actionable information
+- If no workaround exists, set available to false and leave steps empty
+- Return ONLY valid JSON, no markdown or additional text"#,
+        crash_content
+    )
+}
+
 fn get_complete_analysis_prompt(crash_content: &str) -> String {
     format!(
         r#"Analyze this VisualWorks Smalltalk crash log with a COMPLETE, COMPREHENSIVE approach following a structured 10-part format.
@@ -682,6 +740,16 @@ fn create_http_client() -> reqwest::Client {
 
 /// Build request body for OpenAI-compatible APIs
 fn build_openai_request(system_prompt: &str, user_prompt: &str, model: &str) -> serde_json::Value {
+    build_openai_request_with_options(system_prompt, user_prompt, model, false, 4000)
+}
+
+fn build_openai_request_with_options(
+    system_prompt: &str,
+    user_prompt: &str,
+    model: &str,
+    json_mode: bool,
+    max_tokens: u32,
+) -> serde_json::Value {
     let is_gpt5 = model.starts_with("gpt-5") || model.starts_with("o1") || model.starts_with("o3");
 
     let mut body = json!({
@@ -694,9 +762,14 @@ fn build_openai_request(system_prompt: &str, user_prompt: &str, model: &str) -> 
     });
 
     if is_gpt5 {
-        body["max_completion_tokens"] = json!(4000);
+        body["max_completion_tokens"] = json!(max_tokens);
     } else {
-        body["max_tokens"] = json!(4000);
+        body["max_tokens"] = json!(max_tokens);
+    }
+
+    // Enable JSON mode for structured output
+    if json_mode {
+        body["response_format"] = json!({"type": "json_object"});
     }
 
     body
@@ -856,6 +929,57 @@ async fn call_provider(
     parse_analysis_json(&provider_response.content, provider_response.tokens, cost)
 }
 
+/// Unified provider call function that returns raw content (no parsing)
+/// Used for chunk analysis where we want the raw JSON response
+async fn call_provider_raw(
+    config: ProviderConfig,
+    request_body: serde_json::Value,
+    api_key: &str,
+) -> Result<String, String> {
+    let client = create_http_client();
+
+    // Build request with appropriate auth
+    let mut request = client
+        .post(config.endpoint)
+        .header("Content-Type", "application/json");
+
+    request = match config.auth_style {
+        AuthStyle::Bearer => request.header("Authorization", format!("Bearer {}", api_key)),
+        AuthStyle::AnthropicHeader => request
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01"),
+        AuthStyle::None => request,
+    };
+
+    // Send request
+    let response = request
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| format!("{} API request failed: {}", config.name, e))?;
+
+    // Check response status
+    if !response.status().is_success() {
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(format!("{} API error: {}", config.name, error_text));
+    }
+
+    // Parse response
+    let response_data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse {} response: {}", config.name, e))?;
+
+    // Extract content only (no cost/token parsing needed for chunks)
+    let provider_response = extract_response(&response_data, &config.response_style)
+        .map_err(|e| format!("{} response error: {}", config.name, e))?;
+
+    Ok(provider_response.content)
+}
+
 // ============================================================================
 // Public Provider Functions (thin wrappers for backwards compatibility)
 // ============================================================================
@@ -868,6 +992,65 @@ pub async fn call_openai(
 ) -> Result<AnalysisResult, String> {
     let request_body = build_openai_request(system_prompt, user_prompt, model);
     call_provider(ProviderConfig::openai(), request_body, api_key).await
+}
+
+/// Call OpenAI with JSON mode enabled for structured output
+pub async fn call_openai_json(
+    system_prompt: &str,
+    user_prompt: &str,
+    api_key: &str,
+    model: &str,
+    max_tokens: u32,
+) -> Result<AnalysisResult, String> {
+    let request_body =
+        build_openai_request_with_options(system_prompt, user_prompt, model, true, max_tokens);
+    call_provider(ProviderConfig::openai(), request_body, api_key).await
+}
+
+/// Call OpenAI with JSON mode and return raw content string (for chunk analysis)
+pub async fn call_openai_raw(
+    system_prompt: &str,
+    user_prompt: &str,
+    api_key: &str,
+    model: &str,
+    max_tokens: u32,
+) -> Result<String, String> {
+    let request_body =
+        build_openai_request_with_options(system_prompt, user_prompt, model, true, max_tokens);
+    call_provider_raw(ProviderConfig::openai(), request_body, api_key).await
+}
+
+/// Call Anthropic and return raw content string (for chunk analysis)
+pub async fn call_anthropic_raw(
+    system_prompt: &str,
+    user_prompt: &str,
+    api_key: &str,
+    model: &str,
+) -> Result<String, String> {
+    let request_body = build_anthropic_request(system_prompt, user_prompt, model);
+    call_provider_raw(ProviderConfig::anthropic(), request_body, api_key).await
+}
+
+/// Call Z.ai and return raw content string (for chunk analysis)
+pub async fn call_zai_raw(
+    system_prompt: &str,
+    user_prompt: &str,
+    api_key: &str,
+    model: &str,
+) -> Result<String, String> {
+    let request_body =
+        build_openai_request_with_options(system_prompt, user_prompt, model, true, 1000);
+    call_provider_raw(ProviderConfig::zai(), request_body, api_key).await
+}
+
+/// Call Ollama and return raw content string (for chunk analysis)
+pub async fn call_ollama_raw(
+    system_prompt: &str,
+    user_prompt: &str,
+    model: &str,
+) -> Result<String, String> {
+    let request_body = build_ollama_request(system_prompt, user_prompt, model);
+    call_provider_raw(ProviderConfig::ollama(), request_body, "").await
 }
 
 pub async fn call_anthropic(
@@ -902,6 +1085,20 @@ pub async fn call_ollama(
 // ============================================================================
 // JSON Parsing
 // ============================================================================
+
+/// Sanitize a string for JSON parsing by removing/escaping control characters
+fn sanitize_json_string(s: &str) -> String {
+    s.chars()
+        .filter_map(|c| {
+            if c.is_control() && c != '\n' && c != '\r' && c != '\t' {
+                // Remove other control characters
+                None
+            } else {
+                Some(c)
+            }
+        })
+        .collect()
+}
 
 fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<AnalysisResult, String> {
     // Extract JSON from response (look for first { to last }).
@@ -1144,9 +1341,13 @@ pub async fn analyze_crash_log(
             COMPLETE_ANALYSIS_SYSTEM_PROMPT,
             get_complete_analysis_prompt(crash_content),
         ),
-        "whatson" => (
+        "whatson" | "comprehensive" => (
             WHATSON_SYSTEM_PROMPT,
             get_whatson_analysis_prompt(crash_content),
+        ),
+        "quick" => (
+            QUICK_ANALYSIS_SYSTEM_PROMPT,
+            get_quick_analysis_prompt(crash_content),
         ),
         _ => (
             SPECIALIZED_ANALYSIS_SYSTEM_PROMPT,
@@ -1210,7 +1411,8 @@ pub async fn analyze_crash_log_safe(
     // Get system prompt to estimate its tokens
     let system_prompt = match analysis_type {
         "complete" => COMPLETE_ANALYSIS_SYSTEM_PROMPT,
-        "whatson" => WHATSON_SYSTEM_PROMPT,
+        "whatson" | "comprehensive" => WHATSON_SYSTEM_PROMPT,
+        "quick" => QUICK_ANALYSIS_SYSTEM_PROMPT,
         _ => SPECIALIZED_ANALYSIS_SYSTEM_PROMPT,
     };
     let system_tokens = crate::token_budget::estimate_tokens(system_prompt);
@@ -1226,17 +1428,29 @@ pub async fn analyze_crash_log_safe(
         budget_analysis.safe_input_budget
     );
 
-    // Determine actual mode to use
-    // Note: DeepScan requires raw_walkback data; fall back to extraction if not available
+    // Determine actual mode to use based on analysis type and budget
+    // - Comprehensive/WhatsOn: Prioritize full coverage (SingleCall or DeepScan, skip extraction)
+    // - Quick: Prioritize speed (SingleCall or Extraction, skip deep scan)
+    let is_comprehensive = matches!(analysis_type, "comprehensive" | "whatson" | "complete" | "specialized");
+
     let mode = config.force_mode.unwrap_or({
         match budget_analysis.strategy {
             AnalysisStrategy::SingleCall => AnalysisMode::Quick,
-            AnalysisStrategy::ExtractionRequired => AnalysisMode::QuickWithExtraction,
-            AnalysisStrategy::DeepScanRequired | AnalysisStrategy::InputTooLarge => {
-                if config.enable_deep_scan && raw_walkback.is_some() {
+            AnalysisStrategy::ExtractionRequired => {
+                if is_comprehensive && config.enable_deep_scan {
+                    // For comprehensive analysis, prefer deep scan over extraction
+                    // to ensure full file coverage
+                    log::info!("Comprehensive analysis: using DeepScan instead of extraction for full coverage");
                     AnalysisMode::DeepScan
                 } else {
-                    // Fall back to extraction if deep scan disabled or no raw walkback available
+                    AnalysisMode::QuickWithExtraction
+                }
+            }
+            AnalysisStrategy::DeepScanRequired | AnalysisStrategy::InputTooLarge => {
+                if is_comprehensive && config.enable_deep_scan {
+                    AnalysisMode::DeepScan
+                } else {
+                    // Quick analysis: use extraction for speed
                     AnalysisMode::QuickWithExtraction
                 }
             }
@@ -1273,36 +1487,19 @@ pub async fn analyze_crash_log_safe(
             .await?
         }
         AnalysisMode::DeepScan => {
-            // Map-reduce for very large inputs - requires raw_walkback
-            if raw_walkback.is_some() {
-                analyze_deep_scan(
-                    crash_content,
-                    raw_walkback,
-                    api_key,
-                    model,
-                    provider,
-                    analysis_type,
-                    &budget_analysis,
-                    &config,
-                )
-                .await?
-            } else {
-                // Fall back to extraction if deep scan was forced but walkback not available
-                log::warn!(
-                    "DeepScan mode requested but raw_walkback not available, falling back to extraction"
-                );
-                analyze_with_extraction(
-                    crash_content,
-                    raw_walkback,
-                    api_key,
-                    model,
-                    provider,
-                    analysis_type,
-                    &budget_analysis,
-                    &config,
-                )
-                .await?
-            }
+            // Map-reduce for very large inputs
+            // Uses raw_walkback if available, otherwise uses crash_content
+            analyze_deep_scan(
+                crash_content,
+                raw_walkback,
+                api_key,
+                model,
+                provider,
+                analysis_type,
+                &budget_analysis,
+                &config,
+            )
+            .await?
         }
     };
 
@@ -1439,9 +1636,13 @@ async fn analyze_deep_scan(
     budget_analysis: &BudgetAnalysis,
     config: &TokenSafeConfig,
 ) -> Result<AnalysisResult, String> {
-    let walkback = raw_walkback.ok_or("Deep scan requires raw walkback data")?;
+    // Use raw_walkback if available, otherwise use crash_content (which contains the full file)
+    let content_to_scan = raw_walkback.unwrap_or(crash_content);
 
-    log::info!("Starting deep scan analysis with map-reduce pattern");
+    log::info!(
+        "Starting deep scan analysis with map-reduce pattern (content size: {} bytes)",
+        content_to_scan.len()
+    );
 
     // Initialize components
     let runner = DeepScanRunner::for_model(model);
@@ -1451,57 +1652,103 @@ async fn analyze_deep_scan(
     ));
 
     // Extract evidence for context
-    let evidence_pack = extractor.extract(walkback);
+    let evidence_pack = extractor.extract(content_to_scan);
     let evidence_summary = evidence_pack.summary();
 
-    // Prepare chunks
-    let chunks = runner.prepare_chunks(walkback);
-    log::info!("Deep scan: processing {} chunks", chunks.len());
+    // Prepare chunks from the full content
+    let chunks = runner.prepare_chunks(content_to_scan);
+    log::info!("Deep scan: processing {} chunks in parallel", chunks.len());
 
-    // Map phase: analyze each chunk
-    let mut chunk_analyses = Vec::new();
-    for chunk in &chunks {
-        log::debug!("Analyzing chunk {}/{}", chunk.index + 1, chunk.total);
+    // Map phase: analyze chunks in parallel with concurrency limit
+    // Use futures::stream to process chunks with bounded parallelism
+    use futures::stream::{self, StreamExt};
 
-        let (system_prompt, user_prompt) = runner.get_map_prompt(chunk);
+    const PARALLEL_CHUNK_LIMIT: usize = 4; // Process 4 chunks at a time
 
-        // Call provider
-        let response = match provider.to_lowercase().as_str() {
-            "openai" => call_openai(&system_prompt, &user_prompt, api_key, model).await,
-            "anthropic" => call_anthropic(&system_prompt, &user_prompt, api_key, model).await,
-            "zai" => call_zai(&system_prompt, &user_prompt, api_key, model).await,
-            "ollama" => call_ollama(&system_prompt, &user_prompt, model).await,
-            _ => Err(format!("Unknown provider: {}", provider)),
-        };
+    let provider_lower = provider.to_lowercase();
+    let api_key_owned = api_key.to_string();
+    let model_owned = model.to_string();
 
-        match response {
-            Ok(result) => {
-                // Parse chunk result
-                match DeepScanRunner::parse_chunk_result(&result.root_cause, chunk.index) {
-                    Ok(analysis) => chunk_analyses.push(analysis),
+    // Create futures for all chunks
+    let chunk_futures: Vec<_> = chunks
+        .iter()
+        .map(|chunk| {
+            let (system_prompt, user_prompt) = runner.get_map_prompt(chunk);
+            let provider_ref = provider_lower.clone();
+            let api_key_ref = api_key_owned.clone();
+            let model_ref = model_owned.clone();
+            let chunk_index = chunk.index;
+
+            async move {
+                // Call provider with raw response
+                let response: Result<String, String> = match provider_ref.as_str() {
+                    "openai" => {
+                        call_openai_raw(&system_prompt, &user_prompt, &api_key_ref, &model_ref, 1000)
+                            .await
+                    }
+                    "anthropic" => {
+                        call_anthropic_raw(&system_prompt, &user_prompt, &api_key_ref, &model_ref)
+                            .await
+                    }
+                    "zai" => {
+                        call_zai_raw(&system_prompt, &user_prompt, &api_key_ref, &model_ref).await
+                    }
+                    "ollama" => call_ollama_raw(&system_prompt, &user_prompt, &model_ref).await,
+                    _ => Err(format!("Unknown provider: {}", provider_ref)),
+                };
+
+                // Process response
+                match response {
+                    Ok(raw_content) => {
+                        let sanitized = sanitize_json_string(&raw_content);
+
+                        let preview_len = sanitized.len().min(200);
+                        log::info!(
+                            "Chunk {} response: {}...",
+                            chunk_index,
+                            &sanitized[..preview_len]
+                        );
+
+                        match DeepScanRunner::parse_chunk_result(&sanitized, chunk_index) {
+                            Ok(analysis) => {
+                                log::info!(
+                                    "Chunk {} OK: relevance={}, errors={}",
+                                    chunk_index,
+                                    analysis.relevance_score,
+                                    analysis.errors_found.len()
+                                );
+                                analysis
+                            }
+                            Err(e) => {
+                                log::warn!("Chunk {} parse failed: {}", chunk_index, e);
+                                ChunkAnalysis {
+                                    chunk_index,
+                                    summary: format!("Parse failed: {}", e),
+                                    relevance_score: 1,
+                                    ..Default::default()
+                                }
+                            }
+                        }
+                    }
                     Err(e) => {
-                        log::warn!("Failed to parse chunk {} result: {}", chunk.index, e);
-                        // Create default analysis for failed chunk
-                        chunk_analyses.push(ChunkAnalysis {
-                            chunk_index: chunk.index,
-                            summary: format!("Analysis failed: {}", e),
-                            relevance_score: 1,
+                        log::warn!("Chunk {} API failed: {}", chunk_index, e);
+                        ChunkAnalysis {
+                            chunk_index,
+                            summary: format!("API failed: {}", e),
+                            relevance_score: 0,
                             ..Default::default()
-                        });
+                        }
                     }
                 }
             }
-            Err(e) => {
-                log::warn!("Chunk {} analysis failed: {}", chunk.index, e);
-                chunk_analyses.push(ChunkAnalysis {
-                    chunk_index: chunk.index,
-                    summary: format!("API call failed: {}", e),
-                    relevance_score: 0,
-                    ..Default::default()
-                });
-            }
-        }
-    }
+        })
+        .collect();
+
+    // Process chunks in parallel with concurrency limit
+    let chunk_analyses: Vec<ChunkAnalysis> = stream::iter(chunk_futures)
+        .buffer_unordered(PARALLEL_CHUNK_LIMIT)
+        .collect()
+        .await;
 
     // Filter low-relevance chunks for synthesis
     let relevant_analyses = runner.filter_for_synthesis(chunk_analyses.clone());

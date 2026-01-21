@@ -202,8 +202,9 @@ pub fn get_synthesis_prompt(
     }
 
     // Determine output format based on analysis type
+    // "comprehensive" and "whatson" use the enhanced WHATS'ON format
     let output_format = match analysis_type {
-        "whatson" => get_whatson_output_format(),
+        "comprehensive" | "whatson" => get_whatson_output_format(),
         "complete" => get_complete_output_format(),
         _ => get_specialized_output_format(),
     };
@@ -232,14 +233,94 @@ IMPORTANT: Return ONLY valid JSON matching the schema above."#,
 }
 
 fn get_whatson_output_format() -> &'static str {
-    r#"OUTPUT FORMAT (WHATS'ON Enhanced):
-Return the standard WHATS'ON JSON structure with:
-- summary (title, severity, category, confidence, affectedWorkflow)
-- rootCause (technical, plainEnglish, affectedMethod, affectedModule, triggerCondition)
-- userScenario (description, workflow, steps, expectedResult, actualResult)
-- suggestedFix (summary, reasoning, explanation, codeChanges, complexity, estimatedEffort, riskLevel)
-- systemWarnings, impactAnalysis, testScenarios, environment, context
-- memoryAnalysis, databaseAnalysis, stackTrace"#
+    r##"OUTPUT FORMAT (WHATS'ON Enhanced JSON):
+Return a JSON object with this EXACT structure matching the WhatsOnEnhancedAnalysis interface:
+{
+  "summary": {
+    "title": "Short descriptive title of the crash",
+    "severity": "critical|high|medium|low",
+    "category": "scheduling|playout|database|memory|integration|ui|rights|timing|other",
+    "confidence": "high|medium|low",
+    "affectedWorkflow": "Optional: user workflow affected (e.g., EPG Publication, Schedule Import)"
+  },
+  "rootCause": {
+    "technical": "Technical explanation of what caused the crash",
+    "plainEnglish": "Simple explanation a non-developer can understand",
+    "affectedMethod": "ClassName>>methodName where crash occurred",
+    "affectedModule": "PSI|BM|PL|WOn|EX|Core module name",
+    "triggerCondition": "Optional: specific condition that triggers this crash"
+  },
+  "userScenario": {
+    "description": "What the user was trying to do",
+    "workflow": "Optional: the workflow being executed",
+    "steps": [
+      {"step": 1, "action": "First action", "details": "Detailed instructions", "isCrashPoint": false},
+      {"step": 5, "action": "Final action that crashes", "details": "This triggers the crash", "isCrashPoint": true}
+    ],
+    "expectedResult": "What should have happened",
+    "actualResult": "What actually happened (crash)",
+    "reproductionLikelihood": "always|often|sometimes|rarely|unknown"
+  },
+  "suggestedFix": {
+    "summary": "One-line summary of the fix",
+    "reasoning": "Why this fix works",
+    "explanation": "Optional: detailed explanation",
+    "codeChanges": [
+      {"file": "ClassName>>methodName", "description": "What to change", "before": "original code", "after": "fixed code", "priority": "P0|P1|P2"}
+    ],
+    "complexity": "simple|moderate|complex",
+    "estimatedEffort": "hours|days|weeks",
+    "riskLevel": "low|medium|high"
+  },
+  "systemWarnings": [
+    {"source": "memory|database|process|network|configuration|other", "severity": "critical|warning|info", "title": "Warning title", "description": "What was detected", "recommendation": "What to do", "contributedToCrash": true}
+  ],
+  "impactAnalysis": {
+    "dataAtRisk": "none|low|moderate|high|critical",
+    "dataRiskDescription": "Optional: description of data risk",
+    "directlyAffected": [
+      {"feature": "Feature name", "module": "Module.Name", "description": "How it is affected", "severity": "critical|high|medium|low"}
+    ],
+    "potentiallyAffected": [
+      {"feature": "Feature name", "module": "Module.Name", "description": "May be affected", "severity": "high|medium|low"}
+    ]
+  },
+  "testScenarios": [
+    {"id": "TC001", "name": "Test name", "priority": "P0|P1|P2", "type": "regression|smoke|integration|unit", "description": "Test description", "steps": "Test steps", "expectedResult": "Expected outcome", "dataRequirements": "Data needed"}
+  ],
+  "environment": {
+    "application": {"version": "2024r3.000.064", "build": "build string", "configuration": "config"},
+    "platform": {"os": "Windows/Linux", "memory": "16GB", "user": "username"},
+    "database": {"type": "Oracle/PostgreSQL", "connectionInfo": "connection details", "sessionState": "state"}
+  },
+  "context": {
+    "receiver": {"class": "UndefinedObject", "state": "nil", "description": "What this object represents"},
+    "arguments": [{"name": "selector", "value": "asSeconds", "type": "Symbol"}],
+    "relatedObjects": [{"name": "segment", "class": "BMProgramSegment", "relationship": "parent object"}]
+  },
+  "memoryAnalysis": {
+    "oldSpace": {"used": "1,170,866 KB", "total": "2,000,000 KB", "percentUsed": 58.5},
+    "newSpace": {"used": "225 KB", "total": "1,500 KB", "percentUsed": 15.0},
+    "permSpace": {"used": "200,000 KB", "total": "200,000 KB", "percentUsed": 100.0},
+    "warnings": ["Perm space at 100%", "Any memory warnings"]
+  },
+  "databaseAnalysis": {
+    "connections": [{"name": "Connection 99", "status": "xactYes", "database": "WONP11"}],
+    "activeSessions": [{"id": "session1", "status": "prepared", "lastOperation": "UPDATE PSI.PSITXBLOCK"}],
+    "warnings": ["Active transaction may need rollback"],
+    "transactionState": "open|committed|rolled_back|unknown"
+  },
+  "stackTrace": {
+    "frames": [
+      {"index": 0, "method": "UndefinedObject(Object)>>doesNotUnderstand:", "type": "error", "isErrorOrigin": true, "context": "nil received asSeconds"},
+      {"index": 1, "method": "BMProgramSegmentDurations>>calculateTotalDuration", "type": "application", "isErrorOrigin": false}
+    ],
+    "totalFrames": 50,
+    "errorFrame": "UndefinedObject(Object)>>doesNotUnderstand:"
+  }
+}
+
+IMPORTANT: Return ONLY valid JSON. Include all sections you have evidence for. Omit sections with no data rather than using empty values."##
 }
 
 fn get_complete_output_format() -> &'static str {
@@ -326,10 +407,19 @@ impl DeepScanRunner {
     pub fn for_model(model: &str) -> Self {
         let budgeter = TokenBudgeter::new(model);
         let safe_budget = budgeter.safe_input_budget();
+        let chunk_config = ChunkConfig::for_model_budget(safe_budget);
+
+        log::info!(
+            "DeepScan configured for model '{}': safe_budget={}, chunk_target={}, chunk_max={}",
+            model,
+            safe_budget,
+            chunk_config.target_tokens_per_chunk,
+            chunk_config.max_tokens_per_chunk
+        );
 
         Self {
             config: DeepScanConfig {
-                chunk_config: ChunkConfig::for_model_budget(safe_budget),
+                chunk_config,
                 ..Default::default()
             },
         }
@@ -339,7 +429,27 @@ impl DeepScanRunner {
     pub fn prepare_chunks(&self, raw_walkback: &str) -> Vec<TextChunk> {
         let crash_line = find_crash_line(raw_walkback);
         let chunker = Chunker::with_config(self.config.chunk_config.clone());
-        chunker.chunk(raw_walkback, crash_line)
+        let chunks = chunker.chunk(raw_walkback, crash_line);
+
+        log::info!(
+            "DeepScan prepared {} chunks from {} bytes of content (crash line: {:?})",
+            chunks.len(),
+            raw_walkback.len(),
+            crash_line
+        );
+
+        if !chunks.is_empty() {
+            let total_tokens: u32 = chunks.iter().map(|c| c.estimated_tokens).sum();
+            log::info!(
+                "Chunk token distribution: total={}, avg={}, first={}, last={}",
+                total_tokens,
+                total_tokens / chunks.len() as u32,
+                chunks.first().map(|c| c.estimated_tokens).unwrap_or(0),
+                chunks.last().map(|c| c.estimated_tokens).unwrap_or(0)
+            );
+        }
+
+        chunks
     }
 
     /// Filter analyses for synthesis based on relevance

@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hadron Analysis Types - Full Mockup v3</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+        .animate-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .step-connector { position: absolute; left: 19px; top: 40px; bottom: 0; width: 2px; background: #e2e8f0; }
+        .step-item:last-child .step-connector { display: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useCallback } = React;
+
+        // ========== ICONS ==========
+        const Icon = ({ path, ...props }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+                {path}
+            </svg>
+        );
+
+        const Upload = (props) => <Icon {...props} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>} />;
+        const FileText = (props) => <Icon {...props} path={<><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>} />;
+        const AlertTriangle = (props) => <Icon {...props} path={<><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>} />;
+        const Server = (props) => <Icon {...props} path={<><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></>} />;
+        const Database = (props) => <Icon {...props} path={<><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></>} />;
+        const Monitor = (props) => <Icon {...props} path={<><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></>} />;
+        const MemoryStick = (props) => <Icon {...props} path={<><path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/><path d="M8 11V9"/><path d="M16 11V9"/><path d="M12 11V9"/><path d="M2 15h20"/><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z"/></>} />;
+        const Clock = (props) => <Icon {...props} path={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />;
+        const ChevronDown = (props) => <Icon {...props} path={<polyline points="6 9 12 15 18 9"/>} />;
+        const ChevronRight = (props) => <Icon {...props} path={<polyline points="9 18 15 12 9 6"/>} />;
+        const CheckCircle = (props) => <Icon {...props} path={<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>} />;
+        const XCircle = (props) => <Icon {...props} path={<><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></>} />;
+        const AlertCircle = (props) => <Icon {...props} path={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>} />;
+        const Layers = (props) => <Icon {...props} path={<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>} />;
+        const Terminal = (props) => <Icon {...props} path={<><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></>} />;
+        const Activity = (props) => <Icon {...props} path={<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>} />;
+        const Zap = (props) => <Icon {...props} path={<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>} />;
+        const Search = (props) => <Icon {...props} path={<><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>} />;
+        const Download = (props) => <Icon {...props} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>} />;
+        const Trash2 = (props) => <Icon {...props} path={<><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></>} />;
+        const BarChart3 = (props) => <Icon {...props} path={<><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></>} />;
+        const Box = (props) => <Icon {...props} path={<><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></>} />;
+        const Target = (props) => <Icon {...props} path={<><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></>} />;
+        const TestTube = (props) => <Icon {...props} path={<><path d="M14.5 2v17.5c0 1.4-1.1 2.5-2.5 2.5h0c-1.4 0-2.5-1.1-2.5-2.5V2"/><path d="M8.5 2h7"/><path d="M14.5 16h-5"/></>} />;
+        const Lightbulb = (props) => <Icon {...props} path={<><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></>} />;
+        const Link = (props) => <Icon {...props} path={<><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>} />;
+        const Users = (props) => <Icon {...props} path={<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>} />;
+        const Play = (props) => <Icon {...props} path={<polygon points="5 3 19 12 5 21 5 3"/>} />;
+        const Shield = (props) => <Icon {...props} path={<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>} />;
+        const Info = (props) => <Icon {...props} path={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></>} />;
+        const Wrench = (props) => <Icon {...props} path={<><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></>} />;
+        const BookOpen = (props) => <Icon {...props} path={<><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></>} />;
+        const Copy = (props) => <Icon {...props} path={<><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>} />;
+        const Cpu = (props) => <Icon {...props} path={<><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></>} />;
+        const DollarSign = (props) => <Icon {...props} path={<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>} />;
+
+        // ========== COMPREHENSIVE MOCK DATA ==========
+        const mockCrashAnalysis = {
+            fileName: "WCR_15-1_10-49-30.txt",
+            fileSize: "774 KB",
+            severity: "critical",
+            header: { timestamp: "2026/1/15 10:49:30", dumpComplete: true },
+            environment: {
+                user: "bertossj", site: "MTVNL(WONP11)", version: "2024r3.000.064",
+                build: "2024r3.000[MTVNL].064.5", dbHash: "202292C934D4E0A17322598DE8C72982",
+                smalltalkVersion: "VisualWorks® 9.1.1", computerName: "EUW1Z2XAW16VP4",
+                userName: "bertossj", timeZone: "UTC+0", frameRate: "25 fps",
+                frameRateMode: "Multiple frame rate mode", oracleServer: "Oracle Database 19c Standard Edition 2",
+                oracleClient: "19.24.0.0.0", dbEncoding: "AL32UTF8"
+            },
+            exception: {
+                type: "MessageNotUnderstood",
+                message: "nil does not understand #asSeconds",
+                parameter: "asSeconds",
+                plainEnglish: "The system tried to calculate duration on a schedule entry that was missing its end time",
+                commandLine: "\\\\mswonicseuw1p01.mtvne.ad.viacom.com\\Whatson\\exe\\whatson_Citrix_2024r3.000.064.exe"
+            },
+            activeProcess: { name: "WHATS'ON Launcher", priority: 50, hash: 12770 },
+            stackTrace: [
+                { frame: 0, method: "UndefinedObject(Object)>>doesNotUnderstand:", type: "error" },
+                { frame: 1, method: "BMProgramSegmentDurations>>calculateTotalDuration", type: "error" },
+                { frame: 2, method: "PSITxBlock>>durationInSeconds", type: "application" },
+                { frame: 3, method: "PSI.EPGPublisher>>exportSchedule:", type: "application" },
+                { frame: 4, method: "PSI.EPGPublisher>>publishForChannel:", type: "application" },
+                { frame: 5, method: "BlockClosure>>cull:", type: "framework" },
+                { frame: 6, method: "WOnTransaction>>execute:", type: "framework" },
+                { frame: 7, method: "PSI.EPGPublisher>>publishAll", type: "application" },
+            ],
+            contextArguments: {
+                receiver: {
+                    class: "UndefinedObject",
+                    printString: "nil",
+                    description: "The end time that should have been a timestamp"
+                },
+                arguments: [
+                    { name: "selector", value: "#asSeconds", type: "Symbol" }
+                ],
+                temporaries: [
+                    { name: "segment", value: "a BMProgramSegment (id: 47291)", type: "BMProgramSegment" },
+                    { name: "total", value: "0", type: "Integer" }
+                ],
+                relatedObjects: [
+                    { class: "PSITxBlock", id: "21673705040816", channel: "BBC One", date: "Wed 15/01/2026", startTime: "18:00:00", endTime: "nil", duration: "unknown" },
+                    { class: "BMProgramSegmentDurations", id: "3774", segmentCount: 4, durationCount: 2, durations: ["00:11:00.000", "00:11:00.000"] },
+                    { class: "PSIChannel", id: "1001", name: "BBC One", region: "UK" }
+                ],
+                timeAllocations: [
+                    { type: "Segment of program", position: 1, start: "18:00:00", duration: "00:11:00" },
+                    { type: "Segment of program", position: 2, start: "18:11:00", duration: "00:11:00" },
+                    { type: "Segment of program", position: 3, start: "18:22:00", duration: "nil" },
+                    { type: "Segment of program", position: 4, start: "18:33:00", duration: "nil" }
+                ]
+            },
+            windows: [
+                { id: 26, title: "[WONP] WHATS'ON Launcher (bertossj)", model: "WOnLauncherMTV" },
+                { id: 138, title: "[WONP] Wed 15/01/2026 : BBC One - Schedule Manager", model: "PSIScheduleManager" },
+                { id: 142, title: "[WONP] EPG Publication", model: "PSIEPGPublisher" }
+            ],
+            processes: {
+                quiescent: [
+                    { name: "IdleLoopProcess", priority: 10 },
+                    { name: "T3ChangeLogPoller", priority: 50 },
+                    { name: "Cursor Animation", priority: 50 }
+                ],
+                suspended: [
+                    { name: "Animation process", priority: 50 },
+                    { name: "TimerActionProcess", priority: 70 },
+                    { name: "ScavengeProcess", priority: 90 },
+                    { name: "FinalizationProcess", priority: 98 }
+                ]
+            },
+            database: {
+                connections: [
+                    { hash: 99, state: "xactYes", username: "SSO_PROXY", environment: "WONP11", lastOp: "UPDATE PSI.PSITXBLOCK" },
+                    { hash: 6795, state: "xactNo", username: "SSO_PROXY", environment: "WONP11", lastOp: "SELECT" },
+                    { hash: 5656, state: "new", username: "SSO_PROXY", environment: "WONP11", lastOp: "CONNECT" }
+                ],
+                activeSessions: [
+                    { state: "prepared", query: "UPDATE PSI.PSITXBLOCK SET TXB_FIXEDTXSTARTTIME=?..." },
+                    { state: "prepared", query: "SELECT LOT_ID_LEAFOFTREEPART... FROM PSI.PSISCHEDULEVERSION..." }
+                ]
+            },
+            memory: {
+                eden: { size: "26 KB", percent: 1.76 },
+                survivor: { size: "199 KB", percent: 66.65 },
+                large: { size: "78 KB", percent: 7.90 },
+                old: { size: "1,170,866 KB", percent: 78.2 },
+                perm: { size: "200,000 KB", percent: 100.00 },
+                total: "1,371,169 KB",
+                configLimit: "3,072,000 KB",
+                growthLimit: "1,843,200 KB"
+            },
+            analysis: {
+                rootCause: "PSITxBlock>>endTime returned nil because the schedule entry imported from traffic lacked an end time",
+                rootCausePlainEnglish: "The system crashed while calculating program duration because the schedule entry was missing its end time. This typically happens when importing partial schedule data from the traffic system.",
+                suggestedFix: "Add nil guard in BMProgramSegmentDurations>>calculateTotalDuration before calling #asSeconds",
+                workaround: "Manually set end times for schedule entries before running EPG publication",
+                relatedTickets: ["BBC-4521", "BBC-4523", "CORE-1872"],
+
+                fixReasoning: "The code assumes endTime is always present - this assumption fails with incomplete traffic import data",
+                fixExplanation: "Add a nil check: before calling endTime asSeconds, verify endTime isNotNil. If nil, either skip the segment with a warning, use a calculated default, or raise a domain-specific exception that the UI can handle gracefully.",
+                fixComplexity: "low",
+                fixEstimate: "2-4 hours",
+
+                codeBefore: `calculateTotalDuration
+    | total |
+    total := 0.
+    segments do: [:seg |
+        total := total + seg endTime asSeconds
+                      - seg startTime asSeconds].
+    ^total`,
+                codeAfter: `calculateTotalDuration
+    | total |
+    total := 0.
+    segments do: [:seg |
+        seg endTime ifNil: [
+            WOnScheduleWarning signal:
+                'Segment missing end time: ', seg id printString.
+            ^nil].
+        total := total + seg endTime asSeconds
+                      - seg startTime asSeconds].
+    ^total`,
+
+                reproductionSteps: [
+                    { step: 1, action: "Log in to WHATS'ON", details: "Use your credentials for the BBC site", isCrashPoint: false },
+                    { step: 2, action: "Open Schedule Manager", details: "From Launcher, open Schedule Manager for BBC One", isCrashPoint: false },
+                    { step: 3, action: "Import from Traffic", details: "Import schedule data from traffic system", isCrashPoint: false },
+                    { step: 4, action: "Open EPG Publication", details: "Select the imported schedule entries", isCrashPoint: false },
+                    { step: 5, action: "Click 'Publish to EPG'", details: "System attempts to calculate durations", isCrashPoint: true }
+                ],
+                expectedResult: "EPG successfully published with all schedule durations calculated",
+                actualResult: "Application crashes with 'nil does not understand #asSeconds' error",
+                reproductionLikelihood: "high",
+                reproductionNotes: "Occurs whenever EPG publication includes schedule entries with missing end times from traffic import",
+
+                systemWarnings: [
+                    { source: "Data", severity: "error", title: "Missing End Times", description: "4 segments but only 2 have duration data", recommendation: "Run data integrity check on imported schedules" },
+                    { source: "Database", severity: "warning", title: "Active Transaction", description: "Connection 99 has uncommitted changes", recommendation: "Verify data integrity after restart" },
+                    { source: "Memory", severity: "info", title: "Perm Space Full", description: "100% permanent space usage", recommendation: "Monitor during peak hours, consider increasing limit" }
+                ],
+
+                impactAnalysis: {
+                    directlyAffected: [
+                        { feature: "EPG Publication", module: "PSI.EPGPublisher", description: "Primary crash location - cannot publish EPG", severity: "critical" },
+                        { feature: "Duration Calculator", module: "BMProgramSegmentDurations", description: "Core calculation fails on nil", severity: "critical" }
+                    ],
+                    potentiallyAffected: [
+                        { feature: "Schedule Import", module: "Traffic Integration", description: "Source of incomplete data", severity: "high" },
+                        { feature: "Playlist Export", module: "PL.PlaylistGenerator", description: "Uses same duration calculation", severity: "high" },
+                        { feature: "As-Run Logging", module: "BM.AsRunLog", description: "May fail on same data", severity: "medium" },
+                        { feature: "Schedule Copy", module: "PSI.ScheduleManager", description: "Copies incomplete data", severity: "medium" }
+                    ],
+                    testScenarios: [
+                        { id: "TC001", name: "EPG publish with complete data", priority: "P0", type: "regression", steps: "1. Import valid schedule\n2. Run EPG publication\n3. Verify success", expectedResult: "Publication completes successfully", dataRequirements: "Schedule with all end times set" },
+                        { id: "TC002", name: "EPG publish with missing end times", priority: "P0", type: "verification", steps: "1. Import incomplete schedule\n2. Run EPG publication\n3. Verify graceful handling", expectedResult: "Warning shown, partial publish or skip", dataRequirements: "Schedule with nil end times" },
+                        { id: "TC003", name: "Traffic import validation", priority: "P1", type: "new", steps: "1. Import from traffic\n2. Check validation messages\n3. Review flagged entries", expectedResult: "Incomplete entries flagged", dataRequirements: "Traffic feed with partial data" },
+                        { id: "TC004", name: "Playlist generation with bad data", priority: "P1", type: "regression", steps: "1. Create playlist from schedule\n2. Include entries with nil times", expectedResult: "Graceful handling", dataRequirements: "Mixed valid/invalid entries" },
+                        { id: "TC005", name: "Data integrity check", priority: "P2", type: "investigation", steps: "1. Run integrity SQL\n2. Review mismatches\n3. Document findings", expectedResult: "All mismatches identified", dataRequirements: "Production DB access" }
+                    ],
+                    dataFixScript: `-- Find schedule entries with missing end times
+SELECT txb.OID, ch.CHANNELNAME, txb.TXB_TXSTARTTIME, txb.TXB_TXENDTIME,
+       CASE WHEN txb.TXB_TXENDTIME IS NULL THEN 'MISSING' ELSE 'OK' END as status
+FROM PSI.PSITXBLOCK txb
+JOIN PSI.PSICHANNEL ch ON txb.TXB_ID_CHANNEL = ch.OID
+WHERE txb.TXB_TXENDTIME IS NULL
+  AND txb.TXB_TXSTARTTIME > SYSDATE - 7
+ORDER BY ch.CHANNELNAME, txb.TXB_TXSTARTTIME;
+
+-- Count affected entries by channel
+SELECT ch.CHANNELNAME, COUNT(*) as missing_count
+FROM PSI.PSITXBLOCK txb
+JOIN PSI.PSICHANNEL ch ON txb.TXB_ID_CHANNEL = ch.OID
+WHERE txb.TXB_TXENDTIME IS NULL
+GROUP BY ch.CHANNELNAME
+ORDER BY missing_count DESC;`
+                }
+            }
+        };
+
+        // ========== QUICK ANALYSIS MOCK DATA ==========
+        const quickAnalysisData = {
+            summary: {
+                errorType: "MessageNotUnderstood",
+                title: "Nil receiver in schedule duration calculation",
+                severity: "critical",
+                component: "BMProgramSegmentDurations",
+                method: "calculateTotalDuration"
+            },
+            rootCause: {
+                explanation: "The crash occurred because BMProgramSegmentDurations>>calculateTotalDuration tried to call #asSeconds on a nil value. The nil came from PSITxBlock>>endTime - this schedule entry was imported from the traffic system without an end time. The system expected complete timing data but received only a start time.",
+                stackTrace: [
+                    "UndefinedObject(Object)>>doesNotUnderstand: #asSeconds",
+                    "BMProgramSegmentDurations>>calculateTotalDuration",
+                    "PSITxBlock>>durationInSeconds",
+                    "PSI.EPGPublisher>>exportSchedule:"
+                ]
+            },
+            workaround: {
+                title: "Immediate Workaround",
+                steps: [
+                    "Open Schedule Manager and locate the affected schedule entries (those imported from traffic)",
+                    "Manually set end times for any entries showing empty or nil end time",
+                    "Re-run the EPG publication"
+                ],
+                note: "Run this SQL to find affected entries: SELECT * FROM PSI.PSITXBLOCK WHERE TXB_TXENDTIME IS NULL AND TXB_TXSTARTTIME > SYSDATE - 7"
+            },
+            solution: {
+                fixes: [
+                    {
+                        priority: "P0",
+                        title: "Add nil guard in duration calculator",
+                        description: "Prevent the crash by checking for nil before calculating duration. Return nil or raise a domain-specific warning.",
+                        code: `seg endTime ifNil: [
+    WOnScheduleWarning signal: 'Segment missing end time: ', seg id.
+    ^nil].
+total := total + seg endTime asSeconds - seg startTime asSeconds.`,
+                        effort: "~2 hours"
+                    },
+                    {
+                        priority: "P1",
+                        title: "Validate schedule entries on import",
+                        description: "Add validation step in traffic import to flag entries with incomplete timing data before they enter the scheduling workflow. Show warning dialog to user listing affected entries.",
+                        effort: "~1 day"
+                    }
+                ]
+            },
+            explanation: {
+                whyItWorks: "The P0 fix adds defensive programming - checking for nil before using the value. This is a Smalltalk best practice when dealing with data from external systems like traffic imports.",
+                details: "Instead of crashing, the code now: (1) Detects the missing end time, (2) Logs a warning for investigation, (3) Returns nil to signal incomplete data so the caller can handle it gracefully - either by skipping that entry or prompting the user.",
+                keyPoints: [
+                    "Detects the missing end time before crash",
+                    "Logs a warning for investigation",
+                    "Returns nil to signal incomplete data",
+                    "Caller can handle gracefully (skip or prompt)"
+                ]
+            }
+        };
+
+        // ========== COMPONENTS ==========
+        const SeverityBadge = ({ severity }) => {
+            const colors = {
+                critical: "bg-red-100 text-red-800 border-red-200",
+                high: "bg-orange-100 text-orange-800 border-orange-200",
+                medium: "bg-yellow-100 text-yellow-800 border-yellow-200",
+                low: "bg-green-100 text-green-800 border-green-200",
+                warning: "bg-yellow-100 text-yellow-800 border-yellow-200",
+                info: "bg-blue-100 text-blue-800 border-blue-200",
+                error: "bg-red-100 text-red-800 border-red-200"
+            };
+            return <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[severity] || colors.medium}`}>{severity?.toUpperCase()}</span>;
+        };
+
+        const Section = ({ title, icon: IconComponent, children, defaultOpen = false, badge = null }) => {
+            const [isOpen, setIsOpen] = useState(defaultOpen);
+            return (
+                <div className="border border-slate-200 rounded-lg mb-3 overflow-hidden bg-white">
+                    <button onClick={() => setIsOpen(!isOpen)} className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors">
+                        <div className="flex items-center gap-3">
+                            <IconComponent className="w-5 h-5 text-slate-600" />
+                            <span className="font-medium text-slate-800">{title}</span>
+                            {badge && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">{badge}</span>}
+                        </div>
+                        {isOpen ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                    </button>
+                    {isOpen && <div className="p-4 border-t border-slate-200">{children}</div>}
+                </div>
+            );
+        };
+
+        const InfoGrid = ({ items }) => (
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                {items.map(([label, value], i) => (
+                    <div key={i} className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500 text-sm">{label}</span>
+                        <span className="text-slate-800 text-sm font-medium truncate ml-2 max-w-xs">{value}</span>
+                    </div>
+                ))}
+            </div>
+        );
+
+        const StackFrame = ({ frame, method, type }) => {
+            const colors = {
+                error: "bg-red-50 border-red-200 text-red-800",
+                application: "bg-blue-50 border-blue-200 text-blue-800",
+                framework: "bg-slate-50 border-slate-200 text-slate-600"
+            };
+            return (
+                <div className={`flex items-start gap-3 p-2 rounded border ${colors[type]} font-mono text-xs`}>
+                    <span className="text-slate-400 w-6 text-right flex-shrink-0">[{frame}]</span>
+                    <span className="flex-1 break-all">{method}</span>
+                </div>
+            );
+        };
+
+        // ========== COMPREHENSIVE ANALYSIS VIEW ==========
+        const ComprehensiveAnalysisView = ({ analysis }) => {
+            const [activeTab, setActiveTab] = useState('overview');
+            const [expandedTests, setExpandedTests] = useState({});
+
+            const tabs = [
+                { id: 'overview', label: 'Overview', icon: BarChart3 },
+                { id: 'testing', label: 'Testing & Impact', icon: TestTube },
+                { id: 'stack', label: 'Stack Trace', icon: Layers },
+                { id: 'context', label: 'Context', icon: Box },
+                { id: 'environment', label: 'Environment', icon: Server },
+                { id: 'database', label: 'Database', icon: Database },
+                { id: 'memory', label: 'Memory', icon: MemoryStick },
+            ];
+
+            return (
+                <>
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                        <div className="flex border-b border-slate-200 overflow-x-auto">
+                            {tabs.map(tab => (
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
+                                    <tab.icon className="w-4 h-4" />{tab.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="p-6 max-h-[550px] overflow-y-auto">
+                            {/* OVERVIEW TAB */}
+                            {activeTab === 'overview' && (
+                                <div className="space-y-6">
+                                    {/* What Happened */}
+                                    <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 rounded-xl p-5">
+                                        <h3 className="font-semibold text-red-800 mb-2 flex items-center gap-2">
+                                            <AlertTriangle className="w-5 h-5" /> What Happened (Simple Explanation)
+                                        </h3>
+                                        <p className="text-red-700 text-lg mb-2">{analysis.exception.plainEnglish}</p>
+                                        <p className="text-red-600">{analysis.analysis.rootCausePlainEnglish}</p>
+                                    </div>
+
+                                    {/* System Warnings Widget */}
+                                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                                        <div className="px-4 py-3 bg-gradient-to-r from-slate-700 to-slate-800 flex items-center justify-between">
+                                            <span className="font-medium text-white flex items-center gap-2"><Shield className="w-5 h-5" /> System Alerts</span>
+                                            <div className="flex gap-2">
+                                                <span className="px-2 py-0.5 bg-red-500 text-white rounded-full text-xs">{analysis.analysis.systemWarnings.filter(w => w.severity === 'error').length} Critical</span>
+                                                <span className="px-2 py-0.5 bg-yellow-500 text-white rounded-full text-xs">{analysis.analysis.systemWarnings.filter(w => w.severity === 'warning').length} Warning</span>
+                                            </div>
+                                        </div>
+                                        <div className="divide-y divide-slate-100">
+                                            {analysis.analysis.systemWarnings.map((w, i) => (
+                                                <div key={i} className={`p-4 ${w.severity === 'error' ? 'bg-red-50' : w.severity === 'warning' ? 'bg-yellow-50' : 'bg-blue-50'}`}>
+                                                    <div className="flex items-start gap-3">
+                                                        {w.severity === 'error' ? <XCircle className="w-5 h-5 text-red-600" /> : w.severity === 'warning' ? <AlertTriangle className="w-5 h-5 text-yellow-600" /> : <Info className="w-5 h-5 text-blue-600" />}
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className="font-medium text-slate-800">{w.title}</span>
+                                                                <span className={`px-2 py-0.5 rounded text-xs ${w.severity === 'error' ? 'bg-red-100 text-red-800' : w.severity === 'warning' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>{w.source}</span>
+                                                            </div>
+                                                            <p className="text-sm text-slate-600 mb-2">{w.description}</p>
+                                                            <div className="flex items-start gap-2 bg-white bg-opacity-60 rounded p-2">
+                                                                <Lightbulb className="w-4 h-4 text-slate-500 mt-0.5" />
+                                                                <p className="text-sm"><strong>Recommendation:</strong> {w.recommendation}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Reproduction Steps */}
+                                    <div className="bg-white border border-slate-200 rounded-xl p-5">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Users className="w-5 h-5 text-blue-600" /> How to Reproduce This Crash</h3>
+                                            <span className="flex items-center gap-2 text-sm"><span className="text-slate-500">Likelihood:</span><SeverityBadge severity={analysis.analysis.reproductionLikelihood} /></span>
+                                        </div>
+                                        <div className="relative space-y-0">
+                                            {analysis.analysis.reproductionSteps.map((step, idx) => (
+                                                <div key={idx} className={`step-item relative flex gap-4 pb-4 ${step.isCrashPoint ? 'bg-red-50 -mx-5 px-5 py-3 border-l-4 border-red-500' : ''}`}>
+                                                    {idx < analysis.analysis.reproductionSteps.length - 1 && !step.isCrashPoint && <div className="step-connector"></div>}
+                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${step.isCrashPoint ? 'bg-red-200' : 'bg-blue-100'}`}>
+                                                        {step.isCrashPoint ? <AlertTriangle className="w-5 h-5 text-red-600" /> : <span className="text-blue-700 font-bold">{step.step}</span>}
+                                                    </div>
+                                                    <div className="pt-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <h5 className={`font-medium ${step.isCrashPoint ? 'text-red-800' : 'text-slate-800'}`}>{step.action}</h5>
+                                                            {step.isCrashPoint && <span className="px-2 py-0.5 bg-red-200 text-red-800 rounded text-xs">CRASH HERE</span>}
+                                                        </div>
+                                                        <p className="text-sm text-slate-600 mt-1">{step.details}</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4 mt-4">
+                                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                                                <div className="flex items-center gap-2 mb-1"><CheckCircle className="w-4 h-4 text-green-600" /><span className="font-medium text-green-800 text-sm">Expected Result</span></div>
+                                                <p className="text-sm text-green-700">{analysis.analysis.expectedResult}</p>
+                                            </div>
+                                            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                                <div className="flex items-center gap-2 mb-1"><XCircle className="w-4 h-4 text-red-600" /><span className="font-medium text-red-800 text-sm">Actual Result</span></div>
+                                                <p className="text-sm text-red-700">{analysis.analysis.actualResult}</p>
+                                            </div>
+                                        </div>
+                                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-3">
+                                            <p className="text-sm text-amber-800"><Info className="w-4 h-4 inline mr-1" />{analysis.analysis.reproductionNotes}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Suggested Fix */}
+                                    <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-xl overflow-hidden">
+                                        <div className="px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 flex items-center justify-between">
+                                            <span className="font-semibold text-white flex items-center gap-2"><Wrench className="w-5 h-5" /> Suggested Fix</span>
+                                            <div className="flex gap-2">
+                                                <span className="px-2 py-1 bg-white bg-opacity-20 text-white rounded text-xs">Complexity: {analysis.analysis.fixComplexity.toUpperCase()}</span>
+                                                <span className="px-2 py-1 bg-white bg-opacity-20 text-white rounded text-xs">Est: {analysis.analysis.fixEstimate}</span>
+                                            </div>
+                                        </div>
+                                        <div className="p-5 space-y-4">
+                                            <div className="bg-white rounded-lg p-4 border border-emerald-200">
+                                                <h4 className="font-medium text-slate-800 mb-2 flex items-center gap-2"><Target className="w-4 h-4 text-emerald-600" /> What Needs to Be Fixed</h4>
+                                                <p className="text-slate-700">{analysis.analysis.suggestedFix}</p>
+                                            </div>
+                                            <div className="bg-white rounded-lg p-4 border border-emerald-200">
+                                                <h4 className="font-medium text-slate-800 mb-2 flex items-center gap-2"><BookOpen className="w-4 h-4 text-emerald-600" /> Why This Happened (Root Cause)</h4>
+                                                <p className="text-slate-600 text-sm">{analysis.analysis.fixReasoning}</p>
+                                            </div>
+                                            <div className="bg-white rounded-lg p-4 border border-emerald-200">
+                                                <h4 className="font-medium text-slate-800 mb-2 flex items-center gap-2"><Lightbulb className="w-4 h-4 text-emerald-600" /> How to Fix It</h4>
+                                                <p className="text-slate-600 text-sm mb-3">{analysis.analysis.fixExplanation}</p>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <div className="text-xs text-slate-500 mb-1">Before</div>
+                                                        <pre className="bg-slate-900 text-red-400 p-3 rounded text-xs overflow-x-auto whitespace-pre-wrap">{analysis.analysis.codeBefore}</pre>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-xs text-slate-500 mb-1">After</div>
+                                                        <pre className="bg-slate-900 text-green-400 p-3 rounded text-xs overflow-x-auto whitespace-pre-wrap">{analysis.analysis.codeAfter}</pre>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2 pt-2">
+                                                <span className="text-sm text-slate-500">Related Tickets:</span>
+                                                {analysis.analysis.relatedTickets.map(t => <a key={t} href="#" className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-mono hover:bg-blue-200">{t}</a>)}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Workaround */}
+                                    <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4">
+                                        <h3 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2"><Shield className="w-5 h-5" /> Temporary Workaround</h3>
+                                        <p className="text-yellow-800">{analysis.analysis.workaround}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* TESTING & IMPACT TAB */}
+                            {activeTab === 'testing' && (
+                                <div className="space-y-6">
+                                    <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-xl p-6 text-white">
+                                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Target className="w-5 h-5" /> Impact Summary</h3>
+                                        <div className="grid grid-cols-3 gap-4">
+                                            <div className="bg-white bg-opacity-10 rounded-lg p-4 text-center">
+                                                <div className="text-3xl font-bold text-red-400">{analysis.analysis.impactAnalysis.directlyAffected.length}</div>
+                                                <div className="text-sm text-slate-300">Directly Affected</div>
+                                            </div>
+                                            <div className="bg-white bg-opacity-10 rounded-lg p-4 text-center">
+                                                <div className="text-3xl font-bold text-yellow-400">{analysis.analysis.impactAnalysis.potentiallyAffected.length}</div>
+                                                <div className="text-sm text-slate-300">Potentially Affected</div>
+                                            </div>
+                                            <div className="bg-white bg-opacity-10 rounded-lg p-4 text-center">
+                                                <div className="text-3xl font-bold text-blue-400">{analysis.analysis.impactAnalysis.testScenarios.length}</div>
+                                                <div className="text-sm text-slate-300">Test Scenarios</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <Section title="Directly Affected Features" icon={XCircle} defaultOpen={true} badge="Critical">
+                                        <div className="space-y-3">
+                                            {analysis.analysis.impactAnalysis.directlyAffected.map((item, i) => (
+                                                <div key={i} className="p-4 rounded-lg border-2 border-red-200 bg-red-50">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-semibold text-slate-800">{item.feature}</span>
+                                                            <span className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded text-xs">{item.module}</span>
+                                                        </div>
+                                                        <SeverityBadge severity={item.severity} />
+                                                    </div>
+                                                    <p className="text-sm text-slate-600">{item.description}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Section>
+
+                                    <Section title="Potentially Affected Features" icon={AlertTriangle} defaultOpen={true}>
+                                        <p className="text-sm text-slate-600 mb-4">These features may also be affected. Test after the fix is applied.</p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {analysis.analysis.impactAnalysis.potentiallyAffected.map((item, i) => (
+                                                <div key={i} className={`p-3 rounded-lg border ${item.severity === 'high' ? 'border-orange-200 bg-orange-50' : 'border-yellow-200 bg-yellow-50'}`}>
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <span className="font-medium text-slate-800 text-sm">{item.feature}</span>
+                                                        <SeverityBadge severity={item.severity} />
+                                                    </div>
+                                                    <span className="text-xs text-slate-500">{item.module}</span>
+                                                    <p className="text-xs text-slate-600 mt-1">{item.description}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Section>
+
+                                    <Section title="Recommended Test Scenarios" icon={TestTube} defaultOpen={true} badge={`${analysis.analysis.impactAnalysis.testScenarios.length} tests`}>
+                                        <p className="text-sm text-slate-600 mb-4">Execute these tests after the fix to verify resolution.</p>
+                                        <div className="space-y-3">
+                                            {analysis.analysis.impactAnalysis.testScenarios.map((tc, i) => (
+                                                <div key={i} className="border border-slate-200 rounded-lg overflow-hidden">
+                                                    <div className="px-4 py-3 bg-slate-50 flex items-center justify-between cursor-pointer hover:bg-slate-100"
+                                                        onClick={() => setExpandedTests(prev => ({ ...prev, [i]: !prev[i] }))}>
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="font-mono text-xs text-slate-500">{tc.id}</span>
+                                                            <span className="font-medium text-slate-800">{tc.name}</span>
+                                                            <span className={`px-2 py-0.5 rounded text-xs ${tc.priority === 'P0' ? 'bg-red-100 text-red-800' : tc.priority === 'P1' ? 'bg-orange-100 text-orange-800' : 'bg-yellow-100 text-yellow-800'}`}>{tc.priority}</span>
+                                                            <span className={`px-2 py-0.5 rounded text-xs ${tc.type === 'regression' ? 'bg-purple-100 text-purple-800' : tc.type === 'verification' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{tc.type}</span>
+                                                        </div>
+                                                        {expandedTests[i] ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                                                    </div>
+                                                    {expandedTests[i] && (
+                                                        <div className="p-4 border-t border-slate-200 bg-white grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <h5 className="font-medium text-slate-700 mb-2 flex items-center gap-1"><Play className="w-4 h-4" /> Test Steps</h5>
+                                                                <pre className="text-sm text-slate-600 whitespace-pre-wrap bg-slate-50 p-3 rounded">{tc.steps}</pre>
+                                                            </div>
+                                                            <div className="space-y-3">
+                                                                <div>
+                                                                    <h5 className="font-medium text-slate-700 mb-1 flex items-center gap-1"><CheckCircle className="w-4 h-4 text-green-600" /> Expected</h5>
+                                                                    <p className="text-sm bg-green-50 p-2 rounded">{tc.expectedResult}</p>
+                                                                </div>
+                                                                <div>
+                                                                    <h5 className="font-medium text-slate-700 mb-1 flex items-center gap-1"><Database className="w-4 h-4 text-blue-600" /> Data Needed</h5>
+                                                                    <p className="text-sm bg-blue-50 p-2 rounded">{tc.dataRequirements}</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Section>
+
+                                    <Section title="Data Investigation Script" icon={Terminal} badge="SQL">
+                                        <p className="text-sm text-slate-600 mb-3">Use this SQL to find affected data:</p>
+                                        <div className="bg-slate-900 rounded-lg p-4 overflow-x-auto">
+                                            <pre className="text-sm text-green-400 font-mono whitespace-pre">{analysis.analysis.impactAnalysis.dataFixScript}</pre>
+                                        </div>
+                                        <button className="mt-3 px-3 py-1.5 bg-slate-700 text-white rounded text-sm hover:bg-slate-600 flex items-center gap-1">
+                                            <Copy className="w-4 h-4" /> Copy Script
+                                        </button>
+                                    </Section>
+                                </div>
+                            )}
+
+                            {/* STACK TRACE TAB */}
+                            {activeTab === 'stack' && (
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-4 mb-4 text-xs">
+                                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-200"></span> Error</span>
+                                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-200"></span> Application</span>
+                                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-200"></span> Framework</span>
+                                    </div>
+                                    {analysis.stackTrace.map(frame => <StackFrame key={frame.frame} {...frame} />)}
+                                </div>
+                            )}
+
+                            {/* CONTEXT TAB */}
+                            {activeTab === 'context' && (
+                                <div className="space-y-4">
+                                    <Section title="The Problem Object (Receiver)" icon={Box} defaultOpen={true}>
+                                        <div className="bg-slate-50 rounded-lg p-4">
+                                            <div className="grid grid-cols-3 gap-4 mb-3">
+                                                <div>
+                                                    <div className="text-xs text-slate-500">Class</div>
+                                                    <div className="font-mono text-blue-600">{analysis.contextArguments.receiver.class}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-xs text-slate-500">Value</div>
+                                                    <div className="font-mono text-slate-800">{analysis.contextArguments.receiver.printString}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-xs text-slate-500">Description</div>
+                                                    <div className="text-sm text-slate-600">{analysis.contextArguments.receiver.description}</div>
+                                                </div>
+                                            </div>
+                                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                                                <p className="text-sm text-red-800"><strong>Problem:</strong> The receiver was nil when it should have been a Time/Timestamp object</p>
+                                            </div>
+                                        </div>
+                                    </Section>
+
+                                    <Section title="Arguments" icon={Box} defaultOpen={true}>
+                                        <div className="space-y-2">
+                                            {analysis.contextArguments.arguments.map((arg, i) => (
+                                                <div key={i} className="bg-slate-50 rounded-lg p-3 flex justify-between">
+                                                    <span className="font-mono text-sm text-slate-600">{arg.name}</span>
+                                                    <span className="font-mono text-sm text-blue-600">{arg.value}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Section>
+
+                                    <Section title="Temporaries" icon={Box} defaultOpen={true}>
+                                        <div className="space-y-2">
+                                            {analysis.contextArguments.temporaries.map((temp, i) => (
+                                                <div key={i} className="bg-slate-50 rounded-lg p-3 flex justify-between items-center">
+                                                    <div>
+                                                        <span className="font-mono text-sm text-slate-800">{temp.name}</span>
+                                                        <span className="text-xs text-slate-500 ml-2">({temp.type})</span>
+                                                    </div>
+                                                    <span className="font-mono text-sm text-blue-600">{temp.value}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Section>
+
+                                    <Section title="Related Objects" icon={Layers} defaultOpen={true}>
+                                        <div className="space-y-3">
+                                            {analysis.contextArguments.relatedObjects.map((obj, i) => (
+                                                <div key={i} className="bg-slate-50 rounded-lg p-4">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <span className="font-medium text-blue-600">{obj.class}</span>
+                                                        <span className="font-mono text-xs text-slate-500">ID: {obj.id}</span>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2 text-sm">
+                                                        {obj.channel && <div><span className="text-slate-500">Channel:</span> <span className="text-slate-800">{obj.channel}</span></div>}
+                                                        {obj.date && <div><span className="text-slate-500">Date:</span> <span className="text-slate-800">{obj.date}</span></div>}
+                                                        {obj.startTime && <div><span className="text-slate-500">Start:</span> <span className="text-slate-800">{obj.startTime}</span></div>}
+                                                        {obj.endTime && <div><span className="text-slate-500">End:</span> <span className={obj.endTime === 'nil' ? 'text-red-600 font-bold' : 'text-slate-800'}>{obj.endTime}</span></div>}
+                                                        {obj.segmentCount && <div><span className="text-slate-500">Segments:</span> <span className="text-slate-800">{obj.segmentCount}</span></div>}
+                                                        {obj.durationCount !== undefined && <div><span className="text-slate-500">Durations:</span> <span className={obj.durationCount < obj.segmentCount ? 'text-red-600 font-bold' : 'text-slate-800'}>{obj.durationCount}</span></div>}
+                                                        {obj.name && <div><span className="text-slate-500">Name:</span> <span className="text-slate-800">{obj.name}</span></div>}
+                                                        {obj.region && <div><span className="text-slate-500">Region:</span> <span className="text-slate-800">{obj.region}</span></div>}
+                                                    </div>
+                                                    {obj.durations && (
+                                                        <div className="mt-2 text-sm">
+                                                            <span className="text-slate-500">Durations:</span> <span className="font-mono text-slate-800">[{obj.durations.join(', ')}]</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Section>
+
+                                    <Section title="Time Allocations" icon={Clock} defaultOpen={true}>
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="bg-slate-100">
+                                                    <th className="px-3 py-2 text-left">Position</th>
+                                                    <th className="px-3 py-2 text-left">Type</th>
+                                                    <th className="px-3 py-2 text-left">Start</th>
+                                                    <th className="px-3 py-2 text-left">Duration</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {analysis.contextArguments.timeAllocations.map((ta, i) => (
+                                                    <tr key={i} className={`border-b ${ta.duration === 'nil' ? 'bg-red-50' : ''}`}>
+                                                        <td className="px-3 py-2 font-mono">{ta.position}</td>
+                                                        <td className="px-3 py-2">{ta.type}</td>
+                                                        <td className="px-3 py-2 font-mono">{ta.start}</td>
+                                                        <td className={`px-3 py-2 font-mono ${ta.duration === 'nil' ? 'text-red-600 font-bold' : ''}`}>{ta.duration}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </Section>
+                                </div>
+                            )}
+
+                            {/* ENVIRONMENT TAB */}
+                            {activeTab === 'environment' && (
+                                <div className="grid grid-cols-2 gap-6">
+                                    <Section title="Application" icon={Monitor} defaultOpen={true}>
+                                        <InfoGrid items={[
+                                            ['User', analysis.environment.user],
+                                            ['Site', analysis.environment.site],
+                                            ['Version', analysis.environment.version],
+                                            ['Build', analysis.environment.build]
+                                        ]} />
+                                    </Section>
+                                    <Section title="Platform" icon={Server} defaultOpen={true}>
+                                        <InfoGrid items={[
+                                            ['Smalltalk', analysis.environment.smalltalkVersion],
+                                            ['Computer', analysis.environment.computerName],
+                                            ['Timezone', analysis.environment.timeZone],
+                                            ['Frame Rate', analysis.environment.frameRate]
+                                        ]} />
+                                    </Section>
+                                    <Section title="Database" icon={Database} defaultOpen={true}>
+                                        <InfoGrid items={[
+                                            ['Server', analysis.environment.oracleServer],
+                                            ['Client', analysis.environment.oracleClient],
+                                            ['Encoding', analysis.environment.dbEncoding],
+                                            ['DB Hash', analysis.environment.dbHash]
+                                        ]} />
+                                    </Section>
+                                    <Section title="Active Process" icon={Cpu} defaultOpen={true}>
+                                        <InfoGrid items={[
+                                            ['Process', analysis.activeProcess.name],
+                                            ['Priority', analysis.activeProcess.priority],
+                                            ['Hash', analysis.activeProcess.hash]
+                                        ]} />
+                                    </Section>
+                                </div>
+                            )}
+
+                            {/* DATABASE TAB */}
+                            {activeTab === 'database' && (
+                                <div className="space-y-4">
+                                    <Section title="Connections" icon={Database} defaultOpen={true}>
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="bg-slate-100">
+                                                    <th className="px-3 py-2 text-left">Hash</th>
+                                                    <th className="px-3 py-2 text-left">State</th>
+                                                    <th className="px-3 py-2 text-left">User</th>
+                                                    <th className="px-3 py-2 text-left">Last Operation</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {analysis.database.connections.map((c, i) => (
+                                                    <tr key={i} className="border-b">
+                                                        <td className="px-3 py-2 font-mono">{c.hash}</td>
+                                                        <td className="px-3 py-2">
+                                                            <span className={`px-2 py-0.5 rounded text-xs ${c.state === 'xactYes' ? 'bg-yellow-100 text-yellow-800' : c.state === 'xactNo' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{c.state}</span>
+                                                        </td>
+                                                        <td className="px-3 py-2">{c.username}</td>
+                                                        <td className="px-3 py-2 text-slate-600 text-xs">{c.lastOp}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                        {analysis.database.connections.some(c => c.state === 'xactYes') && (
+                                            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                                <p className="text-sm text-yellow-800"><AlertTriangle className="w-4 h-4 inline mr-1" /><strong>Warning:</strong> Active transaction detected - data may not have been saved</p>
+                                            </div>
+                                        )}
+                                    </Section>
+
+                                    <Section title="Active Sessions" icon={Activity} defaultOpen={true}>
+                                        <div className="space-y-2">
+                                            {analysis.database.activeSessions.map((s, i) => (
+                                                <div key={i} className="bg-slate-50 rounded-lg p-3">
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">{s.state}</span>
+                                                    </div>
+                                                    <pre className="text-xs text-slate-600 font-mono whitespace-pre-wrap">{s.query}</pre>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Section>
+                                </div>
+                            )}
+
+                            {/* MEMORY TAB */}
+                            {activeTab === 'memory' && (
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-5 gap-4">
+                                        {[
+                                            { name: 'Eden', ...analysis.memory.eden },
+                                            { name: 'Survivor', ...analysis.memory.survivor },
+                                            { name: 'Large', ...analysis.memory.large },
+                                            { name: 'Old', ...analysis.memory.old },
+                                            { name: 'Perm', ...analysis.memory.perm }
+                                        ].map(m => (
+                                            <div key={m.name} className={`rounded-lg p-4 text-center ${m.percent >= 100 ? 'bg-amber-50 border border-amber-200' : 'bg-slate-50'}`}>
+                                                <p className="text-xs text-slate-500 mb-1">{m.name}</p>
+                                                <p className={`text-2xl font-bold ${m.percent >= 100 ? 'text-amber-700' : m.percent > 70 ? 'text-yellow-600' : 'text-slate-800'}`}>{m.percent.toFixed(1)}%</p>
+                                                <div className="mt-2 h-2 bg-slate-200 rounded-full overflow-hidden">
+                                                    <div className={`h-full rounded-full ${m.percent > 90 ? 'bg-red-500' : m.percent > 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(m.percent, 100)}%` }} />
+                                                </div>
+                                                <p className="text-xs text-slate-500 mt-2">{m.size}</p>
+                                                {m.percent >= 100 && <p className="text-xs text-amber-600 mt-1 font-medium">⚠️ Full</p>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="bg-slate-50 rounded-lg p-4">
+                                        <InfoGrid items={[
+                                            ['Total Used', analysis.memory.total],
+                                            ['Config Limit', analysis.memory.configLimit],
+                                            ['Growth Limit', analysis.memory.growthLimit]
+                                        ]} />
+                                    </div>
+
+                                    <Section title="Processes" icon={Cpu} defaultOpen={true}>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <h4 className="text-sm font-medium text-slate-700 mb-2">Quiescent ({analysis.processes.quiescent.length})</h4>
+                                                <div className="space-y-1">
+                                                    {analysis.processes.quiescent.map((p, i) => (
+                                                        <div key={i} className="bg-green-50 rounded p-2 flex justify-between text-sm">
+                                                            <span>{p.name}</span>
+                                                            <span className="text-slate-500">Priority: {p.priority}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <h4 className="text-sm font-medium text-slate-700 mb-2">Suspended ({analysis.processes.suspended.length})</h4>
+                                                <div className="space-y-1">
+                                                    {analysis.processes.suspended.map((p, i) => (
+                                                        <div key={i} className="bg-yellow-50 rounded p-2 flex justify-between text-sm">
+                                                            <span>{p.name}</span>
+                                                            <span className="text-slate-500">Priority: {p.priority}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </Section>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Open Windows */}
+                    <div className="mt-4 bg-white rounded-xl border border-slate-200 p-4">
+                        <h3 className="font-medium text-slate-700 mb-3 flex items-center gap-2"><Monitor className="w-4 h-4" /> Open Windows at Crash ({analysis.windows.length})</h3>
+                        <div className="grid grid-cols-3 gap-3">
+                            {analysis.windows.map(w => (
+                                <div key={w.id} className="bg-slate-50 rounded-lg p-3">
+                                    <p className="text-sm text-slate-800 truncate">{w.title}</p>
+                                    <p className="text-xs text-slate-500 font-mono">{w.model}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </>
+            );
+        };
+
+        // ========== QUICK ANALYSIS VIEW ==========
+        const QuickAnalysisView = ({ data }) => {
+            return (
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="p-6 max-h-[650px] overflow-y-auto space-y-5">
+                        {/* Section 1: Root Cause */}
+                        <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 rounded-xl p-5">
+                            <h3 className="font-semibold text-red-800 mb-3 flex items-center gap-2">
+                                <div className="p-2 bg-red-100 rounded-lg"><Search className="w-5 h-5 text-red-600" /></div>
+                                Root Cause
+                            </h3>
+                            <p className="text-slate-700 mb-4">{data.rootCause.explanation}</p>
+                            <div className="bg-slate-900 rounded-lg p-4">
+                                <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap">{data.rootCause.stackTrace.join('\n')}</pre>
+                            </div>
+                        </div>
+
+                        {/* Section 2: Workaround */}
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-5">
+                            <h3 className="font-semibold text-yellow-800 mb-3 flex items-center gap-2">
+                                <div className="p-2 bg-yellow-100 rounded-lg"><Shield className="w-5 h-5 text-yellow-600" /></div>
+                                {data.workaround.title}
+                            </h3>
+                            <ol className="list-decimal list-inside space-y-2 text-slate-700 mb-4">
+                                {data.workaround.steps.map((step, i) => (
+                                    <li key={i}>{step}</li>
+                                ))}
+                            </ol>
+                            <div className="bg-white rounded-lg p-3 border border-yellow-300">
+                                <p className="text-sm text-yellow-800"><Lightbulb className="w-4 h-4 inline mr-1" /><strong>Tip:</strong> {data.workaround.note}</p>
+                            </div>
+                        </div>
+
+                        {/* Section 3: Solution */}
+                        <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-5">
+                            <h3 className="font-semibold text-emerald-800 mb-4 flex items-center gap-2">
+                                <div className="p-2 bg-emerald-100 rounded-lg"><Wrench className="w-5 h-5 text-emerald-600" /></div>
+                                Solution
+                            </h3>
+                            {data.solution.fixes.map((fix, i) => (
+                                <div key={i} className={`bg-white rounded-lg p-4 mb-3 border ${fix.priority === 'P0' ? 'border-red-200' : 'border-orange-200'}`}>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${fix.priority === 'P0' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'}`}>{fix.priority}</span>
+                                            <span className="font-medium text-slate-800">{fix.title}</span>
+                                        </div>
+                                        <span className="text-xs text-slate-500">{fix.effort}</span>
+                                    </div>
+                                    <p className="text-sm text-slate-600 mb-3">{fix.description}</p>
+                                    {fix.code && (
+                                        <pre className="bg-slate-900 text-green-400 p-3 rounded text-xs overflow-x-auto">{fix.code}</pre>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Section 4: Explanation */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
+                            <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                                <div className="p-2 bg-blue-100 rounded-lg"><Lightbulb className="w-5 h-5 text-blue-600" /></div>
+                                Why This Fix Works
+                            </h3>
+                            <p className="text-slate-700 mb-3">{data.explanation.whyItWorks}</p>
+                            <p className="text-slate-600 text-sm mb-3">{data.explanation.details}</p>
+                            <div className="bg-white rounded-lg p-3">
+                                <p className="text-sm font-medium text-slate-700 mb-2">Key Points:</p>
+                                <ul className="space-y-1">
+                                    {data.explanation.keyPoints.map((point, i) => (
+                                        <li key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                                            <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                                            {point}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ========== MAIN APP ==========
+        const App = () => {
+            const [files, setFiles] = useState([]);
+            const [selectedFile, setSelectedFile] = useState(null);
+            const [analysisResults, setAnalysisResults] = useState({});
+            const [analysisType, setAnalysisType] = useState('comprehensive');
+
+            const loadDemoFiles = () => {
+                const demoFiles = [
+                    { id: 'demo1', name: 'WCR_15-1_10-29-30.txt', size: '781 KB', status: 'pending' },
+                    { id: 'demo2', name: 'WCR_15-1_10-49-22.txt', size: '772 KB', status: 'pending' },
+                    { id: 'demo3', name: 'WCR_15-1_10-49-30.txt', size: '774 KB', status: 'pending' }
+                ];
+                setFiles(demoFiles);
+            };
+
+            const analyzeFile = (fileId) => {
+                setFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: 'analyzing' } : f));
+                const delay = analysisType === 'quick' ? 800 : 2000;
+                setTimeout(() => {
+                    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: 'complete', analysisType } : f));
+                    const file = files.find(f => f.id === fileId);
+                    setAnalysisResults(prev => ({
+                        ...prev,
+                        [fileId]: {
+                            type: analysisType,
+                            comprehensive: { ...mockCrashAnalysis, fileName: file?.name || mockCrashAnalysis.fileName },
+                            quick: quickAnalysisData
+                        }
+                    }));
+                    setSelectedFile(fileId);
+                }, delay);
+            };
+
+            const removeFile = (fileId) => {
+                setFiles(prev => prev.filter(f => f.id !== fileId));
+                if (selectedFile === fileId) setSelectedFile(null);
+            };
+
+            const analysis = selectedFile ? analysisResults[selectedFile] : null;
+            const currentType = analysis?.type || analysisType;
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+                    <header className="bg-white border-b border-slate-200 shadow-sm">
+                        <div className="max-w-7xl mx-auto px-6 py-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-blue-600 rounded-lg"><Zap className="w-6 h-6 text-white" /></div>
+                                    <div>
+                                        <h1 className="text-xl font-bold text-slate-800">Hadron Crash Analyzer</h1>
+                                        <p className="text-sm text-slate-500">VisualWorks Smalltalk Diagnostic Tool</p>
+                                    </div>
+                                </div>
+                                <button className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                                    <Download className="w-4 h-4" /> Export Report
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div className="max-w-7xl mx-auto px-6 py-6">
+                        <div className="grid grid-cols-12 gap-6">
+                            {/* LEFT PANEL - File Upload */}
+                            <div className="col-span-3">
+                                {/* Analysis Type Selector */}
+                                <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+                                    <h3 className="text-sm font-medium text-slate-700 mb-3">Analysis Type</h3>
+                                    <div className="space-y-2">
+                                        <button onClick={() => setAnalysisType('comprehensive')}
+                                            className={`w-full p-3 rounded-lg border-2 text-left transition-all ${analysisType === 'comprehensive' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                                            <div className="flex items-center justify-between">
+                                                <span className="font-medium text-sm">Comprehensive</span>
+                                                {analysisType === 'comprehensive' && <CheckCircle className="w-4 h-4 text-blue-600" />}
+                                            </div>
+                                            <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                                                <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />~$2.50</span>
+                                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />15-30s</span>
+                                            </div>
+                                        </button>
+                                        <button onClick={() => setAnalysisType('quick')}
+                                            className={`w-full p-3 rounded-lg border-2 text-left transition-all ${analysisType === 'quick' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                                            <div className="flex items-center justify-between">
+                                                <span className="font-medium text-sm">Quick</span>
+                                                {analysisType === 'quick' && <CheckCircle className="w-4 h-4 text-green-600" />}
+                                            </div>
+                                            <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                                                <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />~$0.50</span>
+                                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />5-10s</span>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Drop Zone */}
+                                <div onClick={loadDemoFiles} className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer bg-white">
+                                    <Upload className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+                                    <p className="text-sm font-medium text-slate-700">Drop crash files here</p>
+                                    <p className="text-xs text-slate-500 mt-1">or click to load demo</p>
+                                </div>
+
+                                {/* File List */}
+                                {files.length > 0 && (
+                                    <div className="mt-4 bg-white rounded-xl border border-slate-200 overflow-hidden">
+                                        <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+                                            <span className="text-sm font-medium text-slate-700">Files ({files.length})</span>
+                                        </div>
+                                        <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                                            {files.map(file => (
+                                                <div key={file.id}
+                                                    className={`px-4 py-3 flex items-center gap-3 hover:bg-slate-50 cursor-pointer ${selectedFile === file.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
+                                                    onClick={() => file.status === 'complete' && setSelectedFile(file.id)}>
+                                                    <FileText className={`w-5 h-5 ${file.status === 'complete' ? 'text-green-600' : 'text-slate-400'}`} />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
+                                                        <p className="text-xs text-slate-500">{file.size}</p>
+                                                    </div>
+                                                    {file.status === 'pending' && (
+                                                        <button onClick={(e) => { e.stopPropagation(); analyzeFile(file.id); }}
+                                                            className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">Analyze</button>
+                                                    )}
+                                                    {file.status === 'analyzing' && <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />}
+                                                    {file.status === 'complete' && <CheckCircle className="w-5 h-5 text-green-600" />}
+                                                    <button onClick={(e) => { e.stopPropagation(); removeFile(file.id); }}
+                                                        className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* RIGHT PANEL - Analysis Results */}
+                            <div className="col-span-9">
+                                {!analysis ? (
+                                    <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+                                        <Activity className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                                        <h3 className="text-lg font-medium text-slate-700 mb-2">No Analysis Selected</h3>
+                                        <p className="text-sm text-slate-500 mb-4">Upload and analyze a crash file to see diagnostics</p>
+                                        <button onClick={loadDemoFiles} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Load Demo Files</button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* Crash Header */}
+                                        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="p-3 bg-red-100 rounded-lg"><AlertTriangle className="w-6 h-6 text-red-600" /></div>
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <h2 className="text-lg font-bold text-slate-800">{analysis.comprehensive.exception.type}</h2>
+                                                            <SeverityBadge severity={analysis.comprehensive.severity} />
+                                                            <span className={`px-2 py-0.5 rounded text-xs ${currentType === 'comprehensive' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                                                                {currentType === 'comprehensive' ? 'Comprehensive' : 'Quick'}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm text-slate-500">{analysis.comprehensive.fileName} • {analysis.comprehensive.header.timestamp}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right text-sm text-slate-500">
+                                                    User: <span className="font-medium text-slate-800">{analysis.comprehensive.environment.user}</span><br />
+                                                    Site: <span className="font-medium text-slate-800">{analysis.comprehensive.environment.site}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Analysis View */}
+                                        {currentType === 'comprehensive' ? (
+                                            <ComprehensiveAnalysisView analysis={analysis.comprehensive} />
+                                        ) : (
+                                            <QuickAnalysisView data={analysis.quick} />
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
