@@ -15,6 +15,13 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Feedback component CSS variables */
+  --border-color: #374151;
+  --accent-color: #3b82f6;
+  --input-bg: #1f2937;
+  --text-color: #f3f4f6;
+  --text-muted: #9ca3af;
 }
 
 body {
@@ -136,4 +143,209 @@ body {
   .progress-track {
     background: #e5e7eb;
   }
+}
+
+/* ============================================================================
+   Feedback System Styles (Phase 1-2)
+   ============================================================================ */
+
+/* Feedback Buttons */
+.feedback-buttons {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+}
+
+.feedback-btn {
+  background: transparent;
+  border: 1px solid var(--border-color, #374151);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.15s ease;
+}
+
+.feedback-btn:hover:not(:disabled) {
+  transform: scale(1.1);
+}
+
+.feedback-btn.accept:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: #22c55e;
+}
+
+.feedback-btn.reject:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+}
+
+.feedback-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.feedback-status {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.feedback-status.accepted {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.feedback-status.rejected {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Inline Editor */
+.inline-editor-display {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.inline-editor-display .editor-content {
+  flex: 1;
+}
+
+.inline-editor-display .edit-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+  padding: 0.25rem;
+}
+
+.inline-editor-display:hover .edit-btn {
+  opacity: 1;
+}
+
+.inline-editor-editing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.inline-editor-editing textarea,
+.inline-editor-editing input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--accent-color, #3b82f6);
+  border-radius: 4px;
+  background: var(--input-bg, #1f2937);
+  color: var(--text-color, #f3f4f6);
+  font-family: inherit;
+  resize: vertical;
+}
+
+.inline-editor-editing .editor-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.inline-editor-editing .editor-actions button {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.inline-editor-editing .editor-actions button:first-child {
+  background: var(--accent-color, #3b82f6);
+  color: white;
+  border: none;
+}
+
+.inline-editor-editing .editor-actions button:nth-child(2) {
+  background: transparent;
+  border: 1px solid var(--border-color, #374151);
+  color: var(--text-color, #f3f4f6);
+}
+
+.inline-editor-editing .editor-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted, #9ca3af);
+  margin-left: auto;
+}
+
+/* Star Rating */
+.star-rating {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.star-rating .rating-label {
+  font-size: 0.85rem;
+  color: var(--text-muted, #9ca3af);
+}
+
+.star-rating .stars {
+  display: flex;
+}
+
+.star-rating .star {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--border-color, #374151);
+  transition: all 0.1s ease;
+  padding: 0;
+}
+
+.star-rating .star.filled {
+  color: #fbbf24;
+}
+
+.star-rating .star:hover:not(:disabled) {
+  transform: scale(1.2);
+}
+
+.star-rating-small .star { font-size: 1rem; }
+.star-rating-medium .star { font-size: 1.25rem; }
+.star-rating-large .star { font-size: 1.5rem; }
+
+.star-rating .rating-value {
+  font-size: 0.75rem;
+  color: var(--text-muted, #9ca3af);
+}
+
+/* Gold Badge */
+.gold-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.gold-badge.is-gold {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  color: #1f2937;
+  border: none;
+}
+
+.gold-badge.promote {
+  background: transparent;
+  border: 1px dashed var(--border-color, #374151);
+  color: var(--text-muted, #9ca3af);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gold-badge.promote:hover:not(:disabled) {
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+
+.gold-badge.promote:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

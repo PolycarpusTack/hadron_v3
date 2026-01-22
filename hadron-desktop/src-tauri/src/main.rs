@@ -13,6 +13,7 @@ mod models;
 mod parser;
 mod patterns;
 mod python_runner;
+mod rag_commands;
 mod signature;
 // Token-safe analysis modules
 mod chunker;
@@ -22,6 +23,7 @@ mod token_budget;
 
 use commands::*;
 use database::Database;
+use rag_commands::*;
 use std::sync::{Arc, RwLock};
 
 fn main() {
@@ -134,6 +136,7 @@ fn main() {
             // JIRA Integration
             test_jira_connection,
             create_jira_ticket,
+            search_jira_issues,
             // Crash Signatures
             compute_crash_signature,
             register_crash_signature,
@@ -171,7 +174,27 @@ fn main() {
             get_database_info,
             // Performance Trace Analysis
             analyze_performance_trace,
-            get_file_stats
+            get_file_stats,
+            // Intelligence Platform (Phase 1-2)
+            submit_analysis_feedback,
+            get_feedback_for_analysis,
+            promote_to_gold,
+            get_gold_analyses,
+            is_gold_analysis,
+            // Gold Review Workflow (Phase 1-2 Week 3)
+            get_pending_gold_analyses,
+            verify_gold_analysis,
+            reject_gold_analysis,
+            check_auto_promotion_eligibility,
+            auto_promote_if_eligible,
+            // Fine-Tuning Export (Phase 1.4)
+            export_gold_jsonl,
+            count_gold_for_export,
+            // RAG System (Phase 1-2, Week 4)
+            rag_query,
+            rag_index_analysis,
+            rag_build_context,
+            rag_get_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

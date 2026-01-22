@@ -274,3 +274,207 @@ pub async fn create_jira_ticket(
         })
     }
 }
+
+// ============================================================================
+// JIRA Search/Import Functionality (Phase 3)
+// ============================================================================
+
+/// JIRA search response wrapper
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraSearchResponse {
+    pub issues: Vec<JiraSearchIssue>,
+    pub total: i32,
+    pub start_at: i32,
+    pub max_results: i32,
+}
+
+/// JIRA issue from search results (full detail)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraSearchIssue {
+    pub id: String,
+    pub key: String,
+    #[serde(rename = "self")]
+    pub self_url: String,
+    pub fields: JiraIssueFields,
+}
+
+/// JIRA issue fields
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraIssueFields {
+    pub summary: String,
+    pub description: Option<serde_json::Value>,
+    pub status: JiraStatus,
+    pub priority: Option<JiraPriority>,
+    pub issuetype: JiraIssueType,
+    pub assignee: Option<JiraUser>,
+    pub reporter: Option<JiraUser>,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub components: Vec<JiraComponent>,
+    pub created: String,
+    pub updated: String,
+    pub resolutiondate: Option<String>,
+    pub resolution: Option<JiraResolution>,
+    #[serde(default)]
+    pub issuelinks: Vec<JiraIssueLink>,
+    pub comment: Option<JiraCommentContainer>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraStatus {
+    pub name: String,
+    #[serde(rename = "statusCategory")]
+    pub status_category: Option<JiraStatusCategory>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraStatusCategory {
+    pub key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraPriority {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraIssueType {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraUser {
+    pub display_name: String,
+    pub email_address: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraComponent {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraResolution {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraIssueLink {
+    #[serde(rename = "type")]
+    pub link_type: JiraLinkType,
+    #[serde(rename = "inwardIssue")]
+    pub inward_issue: Option<JiraLinkedIssue>,
+    #[serde(rename = "outwardIssue")]
+    pub outward_issue: Option<JiraLinkedIssue>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraLinkType {
+    pub name: String,
+    pub inward: String,
+    pub outward: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraLinkedIssue {
+    pub key: String,
+    pub fields: Option<JiraLinkedIssueFields>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraLinkedIssueFields {
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraCommentContainer {
+    pub comments: Vec<JiraComment>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraComment {
+    pub id: String,
+    pub author: JiraCommentAuthor,
+    pub body: serde_json::Value,
+    pub created: String,
+    pub updated: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraCommentAuthor {
+    pub display_name: String,
+}
+
+/// Search JIRA issues using JQL
+pub async fn search_jira_issues(
+    base_url: String,
+    email: String,
+    api_token: String,
+    jql: String,
+    max_results: i32,
+    include_comments: bool,
+) -> Result<JiraSearchResponse, String> {
+    let base_url = base_url.trim_end_matches('/');
+    let auth_header = create_auth_header(&email, &api_token);
+
+    log::info!("Searching JIRA issues with JQL: {}", jql);
+
+    // Build fields to expand
+    let mut fields = vec![
+        "summary", "description", "status", "priority", "issuetype",
+        "assignee", "reporter", "labels", "components", "created",
+        "updated", "resolutiondate", "resolution", "issuelinks",
+    ];
+
+    if include_comments {
+        fields.push("comment");
+    }
+
+    let fields_param = fields.join(",");
+
+    // Build search URL with parameters
+    let url = format!(
+        "{}/rest/api/3/search?jql={}&maxResults={}&fields={}",
+        base_url,
+        urlencoding::encode(&jql),
+        max_results,
+        urlencoding::encode(&fields_param)
+    );
+
+    let response = HTTP_CLIENT
+        .get(&url)
+        .header("Authorization", &auth_header)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Search request failed: {}", e))?;
+
+    let status = response.status();
+
+    if status.is_success() {
+        let search_result: JiraSearchResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse search response: {}", e))?;
+
+        log::info!(
+            "JIRA search returned {} issues (total: {})",
+            search_result.issues.len(),
+            search_result.total
+        );
+
+        Ok(search_result)
+    } else if status == reqwest::StatusCode::BAD_REQUEST {
+        let error_body = response.text().await.unwrap_or_default();
+        Err(format!("Invalid JQL query: {}", error_body))
+    } else if status == reqwest::StatusCode::UNAUTHORIZED {
+        Err("Authentication failed. Check your credentials.".to_string())
+    } else {
+        let error_body = response.text().await.unwrap_or_default();
+        Err(format!("Search failed (HTTP {}): {}", status.as_u16(), error_body))
+    }
+}

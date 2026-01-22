@@ -7,6 +7,100 @@ use crate::evidence_extractor::{EvidenceExtractor, ExtractionConfig};
 use crate::token_budget::{AnalysisStrategy, BudgetAnalysis, TokenBudgeter};
 
 // ============================================================================
+// RAG Context for Enhanced Analysis (Phase 2.3)
+// ============================================================================
+
+/// Similar case from RAG retrieval
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagSimilarCase {
+    pub citation_id: String,
+    pub similarity_score: f64,
+    pub root_cause: String,
+    pub suggested_fixes: Vec<String>,
+    pub is_gold: bool,
+    pub component: Option<String>,
+    pub severity: Option<String>,
+}
+
+/// RAG context for enhanced analysis
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RagContext {
+    pub similar_cases: Vec<RagSimilarCase>,
+    pub gold_matches: Vec<RagSimilarCase>,
+    pub confidence_boost: f64,
+    pub retrieval_time_ms: Option<i64>,
+}
+
+impl RagContext {
+    /// Check if RAG context has any useful data
+    pub fn has_context(&self) -> bool {
+        !self.similar_cases.is_empty() || !self.gold_matches.is_empty()
+    }
+
+    /// Build formatted context string for prompt injection
+    pub fn format_for_prompt(&self) -> String {
+        if !self.has_context() {
+            return String::new();
+        }
+
+        let mut context = String::new();
+        context.push_str("\n## SIMILAR HISTORICAL CASES (RAG Retrieved)\n\n");
+        context.push_str("Use these similar past cases as reference when analyzing. CITE relevant cases in your analysis.\n\n");
+
+        // Gold matches first (higher quality)
+        if !self.gold_matches.is_empty() {
+            context.push_str("### Verified Gold Standard Cases:\n");
+            for (idx, case) in self.gold_matches.iter().enumerate() {
+                let score = (case.similarity_score * 100.0).round() as i32;
+                context.push_str(&format!(
+                    "\n**Case #{} [{}% match] 🏆 VERIFIED**\n",
+                    case.citation_id, score
+                ));
+                if let Some(component) = &case.component {
+                    context.push_str(&format!("- Component: {}\n", component));
+                }
+                if let Some(severity) = &case.severity {
+                    context.push_str(&format!("- Severity: {}\n", severity));
+                }
+                context.push_str(&format!("- Root Cause: {}\n", case.root_cause));
+                if !case.suggested_fixes.is_empty() {
+                    context.push_str(&format!("- Resolution: {}\n", case.suggested_fixes.join("; ")));
+                }
+            }
+            context.push('\n');
+        }
+
+        // Similar cases
+        if !self.similar_cases.is_empty() {
+            context.push_str("### Similar Historical Cases:\n");
+            for (idx, case) in self.similar_cases.iter().take(5).enumerate() {
+                let score = (case.similarity_score * 100.0).round() as i32;
+                let gold_badge = if case.is_gold { " 🏆" } else { "" };
+                context.push_str(&format!(
+                    "\n**Case #{}{} [{}% match]**\n",
+                    case.citation_id, gold_badge, score
+                ));
+                if let Some(component) = &case.component {
+                    context.push_str(&format!("- Component: {}\n", component));
+                }
+                context.push_str(&format!("- Root Cause: {}\n", case.root_cause));
+                if !case.suggested_fixes.is_empty() {
+                    context.push_str(&format!("- Resolution: {}\n", case.suggested_fixes[0]));
+                }
+            }
+            context.push('\n');
+        }
+
+        context.push_str("### Citation Instructions:\n");
+        context.push_str("- If your analysis is informed by a similar case, cite it as: \"Similar to Case #X\"\n");
+        context.push_str("- If no similar cases are relevant, state: \"No directly relevant historical cases\"\n");
+        context.push_str("- Prefer citing verified gold cases over unverified ones\n\n");
+
+        context
+    }
+}
+
+// ============================================================================
 // Analysis Result with Token-Safe Metadata
 // ============================================================================
 
@@ -726,6 +820,76 @@ IMPORTANT GUIDELINES:
     )
 }
 
+/// Build RAG-enhanced WHATS'ON analysis prompt with similar case context
+fn get_whatson_analysis_prompt_with_rag(crash_content: &str, rag_context: &RagContext) -> String {
+    let rag_section = rag_context.format_for_prompt();
+
+    // If we have RAG context, inject it into the prompt
+    if rag_section.is_empty() {
+        return get_whatson_analysis_prompt(crash_content);
+    }
+
+    format!(
+        r#"Analyze this WHATS'ON/VisualWorks Smalltalk crash log and provide a comprehensive structured analysis.
+
+{rag_section}
+═══════════════════════════════════════════════════════════════════
+
+CRASH LOG:
+{crash_content}
+
+═══════════════════════════════════════════════════════════════════
+WHATS'ON ENHANCED ANALYSIS - STRUCTURED OUTPUT FORMAT (RAG-ENHANCED)
+═══════════════════════════════════════════════════════════════════
+
+Analyze the crash log using insights from the similar historical cases above.
+Be thorough and specific. Use your knowledge of WHATS'ON namespaces (PSI.*, BM.*, PL.*, WOn.*, EX.*) and broadcast domain.
+
+**IMPORTANT**:
+- CITE any similar cases that informed your analysis (e.g., "Similar to Case #X")
+- Add a "ragCitations" field to your response listing which cases were relevant
+- If RAG cases don't apply, set "ragCitations": []
+
+OUTPUT FORMAT (JSON):
+{{
+  "summary": {{
+    "title": "Brief descriptive title of the crash (50 chars max)",
+    "severity": "critical|high|medium|low",
+    "category": "scheduling|playout|database|memory|integration|ui|rights|timing|other",
+    "confidence": "high|medium|low",
+    "affectedWorkflow": "Brief description of the business workflow affected"
+  }},
+  "ragCitations": [
+    {{
+      "caseId": "Case citation ID that was relevant",
+      "relevance": "How this case informed the analysis"
+    }}
+  ],
+  "rootCause": {{
+    "technical": "Detailed technical explanation of why the crash occurred",
+    "plainEnglish": "Non-technical explanation suitable for business users",
+    "affectedMethod": "ClassName>>methodName where the error originated",
+    "affectedModule": "WHATS'ON module/namespace affected (e.g., PSI.ScheduleEngine)",
+    "triggerCondition": "What specific condition triggered this crash"
+  }},
+  "suggestedFixes": [
+    {{
+      "priority": 1,
+      "title": "Primary fix",
+      "description": "Detailed description",
+      "complexity": "low|medium|high",
+      "risk": "low|medium|high"
+    }}
+  ],
+  ... (continue with standard WHATS'ON analysis fields)
+}}
+
+Return ONLY valid JSON. No markdown, no explanation outside JSON."#,
+        rag_section = rag_section,
+        crash_content = crash_content
+    )
+}
+
 // ============================================================================
 // Unified HTTP Client
 // ============================================================================
@@ -1344,6 +1508,85 @@ pub async fn analyze_crash_log(
         "whatson" | "comprehensive" => (
             WHATSON_SYSTEM_PROMPT,
             get_whatson_analysis_prompt(crash_content),
+        ),
+        "quick" => (
+            QUICK_ANALYSIS_SYSTEM_PROMPT,
+            get_quick_analysis_prompt(crash_content),
+        ),
+        _ => (
+            SPECIALIZED_ANALYSIS_SYSTEM_PROMPT,
+            get_specialized_analysis_prompt(crash_content),
+        ),
+    };
+
+    let mut result = match provider.to_lowercase().as_str() {
+        "openai" => call_openai(system_prompt, &user_prompt, api_key, model).await?,
+        "anthropic" => call_anthropic(system_prompt, &user_prompt, api_key, model).await?,
+        "zai" => call_zai(system_prompt, &user_prompt, api_key, model).await?,
+        "ollama" => call_ollama(system_prompt, &user_prompt, model).await?,
+        _ => {
+            return Err(format!(
+                "Unknown provider: {}. Supported: openai, anthropic, zai, ollama",
+                provider
+            ))
+        }
+    };
+
+    // Add analysis duration
+    result.analysis_duration_ms = Some(start_time.elapsed().as_millis() as i32);
+
+    Ok(result)
+}
+
+/// Analyze crash log with RAG context for enhanced accuracy
+///
+/// This function uses retrieved similar cases to improve analysis quality.
+/// Similar cases provide historical context that helps the AI:
+/// - Recognize patterns from past crashes
+/// - Apply proven solutions from verified gold cases
+/// - Provide citations for increased transparency
+///
+/// # Arguments
+/// * `crash_content` - The crash log content
+/// * `api_key` - API key for the provider
+/// * `model` - Model identifier
+/// * `provider` - Provider name
+/// * `analysis_type` - Type of analysis
+/// * `rag_context` - Optional RAG context with similar cases
+pub async fn analyze_crash_log_with_rag(
+    crash_content: &str,
+    api_key: &str,
+    model: &str,
+    provider: &str,
+    analysis_type: &str,
+    rag_context: Option<RagContext>,
+) -> Result<AnalysisResult, String> {
+    let start_time = std::time::Instant::now();
+
+    // Build prompt with RAG context if available
+    let (system_prompt, user_prompt) = match analysis_type {
+        "whatson" | "comprehensive" => {
+            if let Some(ref ctx) = rag_context {
+                if ctx.has_context() {
+                    log::info!(
+                        "Using RAG-enhanced prompt with {} similar cases and {} gold matches",
+                        ctx.similar_cases.len(),
+                        ctx.gold_matches.len()
+                    );
+                    (
+                        WHATSON_SYSTEM_PROMPT,
+                        get_whatson_analysis_prompt_with_rag(crash_content, ctx),
+                    )
+                } else {
+                    (WHATSON_SYSTEM_PROMPT, get_whatson_analysis_prompt(crash_content))
+                }
+            } else {
+                (WHATSON_SYSTEM_PROMPT, get_whatson_analysis_prompt(crash_content))
+            }
+        }
+        "complete" => (
+            COMPLETE_ANALYSIS_SYSTEM_PROMPT,
+            get_complete_analysis_prompt(crash_content),
         ),
         "quick" => (
             QUICK_ANALYSIS_SYSTEM_PROMPT,

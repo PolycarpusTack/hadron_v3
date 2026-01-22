@@ -934,3 +934,76 @@ export function getDateRangeFromPreset(
       return {};
   }
 }
+
+// ============================================================================
+// Intelligence Platform Types (Phase 1-2)
+// ============================================================================
+
+// Feedback types
+export interface AnalysisFeedback {
+  id?: number;
+  analysisId: number;
+  feedbackType: 'accept' | 'reject' | 'edit' | 'rating';
+  fieldName?: string;
+  originalValue?: string;
+  newValue?: string;
+  rating?: number;
+  feedbackAt?: string;
+}
+
+// Gold analysis types
+export interface GoldAnalysis {
+  id: number;
+  sourceAnalysisId?: number;
+  sourceType: 'crash' | 'ticket' | 'manual';
+  errorSignature: string;
+  crashContentHash?: string;
+  rootCause: string;
+  suggestedFixes: string; // JSON array string from Rust backend
+  component?: string;
+  severity?: string;
+  validationStatus: 'pending' | 'verified' | 'rejected';
+  createdAt: string;
+  verifiedBy?: string;
+  timesReferenced: number;
+  successRate?: number;
+}
+
+// RAG types
+export interface RetrievalChunk {
+  id: number;
+  sourceType: 'analysis' | 'gold' | 'ticket' | 'documentation';
+  sourceId: number;
+  chunkIndex: number;
+  content: string;
+  metadata: ChunkMetadata;
+  score?: number;
+}
+
+export interface ChunkMetadata {
+  component?: string;
+  severity?: string;
+  errorType?: string;
+  version?: string;
+}
+
+export interface RetrievalResult {
+  chunks: RetrievalChunk[];
+  query: string;
+  totalFound: number;
+}
+
+export interface RAGContext {
+  similarAnalyses: SimilarCase[];
+  goldMatches: GoldAnalysis[];
+  confidenceBoost: number;
+}
+
+export interface SimilarCase {
+  analysisId: number;
+  similarityScore: number;
+  rootCause: string;
+  suggestedFixes: string[];
+  isGold: boolean;
+  citationId: string;
+}
