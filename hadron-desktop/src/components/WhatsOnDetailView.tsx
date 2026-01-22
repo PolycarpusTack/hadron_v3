@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { format } from "date-fns";
 import {
   ArrowLeft,
@@ -20,6 +21,12 @@ import type { Analysis } from "../services/api";
 import { parseWhatsOnAnalysis, getSeverityColor } from "../utils/whatsOnParser";
 import JiraTicketModal from "./JiraTicketModal";
 import { isJiraEnabled } from "../services/jira";
+
+// Intelligence Platform Components
+import { FeedbackButtons } from "./FeedbackButtons";
+import { StarRating } from "./StarRating";
+import { GoldBadge } from "./GoldBadge";
+import CitationPanel from "./CitationPanel";
 
 // Sub-components
 import SystemWarningsWidget from "./whatson/SystemWarningsWidget";
@@ -55,6 +62,7 @@ export default function WhatsOnDetailView({ analysis, onBack }: WhatsOnDetailVie
   const [copied, setCopied] = useState(false);
   const [showJiraModal, setShowJiraModal] = useState(false);
   const [jiraEnabled, setJiraEnabled] = useState(false);
+  const [isGold, setIsGold] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Parse the WHATS'ON enhanced analysis data
@@ -64,6 +72,13 @@ export default function WhatsOnDetailView({ analysis, onBack }: WhatsOnDetailVie
   useEffect(() => {
     isJiraEnabled().then(setJiraEnabled);
   }, []);
+
+  // Check if this is a gold analysis
+  useEffect(() => {
+    invoke<boolean>("is_gold_analysis", { analysisId: analysis.id })
+      .then(setIsGold)
+      .catch(console.error);
+  }, [analysis.id]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -300,13 +315,20 @@ ${analysis.root_cause}
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <span
-              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${getSeverityColor(
-                enhancedData.summary.severity
-              )}`}
-            >
-              {enhancedData.summary.severity.toUpperCase()}
-            </span>
+            <div className="flex items-center gap-2">
+              <span
+                className={`px-4 py-2 rounded-lg text-sm font-semibold border ${getSeverityColor(
+                  enhancedData.summary.severity
+                )}`}
+              >
+                {enhancedData.summary.severity.toUpperCase()}
+              </span>
+              <GoldBadge
+                analysisId={analysis.id}
+                isGold={isGold}
+                onPromoted={() => setIsGold(true)}
+              />
+            </div>
             <span className="text-xs text-gray-500">
               Confidence: {enhancedData.summary.confidence}
             </span>
@@ -355,9 +377,16 @@ ${analysis.root_cause}
 
             {/* Root Cause Section */}
             <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <AlertCircle className="w-5 h-5 text-red-400" />
-                <h3 className="text-lg font-semibold">Root Cause Analysis</h3>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-400" />
+                  <h3 className="text-lg font-semibold">Root Cause Analysis</h3>
+                </div>
+                <FeedbackButtons
+                  analysisId={analysis.id}
+                  fieldName="rootCause"
+                  currentValue={enhancedData.rootCause.technical}
+                />
               </div>
 
               <div className="space-y-4">
@@ -393,11 +422,37 @@ ${analysis.root_cause}
               </div>
             </div>
 
+            {/* Similar Historical Cases (RAG Citations) */}
+            <CitationPanel
+              query={`${analysis.error_type || ""} ${enhancedData.rootCause.affectedMethod || ""} ${analysis.stack_trace?.slice(0, 200) || ""}`}
+              component={analysis.component}
+              severity={analysis.severity?.toLowerCase()}
+              onCitationClick={(id) => {
+                // Could navigate to cited analysis or show preview
+                console.log("Citation clicked:", id);
+              }}
+              defaultCollapsed={false}
+            />
+
             {/* User Scenario - Reproduction Steps */}
             <ReproductionSteps scenario={enhancedData.userScenario} />
 
             {/* Suggested Fix */}
             <SuggestedFixCard fix={enhancedData.suggestedFix} />
+
+            {/* Feedback Section */}
+            <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold mb-1">How was this analysis?</h3>
+                  <p className="text-sm text-gray-400">Your feedback helps improve future analyses</p>
+                </div>
+                <StarRating
+                  analysisId={analysis.id}
+                  size="large"
+                />
+              </div>
+            </div>
           </>
         )}
 

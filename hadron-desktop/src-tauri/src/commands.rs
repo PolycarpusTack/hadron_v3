@@ -12,6 +12,7 @@ use crate::model_fetcher::{
 use crate::models::CrashFile;
 use crate::parser::CrashFileParser;
 use crate::python_runner::run_python_translation;
+use crate::rag_commands;
 use crate::signature;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -88,6 +89,61 @@ const MAX_PASTED_LOG_SIZE: usize = 5 * 1024 * 1024;
 
 /// Maximum file size for performance trace analysis (10 MB)
 const MAX_PERFORMANCE_TRACE_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+
+// ============================================================================
+// RAG Auto-Indexing Helper
+// ============================================================================
+
+/// Attempt to auto-index an analysis into the RAG vector store
+///
+/// This is a best-effort operation - failures are logged but don't affect the main flow
+async fn auto_index_analysis(analysis: &Analysis, api_key: &str) {
+    // Only index if we have meaningful content
+    if analysis.root_cause.is_empty() || analysis.root_cause == "Unknown" {
+        log::debug!("Skipping RAG indexing for analysis {} (no meaningful content)", analysis.id);
+        return;
+    }
+
+    log::info!("Auto-indexing analysis {} into RAG store", analysis.id);
+
+    // Build analysis JSON for indexing
+    let analysis_json = serde_json::json!({
+        "id": analysis.id,
+        "filename": analysis.filename,
+        "error_type": analysis.error_type,
+        "error_message": analysis.error_message,
+        "severity": analysis.severity,
+        "component": analysis.component,
+        "root_cause": analysis.root_cause,
+        "suggested_fixes": analysis.suggested_fixes,
+        "confidence": analysis.confidence,
+        "analysis_type": analysis.analysis_type,
+    });
+
+    // Create index request
+    let index_request = rag_commands::RAGIndexRequest {
+        analysis: analysis_json,
+        api_key: api_key.to_string(),
+    };
+
+    // Attempt to index (failures are logged but don't fail the analysis)
+    match rag_commands::rag_index_analysis(index_request).await {
+        Ok(response) => {
+            log::info!(
+                "Successfully indexed analysis {} into RAG store: {} chunks indexed",
+                analysis.id,
+                response.indexed
+            );
+        }
+        Err(e) => {
+            log::warn!(
+                "Failed to auto-index analysis {} into RAG store: {}",
+                analysis.id,
+                e
+            );
+        }
+    }
+}
 
 // ============================================================================
 // Security: Path Validation Helper
@@ -568,6 +624,10 @@ pub struct AnalysisRequest {
     /// - "deep_scan": Full map-reduce for very large files
     /// - "auto": Automatically select based on file size
     pub analysis_mode: Option<String>,
+    /// Enable RAG-enhanced analysis (Phase 2.3)
+    /// When true, retrieves similar historical cases to improve analysis quality
+    #[serde(default)]
+    pub use_rag: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -739,29 +799,97 @@ pub async fn analyze_crash_log(
         },
     );
 
-    // Call token-safe Rust AI service
-    // This automatically handles large files by:
-    // 1. Estimating token usage
-    // 2. Using evidence extraction if needed
-    // 3. Falling back to deep scan (map-reduce) for very large files
-    let result = ai_service::analyze_crash_log_safe(
-        &crash_content,
-        None, // raw_walkback is embedded in crash_content for now
-        api_key.as_str(),
-        &request.model,
-        &request.provider,
-        &request.analysis_type,
-        token_safe_config,
-    )
-    .await
-    .map_err(|e| {
-        log::error!(
-            "AI analysis failed: file={}, error={}",
-            request.file_path,
-            e
-        );
-        format!("AI analysis failed: {}", e)
-    })?;
+    // Optionally retrieve RAG context for enhanced analysis (Phase 2.3)
+    let rag_context = if request.use_rag.unwrap_or(false) {
+        log::info!("RAG-enhanced analysis enabled, retrieving similar cases...");
+        // Extract query from crash content (first 500 chars for embedding)
+        let query = crash_content.chars().take(500).collect::<String>();
+
+        match rag_commands::rag_build_context_internal(&query, None, None, 5, api_key.as_str()).await {
+            Ok(ctx) => {
+                log::info!(
+                    "RAG context retrieved: {} similar cases, {} gold matches",
+                    ctx.similar_analyses.len(),
+                    ctx.gold_matches.len()
+                );
+                // Convert to ai_service::RagContext
+                Some(ai_service::RagContext {
+                    similar_cases: ctx.similar_analyses.iter().map(|c| ai_service::RagSimilarCase {
+                        citation_id: c.citation_id.clone(),
+                        similarity_score: c.similarity_score,
+                        root_cause: c.root_cause.clone(),
+                        suggested_fixes: c.suggested_fixes.clone(),
+                        is_gold: c.is_gold,
+                        component: c.component.clone(),
+                        severity: c.severity.clone(),
+                    }).collect(),
+                    gold_matches: ctx.gold_matches.iter().map(|c| ai_service::RagSimilarCase {
+                        citation_id: c.citation_id.clone(),
+                        similarity_score: c.similarity_score,
+                        root_cause: c.root_cause.clone(),
+                        suggested_fixes: c.suggested_fixes.clone(),
+                        is_gold: c.is_gold,
+                        component: c.component.clone(),
+                        severity: c.severity.clone(),
+                    }).collect(),
+                    confidence_boost: ctx.confidence_boost,
+                    retrieval_time_ms: ctx.retrieval_time_ms,
+                })
+            }
+            Err(e) => {
+                log::warn!("Failed to retrieve RAG context, continuing without: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Call AI service - use RAG-enhanced if context available
+    let result = if rag_context.is_some() && matches!(request.analysis_type.as_str(), "whatson" | "comprehensive") {
+        // Use RAG-enhanced analysis for WHATS'ON types
+        ai_service::analyze_crash_log_with_rag(
+            &crash_content,
+            api_key.as_str(),
+            &request.model,
+            &request.provider,
+            &request.analysis_type,
+            rag_context,
+        )
+        .await
+        .map_err(|e| {
+            log::error!(
+                "RAG-enhanced AI analysis failed: file={}, error={}",
+                request.file_path,
+                e
+            );
+            format!("AI analysis failed: {}", e)
+        })?
+    } else {
+        // Use standard token-safe analysis
+        // This automatically handles large files by:
+        // 1. Estimating token usage
+        // 2. Using evidence extraction if needed
+        // 3. Falling back to deep scan (map-reduce) for very large files
+        ai_service::analyze_crash_log_safe(
+            &crash_content,
+            None, // raw_walkback is embedded in crash_content for now
+            api_key.as_str(),
+            &request.model,
+            &request.provider,
+            &request.analysis_type,
+            token_safe_config,
+        )
+        .await
+        .map_err(|e| {
+            log::error!(
+                "AI analysis failed: file={}, error={}",
+                request.file_path,
+                e
+            );
+            format!("AI analysis failed: {}", e)
+        })?
+    };
 
     // Log analysis mode used
     if let Some(ref meta) = result.analysis_meta {
@@ -875,6 +1003,40 @@ pub async fn analyze_crash_log(
         request.provider,
         response_cost
     );
+
+    // Auto-index into RAG store (best-effort, non-blocking)
+    // Create a minimal analysis object for indexing
+    let analysis_for_indexing = Analysis {
+        id,
+        filename: response_filename.clone(),
+        file_size_kb: file_metadata.len() as f64 / 1024.0,
+        error_type: response_error_type.clone(),
+        error_message: None,
+        severity: response_severity.clone(),
+        component: result.component.clone(),
+        stack_trace: None,
+        root_cause: response_root_cause.clone(),
+        suggested_fixes: serde_json::to_string(&result.suggested_fixes).unwrap_or_default(),
+        confidence: Some(result.confidence.clone()),
+        analyzed_at: response_analyzed_at.clone(),
+        ai_model: request.model.clone(),
+        ai_provider: Some(request.provider.clone()),
+        tokens_used: result.tokens_used,
+        cost: response_cost,
+        was_truncated: result.was_truncated.unwrap_or(false),
+        full_data: None,
+        is_favorite: false,
+        last_viewed_at: None,
+        view_count: 0,
+        analysis_duration_ms: None,
+        analysis_type: request.analysis_type.clone(),
+    };
+
+    // Spawn auto-indexing task (don't await - fire and forget)
+    let api_key_clone = api_key.to_string();
+    tokio::spawn(async move {
+        auto_index_analysis(&analysis_for_indexing, &api_key_clone).await;
+    });
 
     // Emit progress - complete
     emit_progress(
@@ -1030,6 +1192,8 @@ pub struct ExternalAnalysisRequest {
     pub full_data: Option<serde_json::Value>,
     pub component: Option<String>,
     pub error_type: Option<String>,
+    /// Optional API key for RAG auto-indexing
+    pub api_key: Option<String>,
 }
 
 /// Save an external analysis result to history (e.g., code analysis)
@@ -1078,7 +1242,8 @@ pub async fn save_external_analysis(
     let db_clone = Arc::clone(&db);
     let filename_for_log = analysis.filename.clone();
     let analysis_type_for_log = analysis.analysis_type.clone();
-    let id = tauri::async_runtime::spawn_blocking(move || db_clone.insert_analysis(&analysis))
+    let analysis_clone = analysis.clone();
+    let id = tauri::async_runtime::spawn_blocking(move || db_clone.insert_analysis(&analysis_clone))
         .await
         .map_err(|e| format!("Task error: {}", e))?
         .map_err(|e| {
@@ -1096,6 +1261,16 @@ pub async fn save_external_analysis(
         filename_for_log,
         analysis_type_for_log
     );
+
+    // Auto-index into RAG store if API key is provided (best-effort, non-blocking)
+    if let Some(api_key) = request.api_key {
+        let mut analysis_with_id = analysis;
+        analysis_with_id.id = id;
+
+        tokio::spawn(async move {
+            auto_index_analysis(&analysis_with_id, &api_key).await;
+        });
+    }
 
     Ok(id)
 }
@@ -2233,6 +2408,21 @@ pub async fn create_jira_ticket(
 ) -> Result<jira_service::JiraCreateResponse, String> {
     log::info!("Creating JIRA ticket");
     jira_service::create_jira_ticket(base_url, email, api_token, project_key, issue_type, ticket)
+        .await
+}
+
+/// Search JIRA issues using JQL (Phase 3 - JIRA Intelligence)
+#[tauri::command]
+pub async fn search_jira_issues(
+    base_url: String,
+    email: String,
+    api_token: String,
+    jql: String,
+    max_results: i32,
+    include_comments: bool,
+) -> Result<jira_service::JiraSearchResponse, String> {
+    log::info!("Searching JIRA issues with JQL");
+    jira_service::search_jira_issues(base_url, email, api_token, jql, max_results, include_comments)
         .await
 }
 
@@ -4256,6 +4446,298 @@ fn generate_recommendations(
     }
 
     recommendations
+}
+
+// ============================================================================
+// Intelligence Platform Commands (Phase 1-2)
+// ============================================================================
+
+use crate::database::{AnalysisFeedback, GoldAnalysis};
+
+/// Request structure for submitting feedback
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedbackRequest {
+    pub analysis_id: i64,
+    pub feedback_type: String,
+    pub field_name: Option<String>,
+    pub original_value: Option<String>,
+    pub new_value: Option<String>,
+    pub rating: Option<i32>,
+}
+
+/// Submit feedback for an analysis
+#[tauri::command]
+pub fn submit_analysis_feedback(
+    feedback: FeedbackRequest,
+    db: DbState<'_>,
+) -> Result<AnalysisFeedback, String> {
+    log::info!(
+        "Submitting {} feedback for analysis {}",
+        feedback.feedback_type,
+        feedback.analysis_id
+    );
+
+    // Validate feedback type
+    let valid_types = ["accept", "reject", "edit", "rating"];
+    if !valid_types.contains(&feedback.feedback_type.as_str()) {
+        return Err(format!(
+            "Invalid feedback type: {}. Must be one of: {:?}",
+            feedback.feedback_type, valid_types
+        ));
+    }
+
+    // Validate rating if provided
+    if let Some(rating) = feedback.rating {
+        if !(1..=5).contains(&rating) {
+            return Err("Rating must be between 1 and 5".to_string());
+        }
+    }
+
+    db.submit_feedback(
+        feedback.analysis_id,
+        &feedback.feedback_type,
+        feedback.field_name.as_deref(),
+        feedback.original_value.as_deref(),
+        feedback.new_value.as_deref(),
+        feedback.rating,
+    )
+    .map_err(|e| format!("Failed to save feedback: {}", e))
+}
+
+/// Get all feedback for an analysis
+#[tauri::command]
+pub fn get_feedback_for_analysis(
+    analysis_id: i64,
+    db: DbState<'_>,
+) -> Result<Vec<AnalysisFeedback>, String> {
+    log::info!("Getting feedback for analysis {}", analysis_id);
+    db.get_feedback_for_analysis(analysis_id)
+        .map_err(|e| format!("Failed to get feedback: {}", e))
+}
+
+/// Promote an analysis to gold standard
+#[tauri::command]
+pub fn promote_to_gold(analysis_id: i64, db: DbState<'_>) -> Result<GoldAnalysis, String> {
+    log::info!("Promoting analysis {} to gold standard", analysis_id);
+    db.promote_to_gold(analysis_id)
+        .map_err(|e| format!("Failed to promote to gold: {}", e))
+}
+
+/// Get all gold analyses
+#[tauri::command]
+pub fn get_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
+    log::info!("Getting all gold analyses");
+    db.get_gold_analyses()
+        .map_err(|e| format!("Failed to get gold analyses: {}", e))
+}
+
+/// Check if an analysis is a gold standard
+#[tauri::command]
+pub fn is_gold_analysis(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    db.is_gold_analysis(analysis_id)
+        .map_err(|e| format!("Failed to check gold status: {}", e))
+}
+
+/// Get pending gold analyses for review
+#[tauri::command]
+pub fn get_pending_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
+    log::info!("Getting pending gold analyses for review");
+    db.get_pending_gold_analyses()
+        .map_err(|e| format!("Failed to get pending gold analyses: {}", e))
+}
+
+/// Verify a gold analysis
+#[tauri::command]
+pub fn verify_gold_analysis(gold_analysis_id: i64, db: DbState<'_>) -> Result<(), String> {
+    log::info!("Verifying gold analysis {}", gold_analysis_id);
+    db.verify_gold_analysis(gold_analysis_id)
+        .map_err(|e| format!("Failed to verify gold analysis: {}", e))
+}
+
+/// Reject a gold analysis
+#[tauri::command]
+pub fn reject_gold_analysis(gold_analysis_id: i64, db: DbState<'_>) -> Result<(), String> {
+    log::info!("Rejecting gold analysis {}", gold_analysis_id);
+    db.reject_gold_analysis(gold_analysis_id)
+        .map_err(|e| format!("Failed to reject gold analysis: {}", e))
+}
+
+/// Check if an analysis is eligible for auto-promotion
+#[tauri::command]
+pub fn check_auto_promotion_eligibility(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    db.check_auto_promotion_eligibility(analysis_id)
+        .map_err(|e| format!("Failed to check auto-promotion eligibility: {}", e))
+}
+
+/// Auto-promote an analysis to gold if eligible
+#[tauri::command]
+pub fn auto_promote_if_eligible(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    log::info!("Checking auto-promotion eligibility for analysis {}", analysis_id);
+    db.auto_promote_if_eligible(analysis_id)
+        .map_err(|e| format!("Failed to auto-promote analysis: {}", e))
+}
+
+// ============================================================================
+// Fine-Tuning Export (Phase 1.4)
+// ============================================================================
+
+/// Export result for fine-tuning data
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FineTuneExportResult {
+    pub total_exported: usize,
+    pub jsonl_content: String,
+    pub format: String,
+}
+
+/// OpenAI fine-tuning message format
+#[derive(Debug, Serialize, Deserialize)]
+struct FineTuneMessage {
+    role: String,
+    content: String,
+}
+
+/// OpenAI fine-tuning conversation format
+#[derive(Debug, Serialize, Deserialize)]
+struct FineTuneConversation {
+    messages: Vec<FineTuneMessage>,
+}
+
+/// Export verified gold analyses as JSONL for OpenAI fine-tuning
+#[tauri::command]
+pub fn export_gold_jsonl(db: DbState<'_>) -> Result<FineTuneExportResult, String> {
+    log::info!("Exporting gold analyses to JSONL for fine-tuning");
+
+    let gold_analyses = db
+        .get_gold_analyses_for_export()
+        .map_err(|e| format!("Failed to get gold analyses: {}", e))?;
+
+    if gold_analyses.is_empty() {
+        return Ok(FineTuneExportResult {
+            total_exported: 0,
+            jsonl_content: String::new(),
+            format: "openai_chat".to_string(),
+        });
+    }
+
+    let system_prompt = r#"You are a WHATS'ON broadcast management system crash analysis expert. Analyze Smalltalk crash logs and provide:
+1. Root cause identification with specific class/method references
+2. Severity assessment (critical/high/medium/low)
+3. Actionable fix suggestions specific to WHATS'ON
+4. Component classification (EPG, Rights, Scheduling, etc.)
+
+Return your analysis as structured JSON with fields: error_type, severity, root_cause, suggested_fixes (array), component."#;
+
+    let mut jsonl_lines: Vec<String> = Vec::new();
+
+    for gold in &gold_analyses {
+        // Build the user content (crash context)
+        let user_content = build_crash_context(gold);
+
+        // Build the assistant content (the gold-standard analysis)
+        let assistant_content = build_analysis_response(gold);
+
+        let conversation = FineTuneConversation {
+            messages: vec![
+                FineTuneMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                },
+                FineTuneMessage {
+                    role: "user".to_string(),
+                    content: user_content,
+                },
+                FineTuneMessage {
+                    role: "assistant".to_string(),
+                    content: assistant_content,
+                },
+            ],
+        };
+
+        // Serialize to JSON (single line)
+        let json_line = serde_json::to_string(&conversation)
+            .map_err(|e| format!("Failed to serialize conversation: {}", e))?;
+        jsonl_lines.push(json_line);
+    }
+
+    let jsonl_content = jsonl_lines.join("\n");
+
+    log::info!("Exported {} gold analyses to JSONL", gold_analyses.len());
+
+    Ok(FineTuneExportResult {
+        total_exported: gold_analyses.len(),
+        jsonl_content,
+        format: "openai_chat".to_string(),
+    })
+}
+
+/// Build crash context from gold analysis source data
+fn build_crash_context(gold: &crate::database::GoldAnalysisExport) -> String {
+    let mut context = String::new();
+
+    // Add error signature as context
+    context.push_str(&format!("Error Signature: {}\n", gold.error_signature));
+
+    if let Some(error_type) = &gold.source_error_type {
+        context.push_str(&format!("Error Type: {}\n", error_type));
+    }
+
+    if let Some(error_message) = &gold.source_error_message {
+        context.push_str(&format!("Error Message: {}\n", error_message));
+    }
+
+    if let Some(stack_trace) = &gold.source_stack_trace {
+        context.push_str(&format!("\nStack Trace:\n{}\n", stack_trace));
+    }
+
+    // If full_data exists, try to extract additional context
+    if let Some(full_data) = &gold.source_full_data {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(full_data) {
+            // Extract key sections from full analysis data
+            if let Some(exception) = data.get("exception_details") {
+                if let Some(exception_str) = exception.as_str() {
+                    context.push_str(&format!("\nException Details:\n{}\n", exception_str));
+                }
+            }
+            if let Some(env) = data.get("environment") {
+                if let Some(env_obj) = env.as_object() {
+                    context.push_str("\nEnvironment:\n");
+                    for (key, value) in env_obj {
+                        if let Some(v) = value.as_str() {
+                            context.push_str(&format!("  {}: {}\n", key, v));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    context
+}
+
+/// Build the gold-standard analysis response
+fn build_analysis_response(gold: &crate::database::GoldAnalysisExport) -> String {
+    // Parse suggested_fixes from JSON array string
+    let fixes: Vec<String> = serde_json::from_str(&gold.suggested_fixes)
+        .unwrap_or_else(|_| vec![gold.suggested_fixes.clone()]);
+
+    let response = serde_json::json!({
+        "error_type": gold.error_signature.split("::").next().unwrap_or(&gold.error_signature),
+        "severity": gold.severity.as_deref().unwrap_or("medium"),
+        "root_cause": gold.root_cause,
+        "suggested_fixes": fixes,
+        "component": gold.component.as_deref().unwrap_or("Unknown")
+    });
+
+    serde_json::to_string_pretty(&response).unwrap_or_else(|_| gold.root_cause.clone())
+}
+
+/// Count verified gold analyses available for export
+#[tauri::command]
+pub fn count_gold_for_export(db: DbState<'_>) -> Result<i64, String> {
+    db.count_verified_gold_analyses()
+        .map_err(|e| format!("Failed to count gold analyses: {}", e))
 }
 
 fn determine_severity(patterns: &[DetectedPattern]) -> String {

@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JIRA Import Panel - UI Mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: #0f0f0f;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .line-clamp-4 {
+      display: -webkit-box;
+      -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body class="text-gray-100 p-8">
+
+  <!-- Modal Overlay -->
+  <div class="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
+
+    <!-- Modal Container -->
+    <div class="bg-gray-900 rounded-xl border border-gray-700 max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+
+      <!-- Header -->
+      <div class="px-6 py-4 border-b border-gray-700 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 bg-blue-500/20 rounded-lg">
+            <svg class="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-xl font-bold">JIRA Issue Intelligence</h2>
+            <p class="text-sm text-gray-400">Import and analyze JIRA issues for crash correlation</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <!-- Export for RAG Button -->
+          <button class="flex items-center gap-2 px-3 py-2 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 rounded-lg transition">
+            <svg class="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+            </svg>
+            <span class="text-sm">Export for RAG</span>
+          </button>
+          <!-- Sync Button -->
+          <button class="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span class="text-sm">Sync</span>
+          </button>
+          <!-- Close Button -->
+          <button class="p-2 hover:bg-gray-700 rounded-lg transition">
+            <span class="text-xl">&times;</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Sync Status Bar -->
+      <div class="px-6 py-2 bg-gray-800/50 border-b border-gray-700 flex items-center justify-between text-sm">
+        <div class="flex items-center gap-4 text-gray-400">
+          <span class="flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Last sync: Jan 22, 2026, 2:45 PM
+          </span>
+          <span>47 issues imported</span>
+        </div>
+        <span class="text-green-400">Synced 12 new issues in 2.3s</span>
+      </div>
+
+      <!-- Search and Filters -->
+      <div class="px-6 py-3 border-b border-gray-700 space-y-3">
+        <div class="flex gap-3">
+          <!-- Search Input -->
+          <div class="flex-1 relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search issues by key, summary, or description..."
+              class="w-full bg-gray-800 border border-gray-600 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <!-- Filter Button -->
+          <button class="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg transition">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+            <span class="text-sm">Filters</span>
+          </button>
+        </div>
+
+        <!-- Filter Options (Expanded) -->
+        <div class="flex gap-4 items-center text-sm">
+          <div class="flex items-center gap-2">
+            <label class="text-gray-400">Min Relevance:</label>
+            <input type="range" min="0" max="100" value="30" class="w-24 accent-blue-500" />
+            <span class="text-gray-300">30%</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-gray-400">Type:</label>
+            <select class="bg-gray-800 border border-gray-600 rounded px-2 py-1">
+              <option>All Types</option>
+              <option>Bug</option>
+              <option>Task</option>
+              <option>Incident</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Manual Import Section -->
+        <div class="flex gap-2 pt-3 border-t border-gray-700">
+          <div class="flex-1 relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Paste JIRA URL or issue key (e.g., CRASH-123)"
+              class="w-full bg-gray-800 border border-gray-600 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-green-500"
+              value="https://company.atlassian.net/browse/CRASH-1892"
+            />
+          </div>
+          <button class="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition text-sm font-medium">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            Import
+          </button>
+        </div>
+
+        <!-- Import Success Message (example) -->
+        <div class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-green-500/10 border border-green-500/30 text-green-400">
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+          </svg>
+          <span>Imported CRASH-1892</span>
+        </div>
+      </div>
+
+      <!-- Issues List -->
+      <div class="flex-1 overflow-y-auto p-6">
+        <div class="space-y-3">
+
+          <!-- Sort Header -->
+          <div class="flex items-center gap-4 text-xs text-gray-500 px-4">
+            <button class="flex items-center gap-1 hover:text-gray-300 transition">
+              Key
+            </button>
+            <span class="flex-1">Summary</span>
+            <button class="flex items-center gap-1 hover:text-gray-300 transition text-blue-400">
+              Relevance
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <button class="flex items-center gap-1 hover:text-gray-300 transition">
+              Updated
+            </button>
+          </div>
+
+          <!-- Issue Card 1 - High Relevance (Expanded) -->
+          <div class="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
+            <div class="px-4 py-3 flex items-center gap-4 cursor-pointer hover:bg-gray-800/70 transition">
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="font-mono text-blue-400">CRASH-1847</span>
+                <span class="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">In Progress</span>
+              </div>
+              <span class="flex-1 truncate">MessageNotUnderstood exception in OrderProcessor during batch update</span>
+              <div class="flex items-center gap-4 flex-shrink-0">
+                <div class="text-sm text-green-400 font-medium">92%</div>
+                <span class="text-xs text-gray-500">Jan 21, 2026</span>
+                <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+                </svg>
+              </div>
+            </div>
+
+            <!-- Expanded Content -->
+            <div class="px-4 py-3 border-t border-gray-700 space-y-3">
+              <!-- Metadata -->
+              <div class="flex flex-wrap gap-3 text-xs">
+                <span class="flex items-center gap-1 text-gray-400">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                  Bug
+                </span>
+                <span class="text-gray-400">Priority: High</span>
+                <span class="text-gray-400">Components: OrderModule, BatchProcessor</span>
+              </div>
+
+              <!-- Labels -->
+              <div class="flex flex-wrap gap-1">
+                <span class="px-2 py-0.5 bg-gray-700 rounded text-xs text-gray-300">crash</span>
+                <span class="px-2 py-0.5 bg-gray-700 rounded text-xs text-gray-300">production</span>
+                <span class="px-2 py-0.5 bg-gray-700 rounded text-xs text-gray-300">batch-processing</span>
+              </div>
+
+              <!-- Description Preview -->
+              <div class="text-sm text-gray-400 whitespace-pre-wrap line-clamp-4">
+Users are experiencing crashes when running batch order updates. The error occurs in the OrderProcessor class when attempting to update more than 500 orders at once.
+
+Steps to reproduce:
+1. Select more than 500 orders in the order management screen
+2. Click "Batch Update"
+3. Application crashes with MessageNotUnderstood exception
+              </div>
+
+              <!-- Extracted Error Signatures -->
+              <div class="space-y-1">
+                <span class="text-xs text-gray-500">Extracted Error Signatures:</span>
+                <div class="flex flex-wrap gap-1">
+                  <span class="px-2 py-0.5 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-300 font-mono">
+                    MessageNotUnderstood: #updateAllWith:
+                  </span>
+                  <span class="px-2 py-0.5 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-300 font-mono">
+                    OrderProcessor>>batchUpdate
+                  </span>
+                  <span class="px-2 py-0.5 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-300 font-mono">
+                    Collection>>do:
+                  </span>
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div class="flex gap-2 pt-2">
+                <a href="#" class="flex items-center gap-1 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm transition">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  Open in JIRA
+                </a>
+                <button class="flex items-center gap-1 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded text-sm text-blue-400 transition">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                  </svg>
+                  Link to Crash
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Issue Card 2 - Medium Relevance (Collapsed) -->
+          <div class="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
+            <div class="px-4 py-3 flex items-center gap-4 cursor-pointer hover:bg-gray-800/70 transition">
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="font-mono text-blue-400">CRASH-1832</span>
+                <span class="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400">Resolved</span>
+              </div>
+              <span class="flex-1 truncate">Database connection timeout causing NullPointerException in ReportGenerator</span>
+              <div class="flex items-center gap-4 flex-shrink-0">
+                <div class="text-sm text-yellow-400 font-medium">78%</div>
+                <span class="text-xs text-gray-500">Jan 19, 2026</span>
+                <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Issue Card 3 - Medium Relevance (Collapsed) -->
+          <div class="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
+            <div class="px-4 py-3 flex items-center gap-4 cursor-pointer hover:bg-gray-800/70 transition">
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="font-mono text-blue-400">CRASH-1815</span>
+                <span class="text-xs px-2 py-0.5 rounded bg-gray-500/20 text-gray-400">Open</span>
+              </div>
+              <span class="flex-1 truncate">Memory leak in ImageCache causing OutOfMemory after extended use</span>
+              <div class="flex items-center gap-4 flex-shrink-0">
+                <div class="text-sm text-yellow-400 font-medium">65%</div>
+                <span class="text-xs text-gray-500">Jan 15, 2026</span>
+                <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Issue Card 4 - Lower Relevance (Collapsed) -->
+          <div class="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
+            <div class="px-4 py-3 flex items-center gap-4 cursor-pointer hover:bg-gray-800/70 transition">
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="font-mono text-blue-400">BUG-2341</span>
+                <span class="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">Blocked</span>
+              </div>
+              <span class="flex-1 truncate">UI freezes when loading large datasets in DataGrid component</span>
+              <div class="flex items-center gap-4 flex-shrink-0">
+                <div class="text-sm text-gray-400 font-medium">45%</div>
+                <span class="text-xs text-gray-500">Jan 12, 2026</span>
+                <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Issue Card 5 - Lower Relevance (Collapsed) -->
+          <div class="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
+            <div class="px-4 py-3 flex items-center gap-4 cursor-pointer hover:bg-gray-800/70 transition">
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="font-mono text-blue-400">INCIDENT-89</span>
+                <span class="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400">Closed</span>
+              </div>
+              <span class="flex-1 truncate">Production server restart required after GC pressure spike</span>
+              <div class="flex items-center gap-4 flex-shrink-0">
+                <div class="text-sm text-gray-400 font-medium">38%</div>
+                <span class="text-xs text-gray-500">Jan 8, 2026</span>
+                <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="px-6 py-4 border-t border-gray-700 flex justify-between items-center text-sm text-gray-500">
+        <span>Showing 5 of 47 issues</span>
+        <button class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition">
+          Close
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Legend / Notes -->
+  <div class="fixed bottom-4 right-4 bg-gray-800 border border-gray-700 rounded-lg p-4 max-w-sm text-sm">
+    <h3 class="font-bold text-gray-300 mb-2">UI Features</h3>
+    <ul class="space-y-1 text-gray-400">
+      <li>• <span class="text-green-400">Green %</span> = High crash relevance (70%+)</li>
+      <li>• <span class="text-yellow-400">Yellow %</span> = Medium relevance (40-70%)</li>
+      <li>• <span class="text-gray-400">Gray %</span> = Lower relevance (&lt;40%)</li>
+      <li>• Click issue row to expand details</li>
+      <li>• "Export for RAG" downloads case files</li>
+      <li>• "Link to Crash" connects to analysis</li>
+    </ul>
+    <h3 class="font-bold text-gray-300 mt-4 mb-2">Manual Import</h3>
+    <ul class="space-y-1 text-gray-400">
+      <li>• Paste a JIRA URL or issue key</li>
+      <li>• Supports: <code class="text-blue-300">PROJ-123</code></li>
+      <li>• Or full URLs with <code class="text-blue-300">/browse/</code></li>
+      <li>• Press Enter or click Import</li>
+    </ul>
+  </div>
+
+</body>
+</html>

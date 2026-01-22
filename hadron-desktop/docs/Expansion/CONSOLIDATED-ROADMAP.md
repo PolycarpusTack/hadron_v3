@@ -2,28 +2,25 @@
 
 ---
 
-## Current Status (Updated: 2026-01-22)
+## Current Status (Updated: 2026-01-21)
 
-### Overall Progress: Phase 3 In Progress!
+### Overall Progress: Phase 1-2 Foundation Complete
 
 | Phase | Status | Progress | Notes |
 |-------|--------|----------|-------|
 | **Phase 1** | ✅ Complete | 100% | Feedback UI, Gold curation, DB schema |
-| **Phase 2** | ✅ Complete | 100% | RAG integration, Citation UI, A/B Testing |
-| **Phase 3** | 🔄 In Progress | 75% | JIRA Intelligence - Import, ADF converter, case files |
+| **Phase 2** | 🔄 In Progress | 60% | RAG scaffold complete, integration pending |
+| **Phase 3** | ⏳ Not Started | 0% | JIRA Intelligence |
 | **Phase 4** | ⏳ Not Started | 0% | Fine-tuning & API |
 | **Phase 5** | ⏳ Not Started | 0% | Portals & Offline |
 
-### Phase 1-2 Completions
+### Recent Completions (Phase 1-2)
 
 **Database & Backend:**
 - ✅ Migration 006: Feedback tables (`analysis_feedback`, `gold_analyses`, `retrieval_chunks`)
 - ✅ Rust commands: `submit_analysis_feedback`, `promote_to_gold`, `verify_gold_analysis`, `reject_gold_analysis`
 - ✅ RAG commands: `rag_query`, `rag_index_analysis`, `rag_build_context`, `rag_get_stats`
 - ✅ Auto-indexing hook for new analyses
-- ✅ JSONL export for fine-tuning (`export_gold_jsonl`, `count_gold_for_export`)
-- ✅ RAG-enhanced analysis function (`analyze_crash_log_with_rag`)
-- ✅ Internal RAG context API (`rag_build_context_internal`)
 
 **Frontend Components:**
 - ✅ `FeedbackButtons.tsx` - Thumbs up/down with ARIA accessibility
@@ -31,8 +28,6 @@
 - ✅ `InlineEditor.tsx` - Edit root cause/fixes inline
 - ✅ `GoldBadge.tsx` - Visual indicator for gold analyses
 - ✅ `GoldReviewQueue.tsx` - Admin queue for gold curation
-- ✅ `CitationPanel.tsx` - Display similar historical cases from RAG
-- ✅ `ABTestingDashboard.tsx` - Compare RAG vs baseline metrics
 
 **Python RAG Scaffold:**
 - ✅ `embeddings.py` - OpenAI embeddings with retry logic (tenacity)
@@ -43,46 +38,13 @@
 
 **TypeScript Services:**
 - ✅ `rag.ts` - RAG service with query, index, context building
-- ✅ `ab-testing.ts` - A/B testing service for RAG comparison
 
-**AI Service Enhancements:**
-- ✅ `RagContext` struct for similar case context
-- ✅ `RagSimilarCase` struct for individual cases
-- ✅ `get_whatson_analysis_prompt_with_rag` - RAG-enhanced prompt builder
-- ✅ `analyze_crash_log_with_rag` - Analysis with RAG context
-- ✅ `use_rag` flag in `AnalysisRequest` for A/B testing
+### Next Steps (Integration Phase)
 
-### Phase 3 Progress (JIRA Intelligence)
-
-**Rust Backend:**
-- ✅ `JiraSearchResponse` - Full search result structs with ADF support
-- ✅ `JiraIssueFields` - Comprehensive field mapping (status, priority, assignee, comments)
-- ✅ `search_jira_issues` - JQL search with field expansion
-- ✅ Tauri command registered in main.rs
-
-**TypeScript Services:**
-- ✅ `jira-import.ts` - Complete JIRA import service
-  - ✅ `NormalizedIssue` - Platform-agnostic issue schema
-  - ✅ `adfToPlaintext()` - ADF to plaintext converter (headings, lists, code blocks, tables, panels)
-  - ✅ `extractErrorSignatures()` - Error pattern extraction from text
-  - ✅ `calculateCrashRelevanceScore()` - Relevance scoring algorithm
-  - ✅ `normalizeJiraIssue()` - JIRA to normalized format converter
-  - ✅ `fetchJiraIssues()` / `syncJiraIssues()` - Import with incremental sync
-  - ✅ `generateCaseFile()` / `generateCaseFiles()` - RAG case file generation
-  - ✅ Local storage caching with sync state tracking
-
-**Frontend Components:**
-- ✅ `JiraImportPanel.tsx` - JIRA Intelligence dashboard
-  - ✅ Issue list with search and filtering
-  - ✅ Relevance score display and sorting
-  - ✅ Expandable issue details with error signatures
-  - ✅ Export for RAG (JSON case files)
-  - ✅ Integrated into DatabaseAdminSection
-
-**Remaining Phase 3 Tasks:**
-- ⏳ Ticket-crash linking UI in analysis detail view
-- ⏳ Webhook support for real-time updates
-- ⏳ Knowledge graph visualization
+1. **RAG-Enhanced Prompts** - Update AI service to include retrieved context
+2. **Citation UI** - Display similar cases with source attribution
+3. **A/B Testing Framework** - Compare RAG vs baseline
+4. **Export Pipeline** - JSONL export for fine-tuning
 
 ---
 

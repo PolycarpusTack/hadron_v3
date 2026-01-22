@@ -20,6 +20,9 @@ export interface AnalysisRequest {
   redact_pii?: boolean;
   // Token-safe analysis mode
   analysis_mode?: AnalysisMode;
+  // RAG-enhanced analysis (Phase 2.3)
+  // When true, retrieves similar historical cases to improve analysis quality
+  use_rag?: boolean;
 }
 
 export interface AnalysisResponse {
@@ -124,10 +127,11 @@ export async function analyzeCrashLog(
   model: string = "gpt-4-turbo-preview",
   provider: string = "openai",
   analysisType: string = "complete",
-  analysisMode: AnalysisMode = "auto"
+  analysisMode: AnalysisMode = "auto",
+  useRag: boolean = false
 ): Promise<AnalysisResponse> {
   // Use circuit breaker with automatic failover and token-safe analysis
-  return await analyzeWithResilience(filePath, apiKey, model, provider, analysisType, analysisMode);
+  return await analyzeWithResilience(filePath, apiKey, model, provider, analysisType, analysisMode, useRag);
 }
 
 /**
@@ -1013,4 +1017,33 @@ export async function getTrendData(period: string, rangeDays: number): Promise<T
  */
 export async function getTopErrorPatterns(limit?: number): Promise<ErrorPatternCount[]> {
   return await invoke<ErrorPatternCount[]>("get_top_error_patterns", { limit });
+}
+
+// ============================================================================
+// Fine-Tuning Export (Phase 1.4)
+// ============================================================================
+
+/**
+ * Result of fine-tuning export operation
+ */
+export interface FineTuneExportResult {
+  totalExported: number;
+  jsonlContent: string;
+  format: string;
+}
+
+/**
+ * Export verified gold analyses as JSONL for OpenAI fine-tuning
+ * @returns Export result with JSONL content
+ */
+export async function exportGoldJsonl(): Promise<FineTuneExportResult> {
+  return await invoke<FineTuneExportResult>("export_gold_jsonl");
+}
+
+/**
+ * Count verified gold analyses available for export
+ * @returns Number of verified gold analyses
+ */
+export async function countGoldForExport(): Promise<number> {
+  return await invoke<number>("count_gold_for_export");
 }

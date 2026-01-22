@@ -1597,6 +1597,81 @@ pub struct AnalysisNote {
     pub updated_at: Option<String>,
 }
 
+// ============================================================================
+// Intelligence Platform Types (Phase 1-2)
+// ============================================================================
+
+/// Feedback record for analysis quality tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisFeedback {
+    pub id: i64,
+    pub analysis_id: i64,
+    pub feedback_type: String, // "accept", "reject", "edit", "rating"
+    pub field_name: Option<String>,
+    pub original_value: Option<String>,
+    pub new_value: Option<String>,
+    pub rating: Option<i32>,
+    pub feedback_at: String,
+}
+
+/// Gold analysis - curated, verified analysis for RAG retrieval
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoldAnalysis {
+    pub id: i64,
+    pub source_analysis_id: Option<i64>,
+    pub source_type: String,
+    pub error_signature: String,
+    pub crash_content_hash: Option<String>,
+    pub root_cause: String,
+    pub suggested_fixes: String,
+    pub component: Option<String>,
+    pub severity: Option<String>,
+    pub validation_status: String,
+    pub created_at: String,
+    pub verified_by: Option<String>,
+    pub times_referenced: i32,
+    pub success_rate: Option<f64>,
+}
+
+/// Gold analysis with source data for fine-tuning export
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoldAnalysisExport {
+    pub id: i64,
+    pub source_analysis_id: Option<i64>,
+    pub source_type: String,
+    pub error_signature: String,
+    pub root_cause: String,
+    pub suggested_fixes: String,
+    pub component: Option<String>,
+    pub severity: Option<String>,
+    pub validation_status: String,
+    pub created_at: String,
+    pub verified_by: Option<String>,
+    // Source analysis data for context
+    pub source_full_data: Option<String>,
+    pub source_error_type: Option<String>,
+    pub source_error_message: Option<String>,
+    pub source_stack_trace: Option<String>,
+}
+
+/// Retrieval chunk for RAG system
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalChunk {
+    pub id: i64,
+    pub source_type: String,
+    pub source_id: i64,
+    pub chunk_index: i32,
+    pub content: String,
+    pub embedding: Option<Vec<u8>>,
+    pub embedding_model: Option<String>,
+    pub metadata_json: Option<String>,
+    pub created_at: String,
+}
+
 impl Database {
     // =========================================================================
     // Similar Crash Detection
@@ -1802,6 +1877,397 @@ impl Database {
         })?;
 
         rows.collect()
+    }
+
+    // =========================================================================
+    // Intelligence Platform Methods (Phase 1-2)
+    // =========================================================================
+
+    /// Submit feedback for an analysis
+    pub fn submit_feedback(
+        &self,
+        analysis_id: i64,
+        feedback_type: &str,
+        field_name: Option<&str>,
+        original_value: Option<&str>,
+        new_value: Option<&str>,
+        rating: Option<i32>,
+    ) -> Result<AnalysisFeedback> {
+        let conn = self.lock_conn()?;
+
+        conn.execute(
+            "INSERT INTO analysis_feedback (analysis_id, feedback_type, field_name, original_value, new_value, rating)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                analysis_id,
+                feedback_type,
+                field_name,
+                original_value,
+                new_value,
+                rating,
+            ],
+        )?;
+
+        let id = conn.last_insert_rowid();
+
+        // Update the analysis feedback_status
+        let new_status = match feedback_type {
+            "accept" => "accepted",
+            "reject" => "rejected",
+            "edit" => "edited",
+            "rating" => "rated",
+            _ => "pending",
+        };
+
+        conn.execute(
+            "UPDATE analyses SET feedback_status = ?1 WHERE id = ?2",
+            params![new_status, analysis_id],
+        )?;
+
+        conn.query_row(
+            "SELECT id, analysis_id, feedback_type, field_name, original_value, new_value, rating, feedback_at
+             FROM analysis_feedback WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(AnalysisFeedback {
+                    id: row.get(0)?,
+                    analysis_id: row.get(1)?,
+                    feedback_type: row.get(2)?,
+                    field_name: row.get(3)?,
+                    original_value: row.get(4)?,
+                    new_value: row.get(5)?,
+                    rating: row.get(6)?,
+                    feedback_at: row.get(7)?,
+                })
+            },
+        )
+    }
+
+    /// Get all feedback for an analysis
+    pub fn get_feedback_for_analysis(&self, analysis_id: i64) -> Result<Vec<AnalysisFeedback>> {
+        let conn = self.lock_conn()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, analysis_id, feedback_type, field_name, original_value, new_value, rating, feedback_at
+             FROM analysis_feedback
+             WHERE analysis_id = ?1
+             ORDER BY feedback_at DESC",
+        )?;
+
+        let rows = stmt.query_map(params![analysis_id], |row| {
+            Ok(AnalysisFeedback {
+                id: row.get(0)?,
+                analysis_id: row.get(1)?,
+                feedback_type: row.get(2)?,
+                field_name: row.get(3)?,
+                original_value: row.get(4)?,
+                new_value: row.get(5)?,
+                rating: row.get(6)?,
+                feedback_at: row.get(7)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Promote an analysis to gold standard
+    pub fn promote_to_gold(&self, analysis_id: i64) -> Result<GoldAnalysis> {
+        let conn = self.lock_conn()?;
+
+        // Get the source analysis
+        let (error_type, component, root_cause, suggested_fixes, severity): (
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+        ) = conn.query_row(
+            "SELECT error_type, component, root_cause, suggested_fixes, severity
+             FROM analyses WHERE id = ?1",
+            params![analysis_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )?;
+
+        // Generate error signature
+        let error_signature = format!(
+            "{}:{}",
+            error_type.to_lowercase(),
+            component.as_deref().unwrap_or("unknown").to_lowercase()
+        );
+
+        // Check if already promoted
+        let existing: std::result::Result<i64, _> = conn.query_row(
+            "SELECT id FROM gold_analyses WHERE source_analysis_id = ?1",
+            params![analysis_id],
+            |row| row.get(0),
+        );
+
+        if existing.is_ok() {
+            return Err(rusqlite::Error::QueryReturnedNoRows); // Already promoted
+        }
+
+        // Insert into gold_analyses with 'pending' status for review workflow
+        conn.execute(
+            "INSERT INTO gold_analyses (source_analysis_id, source_type, error_signature, root_cause, suggested_fixes, component, severity, validation_status)
+             VALUES (?1, 'crash', ?2, ?3, ?4, ?5, ?6, 'pending')",
+            params![
+                analysis_id,
+                error_signature,
+                root_cause,
+                suggested_fixes,
+                component,
+                severity,
+            ],
+        )?;
+
+        let id = conn.last_insert_rowid();
+
+        conn.query_row(
+            "SELECT id, source_analysis_id, source_type, error_signature, crash_content_hash, root_cause, suggested_fixes, component, severity, validation_status, created_at, verified_by, times_referenced, success_rate
+             FROM gold_analyses WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(GoldAnalysis {
+                    id: row.get(0)?,
+                    source_analysis_id: row.get(1)?,
+                    source_type: row.get(2)?,
+                    error_signature: row.get(3)?,
+                    crash_content_hash: row.get(4)?,
+                    root_cause: row.get(5)?,
+                    suggested_fixes: row.get(6)?,
+                    component: row.get(7)?,
+                    severity: row.get(8)?,
+                    validation_status: row.get(9)?,
+                    created_at: row.get(10)?,
+                    verified_by: row.get(11)?,
+                    times_referenced: row.get(12)?,
+                    success_rate: row.get(13)?,
+                })
+            },
+        )
+    }
+
+    /// Get all gold analyses
+    pub fn get_gold_analyses(&self) -> Result<Vec<GoldAnalysis>> {
+        let conn = self.lock_conn()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, source_analysis_id, source_type, error_signature, crash_content_hash, root_cause, suggested_fixes, component, severity, validation_status, created_at, verified_by, times_referenced, success_rate
+             FROM gold_analyses
+             ORDER BY times_referenced DESC, created_at DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(GoldAnalysis {
+                id: row.get(0)?,
+                source_analysis_id: row.get(1)?,
+                source_type: row.get(2)?,
+                error_signature: row.get(3)?,
+                crash_content_hash: row.get(4)?,
+                root_cause: row.get(5)?,
+                suggested_fixes: row.get(6)?,
+                component: row.get(7)?,
+                severity: row.get(8)?,
+                validation_status: row.get(9)?,
+                created_at: row.get(10)?,
+                verified_by: row.get(11)?,
+                times_referenced: row.get(12)?,
+                success_rate: row.get(13)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Check if an analysis is a gold standard
+    pub fn is_gold_analysis(&self, analysis_id: i64) -> Result<bool> {
+        let conn = self.lock_conn()?;
+
+        let count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM gold_analyses WHERE source_analysis_id = ?1",
+            params![analysis_id],
+            |row| row.get(0),
+        )?;
+
+        Ok(count > 0)
+    }
+
+    /// Get pending gold analyses (validation_status = 'pending')
+    pub fn get_pending_gold_analyses(&self) -> Result<Vec<GoldAnalysis>> {
+        let conn = self.lock_conn()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, source_analysis_id, source_type, error_signature, crash_content_hash, root_cause, suggested_fixes, component, severity, validation_status, created_at, verified_by, times_referenced, success_rate
+             FROM gold_analyses
+             WHERE validation_status = 'pending'
+             ORDER BY created_at ASC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(GoldAnalysis {
+                id: row.get(0)?,
+                source_analysis_id: row.get(1)?,
+                source_type: row.get(2)?,
+                error_signature: row.get(3)?,
+                crash_content_hash: row.get(4)?,
+                root_cause: row.get(5)?,
+                suggested_fixes: row.get(6)?,
+                component: row.get(7)?,
+                severity: row.get(8)?,
+                validation_status: row.get(9)?,
+                created_at: row.get(10)?,
+                verified_by: row.get(11)?,
+                times_referenced: row.get(12)?,
+                success_rate: row.get(13)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Verify a gold analysis (set validation_status to 'verified')
+    pub fn verify_gold_analysis(&self, gold_analysis_id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+
+        conn.execute(
+            "UPDATE gold_analyses SET validation_status = 'verified' WHERE id = ?1",
+            params![gold_analysis_id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Reject a gold analysis (set validation_status to 'rejected')
+    pub fn reject_gold_analysis(&self, gold_analysis_id: i64) -> Result<()> {
+        let conn = self.lock_conn()?;
+
+        conn.execute(
+            "UPDATE gold_analyses SET validation_status = 'rejected' WHERE id = ?1",
+            params![gold_analysis_id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Check if an analysis meets criteria for auto-promotion to gold
+    /// Criteria:
+    /// - Rating >= 4 stars
+    /// - Has 'accept' feedback (thumbs up)
+    /// - No 'reject' feedback
+    pub fn check_auto_promotion_eligibility(&self, analysis_id: i64) -> Result<bool> {
+        let conn = self.lock_conn()?;
+
+        // Check for reject feedback (disqualifies)
+        let has_reject: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM analysis_feedback WHERE analysis_id = ?1 AND feedback_type = 'reject'",
+            params![analysis_id],
+            |row| row.get(0),
+        )?;
+
+        if has_reject > 0 {
+            return Ok(false);
+        }
+
+        // Check for accept feedback (required)
+        let has_accept: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM analysis_feedback WHERE analysis_id = ?1 AND feedback_type = 'accept'",
+            params![analysis_id],
+            |row| row.get(0),
+        )?;
+
+        if has_accept == 0 {
+            return Ok(false);
+        }
+
+        // Check for rating >= 4 (if rating exists)
+        let avg_rating: Option<f64> = conn.query_row(
+            "SELECT AVG(rating) FROM analysis_feedback WHERE analysis_id = ?1 AND feedback_type = 'rating' AND rating IS NOT NULL",
+            params![analysis_id],
+            |row| row.get(0),
+        ).ok();
+
+        // If there are ratings, they must average >= 4
+        if let Some(rating) = avg_rating {
+            if rating < 4.0 {
+                return Ok(false);
+            }
+        }
+
+        // All criteria met
+        Ok(true)
+    }
+
+    /// Auto-promote an analysis to gold if it meets criteria
+    /// Returns true if promoted, false if criteria not met or already promoted
+    pub fn auto_promote_if_eligible(&self, analysis_id: i64) -> Result<bool> {
+        // Check if already promoted
+        if self.is_gold_analysis(analysis_id)? {
+            return Ok(false);
+        }
+
+        // Check eligibility
+        if !self.check_auto_promotion_eligibility(analysis_id)? {
+            return Ok(false);
+        }
+
+        // Promote
+        self.promote_to_gold(analysis_id)?;
+        Ok(true)
+    }
+
+    /// Get verified gold analyses with source analysis data for fine-tuning export
+    /// Returns gold analyses joined with their source analysis full_data
+    pub fn get_gold_analyses_for_export(&self) -> Result<Vec<GoldAnalysisExport>> {
+        let conn = self.lock_conn()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT g.id, g.source_analysis_id, g.source_type, g.error_signature,
+                    g.root_cause, g.suggested_fixes, g.component, g.severity,
+                    g.validation_status, g.created_at, g.verified_by,
+                    a.full_data, a.error_type, a.error_message, a.stack_trace
+             FROM gold_analyses g
+             LEFT JOIN analyses a ON g.source_analysis_id = a.id
+             WHERE g.validation_status = 'verified'
+             ORDER BY g.created_at DESC"
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(GoldAnalysisExport {
+                id: row.get(0)?,
+                source_analysis_id: row.get(1)?,
+                source_type: row.get(2)?,
+                error_signature: row.get(3)?,
+                root_cause: row.get(4)?,
+                suggested_fixes: row.get(5)?,
+                component: row.get(6)?,
+                severity: row.get(7)?,
+                validation_status: row.get(8)?,
+                created_at: row.get(9)?,
+                verified_by: row.get(10)?,
+                source_full_data: row.get(11)?,
+                source_error_type: row.get(12)?,
+                source_error_message: row.get(13)?,
+                source_stack_trace: row.get(14)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+
+        Ok(results)
+    }
+
+    /// Count verified gold analyses
+    pub fn count_verified_gold_analyses(&self) -> Result<i64> {
+        let conn = self.lock_conn()?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM gold_analyses WHERE validation_status = 'verified'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
     }
 }
 
