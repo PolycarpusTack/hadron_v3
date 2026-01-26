@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PythonTranslationResult {
     pub translation: String,
@@ -51,12 +54,21 @@ pub async fn run_python_translation(
         .map_err(|e| format!("Failed to serialize stdin payload: {}", e))?;
 
     // Spawn Python process with stdin pipe (SECURITY: avoids command injection)
-    let mut child = Command::new("python")
-        .arg(python_script.to_string_lossy().to_string())
+    // On Windows, use CREATE_NO_WINDOW flag to prevent a console window from appearing
+    #[cfg(target_os = "windows")]
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let mut cmd = Command::new("python");
+    cmd.arg(python_script.to_string_lossy().to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        // NOTE: No longer passing credentials via env vars for security
+        .stderr(Stdio::piped());
+
+    // Hide console window on Windows
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn Python process: {}", e))?;
 
@@ -168,24 +180,44 @@ fn get_translation_script_path() -> Result<PathBuf, String> {
 
     #[cfg(not(debug_assertions))]
     {
-        // In production, look for script relative to executable
-        let mut path =
+        // In production, look for script in multiple possible locations
+        // Tauri 2.x bundles resources differently based on installer type and platform
+        let exe_path =
             std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
 
-        // Remove executable name to get directory
-        path.pop();
+        let exe_dir = exe_path.parent()
+            .ok_or_else(|| "Failed to get executable directory".to_string())?;
 
-        // Add python subfolder
-        path.push("python");
-        path.push("translate.py");
+        // Try multiple possible resource locations
+        let possible_paths = [
+            // Standard relative path (MSI installer, some configurations)
+            exe_dir.join("python").join("translate.py"),
+            // Tauri 2.x _up_ path for relative resources (../python from tauri.conf.json)
+            exe_dir.join("_up_").join("python").join("translate.py"),
+            // Resources might be in a 'resources' subdirectory
+            exe_dir.join("resources").join("python").join("translate.py"),
+            // NSIS installer on Windows places files in AppData/Local
+            {
+                let mut appdata_path = exe_dir.to_path_buf();
+                appdata_path.push("python");
+                appdata_path.push("translate.py");
+                appdata_path
+            },
+        ];
 
-        if !path.exists() {
-            return Err(format!(
-                "Python script not found in bundle at: {:?}. Make sure python/ folder is included in Tauri resources.",
-                path
-            ));
+        for path in &possible_paths {
+            log::debug!("Checking for Python script at: {:?}", path);
+            if path.exists() {
+                log::info!("Found Python script at: {:?}", path);
+                return Ok(path.clone());
+            }
         }
 
-        Ok(path)
+        // If not found, return error with all checked paths
+        Err(format!(
+            "Python script not found in bundle. Checked paths: {:?}. \
+             Make sure python/ folder is included in Tauri resources and rebuild the app.",
+            possible_paths
+        ))
     }
 }

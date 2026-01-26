@@ -173,6 +173,51 @@ pub async fn test_jira_connection(
     }
 }
 
+/// List all JIRA projects (for project autocomplete)
+pub async fn list_jira_projects(
+    base_url: String,
+    email: String,
+    api_token: String,
+) -> Result<Vec<JiraProjectInfo>, String> {
+    let base_url = base_url.trim_end_matches('/');
+    let auth_header = create_auth_header(&email, &api_token);
+
+    log::info!("Listing JIRA projects from {}", base_url);
+
+    let response = HTTP_CLIENT
+        .get(format!("{}/rest/api/3/project", base_url))
+        .header("Authorization", &auth_header)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Connection failed: {}", e))?;
+
+    let status = response.status();
+
+    if status.is_success() {
+        let projects: Vec<JiraProject> = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        Ok(projects
+            .into_iter()
+            .map(|p| JiraProjectInfo { key: p.key, name: p.name })
+            .collect())
+    } else if status == reqwest::StatusCode::UNAUTHORIZED {
+        Err("Authentication failed. Check your email and API token.".to_string())
+    } else if status == reqwest::StatusCode::FORBIDDEN {
+        Err("Access denied. Check your API token permissions.".to_string())
+    } else {
+        let error_text = response.text().await.unwrap_or_default();
+        Err(format!(
+            "Failed to list projects (HTTP {}): {}",
+            status.as_u16(),
+            error_text
+        ))
+    }
+}
+
 /// Create a JIRA ticket
 pub async fn create_jira_ticket(
     base_url: String,

@@ -50,7 +50,7 @@ impl RagContext {
         // Gold matches first (higher quality)
         if !self.gold_matches.is_empty() {
             context.push_str("### Verified Gold Standard Cases:\n");
-            for (idx, case) in self.gold_matches.iter().enumerate() {
+            for case in self.gold_matches.iter() {
                 let score = (case.similarity_score * 100.0).round() as i32;
                 context.push_str(&format!(
                     "\n**Case #{} [{}% match] 🏆 VERIFIED**\n",
@@ -73,7 +73,7 @@ impl RagContext {
         // Similar cases
         if !self.similar_cases.is_empty() {
             context.push_str("### Similar Historical Cases:\n");
-            for (idx, case) in self.similar_cases.iter().take(5).enumerate() {
+            for case in self.similar_cases.iter().take(5) {
                 let score = (case.similarity_score * 100.0).round() as i32;
                 let gold_badge = if case.is_gold { " 🏆" } else { "" };
                 context.push_str(&format!(
@@ -1158,7 +1158,15 @@ pub async fn call_openai(
     call_provider(ProviderConfig::openai(), request_body, api_key).await
 }
 
-/// Call OpenAI with JSON mode enabled for structured output
+/// Call OpenAI with JSON mode enabled for structured output.
+///
+/// Use this when you need:
+/// - Guaranteed JSON response format (OpenAI enforces valid JSON)
+/// - Custom max_tokens limit for response size control
+///
+/// For general analysis, use `call_openai()` instead.
+/// For raw string responses, use `call_openai_raw()`.
+#[allow(dead_code)]
 pub async fn call_openai_json(
     system_prompt: &str,
     user_prompt: &str,
@@ -1253,14 +1261,7 @@ pub async fn call_ollama(
 /// Sanitize a string for JSON parsing by removing/escaping control characters
 fn sanitize_json_string(s: &str) -> String {
     s.chars()
-        .filter_map(|c| {
-            if c.is_control() && c != '\n' && c != '\r' && c != '\t' {
-                // Remove other control characters
-                None
-            } else {
-                Some(c)
-            }
-        })
+        .filter(|c| !c.is_control() || *c == '\n' || *c == '\r' || *c == '\t')
         .collect()
 }
 
@@ -1274,10 +1275,30 @@ fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<Analysis
         match serde_json::from_str::<serde_json::Value>(json_str) {
             Ok(parsed) => {
                 // Check if this is a WHATS'ON enhanced analysis (has "summary" and "rootCause" objects)
-                let is_whatson_format =
-                    parsed.get("summary").is_some() && parsed.get("rootCause").is_some();
+                let has_summary = parsed.get("summary").is_some();
+                let has_root_cause = parsed.get("rootCause").is_some();
+                let has_user_scenario = parsed.get("userScenario").is_some();
+                let has_suggested_fix = parsed.get("suggestedFix").is_some();
+
+                log::info!(
+                    "JSON structure check: summary={}, rootCause={}, userScenario={}, suggestedFix={}",
+                    has_summary,
+                    has_root_cause,
+                    has_user_scenario,
+                    has_suggested_fix
+                );
+
+                let is_whatson_format = has_summary && has_root_cause;
 
                 if is_whatson_format {
+                    // Warn if frontend-required fields are missing
+                    if !has_user_scenario || !has_suggested_fix {
+                        log::warn!(
+                            "WHATS'ON response missing frontend-required fields: userScenario={}, suggestedFix={}",
+                            has_user_scenario,
+                            has_suggested_fix
+                        );
+                    }
                     // WHATS'ON Enhanced format - extract fields from the enhanced structure
                     let summary = &parsed["summary"];
                     let root_cause_obj = &parsed["rootCause"];
@@ -1908,35 +1929,39 @@ async fn analyze_deep_scan(
 
     const PARALLEL_CHUNK_LIMIT: usize = 4; // Process 4 chunks at a time
 
-    let provider_lower = provider.to_lowercase();
-    let api_key_owned = api_key.to_string();
-    let model_owned = model.to_string();
+    // Use Arc<str> to avoid cloning strings for each chunk future
+    // This is O(1) reference counting vs O(n) string copying
+    use std::sync::Arc;
+    let provider_arc: Arc<str> = provider.to_lowercase().into();
+    let api_key_arc: Arc<str> = api_key.into();
+    let model_arc: Arc<str> = model.into();
 
     // Create futures for all chunks
     let chunk_futures: Vec<_> = chunks
         .iter()
         .map(|chunk| {
             let (system_prompt, user_prompt) = runner.get_map_prompt(chunk);
-            let provider_ref = provider_lower.clone();
-            let api_key_ref = api_key_owned.clone();
-            let model_ref = model_owned.clone();
+            let provider_ref = Arc::clone(&provider_arc);
+            let api_key_ref = Arc::clone(&api_key_arc);
+            let model_ref = Arc::clone(&model_arc);
             let chunk_index = chunk.index;
 
             async move {
                 // Call provider with raw response
-                let response: Result<String, String> = match provider_ref.as_str() {
+                // Arc<str> derefs to str, use &* to get &str
+                let response: Result<String, String> = match &*provider_ref {
                     "openai" => {
-                        call_openai_raw(&system_prompt, &user_prompt, &api_key_ref, &model_ref, 1000)
+                        call_openai_raw(&system_prompt, &user_prompt, &*api_key_ref, &*model_ref, 1000)
                             .await
                     }
                     "anthropic" => {
-                        call_anthropic_raw(&system_prompt, &user_prompt, &api_key_ref, &model_ref)
+                        call_anthropic_raw(&system_prompt, &user_prompt, &*api_key_ref, &*model_ref)
                             .await
                     }
                     "zai" => {
-                        call_zai_raw(&system_prompt, &user_prompt, &api_key_ref, &model_ref).await
+                        call_zai_raw(&system_prompt, &user_prompt, &*api_key_ref, &*model_ref).await
                     }
-                    "ollama" => call_ollama_raw(&system_prompt, &user_prompt, &model_ref).await,
+                    "ollama" => call_ollama_raw(&system_prompt, &user_prompt, &*model_ref).await,
                     _ => Err(format!("Unknown provider: {}", provider_ref)),
                 };
 

@@ -1,0 +1,18 @@
+# Archive (obsolete/unused files)
+.archive/
+
+# Build artifacts
+*.exe
+*.msi
+*.dmg
+*.AppImage
+
+# Node
+node_modules/
+package-lock.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

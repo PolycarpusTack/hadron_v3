@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import logger from '../services/logger';
 
 interface FeedbackButtonsProps {
   analysisId: number;
@@ -35,7 +36,7 @@ export const FeedbackButtons: React.FC<FeedbackButtonsProps> = ({
       setStatus(type === 'accept' ? 'accepted' : 'rejected');
       onFeedbackSubmitted?.();
     } catch (err) {
-      console.error('Failed to submit feedback:', err);
+      logger.error('Failed to submit feedback', { error: err });
       setError(err instanceof Error ? err.message : 'Failed to submit feedback');
     } finally {
       setIsSubmitting(false);

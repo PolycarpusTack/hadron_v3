@@ -1,16 +1,35 @@
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use regex::Regex;
 
-lazy_static! {
-    // Patterns to redact
-    static ref USERNAME_PATTERN: Regex = Regex::new(r"(?i)(user|username|login):\s*\S+").unwrap();
-    static ref PASSWORD_PATTERN: Regex = Regex::new(r"(?i)(password|pwd|pass):\s*\S+").unwrap();
-    static ref IP_PATTERN: Regex = Regex::new(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}").unwrap();
-    static ref EMAIL_PATTERN: Regex = Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap();
-    static ref PATH_PATTERN: Regex = Regex::new(r"[A-Z]:\\[^\s]+|/(?:home|users|var|tmp)/[^\s]+").unwrap();
-    static ref OID_PATTERN: Regex = Regex::new(r"oid\s*[=:]\s*\d+").unwrap();
-    static ref HASH_PATTERN: Regex = Regex::new(r"#[0-9a-fA-F]{6,}").unwrap();
-}
+// Patterns to redact
+static USERNAME_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(user|username|login):\s*\S+")
+        .expect("USERNAME_PATTERN is a valid regex")
+});
+static PASSWORD_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(password|pwd|pass):\s*\S+")
+        .expect("PASSWORD_PATTERN is a valid regex")
+});
+static IP_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}")
+        .expect("IP_PATTERN is a valid regex")
+});
+static EMAIL_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+        .expect("EMAIL_PATTERN is a valid regex")
+});
+static PATH_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[A-Z]:\\[^\s]+|/(?:home|users|var|tmp)/[^\s]+")
+        .expect("PATH_PATTERN is a valid regex")
+});
+static OID_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"oid\s*[=:]\s*\d+")
+        .expect("OID_PATTERN is a valid regex")
+});
+static HASH_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"#[0-9a-fA-F]{6,}")
+        .expect("HASH_PATTERN is a valid regex")
+});
 
 /// Sanitize content for customer-facing reports
 pub fn sanitize_for_customer(text: &str) -> String {
@@ -64,12 +83,12 @@ pub fn simplify_technical_terms(text: &str) -> String {
 /// Sanitize SQL queries (remove table names, values)
 #[allow(dead_code)]
 pub fn sanitize_sql(sql: &str) -> String {
-    let result = Regex::new(r"'[^']*'")
-        .unwrap()
-        .replace_all(sql, "'[VALUE]'");
+    static SQL_VALUE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"'[^']*'").expect("SQL_VALUE_PATTERN is a valid regex")
+    });
 
     // Keep structure but hide specific values
-    result.to_string()
+    SQL_VALUE_PATTERN.replace_all(sql, "'[VALUE]'").to_string()
 }
 
 /// Check if content contains potentially sensitive data

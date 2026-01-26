@@ -31,12 +31,13 @@ import logger from "../services/logger";
 interface JiraImportPanelProps {
   onClose?: () => void;
   onLinkIssue?: (issue: NormalizedIssue) => void;
+  embedded?: boolean;
 }
 
 type SortField = "updatedAt" | "crashRelevanceScore" | "key";
 type SortDirection = "asc" | "desc";
 
-export default function JiraImportPanel({ onClose, onLinkIssue }: JiraImportPanelProps) {
+export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false }: JiraImportPanelProps) {
   const [isEnabled, setIsEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -243,6 +244,15 @@ export default function JiraImportPanel({ onClose, onLinkIssue }: JiraImportPane
   const syncState = JiraImportService.getSyncState();
 
   if (loading) {
+    if (embedded) {
+      return (
+        <div className="bg-gray-900 rounded-xl border border-gray-700 p-8 flex items-center gap-4">
+          <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+          <span className="text-gray-300">Loading JIRA integration...</span>
+        </div>
+      );
+    }
+
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div className="bg-gray-900 rounded-xl p-8 flex items-center gap-4">
@@ -254,35 +264,44 @@ export default function JiraImportPanel({ onClose, onLinkIssue }: JiraImportPane
   }
 
   if (!isEnabled) {
-    return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div className="bg-gray-900 rounded-xl border border-gray-700 max-w-md w-full p-6">
-          <div className="text-center">
-            <AlertCircle className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
-            <h3 className="text-xl font-bold mb-2">JIRA Not Configured</h3>
-            <p className="text-gray-400 mb-4">
-              Please configure JIRA integration in Settings to import issues.
-            </p>
+    const emptyState = (
+      <div className="bg-gray-900 rounded-xl border border-gray-700 max-w-md w-full p-6">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
+          <h3 className="text-xl font-bold mb-2">JIRA Not Configured</h3>
+          <p className="text-gray-400 mb-4">
+            Please configure JIRA integration in Settings to import issues.
+          </p>
+          {onClose && (
             <button
               onClick={onClose}
               className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
             >
               Close
             </button>
-          </div>
+          )}
         </div>
+      </div>
+    );
+
+    if (embedded) {
+      return <div className="flex items-center justify-center">{emptyState}</div>;
+    }
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        {emptyState}
       </div>
     );
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-xl border border-gray-700 max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-700 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-500/20 rounded-lg">
-              <FileText className="w-5 h-5 text-blue-400" />
+  const panel = (
+    <div className={`bg-gray-900 rounded-xl border border-gray-700 ${embedded ? "w-full" : "max-w-5xl w-full max-h-[90vh]"} overflow-hidden flex flex-col`}>
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-700 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-500/20 rounded-lg">
+            <FileText className="w-5 h-5 text-blue-400" />
             </div>
             <div>
               <h2 className="text-xl font-bold">JIRA Issue Intelligence</h2>
@@ -536,7 +555,16 @@ export default function JiraImportPanel({ onClose, onLinkIssue }: JiraImportPane
             </button>
           )}
         </div>
-      </div>
+    </div>
+  );
+
+  if (embedded) {
+    return panel;
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      {panel}
     </div>
   );
 }

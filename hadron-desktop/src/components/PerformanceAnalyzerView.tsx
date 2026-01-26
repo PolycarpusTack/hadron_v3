@@ -9,6 +9,7 @@ import {
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import logger from "../services/logger";
+import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
 
 // Types for performance trace analysis (snake_case to match Rust backend)
 interface PerformanceHeader {
@@ -308,27 +309,30 @@ function FileUpload({
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
         onDrop={handleDrop}
-        className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
+        className={`border-2 border-dashed rounded-lg p-12 text-center transition-all ${
           isDragging
-            ? 'border-blue-500 bg-blue-500/10'
-            : 'border-gray-600 hover:border-gray-500 bg-gray-800/30'
-        }`}
+            ? 'border-blue-500 bg-blue-500/10 scale-105'
+            : 'border-gray-600 hover:border-gray-500'
+        } ${isAnalyzing ? 'opacity-50 pointer-events-none' : ''}`}
       >
-        <Upload size={48} className={`mx-auto mb-4 ${isDragging ? 'text-blue-400' : 'text-gray-500'}`} />
-        <p className="text-lg font-medium text-white mb-2">
-          Select performance trace files
+        <Upload size={48} className={`mx-auto mb-4 ${isDragging ? 'text-blue-400' : 'text-gray-400'}`} />
+        <p className="text-xl font-semibold text-white mb-2">
+          Select one or more performance trace files
         </p>
-        <p className="text-sm text-gray-400 mb-4">
-          Click the button below to browse - Supports .log files - Batch upload supported
+        <p className="text-sm text-gray-400 mb-6">
+          Click the button below to browse
         </p>
         <button
           onClick={handleSelectFile}
           disabled={isAnalyzing}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors font-semibold"
         >
           <FileText size={18} />
-          <span>Select Files</span>
+          <span>Choose File</span>
         </button>
+        <p className="text-gray-500 text-sm mt-4">
+          Supports .log and .txt files - batch upload supported
+        </p>
       </div>
 
       {files.length > 0 && (
@@ -711,64 +715,60 @@ export default function PerformanceAnalyzerView() {
     <div className="space-y-6">
       {analysisResults.length === 0 ? (
         /* Upload Section */
-        <div className="max-w-2xl mx-auto space-y-6">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center gap-3 mb-4">
-              <div className="p-3 bg-blue-600 rounded-lg">
-                <Cpu size={28} className="text-white" />
-              </div>
-              <h2 className="text-2xl font-bold text-white">Performance Trace Analyzer</h2>
-            </div>
-            <p className="text-gray-400">
-              Upload one or more .log files to analyze CPU profiles, identify bottlenecks,
-              and receive actionable recommendations for VisualWorks Smalltalk applications.
-            </p>
-          </div>
+        <div className="space-y-6">
+          <AnalyzerEntryPanel
+            icon={<Cpu className="w-6 h-6 text-cyan-400" />}
+            title="Performance Trace Analyzer"
+            subtitle="Analyze CPU profiles and identify bottlenecks in VisualWorks Smalltalk"
+            iconBgClassName="bg-cyan-500/20"
+          >
+            <div className="space-y-6">
+              <FileUpload
+                onFilesSelected={handleFilesSelected}
+                files={files}
+                onRemoveFile={handleRemoveFile}
+                isAnalyzing={isAnalyzing}
+              />
 
-          <FileUpload
-            onFilesSelected={handleFilesSelected}
-            files={files}
-            onRemoveFile={handleRemoveFile}
-            isAnalyzing={isAnalyzing}
-          />
-
-          {files.length > 0 && (
-            <div className="flex justify-center">
-              <button
-                onClick={handleAnalyze}
-                disabled={isAnalyzing}
-                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors font-medium"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Loader2 size={20} className="animate-spin" />
-                    <span>Analyzing...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play size={20} />
-                    <span>Analyze {files.length} File{files.length > 1 ? 's' : ''}</span>
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
-          {isAnalyzing && (
-            <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
-              <div className="flex items-center gap-3">
-                <Loader2 size={20} className="text-blue-400 animate-spin" />
-                <div>
-                  <p className="font-medium text-blue-300">
-                    Analyzing {analysisProgress.current} of {analysisProgress.total}...
-                  </p>
-                  <p className="text-sm text-blue-400/70">
-                    Parsing header statistics, building call tree, detecting patterns
-                  </p>
+              {files.length > 0 && (
+                <div className="flex justify-center">
+                  <button
+                    onClick={handleAnalyze}
+                    disabled={isAnalyzing}
+                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors font-medium"
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <Loader2 size={20} className="animate-spin" />
+                        <span>Analyzing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play size={20} />
+                        <span>Analyze {files.length} File{files.length > 1 ? 's' : ''}</span>
+                      </>
+                    )}
+                  </button>
                 </div>
-              </div>
+              )}
+
+              {isAnalyzing && (
+                <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <Loader2 size={20} className="text-blue-400 animate-spin" />
+                    <div>
+                      <p className="font-medium text-blue-300">
+                        Analyzing {analysisProgress.current} of {analysisProgress.total}...
+                      </p>
+                      <p className="text-sm text-blue-400/70">
+                        Parsing header statistics, building call tree, detecting patterns
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </AnalyzerEntryPanel>
 
           {/* Feature highlights */}
           <div className="grid md:grid-cols-3 gap-4 mt-12">
@@ -795,10 +795,13 @@ export default function PerformanceAnalyzerView() {
           {/* Header with reset button */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-600 rounded-lg">
-                <Cpu size={20} className="text-white" />
+              <span className="p-2 bg-cyan-500/20 rounded-lg">
+                <Cpu size={24} className="text-cyan-400" />
+              </span>
+              <div>
+                <h2 className="text-2xl font-bold">Performance Analysis Results</h2>
+                <p className="text-sm text-gray-400">{analysisResults.length} trace{analysisResults.length !== 1 ? 's' : ''} analyzed</p>
               </div>
-              <h2 className="text-xl font-bold text-white">Performance Analysis Results</h2>
             </div>
             <button
               onClick={handleReset}

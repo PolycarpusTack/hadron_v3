@@ -14,7 +14,8 @@ pub fn generate_json(data: &ReportData) -> String {
         }
     });
 
-    let obj = output.as_object_mut().unwrap();
+    let obj = output.as_object_mut()
+        .expect("json! macro always creates an object when given {}");
 
     // Add sections based on config
     if config.sections.summary {
@@ -97,7 +98,8 @@ fn build_summary(data: &ReportData) -> Value {
         "exception_type": crash.exception_type,
     });
 
-    let obj = summary.as_object_mut().unwrap();
+    let obj = summary.as_object_mut()
+        .expect("json! macro always creates an object when given {}");
 
     if let Some(ref ts) = crash.timestamp {
         obj.insert("timestamp".to_string(), json!(ts));
@@ -171,7 +173,7 @@ fn build_stack_trace(data: &ReportData) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::export::report::{CrashFileSummary, ReportAudience, ReportConfig, ReportMetadata};
+    use crate::export::report::{CrashFileSummary, ReportConfig, ReportMetadata};
 
     fn create_test_data() -> ReportData {
         ReportData {

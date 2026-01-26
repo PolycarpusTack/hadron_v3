@@ -26,6 +26,7 @@ import { isJiraEnabled } from "../services/jira";
 import { FeedbackButtons } from "./FeedbackButtons";
 import { StarRating } from "./StarRating";
 import { GoldBadge } from "./GoldBadge";
+import { InlineEditor } from "./InlineEditor";
 import CitationPanel from "./CitationPanel";
 
 // Sub-components
@@ -63,10 +64,14 @@ export default function WhatsOnDetailView({ analysis, onBack }: WhatsOnDetailVie
   const [showJiraModal, setShowJiraModal] = useState(false);
   const [jiraEnabled, setJiraEnabled] = useState(false);
   const [isGold, setIsGold] = useState(false);
+  const [editableRootCause, setEditableRootCause] = useState<string | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Parse the WHATS'ON enhanced analysis data
   const enhancedData = parseWhatsOnAnalysis(analysis.full_data, analysis.root_cause);
+
+  // Initialize editable root cause from parsed data
+  const currentRootCause = editableRootCause ?? enhancedData?.rootCause?.technical ?? "";
 
   // Check if JIRA is enabled
   useEffect(() => {
@@ -214,6 +219,15 @@ ${analysis.root_cause}
 
   // Fallback view if enhanced data is not available
   if (!enhancedData) {
+    // Diagnostic info for debugging
+    const diagnosticInfo = {
+      analysisType: analysis.analysis_type,
+      hasFullData: !!analysis.full_data,
+      fullDataLength: analysis.full_data?.length ?? 0,
+      fullDataPreview: analysis.full_data?.substring(0, 500),
+    };
+    console.log("WhatsOnDetailView: Enhanced data not available", diagnosticInfo);
+
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -234,10 +248,13 @@ ${analysis.root_cause}
             This analysis does not contain WHATS'ON enhanced data. This may be because:
           </p>
           <ul className="list-disc list-inside mt-2 text-gray-400 space-y-1">
-            <li>The analysis was performed using a different analysis type</li>
+            <li>The analysis was performed using a different analysis type (current: {analysis.analysis_type || "unknown"})</li>
             <li>The AI response could not be parsed as structured JSON</li>
             <li>This is an older analysis from before the WHATS'ON enhancement</li>
           </ul>
+          <p className="mt-4 text-sm text-gray-500">
+            Debug: full_data {analysis.full_data ? `present (${analysis.full_data.length} chars)` : "missing"} • Check browser console for details (Ctrl+Shift+I)
+          </p>
           <p className="mt-4 text-gray-300">
             The raw analysis content is available below:
           </p>
@@ -392,7 +409,12 @@ ${analysis.root_cause}
               <div className="space-y-4">
                 <div>
                   <h4 className="text-sm font-semibold text-gray-400 mb-2">Technical Explanation</h4>
-                  <p className="text-gray-200">{enhancedData.rootCause.technical}</p>
+                  <InlineEditor
+                    analysisId={analysis.id}
+                    fieldName="rootCause"
+                    value={currentRootCause}
+                    onSave={(newValue) => setEditableRootCause(newValue)}
+                  />
                 </div>
 
                 <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">

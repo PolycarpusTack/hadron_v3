@@ -1,5 +1,7 @@
 use crate::models::Environment;
 use crate::parser::patterns::*;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::collections::HashMap;
 
 pub fn parse_environment(content: &str) -> Environment {
@@ -66,8 +68,12 @@ pub fn parse_environment(content: &str) -> Environment {
 
 fn extract_version_number(text: &str) -> String {
     // Try to find version-like patterns: X.Y.Z or X.Y
-    let re = regex::Regex::new(r"\d+\.\d+(?:\.\d+)?").unwrap();
-    re.find(text)
+    static VERSION_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"\d+\.\d+(?:\.\d+)?").expect("VERSION_RE is a valid regex pattern")
+    });
+
+    VERSION_RE
+        .find(text)
         .map(|m| m.as_str().to_string())
         .unwrap_or_else(|| text.to_string())
 }

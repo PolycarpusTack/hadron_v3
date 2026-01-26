@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge } from "lucide-react";
+import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge, Link2 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import type { Analysis } from "../services/api";
@@ -7,6 +7,8 @@ import CollapsibleSection from "./CollapsibleSection";
 import MultiPartAnalysisViewer from "./MultiPartAnalysisViewer";
 import JiraTicketModal from "./JiraTicketModal";
 import ExportDialog from "./ExportDialog";
+import LinkedTickets from "./LinkedTickets";
+import JiraSyncStatus from "./JiraSyncStatus";
 import { isJiraEnabled } from "../services/jira";
 
 interface AnalysisDetailViewProps {
@@ -426,6 +428,18 @@ ${analysis.suggested_fixes}
           )}
         </div>
       </CollapsibleSection>
+
+      {/* Linked JIRA Tickets - Phase 3 */}
+      {jiraEnabled && (
+        <CollapsibleSection
+          title="Linked JIRA Tickets"
+          icon={<Link2 className="w-5 h-5" />}
+          defaultOpen={true}
+          headerContent={<JiraSyncStatus compact />}
+        >
+          <LinkedTickets analysisId={analysis.id} />
+        </CollapsibleSection>
+      )}
 
       {/* JIRA Ticket Modal */}
       <JiraTicketModal

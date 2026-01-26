@@ -120,11 +120,11 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
       } else {
         setMessage({ type: "error", text: result.message });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error("Failed to connect to Keeper", { error });
       setMessage({
         type: "error",
-        text: error?.message || "Failed to connect to Keeper",
+        text: error instanceof Error ? error.message : String(error) || "Failed to connect to Keeper",
       });
     } finally {
       setIsConnecting(false);
@@ -152,10 +152,10 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
       setConfig({ enabled: false, secretMappings: {} });
       setMessage({ type: "success", text: "Disconnected from Keeper" });
       onConfigChange?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
       setMessage({
         type: "error",
-        text: error?.message || "Failed to disconnect",
+        text: error instanceof Error ? error.message : String(error) || "Failed to disconnect",
       });
     }
   }
@@ -166,11 +166,11 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
       await saveKeeperConfig(newConfig);
       setConfig(newConfig);
       onConfigChange?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error("Failed to toggle Keeper", { error });
       setMessage({
         type: "error",
-        text: error?.message || "Failed to save configuration",
+        text: error instanceof Error ? error.message : String(error) || "Failed to save configuration",
       });
     }
   }
@@ -196,11 +196,11 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
       await saveKeeperConfig(newConfig);
       setConfig(newConfig);
       onConfigChange?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error("Failed to map secret", { error, provider });
       setMessage({
         type: "error",
-        text: error?.message || "Failed to save secret mapping",
+        text: error instanceof Error ? error.message : String(error) || "Failed to save secret mapping",
       });
     }
   }

@@ -4,6 +4,10 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+#[cfg(target_os = "windows")]
+#[allow(unused_imports)]
+use std::os::windows::process::CommandExt;
+
 // ============================================================================
 // RAG Command Structures
 // ============================================================================
@@ -225,6 +229,10 @@ async fn run_rag_cli_command(
         .map_err(|e| format!("Failed to serialize stdin payload: {}", e))?;
 
     // Build command arguments
+    // On Windows, use CREATE_NO_WINDOW flag to prevent a console window from appearing
+    #[cfg(target_os = "windows")]
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
     let mut cmd = Command::new("python");
     cmd.arg("-m")
         .arg("python.rag.cli")
@@ -234,6 +242,10 @@ async fn run_rag_cli_command(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    // Hide console window on Windows
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     // Set working directory to project root
     if let Ok(project_root) = get_project_root() {
@@ -333,23 +345,36 @@ fn get_rag_cli_path() -> Result<PathBuf, String> {
 
     #[cfg(not(debug_assertions))]
     {
-        // In production, look for script relative to executable
-        let mut path = std::env::current_exe()
-            .map_err(|e| format!("Failed to get executable path: {}", e))?;
+        // In production, look for script in multiple possible locations
+        // Tauri 2.x bundles resources differently based on installer type and platform
+        let exe_path =
+            std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
 
-        path.pop();
-        path.push("python");
-        path.push("rag");
-        path.push("cli.py");
+        let exe_dir = exe_path.parent()
+            .ok_or_else(|| "Failed to get executable directory".to_string())?;
 
-        if !path.exists() {
-            return Err(format!(
-                "RAG CLI script not found in bundle at: {:?}",
-                path
-            ));
+        // Try multiple possible resource locations
+        let possible_paths = [
+            // Standard relative path
+            exe_dir.join("python").join("rag").join("cli.py"),
+            // Tauri 2.x _up_ path for relative resources
+            exe_dir.join("_up_").join("python").join("rag").join("cli.py"),
+            // Resources subdirectory
+            exe_dir.join("resources").join("python").join("rag").join("cli.py"),
+        ];
+
+        for path in &possible_paths {
+            log::debug!("Checking for RAG CLI script at: {:?}", path);
+            if path.exists() {
+                log::info!("Found RAG CLI script at: {:?}", path);
+                return Ok(path.clone());
+            }
         }
 
-        Ok(path)
+        Err(format!(
+            "RAG CLI script not found in bundle. Checked paths: {:?}",
+            possible_paths
+        ))
     }
 }
 

@@ -339,8 +339,8 @@ export async function analyzeWithResilience(
 
       return result;
 
-    } catch (error: any) {
-      const errorMessage = error?.message || 'Unknown error';
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
       // Record failure
       recordFailure(provider);

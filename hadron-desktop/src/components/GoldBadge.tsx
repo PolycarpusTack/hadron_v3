@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import logger from '../services/logger';
 
 interface GoldBadgeProps {
   analysisId: number;
@@ -24,7 +25,7 @@ export const GoldBadge: React.FC<GoldBadgeProps> = ({
       setPromoted(true);
       onPromoted?.();
     } catch (error) {
-      console.error('Failed to promote to gold:', error);
+      logger.error('Failed to promote to gold', { error });
     } finally {
       setPromoting(false);
     }
