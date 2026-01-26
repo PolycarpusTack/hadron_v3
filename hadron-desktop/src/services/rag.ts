@@ -5,6 +5,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { getApiKey } from "./secure-storage";
+import logger from "./logger";
+import type { AnalysisResult } from "../types";
 
 // ============================================================================
 // Type Definitions
@@ -36,7 +38,7 @@ export interface RAGQueryRequest {
 }
 
 export interface RAGIndexRequest {
-  analysis: any;
+  analysis: AnalysisResult;
   api_key: string;
 }
 
@@ -115,7 +117,7 @@ export async function ragQuery(
     const results = await invoke<RAGQueryResult[]>("rag_query", { request });
     return results;
   } catch (error) {
-    console.error("RAG query failed:", error);
+    logger.error("RAG query failed", { error });
     throw new Error(`RAG query failed: ${error}`);
   }
 }
@@ -156,7 +158,7 @@ export async function ragBuildContext(
     const context = await invoke<RAGContext>("rag_build_context", { request });
     return context;
   } catch (error) {
-    console.error("RAG context build failed:", error);
+    logger.error("RAG context build failed", { error });
     throw new Error(`RAG context build failed: ${error}`);
   }
 }
@@ -175,7 +177,7 @@ export async function ragBuildContext(
  * @returns Index response with number of chunks indexed
  */
 export async function ragIndexAnalysis(
-  analysis: any
+  analysis: AnalysisResult
 ): Promise<RAGIndexResponse> {
   const apiKey = await getApiKey("openai");
   if (!apiKey) {
@@ -191,7 +193,7 @@ export async function ragIndexAnalysis(
     const response = await invoke<RAGIndexResponse>("rag_index_analysis", { request });
     return response;
   } catch (error) {
-    console.error("RAG indexing failed:", error);
+    logger.error("RAG indexing failed", { error });
     throw new Error(`RAG indexing failed: ${error}`);
   }
 }
@@ -205,9 +207,9 @@ export async function ragIndexAnalysis(
  */
 export async function ragReindexAnalysis(
   analysisId: number,
-  analysis: any
+  analysis: AnalysisResult
 ): Promise<RAGIndexResponse> {
-  console.log(`Re-indexing analysis ${analysisId} into RAG store`);
+  logger.info(`Re-indexing analysis ${analysisId} into RAG store`);
   return ragIndexAnalysis(analysis);
 }
 
@@ -225,7 +227,7 @@ export async function ragGetStats(): Promise<RAGStatsResponse> {
     const stats = await invoke<RAGStatsResponse>("rag_get_stats");
     return stats;
   } catch (error) {
-    console.error("Failed to get RAG stats:", error);
+    logger.error("Failed to get RAG stats", { error });
     throw new Error(`Failed to get RAG stats: ${error}`);
   }
 }
@@ -274,7 +276,7 @@ export function formatSimilarCases(cases: SimilarCase[]): string {
  * @param analysis - Analysis object
  * @returns Query string optimized for RAG search
  */
-export function extractQueryFromAnalysis(analysis: any): string {
+export function extractQueryFromAnalysis(analysis: AnalysisResult): string {
   const parts: string[] = [];
 
   if (analysis.error_type) {

@@ -1,57 +1,79 @@
-import { FileUp, Code, History, Cpu } from "lucide-react";
+import { FileUp, Code, History, Cpu, Ticket } from "lucide-react";
 
-export type ViewType = "analyze" | "translate" | "history" | "detail" | "performance";
+export type ViewType = "analyze" | "translate" | "history" | "detail" | "performance" | "jira";
 
 interface NavigationProps {
   currentView: ViewType;
   onViewChange: (view: ViewType) => void;
+  showJiraAnalyzer?: boolean;
 }
 
 interface TabConfig {
   id: ViewType;
   label: string;
   icon: typeof FileUp;
-  activeClass: string;
+  iconColor: string;
+  iconBg: string;
+  activeIconBg: string;
   isActive: boolean;
 }
 
-export default function Navigation({ currentView, onViewChange }: NavigationProps) {
-  const inactiveClass = "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300";
-
+export default function Navigation({ currentView, onViewChange, showJiraAnalyzer = false }: NavigationProps) {
   const tabs: TabConfig[] = [
     {
       id: "analyze",
-      label: "Analyze",
+      label: "Crash Analyzer",
       icon: FileUp,
-      activeClass: "border-blue-500 text-blue-600 dark:text-blue-400",
+      iconColor: "text-blue-400",
+      iconBg: "bg-blue-500/10",
+      activeIconBg: "bg-blue-500/20",
       isActive: currentView === "analyze",
     },
     {
       id: "translate",
       label: "Code Analyzer",
       icon: Code,
-      activeClass: "border-violet-500 text-violet-600 dark:text-violet-400",
+      iconColor: "text-violet-400",
+      iconBg: "bg-violet-500/10",
+      activeIconBg: "bg-violet-500/20",
       isActive: currentView === "translate",
+    },
+    ...(showJiraAnalyzer
+      ? [
+          {
+            id: "jira" as ViewType,
+            label: "JIRA Analyzer",
+            icon: Ticket,
+            iconColor: "text-sky-400",
+            iconBg: "bg-sky-500/10",
+            activeIconBg: "bg-sky-500/20",
+            isActive: currentView === "jira",
+          },
+        ]
+      : []),
+    {
+      id: "performance",
+      label: "Performance Analyzer",
+      icon: Cpu,
+      iconColor: "text-cyan-400",
+      iconBg: "bg-cyan-500/10",
+      activeIconBg: "bg-cyan-500/20",
+      isActive: currentView === "performance",
     },
     {
       id: "history",
       label: "History",
       icon: History,
-      activeClass: "border-blue-500 text-blue-600 dark:text-blue-400",
+      iconColor: "text-amber-400",
+      iconBg: "bg-amber-500/10",
+      activeIconBg: "bg-amber-500/20",
       isActive: currentView === "history" || currentView === "detail",
-    },
-    {
-      id: "performance",
-      label: "Performance",
-      icon: Cpu,
-      activeClass: "border-cyan-500 text-cyan-600 dark:text-cyan-400",
-      isActive: currentView === "performance",
     },
   ];
 
   return (
     <nav
-      className="mb-6 flex gap-2 border-b border-gray-300 dark:border-gray-700"
+      className="mb-6 flex items-center gap-1 border-b border-gray-200 dark:border-gray-700"
       role="tablist"
       aria-label="Main navigation"
     >
@@ -64,12 +86,16 @@ export default function Navigation({ currentView, onViewChange }: NavigationProp
             role="tab"
             aria-selected={tab.isActive}
             aria-controls={`${tab.id}-panel`}
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition ${
-              tab.isActive ? tab.activeClass : inactiveClass
+            className={`flex items-center gap-2.5 px-4 py-3 border-b-2 transition-all ${
+              tab.isActive
+                ? "border-gray-800 dark:border-white text-gray-900 dark:text-white"
+                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50"
             }`}
           >
-            <Icon className="w-5 h-5" />
-            {tab.label}
+            <span className={`p-1.5 rounded-md transition-colors ${tab.isActive ? tab.activeIconBg : tab.iconBg}`}>
+              <Icon className={`w-4 h-4 ${tab.iconColor}`} />
+            </span>
+            <span className="font-medium text-sm">{tab.label}</span>
           </button>
         );
       })}

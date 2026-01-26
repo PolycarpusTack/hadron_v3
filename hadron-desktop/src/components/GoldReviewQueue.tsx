@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { GoldAnalysis } from '../types';
+import logger from '../services/logger';
 
 interface GoldReviewQueueProps {
   onClose?: () => void;
@@ -11,19 +12,22 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"pending" | "rejected">("pending");
 
   useEffect(() => {
-    loadPendingGoldAnalyses();
-  }, []);
+    loadPendingGoldAnalyses(viewMode);
+  }, [viewMode]);
 
-  const loadPendingGoldAnalyses = async () => {
+  const loadPendingGoldAnalyses = async (mode: "pending" | "rejected") => {
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke<GoldAnalysis[]>('get_pending_gold_analyses');
+      const result = mode === "pending"
+        ? await invoke<GoldAnalysis[]>('get_pending_gold_analyses')
+        : await invoke<GoldAnalysis[]>('get_rejected_gold_analyses');
       setPending(result);
     } catch (err) {
-      console.error('Failed to load pending gold analyses:', err);
+      logger.error('Failed to load pending gold analyses', { error: err });
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -33,11 +37,11 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
   const handleVerify = async (id: number) => {
     setProcessing(id);
     try {
-      await invoke('verify_gold_analysis', { goldAnalysisId: id });
+      await invoke('verify_gold_analysis', { goldAnalysisId: id, verifiedBy: "manual" });
       // Refresh the list
-      await loadPendingGoldAnalyses();
+      await loadPendingGoldAnalyses(viewMode);
     } catch (err) {
-      console.error('Failed to verify gold analysis:', err);
+      logger.error('Failed to verify gold analysis', { error: err });
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setProcessing(null);
@@ -47,11 +51,24 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
   const handleReject = async (id: number) => {
     setProcessing(id);
     try {
-      await invoke('reject_gold_analysis', { goldAnalysisId: id });
+      await invoke('reject_gold_analysis', { goldAnalysisId: id, verifiedBy: "manual" });
       // Refresh the list
-      await loadPendingGoldAnalyses();
+      await loadPendingGoldAnalyses(viewMode);
     } catch (err) {
-      console.error('Failed to reject gold analysis:', err);
+      logger.error('Failed to reject gold analysis', { error: err });
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const handleReopen = async (id: number) => {
+    setProcessing(id);
+    try {
+      await invoke('reopen_gold_analysis', { goldAnalysisId: id });
+      await loadPendingGoldAnalyses(viewMode);
+    } catch (err) {
+      logger.error('Failed to reopen gold analysis', { error: err });
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setProcessing(null);
@@ -97,6 +114,28 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
               Review and verify gold standard analyses for the knowledge base
             </p>
           </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setViewMode("pending")}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition ${
+                viewMode === "pending"
+                  ? "bg-blue-600/20 text-blue-300 border border-blue-500/30"
+                  : "bg-gray-800 text-gray-400 border border-gray-700 hover:text-gray-200"
+              }`}
+            >
+              Pending
+            </button>
+            <button
+              onClick={() => setViewMode("rejected")}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition ${
+                viewMode === "rejected"
+                  ? "bg-red-600/20 text-red-300 border border-red-500/30"
+                  : "bg-gray-800 text-gray-400 border border-gray-700 hover:text-gray-200"
+              }`}
+            >
+              Rejected
+            </button>
+          </div>
           {onClose && (
             <button
               onClick={onClose}
@@ -137,8 +176,12 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
               <svg className="w-16 h-16 text-gray-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <p className="text-gray-400 text-lg font-medium">No pending reviews</p>
-              <p className="text-gray-500 text-sm mt-2">All gold analyses have been reviewed</p>
+              <p className="text-gray-400 text-lg font-medium">
+                {viewMode === "pending" ? "No pending reviews" : "No rejected reviews"}
+              </p>
+              <p className="text-gray-500 text-sm mt-2">
+                {viewMode === "pending" ? "All gold analyses have been reviewed" : "No rejected gold analyses"}
+              </p>
             </div>
           )}
 
@@ -147,7 +190,11 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
               {pending.map((analysis) => (
                 <div
                   key={analysis.id}
-                  className="bg-gray-800 border border-gray-700 rounded-lg p-5 hover:border-gray-600 transition-colors"
+                  className={`bg-gray-800 border rounded-lg p-5 transition-colors ${
+                    viewMode === "rejected"
+                      ? "border-red-700/40 hover:border-red-600/60"
+                      : "border-gray-700 hover:border-gray-600"
+                  }`}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
@@ -155,6 +202,11 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
                         <h3 className="text-lg font-semibold text-white">
                           {analysis.errorSignature}
                         </h3>
+                        {viewMode === "rejected" && (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400">
+                            Rejected
+                          </span>
+                        )}
                         {analysis.severity && (
                           <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getSeverityColor(analysis.severity)}`}>
                             {analysis.severity}
@@ -164,6 +216,11 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
                       {analysis.component && (
                         <p className="text-sm text-gray-400">
                           Component: <span className="text-gray-300">{analysis.component}</span>
+                        </p>
+                      )}
+                      {analysis.verifiedBy && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Reviewed by: <span className="text-gray-300">{analysis.verifiedBy}</span>
                         </p>
                       )}
                       <p className="text-xs text-gray-500 mt-1">
@@ -198,44 +255,68 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
                   </div>
 
                   <div className="flex gap-3 mt-5 pt-4 border-t border-gray-700">
-                    <button
-                      onClick={() => handleVerify(analysis.id)}
-                      disabled={processing === analysis.id}
-                      className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                      {processing === analysis.id ? (
-                        <span className="flex items-center gap-2">
-                          <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                          Processing...
-                        </span>
-                      ) : (
-                        <>
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          Verify
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => handleReject(analysis.id)}
-                      disabled={processing === analysis.id}
-                      className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                      {processing === analysis.id ? (
-                        <span className="flex items-center gap-2">
-                          <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                          Processing...
-                        </span>
-                      ) : (
-                        <>
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                          Reject
-                        </>
-                      )}
-                    </button>
+                    {viewMode === "rejected" ? (
+                      <button
+                        onClick={() => handleReopen(analysis.id)}
+                        disabled={processing === analysis.id}
+                        className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                      >
+                        {processing === analysis.id ? (
+                          <span className="flex items-center gap-2">
+                            <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                            Processing...
+                          </span>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16M12 4l8 8-8 8" />
+                            </svg>
+                            Reopen for Review
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleVerify(analysis.id)}
+                          disabled={processing === analysis.id}
+                          className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                          {processing === analysis.id ? (
+                            <span className="flex items-center gap-2">
+                              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                              Processing...
+                            </span>
+                          ) : (
+                            <>
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              Verify
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleReject(analysis.id)}
+                          disabled={processing === analysis.id}
+                          className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                          {processing === analysis.id ? (
+                            <span className="flex items-center gap-2">
+                              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                              Processing...
+                            </span>
+                          ) : (
+                            <>
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                              Reject
+                            </>
+                          )}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -251,7 +332,7 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
             )}
           </div>
           <button
-            onClick={loadPendingGoldAnalyses}
+            onClick={() => loadPendingGoldAnalyses(viewMode)}
             disabled={loading}
             className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
           >

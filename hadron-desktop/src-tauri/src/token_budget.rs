@@ -307,7 +307,7 @@ mod tests {
         let text = "a".repeat(100);
         let tokens = estimate_tokens(&text);
         assert!(
-            tokens >= 25 && tokens <= 35,
+            (25..=35).contains(&tokens),
             "Got {} tokens for 100 chars",
             tokens
         );

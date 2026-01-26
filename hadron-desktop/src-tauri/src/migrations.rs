@@ -6,7 +6,7 @@
 use rusqlite::{Connection, Result};
 
 /// Current schema version. Increment when adding new migrations.
-pub const CURRENT_SCHEMA_VERSION: i32 = 6;
+pub const CURRENT_SCHEMA_VERSION: i32 = 7;
 
 /// Migration function type
 type MigrationFn = fn(&Connection) -> Result<()>;
@@ -49,6 +49,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 6,
         name: "intelligence_platform",
         up: migration_006_intelligence_platform,
+    },
+    Migration {
+        version: 7,
+        name: "jira_ticket_linking",
+        up: migration_007_jira_ticket_linking,
     },
 ];
 
@@ -711,6 +716,21 @@ fn migration_006_intelligence_platform(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // Composite index for common HistoryView filter queries
+    // Covers: deleted_at IS NULL + is_favorite + severity + ORDER BY analyzed_at
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analyses_filter_composite
+         ON analyses(deleted_at, is_favorite, severity, analyzed_at DESC)",
+        [],
+    )?;
+
+    // Composite index for analysis type filtering
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analyses_type_date
+         ON analyses(analysis_type, analyzed_at DESC) WHERE deleted_at IS NULL",
+        [],
+    )?;
+
     // ========================================================================
     // Add columns to analyses table (with existence checks)
     // ========================================================================
@@ -766,6 +786,49 @@ fn migration_006_intelligence_platform(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Migration 7: JIRA Ticket Linking (Phase 3)
+/// Adds table for linking crash analyses to JIRA tickets
+fn migration_007_jira_ticket_linking(conn: &Connection) -> Result<()> {
+    // ========================================================================
+    // Analysis-JIRA Link Table
+    // ========================================================================
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS analysis_jira_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            analysis_id INTEGER NOT NULL,
+            jira_key TEXT NOT NULL,
+            jira_url TEXT,
+            jira_summary TEXT,
+            jira_status TEXT,
+            jira_priority TEXT,
+            link_type TEXT NOT NULL DEFAULT 'related',
+            linked_at TEXT NOT NULL DEFAULT (datetime('now')),
+            linked_by TEXT,
+            notes TEXT,
+            UNIQUE(analysis_id, jira_key),
+            FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // ========================================================================
+    // Indexes
+    // ========================================================================
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jira_links_analysis ON analysis_jira_links(analysis_id)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jira_links_key ON analysis_jira_links(jira_key)",
+        [],
+    )?;
+
+    Ok(())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -799,11 +862,11 @@ mod tests {
         let version = get_current_version(&conn).unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
-        // Verify only 6 migration records exist
+        // Verify only 7 migration records exist
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 6);
+        assert_eq!(count, 7);
     }
 
     #[test]

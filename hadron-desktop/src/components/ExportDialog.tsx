@@ -16,6 +16,7 @@ import {
 import type { Analysis } from "../services/api";
 import type { ReportAudience, ExportResponse } from "../types";
 import { previewReport, generateReportMulti } from "../services/api";
+import logger from "../services/logger";
 
 interface ExportDialogProps {
   analysis: Analysis;
@@ -160,7 +161,7 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
       );
       setPreview(previewContent);
     } catch (error) {
-      console.error("Preview failed:", error);
+      logger.error("Preview failed", { error });
       setPreview(`Preview failed: ${error}`);
     } finally {
       setIsLoadingPreview(false);
@@ -214,7 +215,7 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
         onClose();
       }, 1500);
     } catch (error) {
-      console.error("Export failed:", error);
+      logger.error("Export failed", { error });
       setExportMessage(`Export failed: ${error}`);
     } finally {
       setIsExporting(false);

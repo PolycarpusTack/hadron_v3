@@ -8,6 +8,7 @@ interface CollapsibleSectionProps {
   children: ReactNode;
   className?: string;
   badge?: ReactNode;
+  headerContent?: ReactNode;
 }
 
 export default function CollapsibleSection({
@@ -17,6 +18,7 @@ export default function CollapsibleSection({
   children,
   className = "",
   badge,
+  headerContent,
 }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
@@ -31,11 +33,14 @@ export default function CollapsibleSection({
           <h3 className="text-lg font-semibold">{title}</h3>
           {badge && <div>{badge}</div>}
         </div>
-        {isOpen ? (
-          <ChevronDown className="w-5 h-5 text-gray-400" />
-        ) : (
-          <ChevronRight className="w-5 h-5 text-gray-400" />
-        )}
+        <div className="flex items-center gap-3">
+          {headerContent && <div onClick={(e) => e.stopPropagation()}>{headerContent}</div>}
+          {isOpen ? (
+            <ChevronDown className="w-5 h-5 text-gray-400" />
+          ) : (
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          )}
+        </div>
       </button>
 
       {isOpen && (

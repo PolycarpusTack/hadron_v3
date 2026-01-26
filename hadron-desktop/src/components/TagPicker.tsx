@@ -7,6 +7,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Tag, TAG_COLORS, TagColorKey } from '../types';
 import { TagBadge } from './TagBadge';
+import logger from '../services/logger';
 import {
   getAllTags,
   createTag,
@@ -74,9 +75,10 @@ export function TagPicker({ itemId, itemType, onTagsChange }: TagPickerProps) {
       ]);
       setAllTags(tags);
       setItemTags(currentTags);
+      onTagsChange?.(currentTags);
     } catch (err) {
       setError('Failed to load tags');
-      console.error('Error loading tags:', err);
+      logger.error('Error loading tags', { error: err });
     } finally {
       setLoading(false);
     }
@@ -98,7 +100,7 @@ export function TagPicker({ itemId, itemType, onTagsChange }: TagPickerProps) {
       setAllTags(refreshedTags);
     } catch (err) {
       setError('Failed to add tag');
-      console.error('Error adding tag:', err);
+      logger.error('Error adding tag', { error: err });
     }
   };
 
@@ -118,7 +120,7 @@ export function TagPicker({ itemId, itemType, onTagsChange }: TagPickerProps) {
       setAllTags(refreshedTags);
     } catch (err) {
       setError('Failed to remove tag');
-      console.error('Error removing tag:', err);
+      logger.error('Error removing tag', { error: err });
     }
   };
 
@@ -149,7 +151,7 @@ export function TagPicker({ itemId, itemType, onTagsChange }: TagPickerProps) {
       setIsCreating(false);
     } catch (err) {
       setError('Failed to create tag');
-      console.error('Error creating tag:', err);
+      logger.error('Error creating tag', { error: err });
     }
   };
 

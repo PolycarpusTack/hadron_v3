@@ -6,9 +6,11 @@ import SettingsPanel from "./components/SettingsPanel";
 import HistoryView from "./components/HistoryView";
 import CodeAnalyzerView from "./components/CodeAnalyzerView";
 import PerformanceAnalyzerView from "./components/PerformanceAnalyzerView";
+import JiraAnalyzerView from "./components/JiraAnalyzerView";
 import ConsoleViewer from "./components/ConsoleViewer";
+import DocumentationViewer from "./components/DocumentationViewer";
 import Splashscreen from "./components/Splashscreen";
-import { ViewErrorBoundary } from "./components/ErrorBoundary";
+import { ViewErrorBoundary, AppErrorBoundary } from "./components/ErrorBoundary";
 import Navigation from "./components/Navigation";
 import ErrorDisplay from "./components/ErrorDisplay";
 import ApiKeyWarning from "./components/ApiKeyWarning";
@@ -16,6 +18,7 @@ import BatchProgressDisplay from "./components/BatchProgressDisplay";
 import AppHeader from "./components/AppHeader";
 import AppFooter from "./components/AppFooter";
 import { analyzeCrashLog, translateTechnicalContent, getStoredModel, getStoredProvider, getAnalysisById, saveExternalAnalysis, type AnalysisMode } from "./services/api";
+import { isJiraEnabled } from "./services/jira";
 import { checkAndUpdate } from "./services/updater";
 import { getApiKey, migrateFromLocalStorage } from "./services/secure-storage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -42,7 +45,9 @@ function LazyLoadFallback() {
 function App() {
   const { state, actions } = useAppState();
   const [showConsole, setShowConsole] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const [jiraEnabled, setJiraEnabled] = useState(false);
 
   // Destructure for cleaner code
   const {
@@ -102,6 +107,10 @@ function App() {
     initializeApp();
   }, [actions]);
 
+  useEffect(() => {
+    isJiraEnabled().then(setJiraEnabled);
+  }, []);
+
   // Update theme when it changes
   useEffect(() => {
     if (darkMode) {
@@ -122,7 +131,9 @@ function App() {
     onViewHistory: () => actions.setView("history"),
     onOpenSettings: () => actions.openSettings(),
     onCloseModal: () => {
-      if (showConsole) {
+      if (showDocs) {
+        setShowDocs(false);
+      } else if (showConsole) {
         setShowConsole(false);
       } else if (showSettings) {
         actions.closeSettings();
@@ -418,6 +429,11 @@ IMPORTANT INSTRUCTIONS:
     if (newApiKey) {
       actions.setApiKey(newApiKey);
     }
+    const jiraStatus = await isJiraEnabled();
+    setJiraEnabled(jiraStatus);
+    if (!jiraStatus && currentView === "jira") {
+      actions.setView("analyze");
+    }
   };
 
   // Handle opening analysis from dashboard
@@ -445,10 +461,11 @@ IMPORTANT INSTRUCTIONS:
         <AppHeader
           onOpenDashboard={actions.openDashboard}
           onOpenSettings={actions.openSettings}
+          onOpenDocs={() => setShowDocs(true)}
         />
 
         {/* Navigation Tabs */}
-        <Navigation currentView={currentView} onViewChange={actions.setView} />
+        <Navigation currentView={currentView} onViewChange={actions.setView} showJiraAnalyzer={jiraEnabled} />
 
         {/* API Key Warning */}
         <ApiKeyWarning hasApiKey={!!apiKey} />
@@ -509,6 +526,15 @@ IMPORTANT INSTRUCTIONS:
             <ViewErrorBoundary name="History">
               <div id="history-panel" role="tabpanel">
                 <HistoryView onViewAnalysis={actions.viewAnalysis} />
+              </div>
+            </ViewErrorBoundary>
+          )}
+
+          {/* JIRA Analyzer View */}
+          {currentView === "jira" && (
+            <ViewErrorBoundary name="JIRA Analyzer">
+              <div id="jira-panel" role="tabpanel">
+                <JiraAnalyzerView />
               </div>
             </ViewErrorBoundary>
           )}
@@ -581,8 +607,23 @@ IMPORTANT INSTRUCTIONS:
         isOpen={showConsole}
         onClose={() => setShowConsole(false)}
       />
+
+      {/* Documentation Viewer */}
+      <DocumentationViewer
+        isOpen={showDocs}
+        onClose={() => setShowDocs(false)}
+      />
     </div>
   );
 }
 
-export default App;
+// Wrap App with error boundary to catch top-level errors
+function AppWithErrorBoundary() {
+  return (
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
+  );
+}
+
+export default AppWithErrorBoundary;

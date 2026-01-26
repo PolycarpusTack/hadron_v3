@@ -25,6 +25,7 @@ import type {
   CodeInput,
 } from "../types";
 import logger from "../services/logger";
+import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
 
 // ============================================================================
 // Props Interface
@@ -905,118 +906,130 @@ export default function CodeAnalyzerView({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 bg-violet-500/10 rounded-lg">
-            <Code className="w-6 h-6 text-violet-500" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold">Code Analyzer</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Analyze code for issues, get walkthroughs, and learn best practices
-            </p>
-          </div>
-        </div>
-      </div>
-
       {/* Input Section (only show if no result) */}
       {!analysisResult && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <label className="block text-sm font-medium">Paste or drop your code:</label>
-            <div className="flex items-center gap-2">
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="px-3 py-1 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded text-sm"
-              >
-                <option>Auto-detect</option>
-                <option>SQL</option>
-                <option>React</option>
-                <option>TypeScript</option>
-                <option>JavaScript</option>
-                <option>Smalltalk</option>
-                <option>Python</option>
-                <option>Rust</option>
-                <option>Go</option>
-                <option>XML</option>
-                <option>Plaintext</option>
-              </select>
-              <input
-                type="text"
-                value={filename}
-                onChange={(e) => setFilename(e.target.value)}
-                placeholder="filename.ext"
-                className="px-3 py-1 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded text-sm font-mono w-40"
+        <AnalyzerEntryPanel
+          icon={<Code className="w-6 h-6 text-violet-400" />}
+          title="Code Analyzer"
+          subtitle="Analyze code for issues, get walkthroughs, and learn best practices"
+          iconBgClassName="bg-violet-500/20"
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium text-gray-300">Paste or drop your code:</label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className="px-3 py-1 bg-gray-900 border border-gray-700 rounded text-sm text-gray-200"
+                >
+                  <option>Auto-detect</option>
+                  <option>SQL</option>
+                  <option>React</option>
+                  <option>TypeScript</option>
+                  <option>JavaScript</option>
+                  <option>Smalltalk</option>
+                  <option>Python</option>
+                  <option>Rust</option>
+                  <option>Go</option>
+                  <option>XML</option>
+                  <option>Plaintext</option>
+                </select>
+                <input
+                  type="text"
+                  value={filename}
+                  onChange={(e) => setFilename(e.target.value)}
+                  placeholder="filename.ext"
+                  className="px-3 py-1 bg-gray-900 border border-gray-700 rounded text-sm font-mono text-gray-200 w-40"
+                />
+              </div>
+            </div>
+
+            <div
+              onDrop={handleDrop}
+              onDragOver={(e) => e.preventDefault()}
+              className="relative"
+            >
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Paste code here, or drag & drop a file..."
+                className="w-full h-64 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none font-mono text-sm text-gray-200"
+                disabled={isAnalyzing}
               />
+              {!input && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="text-center text-gray-400">
+                    <Upload className="w-8 h-8 mx-auto mb-2" />
+                    <p className="text-sm">Drop a file here or paste code above</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleAnalyze}
+                disabled={!input.trim() || isAnalyzing}
+                className="flex items-center gap-2 px-6 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <FileCode className="w-4 h-4" />
+                    Analyze Code
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isAnalyzing}
+                className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition flex items-center gap-2 text-gray-200"
+              >
+                <Upload className="w-4 h-4" />
+                Browse
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleFileSelect}
+                className="hidden"
+                accept=".sql,.tsx,.jsx,.ts,.js,.st,.py,.rs,.go,.java,.xml,.html,.css,.json,.yaml,.yml,.md,.rb,.txt"
+              />
+
+              <button
+                onClick={handleClear}
+                disabled={isAnalyzing}
+                className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition text-gray-200"
+              >
+                Clear
+              </button>
             </div>
           </div>
+        </AnalyzerEntryPanel>
+      )}
 
-          <div
-            onDrop={handleDrop}
-            onDragOver={(e) => e.preventDefault()}
-            className="relative"
-          >
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Paste code here, or drag & drop a file..."
-              className="w-full h-64 px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none font-mono text-sm"
-              disabled={isAnalyzing}
-            />
-            {!input && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="text-center text-gray-400">
-                  <Upload className="w-8 h-8 mx-auto mb-2" />
-                  <p className="text-sm">Drop a file here or paste code above</p>
-                </div>
-              </div>
-            )}
+      {!analysisResult && (
+        <div className="grid md:grid-cols-3 gap-4">
+          <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+            <Shield className="w-6 h-6 text-purple-400 mb-3" />
+            <h3 className="font-semibold text-white mb-1">Security & Risks</h3>
+            <p className="text-sm text-gray-400">Spot risky patterns, unsafe inputs, and security hotspots with prioritized severity.</p>
           </div>
-
-          <div className="mt-4 flex gap-3">
-            <button
-              onClick={handleAnalyze}
-              disabled={!input.trim() || isAnalyzing}
-              className="flex items-center gap-2 px-6 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg transition"
-            >
-              {isAnalyzing ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <FileCode className="w-4 h-4" />
-                  Analyze Code
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isAnalyzing}
-              className="px-6 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition flex items-center gap-2"
-            >
-              <Upload className="w-4 h-4" />
-              Browse
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              onChange={handleFileSelect}
-              className="hidden"
-              accept=".sql,.tsx,.jsx,.ts,.js,.st,.py,.rs,.go,.java,.xml,.html,.css,.json,.yaml,.yml,.md,.rb,.txt"
-            />
-
-            <button
-              onClick={handleClear}
-              disabled={isAnalyzing}
-              className="px-6 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition"
-            >
-              Clear
-            </button>
+          <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+            <BookOpen className="w-6 h-6 text-blue-400 mb-3" />
+            <h3 className="font-semibold text-white mb-1">Guided Walkthroughs</h3>
+            <p className="text-sm text-gray-400">Step-by-step explanations that map issues to concrete fixes and best practices.</p>
+          </div>
+          <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+            <Lightbulb className="w-6 h-6 text-green-400 mb-3" />
+            <h3 className="font-semibold text-white mb-1">Optimization Ideas</h3>
+            <p className="text-sm text-gray-400">Performance and quality suggestions with practical next steps you can apply.</p>
           </div>
         </div>
       )}

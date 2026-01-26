@@ -16,19 +16,27 @@ export function parseWhatsOnAnalysis(
   if (fullData) {
     try {
       const parsed = JSON.parse(fullData);
-      if (isValidWhatsOnAnalysis(parsed)) {
+      const validation = validateWhatsOnAnalysis(parsed);
+      if (validation.valid) {
         return parsed;
+      } else {
+        console.warn("WHATS'ON validation failed:", validation.missingFields);
+        console.debug("Parsed structure keys:", Object.keys(parsed));
       }
     } catch (e) {
       console.warn("Failed to parse full_data as JSON:", e);
+      console.debug("full_data length:", fullData?.length, "preview:", fullData?.substring(0, 200));
     }
+  } else {
+    console.debug("No full_data provided for WHATS'ON parsing");
   }
 
   // Fallback: try to parse from root_cause if it's JSON
   if (rootCause) {
     try {
       const parsed = JSON.parse(rootCause);
-      if (isValidWhatsOnAnalysis(parsed)) {
+      const validation = validateWhatsOnAnalysis(parsed);
+      if (validation.valid) {
         return parsed;
       }
     } catch {
@@ -40,21 +48,36 @@ export function parseWhatsOnAnalysis(
 }
 
 /**
- * Type guard to check if an object is a valid WhatsOnEnhancedAnalysis
+ * Validation result with details about what's missing
  */
-function isValidWhatsOnAnalysis(obj: unknown): obj is WhatsOnEnhancedAnalysis {
-  if (!obj || typeof obj !== "object") return false;
+interface ValidationResult {
+  valid: boolean;
+  missingFields: string[];
+}
+
+/**
+ * Validate a WHATS'ON analysis structure and report what's missing
+ */
+function validateWhatsOnAnalysis(obj: unknown): ValidationResult {
+  if (!obj || typeof obj !== "object") {
+    return { valid: false, missingFields: ["(not an object)"] };
+  }
 
   const analysis = obj as Partial<WhatsOnEnhancedAnalysis>;
+  const missingFields: string[] = [];
 
   // Check required top-level properties
-  return (
-    analysis.summary !== undefined &&
-    analysis.rootCause !== undefined &&
-    analysis.userScenario !== undefined &&
-    analysis.suggestedFix !== undefined
-  );
+  if (analysis.summary === undefined) missingFields.push("summary");
+  if (analysis.rootCause === undefined) missingFields.push("rootCause");
+  if (analysis.userScenario === undefined) missingFields.push("userScenario");
+  if (analysis.suggestedFix === undefined) missingFields.push("suggestedFix");
+
+  return {
+    valid: missingFields.length === 0,
+    missingFields,
+  };
 }
+
 
 /**
  * Get severity color classes for styling

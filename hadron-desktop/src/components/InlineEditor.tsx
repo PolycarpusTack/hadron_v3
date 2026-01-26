@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import logger from '../services/logger';
 
 interface InlineEditorProps {
   analysisId: number;
@@ -48,7 +49,7 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       onSave?.(editedValue);
       setIsEditing(false);
     } catch (error) {
-      console.error('Failed to save edit:', error);
+      logger.error('Failed to save edit', { error });
     } finally {
       setIsSaving(false);
     }

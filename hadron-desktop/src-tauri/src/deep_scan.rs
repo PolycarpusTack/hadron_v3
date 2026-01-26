@@ -32,6 +32,21 @@ pub struct ChunkAnalysis {
     pub summary: String,
 }
 
+impl Default for ChunkAnalysis {
+    fn default() -> Self {
+        Self {
+            chunk_index: 0,
+            errors_found: Vec::new(),
+            key_frames: Vec::new(),
+            database_issues: Vec::new(),
+            memory_warnings: Vec::new(),
+            patterns: Vec::new(),
+            relevance_score: 5,
+            summary: String::new(),
+        }
+    }
+}
+
 /// An error found in a chunk
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkError {
@@ -652,20 +667,5 @@ mod tests {
         assert!(prompt.contains("1/3"));
         assert!(prompt.contains("LIKELY CRASH POINT"));
         assert!(prompt.contains("Test content"));
-    }
-}
-
-impl Default for ChunkAnalysis {
-    fn default() -> Self {
-        Self {
-            chunk_index: 0,
-            errors_found: Vec::new(),
-            key_frames: Vec::new(),
-            database_issues: Vec::new(),
-            memory_warnings: Vec::new(),
-            patterns: Vec::new(),
-            relevance_score: 5,
-            summary: String::new(),
-        }
     }
 }

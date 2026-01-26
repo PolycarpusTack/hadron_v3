@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import logger from '../services/logger';
 
 interface StarRatingProps {
   analysisId: number;
@@ -37,7 +38,7 @@ export const StarRating: React.FC<StarRatingProps> = ({
       setSubmitted(true);
       onRatingChange?.(value);
     } catch (err) {
-      console.error('Failed to submit rating:', err);
+      logger.error('Failed to submit rating', { error: err });
       setError(err instanceof Error ? err.message : 'Failed to submit rating');
     } finally {
       setIsSubmitting(false);

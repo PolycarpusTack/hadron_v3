@@ -19,6 +19,7 @@ export interface JiraConfig {
 
 // JIRA Ticket data structure
 export interface JiraTicket {
+  projectKey: string;
   summary: string;
   description: string;
   priority: JiraPriority;
@@ -48,8 +49,16 @@ export interface JiraIssueType {
 export interface JiraProject {
   key: string;
   name: string;
-  issueTypes: JiraIssueType[];
+  issueTypes?: JiraIssueType[];
 }
+
+export interface JiraProjectInfo {
+  key: string;
+  name: string;
+}
+
+const PROJECTS_CACHE_KEY = "jira_projects_cache";
+const PROJECTS_CACHE_TS_KEY = "jira_projects_cache_ts";
 
 // Default configuration
 const DEFAULT_JIRA_CONFIG: JiraConfig = {
@@ -279,6 +288,66 @@ export async function testJiraConnection(): Promise<{ success: boolean; message:
 }
 
 /**
+ * List available JIRA projects (for autocomplete)
+ */
+export async function listJiraProjects(): Promise<JiraProjectInfo[]> {
+  try {
+    const config = await getJiraConfig();
+    const apiToken = await getApiKey("jira");
+
+    if (!config.baseUrl || !config.email || !apiToken) {
+      return [];
+    }
+
+    const result = await invoke<JiraProjectInfo[]>("list_jira_projects", {
+      baseUrl: config.baseUrl,
+      email: config.email,
+      apiToken,
+    });
+
+    const projects = result || [];
+    cacheJiraProjects(projects);
+    return projects;
+  } catch (error) {
+    logger.error("Failed to list JIRA projects", { error });
+    return [];
+  }
+}
+
+/**
+ * Cache project list locally for reuse
+ */
+export function cacheJiraProjects(projects: JiraProjectInfo[]): void {
+  try {
+    localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(projects));
+    localStorage.setItem(PROJECTS_CACHE_TS_KEY, new Date().toISOString());
+  } catch (error) {
+    logger.warn("Failed to cache JIRA projects", { error });
+  }
+}
+
+/**
+ * Get cached project list (if any)
+ */
+export function getCachedJiraProjects(): { projects: JiraProjectInfo[]; updatedAt: string | null } {
+  try {
+    const raw = localStorage.getItem(PROJECTS_CACHE_KEY);
+    const ts = localStorage.getItem(PROJECTS_CACHE_TS_KEY);
+    if (!raw) {
+      return { projects: [], updatedAt: ts };
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return { projects: [], updatedAt: ts };
+    }
+    return { projects: parsed as JiraProjectInfo[], updatedAt: ts };
+  } catch (error) {
+    logger.warn("Failed to read cached JIRA projects", { error });
+    return { projects: [], updatedAt: null };
+  }
+}
+
+/**
  * Create JIRA ticket from analysis
  */
 export async function createJiraTicket(ticket: JiraTicket): Promise<JiraCreateResponse> {
@@ -290,15 +359,19 @@ export async function createJiraTicket(ticket: JiraTicket): Promise<JiraCreateRe
       return { success: false, error: "JIRA integration is not enabled" };
     }
 
-    if (!config.baseUrl || !config.email || !apiToken || !config.projectKey) {
+    if (!config.baseUrl || !config.email || !apiToken) {
       return { success: false, error: "JIRA configuration is incomplete" };
+    }
+
+    if (!ticket.projectKey) {
+      return { success: false, error: "Project key is required" };
     }
 
     const result = await invoke<JiraCreateResponse>("create_jira_ticket", {
       baseUrl: config.baseUrl,
       email: config.email,
       apiToken: apiToken,
-      projectKey: config.projectKey,
+      projectKey: ticket.projectKey,
       issueType: config.issueType,
       ticket: {
         summary: ticket.summary,
@@ -330,5 +403,5 @@ export async function createJiraTicket(ticket: JiraTicket): Promise<JiraCreateRe
  */
 export async function isJiraEnabled(): Promise<boolean> {
   const config = await getJiraConfig();
-  return config.enabled && !!config.baseUrl && !!config.projectKey && !!config.email;
+  return config.enabled && !!config.baseUrl && !!config.email;
 }

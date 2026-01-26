@@ -23,8 +23,11 @@ import {
   formatAnalysisForJira,
   severityToJiraPriority,
   isJiraEnabled,
+  listJiraProjects,
+  getCachedJiraProjects,
   type JiraConfig,
   type JiraPriority,
+  type JiraProjectInfo,
 } from "../services/jira";
 
 interface JiraTicketModalProps {
@@ -45,10 +48,13 @@ export default function JiraTicketModal({
   const [success, setSuccess] = useState<{ ticketKey: string; ticketUrl: string } | null>(null);
 
   // Editable fields
+  const [projectKey, setProjectKey] = useState("");
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<JiraPriority>("Medium");
   const [labels, setLabels] = useState<string[]>([]);
+  const [projects, setProjects] = useState<JiraProjectInfo[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
 
   // Load config and initialize fields
   useEffect(() => {
@@ -61,6 +67,7 @@ export default function JiraTicketModal({
     setIsLoading(true);
     setError(null);
     setSuccess(null);
+    setProjectsLoading(true);
 
     try {
       const enabled = await isJiraEnabled();
@@ -70,8 +77,23 @@ export default function JiraTicketModal({
         return;
       }
 
+      const cached = getCachedJiraProjects();
+      if (cached.projects.length > 0) {
+        setProjects(cached.projects);
+      }
+
       const jiraConfig = await getJiraConfig();
       setConfig(jiraConfig);
+
+      const projectList = await listJiraProjects();
+      if (projectList.length > 0) {
+        setProjects(projectList);
+      }
+
+      const defaultProject =
+        jiraConfig.projectKey ||
+        (projectList.length === 1 ? projectList[0].key : "");
+      setProjectKey(defaultProject);
 
       // Initialize form fields from analysis
       setSummary(generateTicketSummary(analysis));
@@ -82,6 +104,7 @@ export default function JiraTicketModal({
       setError(err instanceof Error ? err.message : "Failed to load JIRA config");
     } finally {
       setIsLoading(false);
+      setProjectsLoading(false);
     }
   }
 
@@ -90,7 +113,14 @@ export default function JiraTicketModal({
     setError(null);
 
     try {
+      if (!projectKey.trim()) {
+        setError("Project key is required");
+        setIsCreating(false);
+        return;
+      }
+
       const result = await createJiraTicket({
+        projectKey: projectKey.trim().toUpperCase(),
         summary,
         description,
         priority,
@@ -126,6 +156,11 @@ export default function JiraTicketModal({
       }
     }
   };
+
+  const normalizedProjectKey = projectKey.trim().toUpperCase();
+  const knownProjectKeys = projects.map((project) => project.key.toUpperCase());
+  const hasProjectList = projects.length > 0;
+  const isUnknownProject = hasProjectList && normalizedProjectKey.length > 0 && !knownProjectKeys.includes(normalizedProjectKey);
 
   if (!isOpen) return null;
 
@@ -213,6 +248,38 @@ export default function JiraTicketModal({
                 </div>
               )}
 
+              {/* Project */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-2">
+                  Project Key
+                </label>
+                <input
+                  type="text"
+                  list="jira-projects"
+                  value={projectKey}
+                  onChange={(e) => setProjectKey(e.target.value.toUpperCase())}
+                  placeholder={projectsLoading ? "Loading projects..." : "Start typing a project key"}
+                  className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none uppercase"
+                />
+                <datalist id="jira-projects">
+                  {projects.map((project) => (
+                    <option key={project.key} value={project.key}>
+                      {project.name}
+                    </option>
+                  ))}
+                </datalist>
+                <p className="text-xs text-gray-400 mt-1">
+                  {projects.length > 0
+                    ? "Select a project from your JIRA workspace"
+                    : "Enter a project key (e.g., CRASH, BUG)"}
+                </p>
+                {isUnknownProject && (
+                  <p className="text-xs text-yellow-400 mt-1">
+                    This project key was not found in your JIRA workspace list.
+                  </p>
+                )}
+              </div>
+
               {/* Summary */}
               <div>
                 <label className="block text-sm font-semibold text-gray-300 mb-2">
@@ -296,7 +363,17 @@ export default function JiraTicketModal({
 
         {/* Footer */}
         {!isLoading && !success && config && (
-          <div className="p-4 border-t border-gray-700 flex justify-end gap-3">
+          <div className="p-4 border-t border-gray-700 flex items-center justify-between gap-3">
+            {!normalizedProjectKey && (
+              <p className="text-xs text-gray-500">
+                Select a project key to enable ticket creation.
+              </p>
+            )}
+            {normalizedProjectKey && !summary.trim() && (
+              <p className="text-xs text-gray-500">
+                Add a summary to enable ticket creation.
+              </p>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
@@ -305,7 +382,7 @@ export default function JiraTicketModal({
             </button>
             <button
               onClick={handleCreateTicket}
-              disabled={isCreating || !summary.trim()}
+              disabled={isCreating || !summary.trim() || !normalizedProjectKey}
               className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition font-semibold"
             >
               {isCreating ? (

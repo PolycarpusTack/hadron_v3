@@ -7,9 +7,11 @@ pub fn generate_html(data: &ReportData) -> String {
     let mut env = Environment::new();
 
     // Add the main template
-    env.add_template("report", HTML_TEMPLATE).unwrap();
+    env.add_template("report", HTML_TEMPLATE)
+        .expect("HTML_TEMPLATE is a valid constant template");
 
-    let template = env.get_template("report").unwrap();
+    let template = env.get_template("report")
+        .expect("template was just added above");
 
     let config = &data.config;
     let crash = &data.crash;

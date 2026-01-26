@@ -3,6 +3,8 @@
  * Phase 2.3 - Tracks and compares RAG vs baseline analysis performance
  */
 
+import logger from "./logger";
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -95,7 +97,7 @@ export function getABTestConfig(): ABTestConfig {
       return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
     }
   } catch (e) {
-    console.error("Failed to load A/B test config:", e);
+    logger.error("Failed to load A/B test config", { error: e });
   }
   return DEFAULT_CONFIG;
 }
@@ -109,7 +111,7 @@ export function setABTestConfig(config: Partial<ABTestConfig>): void {
     const updated = { ...current, ...config };
     localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(updated));
   } catch (e) {
-    console.error("Failed to save A/B test config:", e);
+    logger.error("Failed to save A/B test config", { error: e });
   }
 }
 
@@ -121,7 +123,7 @@ export function resetABTest(): void {
     localStorage.removeItem(STORAGE_KEYS.RESULTS);
     setABTestConfig({ testStartDate: new Date().toISOString() });
   } catch (e) {
-    console.error("Failed to reset A/B test:", e);
+    logger.error("Failed to reset A/B test", { error: e });
   }
 }
 
@@ -165,7 +167,7 @@ export function getABTestResults(): ABTestResult[] {
       return JSON.parse(stored);
     }
   } catch (e) {
-    console.error("Failed to load A/B test results:", e);
+    logger.error("Failed to load A/B test results", { error: e });
   }
   return [];
 }
@@ -185,7 +187,7 @@ export function recordABTestResult(result: Omit<ABTestResult, "timestamp">): voi
     const trimmed = results.slice(-1000);
     localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(trimmed));
   } catch (e) {
-    console.error("Failed to record A/B test result:", e);
+    logger.error("Failed to record A/B test result", { error: e });
   }
 }
 
@@ -205,7 +207,7 @@ export function updateABTestResult(
       localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(results));
     }
   } catch (e) {
-    console.error("Failed to update A/B test result:", e);
+    logger.error("Failed to update A/B test result", { error: e });
   }
 }
 
