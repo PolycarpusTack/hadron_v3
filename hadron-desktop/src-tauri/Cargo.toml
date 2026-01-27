@@ -1,6 +1,6 @@
 [package]
 name = "hadron-desktop"
-version = "1.1.0"
+version = "3.5.2"
 description = "Smalltalk Crash Analyzer - Desktop Application"
 authors = ["Hadron Team"]
 license = "MIT"
@@ -44,8 +44,14 @@ keeper-secrets-manager-core = "17.0"
 # Base64 encoding for JIRA Basic Auth
 base64 = "0.21"
 
+# URL encoding for JIRA JQL queries
+urlencoding = "2.1"
+
 # Hex encoding for signature hashes
 hex = "0.4"
+
+# Better mutex implementation (no poisoning, faster)
+parking_lot = "0.12"
 
 # Parser dependencies
 lazy_static = "1.4"

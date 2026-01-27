@@ -25,21 +25,22 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Check for modifier keys
       const isCtrl = event.ctrlKey || event.metaKey; // Support both Ctrl and Cmd (Mac)
+      const key = event.key.toLowerCase();
 
       // Ctrl+N - New Analysis
-      if (isCtrl && event.key === "n") {
+      if (isCtrl && (key === "n" || event.code === "KeyN")) {
         event.preventDefault();
         handlers.onNewAnalysis?.();
       }
 
       // Ctrl+H - View History
-      if (isCtrl && event.key === "h") {
+      if (isCtrl && (key === "h" || event.code === "KeyH")) {
         event.preventDefault();
         handlers.onViewHistory?.();
       }
 
       // Ctrl+, - Open Settings
-      if (isCtrl && event.key === ",") {
+      if (isCtrl && (event.key === "," || event.code === "Comma")) {
         event.preventDefault();
         handlers.onOpenSettings?.();
       }
@@ -50,7 +51,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       }
 
       // Ctrl+F - Focus search
-      if (isCtrl && event.key === "f") {
+      if (isCtrl && (key === "f" || event.code === "KeyF")) {
         // Only prevent default if we have a search handler
         if (handlers.onFocusSearch) {
           event.preventDefault();
@@ -59,16 +60,16 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       }
 
       // Ctrl+Y - Toggle console/log viewer
-      if (isCtrl && event.key === "y") {
+      if (isCtrl && (key === "y" || event.code === "KeyY")) {
         event.preventDefault();
         handlers.onToggleConsole?.();
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [handlers]);
 }

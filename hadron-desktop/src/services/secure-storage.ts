@@ -5,36 +5,31 @@
  * Alex Chen: "API keys in localStorage is a security incident waiting to happen"
  */
 
-import { Store } from '@tauri-apps/plugin-store';
+import { load, type Store } from '@tauri-apps/plugin-store';
 import logger from './logger';
 
 let store: Store | null = null;
 let storeInitPromise: Promise<Store> | null = null;
 
 /**
- * Get or create the encrypted store instance
+ * Get or create the store instance
  * Uses a promise-based mutex to prevent race conditions during initialization
  */
 async function getStore(): Promise<Store> {
-  // If store is already initialized, return it immediately
   if (store) {
     return store;
   }
 
-  // If initialization is in progress, wait for it
   if (storeInitPromise) {
     return storeInitPromise;
   }
 
-  // Start initialization and store the promise to prevent concurrent init
   storeInitPromise = (async () => {
     try {
-      // Store is automatically encrypted at rest by Tauri
-      const newStore = await Store.load('settings.json');
+      const newStore = await load('settings.json', { defaults: {} });
       store = newStore;
       return newStore;
     } catch (error) {
-      // Reset promise on error so retry is possible
       storeInitPromise = null;
       throw error;
     }

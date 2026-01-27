@@ -22,6 +22,7 @@ interface AnalysisListItemProps {
   onView: (id: number) => void;
   onDelete: (id: number, filename: string) => void;
   onToggleFavorite: (id: number) => void;
+  goldStatus?: string;
   // Selection mode props
   selectionMode?: boolean;
   isSelected?: boolean;
@@ -48,6 +49,7 @@ export const AnalysisListItem = memo(function AnalysisListItem({
   onView,
   onDelete,
   onToggleFavorite,
+  goldStatus,
   selectionMode = false,
   isSelected = false,
   onSelect,
@@ -107,6 +109,23 @@ export const AnalysisListItem = memo(function AnalysisListItem({
             >
               {analysis.severity.toUpperCase()}
             </span>
+            {goldStatus && (
+              <span
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                  goldStatus === "verified"
+                    ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/30"
+                    : goldStatus === "pending"
+                      ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/20"
+                      : "bg-gray-500/10 text-gray-400 border-gray-500/20"
+                }`}
+              >
+                {goldStatus === "verified"
+                  ? "GOLD"
+                  : goldStatus === "pending"
+                    ? "GOLD PENDING"
+                    : "GOLD REJECTED"}
+              </span>
+            )}
             <span
               className={`px-3 py-1 rounded-full text-xs font-semibold border ${
                 analysis.analysis_type === "whatson" || analysis.analysis_type === "comprehensive"

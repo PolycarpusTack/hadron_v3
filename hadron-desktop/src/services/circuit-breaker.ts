@@ -46,6 +46,8 @@ interface AnalysisRequest {
   keeper_secret_uid?: string;
   // Token-safe analysis mode: "quick" | "deep_scan" | "auto"
   analysis_mode?: string;
+  // RAG integration for context-enhanced analysis
+  use_rag?: boolean;
 }
 
 // Circuit breaker configuration
@@ -240,7 +242,8 @@ export async function analyzeWithResilience(
   model: string,
   preferredProvider: string,
   analysisType: string = "complete",
-  analysisMode: string = "auto"
+  analysisMode: string = "auto",
+  useRag: boolean = false
 ): Promise<AnalysisResponse> {
 
   // Build fallback chain: preferred → alternatives
@@ -312,6 +315,7 @@ export async function analyzeWithResilience(
         redact_pii: redactPii,
         keeper_secret_uid: keeperSecretUid || undefined,
         analysis_mode: analysisMode,
+        use_rag: useRag,
       };
 
       if (keeperSecretUid) {
@@ -335,8 +339,8 @@ export async function analyzeWithResilience(
 
       return result;
 
-    } catch (error: any) {
-      const errorMessage = error?.message || 'Unknown error';
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
       // Record failure
       recordFailure(provider);

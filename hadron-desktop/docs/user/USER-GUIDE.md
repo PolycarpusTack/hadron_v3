@@ -117,7 +117,7 @@ Paste your API key into the Settings panel and click **Save Settings**.
 
 ### Step 4: Analyze Your First Crash Log
 
-Drag & drop a crash log file onto the Hadron window. That's it!
+Use **Choose File** or **Paste Log Text** to start an analysis.
 
 ---
 
@@ -132,16 +132,16 @@ Drag & drop a crash log file onto the Hadron window. That's it!
 
 ### How to Analyze
 
-**Method 1: Drag & Drop** (Recommended)
-1. Drag a crash log file from your file explorer
-2. Drop it onto the Hadron window
-3. Wait 5-15 seconds for AI analysis
-4. View results
+**Method 1: Choose File**
+1. Click **Choose File**
+2. Select a crash log in the file picker
+3. Choose **Quick** or **Comprehensive**
+4. Wait for analysis
 
-**Method 2: File Picker**
-1. Click "Drop crash log here" area
-2. Select file in file picker dialog
-3. Wait for analysis
+**Method 2: Paste Log Text**
+1. Click **Paste Log Text**
+2. Paste the crash log content
+3. Click **Analyze Pasted Log**
 
 ### Understanding Results
 

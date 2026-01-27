@@ -18,6 +18,9 @@ import {
   bulkRemoveTagFromAnalyses,
   bulkSetFavoriteAnalyses,
   bulkSetFavoriteTranslations,
+  autoTagAnalyses,
+  countAnalysesWithoutTags,
+  getGoldAnalyses,
 } from "../services/api";
 import { useDebounce } from "../hooks/useDebounce";
 import logger from "../services/logger";
@@ -70,6 +73,10 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
   const [statistics, setStatistics] = useState<DatabaseStatistics | null>(null);
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const toast = useToast();
+  const [autoTagCount, setAutoTagCount] = useState<number | null>(null);
+  const [autoTagging, setAutoTagging] = useState(false);
+  const [tagRefreshKey, setTagRefreshKey] = useState(0);
+  const [goldStatusByAnalysisId, setGoldStatusByAnalysisId] = useState<Record<number, string>>({});
 
   // Selection mode state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -82,6 +89,25 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
   // Debounce search term for better performance
   const debouncedSearchTerm = useDebounce(filters.search, 300);
+
+  // Debounce filter changes to prevent excessive API calls
+  // Create a stable string representation for comparison
+  const filterKey = useMemo(() => JSON.stringify({
+    severities: filters.severities,
+    analysisTypes: filters.analysisTypes,
+    analysisModes: filters.analysisModes,
+    tags: filters.tags,
+    dateRange: filters.dateRange,
+    cost: filters.cost,
+    showArchived: filters.showArchived,
+    favoritesOnly: filters.favoritesOnly,
+    sortBy: filters.sortBy,
+    sortOrder: filters.sortOrder,
+  }), [filters.severities, filters.analysisTypes, filters.analysisModes,
+      filters.tags, filters.dateRange, filters.cost, filters.showArchived,
+      filters.favoritesOnly, filters.sortBy, filters.sortOrder]);
+
+  const debouncedFilterKey = useDebounce(filterKey, 300);
 
   // Persist filters to localStorage (excluding search)
   useEffect(() => {
@@ -111,11 +137,11 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
   }, [filters]);
 
   // Load data based on current tab and filters
+  // Uses debounced filter key to prevent excessive API calls when rapidly changing filters
   useEffect(() => {
     loadData();
-  }, [currentTab, debouncedSearchTerm, filters.severities, filters.analysisTypes,
-      filters.analysisModes, filters.tags, filters.dateRange, filters.cost,
-      filters.showArchived, filters.favoritesOnly, filters.sortBy, filters.sortOrder]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTab, debouncedSearchTerm, debouncedFilterKey]);
 
   const loadData = async () => {
     setLoading(true);
@@ -125,11 +151,39 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
       const stats = await getDatabaseStatistics();
       setStatistics(stats);
 
+      // Load auto-tag preview count
+      try {
+        const count = await countAnalysesWithoutTags();
+        setAutoTagCount(count);
+      } catch (countErr) {
+        logger.warn("Failed to load auto-tag count", { error: countErr });
+        setAutoTagCount(null);
+      }
+
+      // Load gold statuses
+      let goldStatusMap = goldStatusByAnalysisId;
+      try {
+        const goldAnalyses = await getGoldAnalyses();
+        const statusMap: Record<number, string> = {};
+        for (const gold of goldAnalyses) {
+          if (gold.sourceAnalysisId) {
+            statusMap[gold.sourceAnalysisId] = gold.validationStatus;
+          }
+        }
+        goldStatusMap = statusMap;
+        setGoldStatusByAnalysisId(statusMap);
+      } catch (goldErr) {
+        logger.warn("Failed to load gold statuses", { error: goldErr });
+      }
+
       // Load analyses if needed
       if (currentTab === "analyses" || currentTab === "all" || currentTab === "favorites") {
         // Use advanced filtering API
+        const goldOnly = filters.analysisTypes.includes("gold");
+        const analysisTypesForApi = filters.analysisTypes.filter((t) => t !== "gold");
         const filtersForApi = {
           ...filters,
+          analysisTypes: analysisTypesForApi,
           search: debouncedSearchTerm,
           favoritesOnly: currentTab === "favorites" ? true : filters.favoritesOnly,
         };
@@ -137,7 +191,10 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
         try {
           const result = await getAnalysesFiltered(apiOptions);
-          setAnalyses(result.items);
+          const filteredItems = goldOnly
+            ? result.items.filter((a) => goldStatusMap[a.id])
+            : result.items;
+          setAnalyses(filteredItems);
         } catch (filterErr) {
           // Fallback to basic search if advanced filter fails
           logger.warn("Advanced filter failed, falling back to basic search", { error: filterErr });
@@ -150,6 +207,9 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
           // Apply basic client-side filtering as fallback
           let filtered = data;
+          if (goldOnly) {
+            filtered = filtered.filter((a) => goldStatusMap[a.id]);
+          }
           if (filters.severities.length > 0) {
             filtered = filtered.filter((a) =>
               filters.severities.includes(a.severity.toLowerCase())
@@ -558,6 +618,34 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
     toast.success(`Exported ${selectedAnalysesList.length + selectedTranslationsList.length} item(s) to CSV`);
   }, [analyses, translations, selectedAnalysisIds, selectedTranslationIds, toast]);
 
+  const handleAutoTag = useCallback(async () => {
+    setAutoTagging(true);
+    try {
+      const result = await autoTagAnalyses(null);
+      toast.success(
+        `Auto-tagging complete: ${result.tagged} tagged, ${result.skipped} skipped, ${result.failed} failed`
+      );
+      setAutoTagCount(0);
+      setTagRefreshKey((prev) => prev + 1);
+      // Refresh tags list for filter UI
+      getAllTags().then(setAvailableTags).catch(() => undefined);
+    } catch (err) {
+      logger.error("Auto-tagging failed", { error: err instanceof Error ? err.message : String(err) });
+      toast.error("Auto-tagging failed");
+    } finally {
+      setAutoTagging(false);
+    }
+  }, [toast]);
+
+  const handleShowTaggedOnly = useCallback(() => {
+    if (availableTags.length === 0) return;
+    const tagIds = availableTags.map((t) => t.id);
+    setFilters((prev) => ({
+      ...prev,
+      tags: { ...prev.tags, tagIds, mode: "any" },
+    }));
+  }, [availableTags]);
+
   // Keyboard shortcuts for history view
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -643,8 +731,13 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <History className="w-6 h-6 text-blue-400" />
-          <h2 className="text-2xl font-bold">History</h2>
+          <span className="p-2 bg-amber-500/20 rounded-lg">
+            <History className="w-6 h-6 text-amber-400" />
+          </span>
+          <div>
+            <h2 className="text-2xl font-bold">History</h2>
+            <p className="text-sm text-gray-400">Browse and manage your analysis history</p>
+          </div>
         </div>
         <button
           onClick={toggleSelectionMode}
@@ -712,6 +805,35 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
       {/* Search and Filters */}
       <div className="space-y-3">
+        {autoTagCount !== null && autoTagCount > 0 && (
+          <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="font-semibold text-gray-200">
+                {autoTagCount} analysis{autoTagCount === 1 ? "" : "es"} without tags
+              </p>
+              <p className="text-sm text-gray-400">
+                Auto-tag your history with severity, type, and pattern-based tags.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleAutoTag}
+                disabled={autoTagging}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition text-sm"
+              >
+                {autoTagging ? "Tagging..." : "Auto-tag History"}
+              </button>
+              {availableTags.length > 0 && (
+                <button
+                  onClick={handleShowTaggedOnly}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition text-sm"
+                >
+                  Show Tagged Only
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <div className="flex gap-4">
           {/* Search */}
           <div className="flex-1 relative">
@@ -855,6 +977,16 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
               Quick
             </button>
             <button
+              onClick={() => toggleAnalysisType("gold")}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                filters.analysisTypes.includes("gold")
+                  ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/30"
+                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-yellow-500/30"
+              }`}
+            >
+              Gold Only
+            </button>
+            <button
               onClick={() => toggleAnalysisType("performance")}
               className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
                 filters.analysisTypes.includes("performance")
@@ -940,7 +1072,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
               items={analyses}
               initialCount={20}
               incrementCount={20}
-              keyExtractor={(analysis) => analysis.id}
+              keyExtractor={(analysis) => `${analysis.id}-${tagRefreshKey}`}
               renderItem={(analysis) => (
                 <AnalysisListItem
                   analysis={analysis}
@@ -950,6 +1082,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
                   selectionMode={selectionMode}
                   isSelected={selectedAnalysisIds.has(analysis.id)}
                   onSelect={handleSelectAnalysis}
+                  goldStatus={goldStatusByAnalysisId[analysis.id]}
                 />
               )}
             />

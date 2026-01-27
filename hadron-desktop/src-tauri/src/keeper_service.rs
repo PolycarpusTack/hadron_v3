@@ -15,9 +15,9 @@ use keeper_secrets_manager_core::{
     storage::FileKeyValueStorage,
 };
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::time::Instant;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -207,14 +207,9 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
         })
         .collect();
 
-    match SECRETS_CACHE.lock() {
-        Ok(mut cache) => {
-            *cache = Some(SecretsCache::new(cached));
-        }
-        Err(e) => {
-            log::error!("Failed to acquire cache lock during initialization: {}", e);
-        }
-    }
+    // parking_lot::Mutex never poisons - direct lock acquisition
+    let mut cache = SECRETS_CACHE.lock();
+    *cache = Some(SecretsCache::new(cached));
 
     log::info!(
         "Keeper initialized successfully, found {} secrets",
@@ -269,14 +264,9 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
         })
         .collect();
 
-    match SECRETS_CACHE.lock() {
-        Ok(mut cache) => {
-            *cache = Some(SecretsCache::new(cached));
-        }
-        Err(e) => {
-            log::error!("Failed to acquire cache lock while listing secrets: {}", e);
-        }
-    }
+    // parking_lot::Mutex never poisons - direct lock acquisition
+    let mut cache = SECRETS_CACHE.lock();
+    *cache = Some(SecretsCache::new(cached));
 
     // Return only metadata, not values
     let secret_infos: Vec<KeeperSecretInfo> = secrets
@@ -300,30 +290,23 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
 /// SECURITY: Returns Zeroizing<String> to ensure key is cleared from memory after use
 pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, String> {
     // First try the cache (if not expired)
-    match SECRETS_CACHE.lock() {
-        Ok(cache) => {
-            if let Some(ref secrets_cache) = *cache {
-                if !secrets_cache.is_expired() {
-                    if let Some(secret) = secrets_cache.secrets.iter().find(|s| s.uid == secret_uid)
-                    {
-                        if let Some(ref password) = secret.password {
-                            log::debug!(
-                                "Retrieved API key from cache for secret: {}",
-                                secret.title
-                            );
-                            return Ok(Zeroizing::new(password.clone()));
-                        }
+    // parking_lot::Mutex never poisons - direct lock acquisition
+    {
+        let cache = SECRETS_CACHE.lock();
+        if let Some(ref secrets_cache) = *cache {
+            if !secrets_cache.is_expired() {
+                if let Some(secret) = secrets_cache.secrets.iter().find(|s| s.uid == secret_uid) {
+                    if let Some(ref password) = secret.password {
+                        log::debug!(
+                            "Retrieved API key from cache for secret: {}",
+                            secret.title
+                        );
+                        return Ok(Zeroizing::new(password.clone()));
                     }
-                } else {
-                    log::debug!("Cache expired, fetching fresh secrets from Keeper");
                 }
+            } else {
+                log::debug!("Cache expired, fetching fresh secrets from Keeper");
             }
-        }
-        Err(e) => {
-            log::warn!(
-                "Failed to acquire cache lock, falling back to Keeper fetch: {}",
-                e
-            );
         }
     }
 
@@ -403,15 +386,9 @@ pub fn clear_keeper_config() -> Result<(), String> {
         log::info!("Keeper configuration file removed");
     }
 
-    // Clear cache
-    match SECRETS_CACHE.lock() {
-        Ok(mut cache) => {
-            *cache = None;
-        }
-        Err(e) => {
-            log::error!("Failed to acquire cache lock while clearing config: {}", e);
-        }
-    }
+    // Clear cache - parking_lot::Mutex never poisons
+    let mut cache = SECRETS_CACHE.lock();
+    *cache = None;
 
     log::info!("Keeper configuration cleared");
     Ok(())
@@ -427,7 +404,7 @@ mod tests {
         // In a real test, we'd use a temp directory
         let status = get_keeper_status();
         // Status depends on whether config exists
-        assert!(status.message.len() > 0);
+        assert!(!status.message.is_empty());
     }
 
     #[test]

@@ -9,7 +9,8 @@ import { analyzeWithResilience } from "./circuit-breaker";
 import { getApiKey, storeApiKey as storeApiKeySecure } from "./secure-storage";
 import { getBooleanSetting } from "../utils/config";
 import { apiCache, CacheKeys, CacheTTL } from "./cache";
-import type { AnalysisNote, TrendDataPoint, ErrorPatternCount } from "../types";
+import logger from "./logger";
+import type { AnalysisNote, TrendDataPoint, ErrorPatternCount, GoldAnalysis } from "../types";
 
 export interface AnalysisRequest {
   file_path: string;
@@ -20,6 +21,9 @@ export interface AnalysisRequest {
   redact_pii?: boolean;
   // Token-safe analysis mode
   analysis_mode?: AnalysisMode;
+  // RAG-enhanced analysis (Phase 2.3)
+  // When true, retrieves similar historical cases to improve analysis quality
+  use_rag?: boolean;
 }
 
 export interface AnalysisResponse {
@@ -124,10 +128,11 @@ export async function analyzeCrashLog(
   model: string = "gpt-4-turbo-preview",
   provider: string = "openai",
   analysisType: string = "complete",
-  analysisMode: AnalysisMode = "auto"
+  analysisMode: AnalysisMode = "auto",
+  useRag: boolean = false
 ): Promise<AnalysisResponse> {
   // Use circuit breaker with automatic failover and token-safe analysis
-  return await analyzeWithResilience(filePath, apiKey, model, provider, analysisType, analysisMode);
+  return await analyzeWithResilience(filePath, apiKey, model, provider, analysisType, analysisMode, useRag);
 }
 
 /**
@@ -222,7 +227,7 @@ export async function getAnalysesCount(): Promise<number> {
   try {
     return await invoke<number>("get_analyses_count");
   } catch (error) {
-    console.error("Failed to get analyses count:", error);
+    logger.error("Failed to get analyses count", { error });
     return 0;  // Return safe default
   }
 }
@@ -244,7 +249,7 @@ export async function getAnalysisById(id: number): Promise<Analysis> {
   try {
     return await invoke<Analysis>("get_analysis_by_id", { id });
   } catch (error) {
-    console.error(`Failed to get analysis ${id}:`, error);
+    logger.error(`Failed to get analysis ${id}`, { error });
     throw new Error(`Analysis not found or database error: ${error}`);
   }
 }
@@ -268,7 +273,7 @@ export async function exportAnalysis(id: number): Promise<string> {
   try {
     return await invoke<string>("export_analysis", { id });
   } catch (error) {
-    console.error(`Failed to export analysis ${id}:`, error);
+    logger.error(`Failed to export analysis ${id}`, { error });
     throw new Error(`Failed to export analysis: ${error}`);
   }
 }
@@ -307,7 +312,7 @@ export async function searchAnalyses(
       severityFilter: severityFilter || null,
     });
   } catch (error) {
-    console.error("Search failed:", error);
+    logger.error("Search failed", { error });
     return [];  // Return empty array on error for graceful degradation
   }
 }
@@ -686,6 +691,32 @@ export async function getAllTags(): Promise<Tag[]> {
   );
 }
 
+export interface AutoTagSummary {
+  scanned: number;
+  tagged: number;
+  skipped: number;
+  failed: number;
+}
+
+/**
+ * Count analyses without any tags (for auto-tag preview)
+ */
+export async function countAnalysesWithoutTags(): Promise<number> {
+  return invoke<number>("count_analyses_without_tags");
+}
+
+/**
+ * Auto-tag analyses using deterministic rules
+ * @param limit - Optional max number of analyses to process
+ */
+export async function autoTagAnalyses(limit?: number | null): Promise<AutoTagSummary> {
+  const result = await invoke<AutoTagSummary>("auto_tag_analyses", { limit: limit ?? null });
+  // Invalidate tag and analyses caches to reflect new tags
+  apiCache.invalidate(CacheKeys.ALL_TAGS);
+  apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
+  return result;
+}
+
 /**
  * Add a tag to an analysis
  * @param analysisId - Analysis ID
@@ -1013,4 +1044,40 @@ export async function getTrendData(period: string, rangeDays: number): Promise<T
  */
 export async function getTopErrorPatterns(limit?: number): Promise<ErrorPatternCount[]> {
   return await invoke<ErrorPatternCount[]>("get_top_error_patterns", { limit });
+}
+
+// ============================================================================
+// Fine-Tuning Export (Phase 1.4)
+// ============================================================================
+
+/**
+ * Result of fine-tuning export operation
+ */
+export interface FineTuneExportResult {
+  totalExported: number;
+  jsonlContent: string;
+  format: string;
+}
+
+/**
+ * Export verified gold analyses as JSONL for OpenAI fine-tuning
+ * @returns Export result with JSONL content
+ */
+export async function exportGoldJsonl(): Promise<FineTuneExportResult> {
+  return await invoke<FineTuneExportResult>("export_gold_jsonl");
+}
+
+/**
+ * Count verified gold analyses available for export
+ * @returns Number of verified gold analyses
+ */
+export async function countGoldForExport(): Promise<number> {
+  return await invoke<number>("count_gold_for_export");
+}
+
+/**
+ * Get all gold analyses (any status)
+ */
+export async function getGoldAnalyses(): Promise<GoldAnalysis[]> {
+  return invoke<GoldAnalysis[]>("get_gold_analyses");
 }

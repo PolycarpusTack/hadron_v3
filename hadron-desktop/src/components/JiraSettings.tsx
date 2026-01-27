@@ -21,6 +21,8 @@ import {
   saveJiraConfig,
   testJiraConnection,
   clearJiraConfigCache,
+  listJiraProjects,
+  getCachedJiraProjects,
   type JiraConfig,
 } from "../services/jira";
 import { storeApiKey, getApiKey, deleteApiKey } from "../services/secure-storage";
@@ -49,6 +51,9 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState("");
+  const [projects, setProjects] = useState<Array<{ key: string; name: string }>>([]);
+  const [projectsUpdatedAt, setProjectsUpdatedAt] = useState<string | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(false);
 
   // Track timeouts for cleanup
   const timeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
@@ -85,10 +90,28 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
       if (token) {
         setApiToken(token);
       }
+
+      const cached = getCachedJiraProjects();
+      setProjects(cached.projects);
+      setProjectsUpdatedAt(cached.updatedAt);
     } catch (error) {
       logger.error("Failed to load JIRA config", { error });
     }
   }
+
+  const handleRefreshProjects = async () => {
+    setProjectsLoading(true);
+    try {
+      const fetched = await listJiraProjects();
+      setProjects(fetched);
+      const cached = getCachedJiraProjects();
+      setProjectsUpdatedAt(cached.updatedAt);
+    } catch (error) {
+      logger.error("Failed to refresh JIRA projects", { error });
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -99,11 +122,6 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
       if (config.enabled) {
         if (!config.baseUrl) {
           setSaveMessage("JIRA URL is required");
-          setIsSaving(false);
-          return;
-        }
-        if (!config.projectKey) {
-          setSaveMessage("Project Key is required");
           setIsSaving(false);
           return;
         }
@@ -157,6 +175,10 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
 
       const result = await testJiraConnection();
       setTestResult(result);
+
+      if (result.success) {
+        await handleRefreshProjects();
+      }
 
       if (result.success) {
         safeTimeout(() => setTestResult(null), 5000);
@@ -242,13 +264,14 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
             </p>
           </div>
 
-          {/* Project Key */}
+          {/* Default Project Key (Optional) */}
           <div>
             <label className="block text-xs font-semibold text-gray-400 mb-2">
-              Project Key
+              Default Project Key (Optional)
             </label>
             <input
               type="text"
+              list="jira-projects-settings"
               value={config.projectKey}
               onChange={(e) =>
                 setConfig({ ...config, projectKey: e.target.value.toUpperCase() })
@@ -256,9 +279,31 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
               placeholder="CRASH"
               className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500 uppercase"
             />
+            <datalist id="jira-projects-settings">
+              {projects.map((project) => (
+                <option key={project.key} value={project.key}>
+                  {project.name}
+                </option>
+              ))}
+            </datalist>
             <p className="text-xs text-gray-500 mt-1">
-              The project key where tickets will be created (e.g., CRASH, BUG)
+              Leave empty to select a project when creating a ticket
             </p>
+            <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+              <span>
+                Projects cached: {projects.length}
+                {projectsUpdatedAt ? ` • Updated ${new Date(projectsUpdatedAt).toLocaleString()}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={handleRefreshProjects}
+                disabled={projectsLoading}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-600 hover:border-gray-500 text-gray-300 hover:text-white transition disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${projectsLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            </div>
           </div>
 
           {/* Email */}

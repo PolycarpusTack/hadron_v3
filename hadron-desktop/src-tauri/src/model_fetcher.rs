@@ -274,15 +274,11 @@ async fn list_zai_models(client: &Client, api_key: &str) -> Result<Vec<Model>, S
         .send()
         .await;
 
-    // If API call fails, return fallback list
-    if response.is_err() {
-        return Ok(get_zai_fallback_models());
-    }
-
-    let response = response.unwrap();
-    if !response.status().is_success() {
-        return Ok(get_zai_fallback_models());
-    }
+    // If API call fails or returns error status, use fallback list
+    let response = match response {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Ok(get_zai_fallback_models()),
+    };
 
     // Try to parse as OpenAI-compatible response
     #[derive(Deserialize)]

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { APP_VERSION } from "../constants/version";
 
 interface SplashscreenProps {
   onComplete: () => void;
@@ -69,7 +70,7 @@ export default function Splashscreen({
 
       {/* Version */}
       <div className="absolute bottom-6 text-gray-600 text-xs">
-        v1.1.0
+        v{APP_VERSION}
       </div>
     </div>
   );

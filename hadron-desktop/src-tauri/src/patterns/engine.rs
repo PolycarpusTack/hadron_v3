@@ -72,8 +72,8 @@ impl PatternEngine {
             }
         }
 
-        // Sort by confidence descending
-        results.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+        // Sort by confidence descending (use total_cmp for safe f64 comparison)
+        results.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
 
         results
     }

@@ -1,7 +1,7 @@
-use rusqlite::{params, Connection, Result};
+use parking_lot::Mutex;
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use crate::migrations;
 
@@ -56,6 +56,23 @@ pub struct Tag {
     pub created_at: String,
 }
 
+/// JIRA ticket link for an analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraLink {
+    pub id: i64,
+    pub analysis_id: i64,
+    pub jira_key: String,
+    pub jira_url: Option<String>,
+    pub jira_summary: Option<String>,
+    pub jira_status: Option<String>,
+    pub jira_priority: Option<String>,
+    pub link_type: String,
+    pub linked_at: String,
+    pub linked_by: Option<String>,
+    pub notes: Option<String>,
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
 }
@@ -63,20 +80,17 @@ pub struct Database {
 impl Drop for Database {
     fn drop(&mut self) {
         // Checkpoint WAL on cleanup to truncate the WAL file
-        if let Ok(conn) = self.conn.lock() {
-            let _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", []);
-        }
+        // parking_lot::Mutex never poisons - direct lock acquisition
+        let conn = self.conn.lock();
+        let _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", []);
     }
 }
 
 impl Database {
-    /// Helper method to acquire lock with proper error handling
-    fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
-        self.conn.lock().map_err(|e| {
-            rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(
-                format!("Database mutex poisoned: {}", e),
-            )))
-        })
+    /// Helper method to acquire lock
+    /// parking_lot::Mutex never poisons, so this always succeeds
+    fn lock_conn(&self) -> parking_lot::MutexGuard<'_, Connection> {
+        self.conn.lock()
     }
 
     pub fn new() -> Result<Self> {
@@ -105,7 +119,7 @@ impl Database {
 
     /// Get current schema version
     pub fn get_schema_version(&self) -> Result<i32> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         migrations::get_current_version(&conn)
     }
 
@@ -118,7 +132,7 @@ impl Database {
     }
 
     pub fn insert_analysis(&self, analysis: &Analysis) -> Result<i64> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute(
             "INSERT INTO analyses (
@@ -174,7 +188,7 @@ impl Database {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<Analysis>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // SECURITY: Enforce bounds on pagination parameters
         const MAX_PAGE_SIZE: i64 = 1000;
@@ -231,7 +245,7 @@ impl Database {
 
     /// Get total count of analyses (for pagination UI)
     pub fn get_analyses_count(&self) -> Result<i64> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.query_row(
             "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL",
             [],
@@ -240,7 +254,7 @@ impl Database {
     }
 
     pub fn get_analysis_by_id(&self, id: i64) -> Result<Analysis> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // Update view tracking
         conn.execute(
@@ -287,7 +301,7 @@ impl Database {
     }
 
     pub fn delete_analysis(&self, id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         // Soft delete
         conn.execute(
             "UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?1",
@@ -302,7 +316,7 @@ impl Database {
         query: &str,
         severity_filter: Option<&str>,
     ) -> Result<Vec<Analysis>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let sql = if severity_filter.is_some() {
             "SELECT a.id, a.filename, a.file_size_kb, a.error_type, a.error_message, a.severity, a.component, a.stack_trace,
@@ -376,7 +390,7 @@ impl Database {
 
     // Toggle favorite status
     pub fn toggle_favorite(&self, id: i64) -> Result<bool> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let current: i32 = conn.query_row(
             "SELECT is_favorite FROM analyses WHERE id = ?1",
@@ -395,7 +409,7 @@ impl Database {
 
     // Get favorite analyses
     pub fn get_favorites(&self) -> Result<Vec<Analysis>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let mut stmt = conn.prepare(
             "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
@@ -416,7 +430,7 @@ impl Database {
 
     // Get recently viewed analyses
     pub fn get_recent(&self, limit: i64) -> Result<Vec<Analysis>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let mut stmt = conn.prepare(
             "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
@@ -438,7 +452,7 @@ impl Database {
 
     // Database statistics
     pub fn get_statistics(&self) -> Result<serde_json::Value> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let total_count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL",
@@ -466,7 +480,7 @@ impl Database {
 
     // Optimize FTS index
     pub fn optimize_fts(&self) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO analyses_fts(analyses_fts) VALUES('optimize')",
             [],
@@ -476,21 +490,21 @@ impl Database {
 
     // Run integrity check
     pub fn integrity_check(&self) -> Result<bool> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         let result: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
         Ok(result == "ok")
     }
 
     // Compact database (VACUUM)
     pub fn compact(&self) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute("VACUUM", [])?;
         Ok(())
     }
 
     // Checkpoint WAL to reduce file size and improve performance
     pub fn checkpoint_wal(&self) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         // TRUNCATE mode checkpoints and truncates the WAL file
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", [])?;
         Ok(())
@@ -498,7 +512,7 @@ impl Database {
 
     // Translation methods
     pub fn insert_translation(&self, translation: &Translation) -> Result<i64> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute(
             "INSERT INTO translations (
@@ -531,7 +545,7 @@ impl Database {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<Translation>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // SECURITY: Enforce bounds on pagination parameters
         const MAX_PAGE_SIZE: i64 = 1000;
@@ -570,7 +584,7 @@ impl Database {
 
     /// Get total count of translations (for pagination UI)
     pub fn get_translations_count(&self) -> Result<i64> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.query_row(
             "SELECT COUNT(*) FROM translations WHERE deleted_at IS NULL",
             [],
@@ -579,7 +593,7 @@ impl Database {
     }
 
     pub fn get_translation_by_id(&self, id: i64) -> Result<Translation> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.query_row(
             "SELECT id, input_content, translation, translated_at, ai_model, ai_provider,
@@ -604,7 +618,7 @@ impl Database {
     }
 
     pub fn delete_translation(&self, id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute(
             "UPDATE translations SET deleted_at = datetime('now') WHERE id = ?1",
             params![id],
@@ -613,7 +627,7 @@ impl Database {
     }
 
     pub fn toggle_translation_favorite(&self, id: i64) -> Result<bool> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let is_favorite: i32 = conn.query_row(
             "SELECT is_favorite FROM translations WHERE id = ?1",
@@ -637,7 +651,7 @@ impl Database {
 
     /// Upsert a crash signature
     pub fn upsert_signature(&self, signature: &crate::signature::CrashSignature) -> Result<bool> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         crate::signature::upsert_signature(&conn, signature)
     }
 
@@ -646,13 +660,13 @@ impl Database {
         &self,
         hash: &str,
     ) -> Result<Option<crate::signature::CrashSignature>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         crate::signature::find_signature_by_hash(&conn, hash)
     }
 
     /// Link an analysis to a signature
     pub fn link_analysis_to_signature(&self, analysis_id: i64, signature_hash: &str) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         crate::signature::link_analysis_to_signature(&conn, analysis_id, signature_hash)
     }
 
@@ -661,7 +675,7 @@ impl Database {
         &self,
         hash: &str,
     ) -> Result<Vec<crate::signature::CrashFileSummary>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         crate::signature::get_analyses_for_signature(&conn, hash)
     }
 
@@ -671,7 +685,7 @@ impl Database {
         limit: usize,
         status_filter: Option<&str>,
     ) -> Result<Vec<crate::signature::CrashSignature>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         crate::signature::get_top_signatures(&conn, limit, status_filter)
     }
 
@@ -682,7 +696,7 @@ impl Database {
         status: &str,
         metadata: Option<&str>,
     ) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         crate::signature::update_signature_status(&conn, hash, status, metadata)
     }
 
@@ -693,7 +707,7 @@ impl Database {
         ticket_id: &str,
         ticket_url: Option<&str>,
     ) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         crate::signature::link_ticket_to_signature(&conn, hash, ticket_id, ticket_url)
     }
 
@@ -703,7 +717,7 @@ impl Database {
 
     /// Create a new tag
     pub fn create_tag(&self, name: &str, color: &str) -> Result<Tag> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute(
             "INSERT INTO tags (name, color) VALUES (?1, ?2)",
@@ -729,7 +743,7 @@ impl Database {
 
     /// Update an existing tag
     pub fn update_tag(&self, id: i64, name: Option<&str>, color: Option<&str>) -> Result<Tag> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // Build dynamic UPDATE query based on which fields are provided
         if let Some(n) = name {
@@ -756,14 +770,14 @@ impl Database {
 
     /// Delete a tag (cascade removes from all analysis_tags and translation_tags)
     pub fn delete_tag(&self, id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute("DELETE FROM tags WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     /// Get all tags ordered by usage count (most used first)
     pub fn get_all_tags(&self) -> Result<Vec<Tag>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let mut stmt = conn.prepare(
             "SELECT id, name, color, usage_count, created_at FROM tags ORDER BY usage_count DESC, name ASC"
@@ -784,9 +798,25 @@ impl Database {
         Ok(tags)
     }
 
+    /// Get or create a tag ID by name (case-insensitive)
+    pub fn get_or_create_tag_id(&self, name: &str, color: &str) -> Result<i64> {
+        let conn = self.lock_conn();
+
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (name, color) VALUES (?1, ?2)",
+            params![name, color],
+        )?;
+
+        conn.query_row(
+            "SELECT id FROM tags WHERE LOWER(name) = LOWER(?1) LIMIT 1",
+            params![name],
+            |row| row.get(0),
+        )
+    }
+
     /// Add a tag to an analysis
     pub fn add_tag_to_analysis(&self, analysis_id: i64, tag_id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // Insert into junction table (IGNORE if already exists)
         conn.execute(
@@ -807,7 +837,7 @@ impl Database {
 
     /// Remove a tag from an analysis
     pub fn remove_tag_from_analysis(&self, analysis_id: i64, tag_id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute(
             "DELETE FROM analysis_tags WHERE analysis_id = ?1 AND tag_id = ?2",
@@ -827,7 +857,7 @@ impl Database {
 
     /// Get all tags for a specific analysis
     pub fn get_tags_for_analysis(&self, analysis_id: i64) -> Result<Vec<Tag>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let mut stmt = conn.prepare(
             "SELECT t.id, t.name, t.color, t.usage_count, t.created_at
@@ -852,9 +882,34 @@ impl Database {
         Ok(tags)
     }
 
+    /// Check if an analysis has any tags
+    pub fn analysis_has_tags(&self, analysis_id: i64) -> Result<bool> {
+        let conn = self.lock_conn();
+        let exists: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM analysis_tags WHERE analysis_id = ?1 LIMIT 1",
+                params![analysis_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(exists.is_some())
+    }
+
+    /// Count analyses that do not have any tags
+    pub fn count_analyses_without_tags(&self) -> Result<i64> {
+        let conn = self.lock_conn();
+        conn.query_row(
+            "SELECT COUNT(*) FROM analyses a
+             WHERE a.deleted_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM analysis_tags at WHERE at.analysis_id = a.id)",
+            [],
+            |row| row.get(0),
+        )
+    }
+
     /// Add a tag to a translation
     pub fn add_tag_to_translation(&self, translation_id: i64, tag_id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute(
             "INSERT OR IGNORE INTO translation_tags (translation_id, tag_id) VALUES (?1, ?2)",
@@ -873,7 +928,7 @@ impl Database {
 
     /// Remove a tag from a translation
     pub fn remove_tag_from_translation(&self, translation_id: i64, tag_id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute(
             "DELETE FROM translation_tags WHERE translation_id = ?1 AND tag_id = ?2",
@@ -892,7 +947,7 @@ impl Database {
 
     /// Get all tags for a specific translation
     pub fn get_tags_for_translation(&self, translation_id: i64) -> Result<Vec<Tag>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let mut stmt = conn.prepare(
             "SELECT t.id, t.name, t.color, t.usage_count, t.created_at
@@ -926,7 +981,7 @@ impl Database {
         &self,
         options: &crate::commands::AdvancedFilterOptions,
     ) -> Result<crate::commands::FilteredResults<Analysis>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // Build dynamic WHERE clause
         let mut conditions: Vec<String> = Vec::new();
@@ -1164,7 +1219,7 @@ impl Database {
             return Ok(0);
         }
 
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // Use a transaction for atomicity
         conn.execute("BEGIN TRANSACTION", [])?;
@@ -1190,7 +1245,7 @@ impl Database {
             return Ok(0);
         }
 
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute("BEGIN TRANSACTION", [])?;
 
@@ -1216,7 +1271,7 @@ impl Database {
             return Ok(0);
         }
 
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute("BEGIN TRANSACTION", [])?;
 
@@ -1259,7 +1314,7 @@ impl Database {
             return Ok(0);
         }
 
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute("BEGIN TRANSACTION", [])?;
 
@@ -1301,7 +1356,7 @@ impl Database {
             return Ok(0);
         }
 
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute("BEGIN TRANSACTION", [])?;
 
@@ -1333,7 +1388,7 @@ impl Database {
             return Ok(0);
         }
 
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         conn.execute("BEGIN TRANSACTION", [])?;
 
@@ -1361,7 +1416,7 @@ impl Database {
 
     /// Archive an analysis (soft delete - sets deleted_at timestamp)
     pub fn archive_analysis(&self, id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute(
             "UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
@@ -1371,7 +1426,7 @@ impl Database {
 
     /// Restore an archived analysis (clears deleted_at timestamp)
     pub fn restore_analysis(&self, id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute(
             "UPDATE analyses SET deleted_at = NULL WHERE id = ?1 AND deleted_at IS NOT NULL",
             params![id],
@@ -1381,7 +1436,7 @@ impl Database {
 
     /// Get all archived analyses
     pub fn get_archived_analyses(&self) -> Result<Vec<Analysis>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT id, filename, file_size_kb, error_type, error_message, severity,
                     component, stack_trace, root_cause, suggested_fixes, confidence,
@@ -1426,14 +1481,14 @@ impl Database {
 
     /// Permanently delete an analysis (from archive)
     pub fn permanently_delete_analysis(&self, id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute("DELETE FROM analyses WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     /// Archive a translation (soft delete)
     pub fn archive_translation(&self, id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute(
             "UPDATE translations SET deleted_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
@@ -1443,7 +1498,7 @@ impl Database {
 
     /// Restore an archived translation
     pub fn restore_translation(&self, id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute(
             "UPDATE translations SET deleted_at = NULL WHERE id = ?1 AND deleted_at IS NOT NULL",
             params![id],
@@ -1457,7 +1512,7 @@ impl Database {
             return Ok(0);
         }
 
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute("BEGIN TRANSACTION", [])?;
 
         let mut archived = 0;
@@ -1484,7 +1539,7 @@ impl Database {
 
     /// Add a note to an analysis
     pub fn add_note(&self, analysis_id: i64, content: &str) -> Result<AnalysisNote> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO analysis_notes (analysis_id, content) VALUES (?1, ?2)",
             params![analysis_id, content],
@@ -1510,7 +1565,7 @@ impl Database {
 
     /// Update a note
     pub fn update_note(&self, id: i64, content: &str) -> Result<AnalysisNote> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute(
             "UPDATE analysis_notes SET content = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![content, id],
@@ -1535,14 +1590,14 @@ impl Database {
 
     /// Delete a note
     pub fn delete_note(&self, id: i64) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         conn.execute("DELETE FROM analysis_notes WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     /// Get all notes for an analysis
     pub fn get_notes_for_analysis(&self, analysis_id: i64) -> Result<Vec<AnalysisNote>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT id, analysis_id, content, created_at, updated_at
              FROM analysis_notes
@@ -1565,7 +1620,7 @@ impl Database {
 
     /// Check if an analysis has notes
     pub fn analysis_has_notes(&self, analysis_id: i64) -> Result<bool> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         let count: i32 = conn.query_row(
             "SELECT COUNT(*) FROM analysis_notes WHERE analysis_id = ?1",
             params![analysis_id],
@@ -1576,7 +1631,7 @@ impl Database {
 
     /// Get note count for an analysis
     pub fn get_note_count(&self, analysis_id: i64) -> Result<i32> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
         let count: i32 = conn.query_row(
             "SELECT COUNT(*) FROM analysis_notes WHERE analysis_id = ?1",
             params![analysis_id],
@@ -1597,6 +1652,81 @@ pub struct AnalysisNote {
     pub updated_at: Option<String>,
 }
 
+// ============================================================================
+// Intelligence Platform Types (Phase 1-2)
+// ============================================================================
+
+/// Feedback record for analysis quality tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisFeedback {
+    pub id: i64,
+    pub analysis_id: i64,
+    pub feedback_type: String, // "accept", "reject", "edit", "rating"
+    pub field_name: Option<String>,
+    pub original_value: Option<String>,
+    pub new_value: Option<String>,
+    pub rating: Option<i32>,
+    pub feedback_at: String,
+}
+
+/// Gold analysis - curated, verified analysis for RAG retrieval
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoldAnalysis {
+    pub id: i64,
+    pub source_analysis_id: Option<i64>,
+    pub source_type: String,
+    pub error_signature: String,
+    pub crash_content_hash: Option<String>,
+    pub root_cause: String,
+    pub suggested_fixes: String,
+    pub component: Option<String>,
+    pub severity: Option<String>,
+    pub validation_status: String,
+    pub created_at: String,
+    pub verified_by: Option<String>,
+    pub times_referenced: i32,
+    pub success_rate: Option<f64>,
+}
+
+/// Gold analysis with source data for fine-tuning export
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoldAnalysisExport {
+    pub id: i64,
+    pub source_analysis_id: Option<i64>,
+    pub source_type: String,
+    pub error_signature: String,
+    pub root_cause: String,
+    pub suggested_fixes: String,
+    pub component: Option<String>,
+    pub severity: Option<String>,
+    pub validation_status: String,
+    pub created_at: String,
+    pub verified_by: Option<String>,
+    // Source analysis data for context
+    pub source_full_data: Option<String>,
+    pub source_error_type: Option<String>,
+    pub source_error_message: Option<String>,
+    pub source_stack_trace: Option<String>,
+}
+
+/// Retrieval chunk for RAG system
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalChunk {
+    pub id: i64,
+    pub source_type: String,
+    pub source_id: i64,
+    pub chunk_index: i32,
+    pub content: String,
+    pub embedding: Option<Vec<u8>>,
+    pub embedding_model: Option<String>,
+    pub metadata_json: Option<String>,
+    pub created_at: String,
+}
+
 impl Database {
     // =========================================================================
     // Similar Crash Detection
@@ -1604,7 +1734,7 @@ impl Database {
 
     /// Get similar analyses based on error signature
     pub fn get_similar_analyses(&self, analysis_id: i64, limit: i32) -> Result<Vec<Analysis>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // First get the error signature of the target analysis
         let signature: Option<String> = conn
@@ -1682,7 +1812,7 @@ impl Database {
 
     /// Count similar analyses for an analysis
     pub fn count_similar_analyses(&self, analysis_id: i64) -> Result<i32> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // Get the error signature
         let signature: Option<String> = conn
@@ -1730,7 +1860,7 @@ impl Database {
 
     /// Get trend data for a period
     pub fn get_trend_data(&self, period: &str, range_days: i32) -> Result<Vec<TrendDataPoint>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         // Determine grouping based on period
         let date_format = match period {
@@ -1780,7 +1910,7 @@ impl Database {
 
     /// Get top error patterns
     pub fn get_top_error_patterns(&self, limit: i32) -> Result<Vec<ErrorPatternCount>> {
-        let conn = self.lock_conn()?;
+        let conn = self.lock_conn();
 
         let mut stmt = conn.prepare(
             "SELECT error_signature, error_type, component, COUNT(*) as count
@@ -1802,6 +1932,804 @@ impl Database {
         })?;
 
         rows.collect()
+    }
+
+    // =========================================================================
+    // Intelligence Platform Methods (Phase 1-2)
+    // =========================================================================
+
+    /// Submit feedback for an analysis
+    pub fn submit_feedback(
+        &self,
+        analysis_id: i64,
+        feedback_type: &str,
+        field_name: Option<&str>,
+        original_value: Option<&str>,
+        new_value: Option<&str>,
+        rating: Option<i32>,
+    ) -> Result<AnalysisFeedback> {
+        let conn = self.lock_conn();
+
+        conn.execute(
+            "INSERT INTO analysis_feedback (analysis_id, feedback_type, field_name, original_value, new_value, rating)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                analysis_id,
+                feedback_type,
+                field_name,
+                original_value,
+                new_value,
+                rating,
+            ],
+        )?;
+
+        let id = conn.last_insert_rowid();
+
+        // Update the analysis feedback_status
+        let new_status = match feedback_type {
+            "accept" => "accepted",
+            "reject" => "rejected",
+            "edit" => "edited",
+            "rating" => "rated",
+            _ => "pending",
+        };
+
+        conn.execute(
+            "UPDATE analyses SET feedback_status = ?1 WHERE id = ?2",
+            params![new_status, analysis_id],
+        )?;
+
+        conn.query_row(
+            "SELECT id, analysis_id, feedback_type, field_name, original_value, new_value, rating, feedback_at
+             FROM analysis_feedback WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(AnalysisFeedback {
+                    id: row.get(0)?,
+                    analysis_id: row.get(1)?,
+                    feedback_type: row.get(2)?,
+                    field_name: row.get(3)?,
+                    original_value: row.get(4)?,
+                    new_value: row.get(5)?,
+                    rating: row.get(6)?,
+                    feedback_at: row.get(7)?,
+                })
+            },
+        )
+    }
+
+    /// Get all feedback for an analysis
+    pub fn get_feedback_for_analysis(&self, analysis_id: i64) -> Result<Vec<AnalysisFeedback>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, analysis_id, feedback_type, field_name, original_value, new_value, rating, feedback_at
+             FROM analysis_feedback
+             WHERE analysis_id = ?1
+             ORDER BY feedback_at DESC",
+        )?;
+
+        let rows = stmt.query_map(params![analysis_id], |row| {
+            Ok(AnalysisFeedback {
+                id: row.get(0)?,
+                analysis_id: row.get(1)?,
+                feedback_type: row.get(2)?,
+                field_name: row.get(3)?,
+                original_value: row.get(4)?,
+                new_value: row.get(5)?,
+                rating: row.get(6)?,
+                feedback_at: row.get(7)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Promote an analysis to gold standard
+    pub fn promote_to_gold(&self, analysis_id: i64) -> Result<GoldAnalysis> {
+        let conn = self.lock_conn();
+
+        // Get the source analysis
+        let (error_type, component, root_cause, suggested_fixes, severity): (
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+        ) = conn.query_row(
+            "SELECT error_type, component, root_cause, suggested_fixes, severity
+             FROM analyses WHERE id = ?1",
+            params![analysis_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )?;
+
+        // Generate error signature
+        let error_signature = format!(
+            "{}:{}",
+            error_type.to_lowercase(),
+            component.as_deref().unwrap_or("unknown").to_lowercase()
+        );
+
+        // Check if already promoted
+        let existing: std::result::Result<i64, _> = conn.query_row(
+            "SELECT id FROM gold_analyses WHERE source_analysis_id = ?1",
+            params![analysis_id],
+            |row| row.get(0),
+        );
+
+        if existing.is_ok() {
+            return Err(rusqlite::Error::QueryReturnedNoRows); // Already promoted
+        }
+
+        // Insert into gold_analyses with 'pending' status for review workflow
+        conn.execute(
+            "INSERT INTO gold_analyses (source_analysis_id, source_type, error_signature, root_cause, suggested_fixes, component, severity, validation_status)
+             VALUES (?1, 'crash', ?2, ?3, ?4, ?5, ?6, 'pending')",
+            params![
+                analysis_id,
+                error_signature,
+                root_cause,
+                suggested_fixes,
+                component,
+                severity,
+            ],
+        )?;
+
+        let id = conn.last_insert_rowid();
+
+        conn.query_row(
+            "SELECT id, source_analysis_id, source_type, error_signature, crash_content_hash, root_cause, suggested_fixes, component, severity, validation_status, created_at, verified_by, times_referenced, success_rate
+             FROM gold_analyses WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(GoldAnalysis {
+                    id: row.get(0)?,
+                    source_analysis_id: row.get(1)?,
+                    source_type: row.get(2)?,
+                    error_signature: row.get(3)?,
+                    crash_content_hash: row.get(4)?,
+                    root_cause: row.get(5)?,
+                    suggested_fixes: row.get(6)?,
+                    component: row.get(7)?,
+                    severity: row.get(8)?,
+                    validation_status: row.get(9)?,
+                    created_at: row.get(10)?,
+                    verified_by: row.get(11)?,
+                    times_referenced: row.get(12)?,
+                    success_rate: row.get(13)?,
+                })
+            },
+        )
+    }
+
+    /// Get all gold analyses
+    pub fn get_gold_analyses(&self) -> Result<Vec<GoldAnalysis>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, source_analysis_id, source_type, error_signature, crash_content_hash, root_cause, suggested_fixes, component, severity, validation_status, created_at, verified_by, times_referenced, success_rate
+             FROM gold_analyses
+             ORDER BY times_referenced DESC, created_at DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(GoldAnalysis {
+                id: row.get(0)?,
+                source_analysis_id: row.get(1)?,
+                source_type: row.get(2)?,
+                error_signature: row.get(3)?,
+                crash_content_hash: row.get(4)?,
+                root_cause: row.get(5)?,
+                suggested_fixes: row.get(6)?,
+                component: row.get(7)?,
+                severity: row.get(8)?,
+                validation_status: row.get(9)?,
+                created_at: row.get(10)?,
+                verified_by: row.get(11)?,
+                times_referenced: row.get(12)?,
+                success_rate: row.get(13)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Check if an analysis is a gold standard
+    pub fn is_gold_analysis(&self, analysis_id: i64) -> Result<bool> {
+        let conn = self.lock_conn();
+
+        let count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM gold_analyses WHERE source_analysis_id = ?1",
+            params![analysis_id],
+            |row| row.get(0),
+        )?;
+
+        Ok(count > 0)
+    }
+
+    /// Get pending gold analyses (validation_status = 'pending')
+    pub fn get_pending_gold_analyses(&self) -> Result<Vec<GoldAnalysis>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, source_analysis_id, source_type, error_signature, crash_content_hash, root_cause, suggested_fixes, component, severity, validation_status, created_at, verified_by, times_referenced, success_rate
+             FROM gold_analyses
+             WHERE validation_status = 'pending'
+             ORDER BY created_at ASC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(GoldAnalysis {
+                id: row.get(0)?,
+                source_analysis_id: row.get(1)?,
+                source_type: row.get(2)?,
+                error_signature: row.get(3)?,
+                crash_content_hash: row.get(4)?,
+                root_cause: row.get(5)?,
+                suggested_fixes: row.get(6)?,
+                component: row.get(7)?,
+                severity: row.get(8)?,
+                validation_status: row.get(9)?,
+                created_at: row.get(10)?,
+                verified_by: row.get(11)?,
+                times_referenced: row.get(12)?,
+                success_rate: row.get(13)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Get gold analyses by status
+    pub fn get_gold_analyses_by_status(&self, status: &str) -> Result<Vec<GoldAnalysis>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, source_analysis_id, source_type, error_signature, crash_content_hash, root_cause, suggested_fixes, component, severity, validation_status, created_at, verified_by, times_referenced, success_rate
+             FROM gold_analyses
+             WHERE validation_status = ?1
+             ORDER BY created_at DESC",
+        )?;
+
+        let rows = stmt.query_map(params![status], |row| {
+            Ok(GoldAnalysis {
+                id: row.get(0)?,
+                source_analysis_id: row.get(1)?,
+                source_type: row.get(2)?,
+                error_signature: row.get(3)?,
+                crash_content_hash: row.get(4)?,
+                root_cause: row.get(5)?,
+                suggested_fixes: row.get(6)?,
+                component: row.get(7)?,
+                severity: row.get(8)?,
+                validation_status: row.get(9)?,
+                created_at: row.get(10)?,
+                verified_by: row.get(11)?,
+                times_referenced: row.get(12)?,
+                success_rate: row.get(13)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Verify a gold analysis (set validation_status to 'verified')
+    pub fn verify_gold_analysis(&self, gold_analysis_id: i64, verified_by: Option<&str>) -> Result<()> {
+        let conn = self.lock_conn();
+
+        if let Some(name) = verified_by {
+            conn.execute(
+                "UPDATE gold_analyses SET validation_status = 'verified', verified_by = ?2 WHERE id = ?1",
+                params![gold_analysis_id, name],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE gold_analyses SET validation_status = 'verified' WHERE id = ?1",
+                params![gold_analysis_id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Reject a gold analysis (set validation_status to 'rejected')
+    pub fn reject_gold_analysis(&self, gold_analysis_id: i64, verified_by: Option<&str>) -> Result<()> {
+        let conn = self.lock_conn();
+
+        if let Some(name) = verified_by {
+            conn.execute(
+                "UPDATE gold_analyses SET validation_status = 'rejected', verified_by = ?2 WHERE id = ?1",
+                params![gold_analysis_id, name],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE gold_analyses SET validation_status = 'rejected' WHERE id = ?1",
+                params![gold_analysis_id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Reopen a rejected gold analysis (set validation_status back to 'pending')
+    pub fn reopen_gold_analysis(&self, gold_analysis_id: i64) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE gold_analyses SET validation_status = 'pending', verified_by = NULL WHERE id = ?1",
+            params![gold_analysis_id],
+        )?;
+        Ok(())
+    }
+
+    /// Check if an analysis meets criteria for auto-promotion to gold
+    /// Criteria:
+    /// - Rating >= 4 stars
+    /// - Has 'accept' feedback (thumbs up)
+    /// - No 'reject' feedback
+    pub fn check_auto_promotion_eligibility(&self, analysis_id: i64) -> Result<bool> {
+        let conn = self.lock_conn();
+
+        // Check for reject feedback (disqualifies)
+        let has_reject: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM analysis_feedback WHERE analysis_id = ?1 AND feedback_type = 'reject'",
+            params![analysis_id],
+            |row| row.get(0),
+        )?;
+
+        if has_reject > 0 {
+            return Ok(false);
+        }
+
+        // Check for accept feedback (required)
+        let has_accept: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM analysis_feedback WHERE analysis_id = ?1 AND feedback_type = 'accept'",
+            params![analysis_id],
+            |row| row.get(0),
+        )?;
+
+        if has_accept == 0 {
+            return Ok(false);
+        }
+
+        // Check for rating >= 4 (if rating exists)
+        let avg_rating: Option<f64> = conn.query_row(
+            "SELECT AVG(rating) FROM analysis_feedback WHERE analysis_id = ?1 AND feedback_type = 'rating' AND rating IS NOT NULL",
+            params![analysis_id],
+            |row| row.get(0),
+        ).ok();
+
+        // If there are ratings, they must average >= 4
+        if let Some(rating) = avg_rating {
+            if rating < 4.0 {
+                return Ok(false);
+            }
+        }
+
+        // All criteria met
+        Ok(true)
+    }
+
+    /// Auto-promote an analysis to gold if it meets criteria
+    /// Returns true if promoted, false if criteria not met or already promoted
+    pub fn auto_promote_if_eligible(&self, analysis_id: i64) -> Result<bool> {
+        // Check if already promoted
+        if self.is_gold_analysis(analysis_id)? {
+            return Ok(false);
+        }
+
+        // Check eligibility
+        if !self.check_auto_promotion_eligibility(analysis_id)? {
+            return Ok(false);
+        }
+
+        // Promote
+        self.promote_to_gold(analysis_id)?;
+        Ok(true)
+    }
+
+    /// Get verified gold analyses with source analysis data for fine-tuning export
+    /// Returns gold analyses joined with their source analysis full_data
+    pub fn get_gold_analyses_for_export(&self) -> Result<Vec<GoldAnalysisExport>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT g.id, g.source_analysis_id, g.source_type, g.error_signature,
+                    g.root_cause, g.suggested_fixes, g.component, g.severity,
+                    g.validation_status, g.created_at, g.verified_by,
+                    a.full_data, a.error_type, a.error_message, a.stack_trace
+             FROM gold_analyses g
+             LEFT JOIN analyses a ON g.source_analysis_id = a.id
+             WHERE g.validation_status = 'verified'
+             ORDER BY g.created_at DESC"
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(GoldAnalysisExport {
+                id: row.get(0)?,
+                source_analysis_id: row.get(1)?,
+                source_type: row.get(2)?,
+                error_signature: row.get(3)?,
+                root_cause: row.get(4)?,
+                suggested_fixes: row.get(5)?,
+                component: row.get(6)?,
+                severity: row.get(7)?,
+                validation_status: row.get(8)?,
+                created_at: row.get(9)?,
+                verified_by: row.get(10)?,
+                source_full_data: row.get(11)?,
+                source_error_type: row.get(12)?,
+                source_error_message: row.get(13)?,
+                source_stack_trace: row.get(14)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+
+        Ok(results)
+    }
+
+    /// Count verified gold analyses
+    pub fn count_verified_gold_analyses(&self) -> Result<i64> {
+        let conn = self.lock_conn();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM gold_analyses WHERE validation_status = 'verified'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    // ========================================================================
+    // JIRA Ticket Linking Methods (Phase 3)
+    // ========================================================================
+
+    /// Link a JIRA ticket to an analysis
+    pub fn link_jira_ticket(
+        &self,
+        analysis_id: i64,
+        jira_key: &str,
+        jira_url: Option<&str>,
+        jira_summary: Option<&str>,
+        jira_status: Option<&str>,
+        jira_priority: Option<&str>,
+        link_type: &str,
+        notes: Option<&str>,
+    ) -> Result<i64> {
+        let conn = self.lock_conn();
+
+        conn.execute(
+            "INSERT OR REPLACE INTO analysis_jira_links
+             (analysis_id, jira_key, jira_url, jira_summary, jira_status, jira_priority, link_type, notes, linked_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))",
+            params![
+                analysis_id,
+                jira_key,
+                jira_url,
+                jira_summary,
+                jira_status,
+                jira_priority,
+                link_type,
+                notes,
+            ],
+        )?;
+
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Unlink a JIRA ticket from an analysis
+    pub fn unlink_jira_ticket(&self, analysis_id: i64, jira_key: &str) -> Result<bool> {
+        let conn = self.lock_conn();
+
+        let affected = conn.execute(
+            "DELETE FROM analysis_jira_links WHERE analysis_id = ?1 AND jira_key = ?2",
+            params![analysis_id, jira_key],
+        )?;
+
+        Ok(affected > 0)
+    }
+
+    /// Get all JIRA links for an analysis
+    pub fn get_jira_links_for_analysis(&self, analysis_id: i64) -> Result<Vec<JiraLink>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, analysis_id, jira_key, jira_url, jira_summary, jira_status, jira_priority, link_type, linked_at, linked_by, notes
+             FROM analysis_jira_links
+             WHERE analysis_id = ?1
+             ORDER BY linked_at DESC",
+        )?;
+
+        let rows = stmt.query_map([analysis_id], |row| {
+            Ok(JiraLink {
+                id: row.get(0)?,
+                analysis_id: row.get(1)?,
+                jira_key: row.get(2)?,
+                jira_url: row.get(3)?,
+                jira_summary: row.get(4)?,
+                jira_status: row.get(5)?,
+                jira_priority: row.get(6)?,
+                link_type: row.get(7)?,
+                linked_at: row.get(8)?,
+                linked_by: row.get(9)?,
+                notes: row.get(10)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Get all analyses linked to a specific JIRA ticket
+    pub fn get_analyses_for_jira_ticket(&self, jira_key: &str) -> Result<Vec<(Analysis, JiraLink)>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT a.id, a.filename, a.file_size_kb, a.error_type, a.error_message, a.severity,
+                    a.component, a.stack_trace, a.root_cause, a.suggested_fixes, a.confidence,
+                    a.analyzed_at, a.ai_model, a.ai_provider, a.tokens_used, a.cost,
+                    a.was_truncated, a.full_data, a.is_favorite, a.last_viewed_at, a.view_count,
+                    a.analysis_duration_ms, a.analysis_type,
+                    l.id, l.analysis_id, l.jira_key, l.jira_url, l.jira_summary, l.jira_status,
+                    l.jira_priority, l.link_type, l.linked_at, l.linked_by, l.notes
+             FROM analysis_jira_links l
+             JOIN analyses a ON l.analysis_id = a.id
+             WHERE l.jira_key = ?1 AND a.deleted_at IS NULL
+             ORDER BY l.linked_at DESC",
+        )?;
+
+        let rows = stmt.query_map([jira_key], |row| {
+            let analysis = Analysis {
+                id: row.get(0)?,
+                filename: row.get(1)?,
+                file_size_kb: row.get(2)?,
+                error_type: row.get(3)?,
+                error_message: row.get(4)?,
+                severity: row.get(5)?,
+                component: row.get(6)?,
+                stack_trace: row.get(7)?,
+                root_cause: row.get(8)?,
+                suggested_fixes: row.get(9)?,
+                confidence: row.get(10)?,
+                analyzed_at: row.get(11)?,
+                ai_model: row.get(12)?,
+                ai_provider: row.get(13)?,
+                tokens_used: row.get(14)?,
+                cost: row.get(15)?,
+                was_truncated: row.get::<_, i32>(16)? != 0,
+                full_data: row.get(17)?,
+                is_favorite: row.get::<_, i32>(18)? != 0,
+                last_viewed_at: row.get(19)?,
+                view_count: row.get(20)?,
+                analysis_duration_ms: row.get(21)?,
+                analysis_type: row.get::<_, Option<String>>(22)?.unwrap_or_else(|| "complete".to_string()),
+            };
+
+            let link = JiraLink {
+                id: row.get(23)?,
+                analysis_id: row.get(24)?,
+                jira_key: row.get(25)?,
+                jira_url: row.get(26)?,
+                jira_summary: row.get(27)?,
+                jira_status: row.get(28)?,
+                jira_priority: row.get(29)?,
+                link_type: row.get(30)?,
+                linked_at: row.get(31)?,
+                linked_by: row.get(32)?,
+                notes: row.get(33)?,
+            };
+
+            Ok((analysis, link))
+        })?;
+
+        rows.collect()
+    }
+
+    /// Update JIRA ticket metadata (status, priority, summary) in links
+    pub fn update_jira_link_metadata(
+        &self,
+        jira_key: &str,
+        jira_summary: Option<&str>,
+        jira_status: Option<&str>,
+        jira_priority: Option<&str>,
+    ) -> Result<usize> {
+        let conn = self.lock_conn();
+
+        let affected = conn.execute(
+            "UPDATE analysis_jira_links
+             SET jira_summary = COALESCE(?2, jira_summary),
+                 jira_status = COALESCE(?3, jira_status),
+                 jira_priority = COALESCE(?4, jira_priority)
+             WHERE jira_key = ?1",
+            params![jira_key, jira_summary, jira_status, jira_priority],
+        )?;
+
+        Ok(affected)
+    }
+
+    /// Count linked tickets for an analysis
+    pub fn count_jira_links_for_analysis(&self, analysis_id: i64) -> Result<i64> {
+        let conn = self.lock_conn();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analysis_jira_links WHERE analysis_id = ?1",
+            params![analysis_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Get all JIRA links across all analyses (for sync service)
+    pub fn get_all_jira_links(&self) -> Result<Vec<JiraLink>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, analysis_id, jira_key, jira_url, jira_summary, jira_status, jira_priority, link_type, linked_at, linked_by, notes
+             FROM analysis_jira_links
+             ORDER BY jira_key, linked_at DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(JiraLink {
+                id: row.get(0)?,
+                analysis_id: row.get(1)?,
+                jira_key: row.get(2)?,
+                jira_url: row.get(3)?,
+                jira_summary: row.get(4)?,
+                jira_status: row.get(5)?,
+                jira_priority: row.get(6)?,
+                link_type: row.get(7)?,
+                linked_at: row.get(8)?,
+                linked_by: row.get(9)?,
+                notes: row.get(10)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    // =========================================================================
+    // RAG Retrieval Chunks
+    // These methods are prepared for native Rust RAG implementation (Phase 3).
+    // Currently, RAG uses Python backend - these will be used when migrating
+    // to native vector search.
+    // =========================================================================
+
+    /// Insert a retrieval chunk for RAG indexing.
+    /// Used when indexing analyses, gold standards, or documentation for retrieval.
+    #[allow(dead_code)]
+    pub fn insert_retrieval_chunk(
+        &self,
+        source_type: &str,
+        source_id: i64,
+        chunk_index: i32,
+        content: &str,
+        embedding: Option<&[u8]>,
+        embedding_model: Option<&str>,
+        metadata_json: Option<&str>,
+    ) -> Result<i64> {
+        let conn = self.lock_conn();
+
+        conn.execute(
+            "INSERT INTO retrieval_chunks (source_type, source_id, chunk_index, content, embedding, embedding_model, metadata_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![source_type, source_id, chunk_index, content, embedding, embedding_model, metadata_json],
+        )?;
+
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Get retrieval chunks for a source
+    #[allow(dead_code)]
+    pub fn get_retrieval_chunks(&self, source_type: &str, source_id: i64) -> Result<Vec<RetrievalChunk>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, source_type, source_id, chunk_index, content, embedding, embedding_model, metadata_json, created_at
+             FROM retrieval_chunks
+             WHERE source_type = ?1 AND source_id = ?2
+             ORDER BY chunk_index ASC",
+        )?;
+
+        let rows = stmt.query_map(params![source_type, source_id], |row| {
+            Ok(RetrievalChunk {
+                id: row.get(0)?,
+                source_type: row.get(1)?,
+                source_id: row.get(2)?,
+                chunk_index: row.get(3)?,
+                content: row.get(4)?,
+                embedding: row.get(5)?,
+                embedding_model: row.get(6)?,
+                metadata_json: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Get all chunks that have embeddings (for similarity search)
+    #[allow(dead_code)]
+    pub fn get_chunks_with_embeddings(&self) -> Result<Vec<RetrievalChunk>> {
+        let conn = self.lock_conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, source_type, source_id, chunk_index, content, embedding, embedding_model, metadata_json, created_at
+             FROM retrieval_chunks
+             WHERE embedding IS NOT NULL
+             ORDER BY source_type, source_id, chunk_index",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(RetrievalChunk {
+                id: row.get(0)?,
+                source_type: row.get(1)?,
+                source_id: row.get(2)?,
+                chunk_index: row.get(3)?,
+                content: row.get(4)?,
+                embedding: row.get(5)?,
+                embedding_model: row.get(6)?,
+                metadata_json: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Update embedding for a chunk
+    #[allow(dead_code)]
+    pub fn update_chunk_embedding(
+        &self,
+        chunk_id: i64,
+        embedding: &[u8],
+        embedding_model: &str,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+
+        conn.execute(
+            "UPDATE retrieval_chunks SET embedding = ?2, embedding_model = ?3 WHERE id = ?1",
+            params![chunk_id, embedding, embedding_model],
+        )?;
+
+        Ok(())
+    }
+
+    /// Delete chunks for a source (when re-indexing)
+    #[allow(dead_code)]
+    pub fn delete_retrieval_chunks(&self, source_type: &str, source_id: i64) -> Result<usize> {
+        let conn = self.lock_conn();
+
+        let affected = conn.execute(
+            "DELETE FROM retrieval_chunks WHERE source_type = ?1 AND source_id = ?2",
+            params![source_type, source_id],
+        )?;
+
+        Ok(affected)
+    }
+
+    /// Count total chunks in the system
+    #[allow(dead_code)]
+    pub fn count_retrieval_chunks(&self) -> Result<i64> {
+        let conn = self.lock_conn();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM retrieval_chunks",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Count chunks with embeddings
+    #[allow(dead_code)]
+    pub fn count_chunks_with_embeddings(&self) -> Result<i64> {
+        let conn = self.lock_conn();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM retrieval_chunks WHERE embedding IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
     }
 }
 

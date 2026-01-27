@@ -13,38 +13,38 @@
 ## Overview
 
 Hadron Desktop uses AI to analyze Smalltalk crash logs and provide:
-- 🎯 **Root cause identification** - Understand what went wrong
-- 🔧 **Fix suggestions** - Actionable steps to resolve issues
-- 📚 **Knowledge base** - Search and reference past analyses
-- ⚡ **10x faster debugging** - AI explains complex stack traces instantly
+- **Root cause identification** - Understand what went wrong
+- **Fix suggestions** - Actionable steps to resolve issues
+- **Knowledge base** - Search and reference past analyses
+- **Faster debugging** - AI explains complex stack traces instantly
 
 ---
 
 ## Features
 
-### ✨ Core Features
+### Core Features
 
-- **Multi-provider AI**: Choose from OpenAI (GPT-5.1, GPT-4), Anthropic (Claude Sonnet 4.5, Claude 3.5), or Z.ai (GLM-4.6)
-- **Dual Analysis Types**: Complete (comprehensive) or Specialized (targeted) analysis modes
+- **Multi-provider AI**: OpenAI, Anthropic Claude, Z.ai, Ollama (offline)
+- **Analysis Modes**: Complete (comprehensive) or Specialized (targeted) analysis
 - **Multiple API Keys**: Store API keys for all providers simultaneously
 - **Drag & drop**: Simply drop crash log files to analyze
 - **Full-text search**: SQLite with FTS5 and BM25 ranking
 - **Dark mode**: Eye-friendly interface for long debugging sessions
 - **Export**: Save analyses to Markdown or PDF
 
-### 🔒 Production Features
+### Production Features
 
 - **Auto-updater**: Automatic update checks and one-click installation
 - **Encrypted storage**: API keys secured with OS-level encryption (Keychain/Credential Manager)
 - **Circuit breaker**: Automatic failover to backup AI providers
 - **Structured logging**: JSON + human-readable logs with automatic rotation
 
-### 📊 Status
+### Status
 
-- ✅ **Version**: 1.1.0 (Production-ready)
-- ✅ **Platform**: Windows, macOS, Linux
-- ✅ **Security**: 0 production vulnerabilities
-- ✅ **Test Coverage**: Core features validated
+- **Version**: 3.5.2
+- **Platform**: Windows, macOS, Linux
+- **Security**: 0 production vulnerabilities
+- **Test Coverage**: Core features validated
 
 ---
 
@@ -99,19 +99,16 @@ Get the installer for your platform:
 ## Documentation
 
 ### For Users
-- 📖 **[Complete User Guide](docs/user/USER-GUIDE.md)** - Installation, features, tips & tricks
-- 🔧 **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
-- 🤖 **[AI Provider Guide](MULTI-PROVIDER-SUPPORT.md)** - Choosing the right AI
-- 📋 **[Release Notes](RELEASE-v1.0.0.md)** - What's new in v1.0
-- ⚡ **Dual Analysis Types** - Complete or Specialized analysis modes
+- [Complete User Guide](docs/user/USER-GUIDE.md) - Installation, features, tips & tricks
+- [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
+- [Features](FEATURES.md) - Full feature list
+- [Changelog](CHANGELOG.md) - Release history
 
 ### For Developers
-- 🔄 **[Auto-Updater Setup](docs/developer/AUTO-UPDATER-SETUP.md)** - Configure updates
-- 🚀 **[GitHub Release Guide](docs/developer/GITHUB-RELEASE-GUIDE.md)** - Publishing releases
-- 🔐 **[Code Signing](docs/developer/PRODUCTION-SIGNING-SETUP.md)** - Sign installers
-
-### Master Index
-📚 **[DOCUMENTATION.md](DOCUMENTATION.md)** - Complete documentation index
+- [Auto-Updater Setup](docs/developer/AUTO-UPDATER-SETUP.md) - Configure updates
+- [GitHub Release Guide](docs/developer/GITHUB-RELEASE-GUIDE.md) - Publishing releases
+- [Code Signing](docs/developer/PRODUCTION-SIGNING-SETUP.md) - Sign installers
+- [Developer Guide](docs/DEVELOPER-GUIDE.md) - Development setup and architecture
 
 ---
 
@@ -177,24 +174,12 @@ npm run test:e2e
 
 ## Roadmap
 
-### v1.1 (Planned - Q1 2025)
-- [ ] E2E testing with Playwright
-- [ ] PII redaction for sensitive data
-- [ ] Batch analysis (multiple files at once)
-- [ ] Custom prompt templates
+See [CONSOLIDATED-ROADMAP.md](CONSOLIDATED-ROADMAP.md) and [FURTHER_ROADMAP.md](FURTHER_ROADMAP.md) for the complete development roadmap including:
 
-### v1.2 (Planned - Q2 2025)
-- [ ] Advanced log parsing (Drain algorithm)
-- [ ] Crash clustering and pattern detection
-- [ ] Analytics dashboard
-
-### v2.0 (Planned - Q3 2025)
-- [ ] Team collaboration (multi-user workspaces)
-- [ ] Comments and annotations
-- [ ] Slack/Teams integration
-- [ ] Cloud sync (optional)
-
-**See [RELEASE-v1.0.0.md](RELEASE-v1.0.0.md) for complete roadmap**
+- RAG-powered knowledge base integration
+- Advanced pattern detection
+- Team collaboration features
+- JIRA/Keeper integrations
 
 ---
 
@@ -241,8 +226,6 @@ Built with:
 
 <div align="center">
 
-**⭐ Star us on GitHub** • **🐛 Report issues** • **💡 Request features**
-
-Made with ❤️ by the Hadron Team
+Built by the Hadron Team
 
 </div>

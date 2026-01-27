@@ -3,7 +3,9 @@
 
 mod ai_service;
 mod commands;
+mod commands_legacy;
 mod database;
+mod error;
 mod export;
 mod jira_service;
 mod keeper_service;
@@ -13,6 +15,7 @@ mod models;
 mod parser;
 mod patterns;
 mod python_runner;
+mod rag_commands;
 mod signature;
 // Token-safe analysis modules
 mod chunker;
@@ -22,6 +25,7 @@ mod token_budget;
 
 use commands::*;
 use database::Database;
+use rag_commands::*;
 use std::sync::{Arc, RwLock};
 
 fn main() {
@@ -90,6 +94,8 @@ fn main() {
             add_tag_to_translation,
             remove_tag_from_translation,
             get_tags_for_translation,
+            auto_tag_analyses,
+            count_analyses_without_tags,
             // Advanced Filtering
             get_analyses_filtered,
             // Bulk Operations
@@ -133,7 +139,17 @@ fn main() {
             test_keeper_connection,
             // JIRA Integration
             test_jira_connection,
+            list_jira_projects,
             create_jira_ticket,
+            search_jira_issues,
+            // JIRA Ticket Linking (Phase 3)
+            link_jira_to_analysis,
+            unlink_jira_from_analysis,
+            get_jira_links_for_analysis,
+            get_analyses_for_jira_ticket,
+            update_jira_link_metadata,
+            count_jira_links_for_analysis,
+            get_all_jira_links,
             // Crash Signatures
             compute_crash_signature,
             register_crash_signature,
@@ -171,7 +187,32 @@ fn main() {
             get_database_info,
             // Performance Trace Analysis
             analyze_performance_trace,
-            get_file_stats
+            get_file_stats,
+            // Intelligence Platform (Phase 1-2)
+            submit_analysis_feedback,
+            get_feedback_for_analysis,
+            promote_to_gold,
+            get_gold_analyses,
+            is_gold_analysis,
+            // Gold Review Workflow (Phase 1-2 Week 3)
+            get_pending_gold_analyses,
+            verify_gold_analysis,
+            reject_gold_analysis,
+            get_rejected_gold_analyses,
+            reopen_gold_analysis,
+            check_auto_promotion_eligibility,
+            auto_promote_if_eligible,
+            // Fine-Tuning Export (Phase 1.4)
+            export_gold_jsonl,
+            count_gold_for_export,
+            // Enhanced Export (Phase 4)
+            export_gold_jsonl_enhanced,
+            get_export_statistics,
+            // RAG System (Phase 1-2, Week 4)
+            rag_query,
+            rag_index_analysis,
+            rag_build_context,
+            rag_get_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

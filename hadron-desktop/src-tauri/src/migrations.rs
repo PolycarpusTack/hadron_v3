@@ -6,7 +6,7 @@
 use rusqlite::{Connection, Result};
 
 /// Current schema version. Increment when adding new migrations.
-pub const CURRENT_SCHEMA_VERSION: i32 = 5;
+pub const CURRENT_SCHEMA_VERSION: i32 = 7;
 
 /// Migration function type
 type MigrationFn = fn(&Connection) -> Result<()>;
@@ -44,6 +44,16 @@ const MIGRATIONS: &[Migration] = &[
         version: 5,
         name: "history_enhancements",
         up: migration_005_history_enhancements,
+    },
+    Migration {
+        version: 6,
+        name: "intelligence_platform",
+        up: migration_006_intelligence_platform,
+    },
+    Migration {
+        version: 7,
+        name: "jira_ticket_linking",
+        up: migration_007_jira_ticket_linking,
     },
 ];
 
@@ -616,6 +626,209 @@ fn migration_005_history_enhancements(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Migration 6: Intelligence Platform Foundation (Phase 1-2)
+/// Adds tables for feedback tracking, gold analyses, and RAG retrieval chunks
+fn migration_006_intelligence_platform(conn: &Connection) -> Result<()> {
+    // ========================================================================
+    // Feedback Tracking Table
+    // ========================================================================
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS analysis_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            analysis_id INTEGER NOT NULL,
+            feedback_type TEXT NOT NULL CHECK(feedback_type IN ('accept', 'reject', 'edit', 'rating')),
+            field_name TEXT,
+            original_value TEXT,
+            new_value TEXT,
+            rating INTEGER CHECK(rating >= 1 AND rating <= 5),
+            feedback_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // ========================================================================
+    // Gold Analyses Table (Curated Truth)
+    // ========================================================================
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS gold_analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_analysis_id INTEGER,
+            source_type TEXT NOT NULL DEFAULT 'crash',
+            error_signature TEXT NOT NULL,
+            crash_content_hash TEXT,
+            root_cause TEXT NOT NULL,
+            suggested_fixes TEXT NOT NULL,
+            component TEXT,
+            severity TEXT,
+            validation_status TEXT DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            verified_by TEXT,
+            times_referenced INTEGER DEFAULT 0,
+            success_rate REAL,
+            FOREIGN KEY (source_analysis_id) REFERENCES analyses(id) ON DELETE SET NULL
+        )",
+        [],
+    )?;
+
+    // ========================================================================
+    // Retrieval Chunks Table (for RAG)
+    // ========================================================================
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS retrieval_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL CHECK(source_type IN ('analysis', 'gold', 'ticket', 'documentation')),
+            source_id INTEGER NOT NULL,
+            chunk_index INTEGER NOT NULL DEFAULT 0,
+            content TEXT NOT NULL,
+            embedding BLOB,
+            embedding_model TEXT,
+            metadata_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        [],
+    )?;
+
+    // ========================================================================
+    // Indexes
+    // ========================================================================
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feedback_analysis ON analysis_feedback(analysis_id)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gold_signature ON gold_analyses(error_signature)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gold_component ON gold_analyses(component)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chunks_source ON retrieval_chunks(source_type, source_id)",
+        [],
+    )?;
+
+    // Composite index for common HistoryView filter queries
+    // Covers: deleted_at IS NULL + is_favorite + severity + ORDER BY analyzed_at
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analyses_filter_composite
+         ON analyses(deleted_at, is_favorite, severity, analyzed_at DESC)",
+        [],
+    )?;
+
+    // Composite index for analysis type filtering
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analyses_type_date
+         ON analyses(analysis_type, analyzed_at DESC) WHERE deleted_at IS NULL",
+        [],
+    )?;
+
+    // ========================================================================
+    // Add columns to analyses table (with existence checks)
+    // ========================================================================
+
+    // Add embedding column
+    let has_embedding: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('analyses') WHERE name='embedding'",
+            [],
+            |row| row.get::<_, i32>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !has_embedding {
+        conn.execute("ALTER TABLE analyses ADD COLUMN embedding BLOB", [])?;
+    }
+
+    // Add embedding_model column
+    let has_embedding_model: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('analyses') WHERE name='embedding_model'",
+            [],
+            |row| row.get::<_, i32>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !has_embedding_model {
+        conn.execute(
+            "ALTER TABLE analyses ADD COLUMN embedding_model TEXT",
+            [],
+        )?;
+    }
+
+    // Add feedback_status column
+    let has_feedback_status: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('analyses') WHERE name='feedback_status'",
+            [],
+            |row| row.get::<_, i32>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !has_feedback_status {
+        conn.execute(
+            "ALTER TABLE analyses ADD COLUMN feedback_status TEXT DEFAULT 'pending'",
+            [],
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Migration 7: JIRA Ticket Linking (Phase 3)
+/// Adds table for linking crash analyses to JIRA tickets
+fn migration_007_jira_ticket_linking(conn: &Connection) -> Result<()> {
+    // ========================================================================
+    // Analysis-JIRA Link Table
+    // ========================================================================
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS analysis_jira_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            analysis_id INTEGER NOT NULL,
+            jira_key TEXT NOT NULL,
+            jira_url TEXT,
+            jira_summary TEXT,
+            jira_status TEXT,
+            jira_priority TEXT,
+            link_type TEXT NOT NULL DEFAULT 'related',
+            linked_at TEXT NOT NULL DEFAULT (datetime('now')),
+            linked_by TEXT,
+            notes TEXT,
+            UNIQUE(analysis_id, jira_key),
+            FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // ========================================================================
+    // Indexes
+    // ========================================================================
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jira_links_analysis ON analysis_jira_links(analysis_id)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jira_links_key ON analysis_jira_links(jira_key)",
+        [],
+    )?;
+
+    Ok(())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -649,11 +862,11 @@ mod tests {
         let version = get_current_version(&conn).unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
-        // Verify only 5 migration records exist
+        // Verify only 7 migration records exist
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 5);
+        assert_eq!(count, 7);
     }
 
     #[test]

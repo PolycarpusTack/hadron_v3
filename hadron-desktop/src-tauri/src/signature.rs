@@ -113,14 +113,20 @@ pub struct SignatureOccurrences {
 // Regex Patterns
 // ============================================================================
 
-static METHOD_EXTRACTOR: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?:MediaGeniX\.)?(\w+(?:>>\w+[:\w]*)?)").unwrap());
+static METHOD_EXTRACTOR: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:MediaGeniX\.)?(\w+(?:>>\w+[:\w]*)?)")
+        .expect("METHOD_EXTRACTOR is a valid regex pattern")
+});
 
-static ORACLE_PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)(oracle|ora-\d+|exdi.*oracle)").unwrap());
+static ORACLE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(oracle|ora-\d+|exdi.*oracle)")
+        .expect("ORACLE_PATTERN is a valid regex pattern")
+});
 
-static POSTGRES_PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)(postgres|libpq|prepared statement|pgconn)").unwrap());
+static POSTGRES_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(postgres|libpq|prepared statement|pgconn)")
+        .expect("POSTGRES_PATTERN is a valid regex pattern")
+});
 
 // ============================================================================
 // Signature Computation
