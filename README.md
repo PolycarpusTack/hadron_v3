@@ -30,7 +30,7 @@ Hadron is a desktop application that uses AI to analyze VisualWorks Smalltalk cr
 
 ```bash
 # Clone the repository
-git clone https://github.com/hadron-team/hadron-desktop.git
+git clone https://github.com/PolycarpysTack/hadron_v3.git
 cd hadron-desktop
 
 # Install dependencies
