@@ -326,7 +326,7 @@ export default function KnowledgeGraph({
                 y1={source.y}
                 x2={target.x}
                 y2={target.y}
-                stroke={edge.type === "jira_link" ? "#3b82f6" : "#6b7280"}
+                stroke={edge.type === "jira_link" ? "#3805E3" : "#6b7280"}
                 strokeWidth={1.5}
                 strokeOpacity={0.5}
               />

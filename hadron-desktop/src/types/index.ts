@@ -35,7 +35,7 @@ export interface AnalysisResult {
 
   // WHATS'ON Enhanced fields
   full_data?: string; // JSON string containing WhatsOnEnhancedAnalysis or QuickAnalysis
-  analysis_type?: "complete" | "specialized" | "whatson" | "comprehensive" | "quick" | "performance" | "code";
+  analysis_type?: "complete" | "specialized" | "whatson" | "comprehensive" | "quick" | "performance" | "code" | "jira_ticket";
 }
 
 export interface Settings {
@@ -57,7 +57,8 @@ export type AnalysisType =
   | "comprehensive"
   | "quick"
   | "performance"
-  | "code";
+  | "code"
+  | "jira_ticket";
 
 export interface WhatsOnAnalysisSummary {
   title: string;
@@ -648,12 +649,12 @@ export const TAG_COLORS = {
   green: { bg: 'bg-green-500/20', text: 'text-green-400', border: 'border-green-500/30', hex: '#22C55E' },
   emerald: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30', hex: '#10B981' },
   teal: { bg: 'bg-teal-500/20', text: 'text-teal-400', border: 'border-teal-500/30', hex: '#14B8A6' },
-  cyan: { bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30', hex: '#06B6D4' },
-  sky: { bg: 'bg-sky-500/20', text: 'text-sky-400', border: 'border-sky-500/30', hex: '#0EA5E9' },
-  blue: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30', hex: '#3B82F6' },
-  indigo: { bg: 'bg-indigo-500/20', text: 'text-indigo-400', border: 'border-indigo-500/30', hex: '#6366F1' },
-  violet: { bg: 'bg-violet-500/20', text: 'text-violet-400', border: 'border-violet-500/30', hex: '#8B5CF6' },
-  purple: { bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/30', hex: '#A855F7' },
+  cyan: { bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30', hex: '#5066e9' },
+  sky: { bg: 'bg-sky-500/20', text: 'text-sky-400', border: 'border-sky-500/30', hex: '#5066e9' },
+  blue: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30', hex: '#5420e8' },
+  indigo: { bg: 'bg-indigo-500/20', text: 'text-indigo-400', border: 'border-indigo-500/30', hex: '#6438e0' },
+  violet: { bg: 'bg-violet-500/20', text: 'text-violet-400', border: 'border-violet-500/30', hex: '#9b8ec8' },
+  purple: { bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/30', hex: '#7e6db6' },
   fuchsia: { bg: 'bg-fuchsia-500/20', text: 'text-fuchsia-400', border: 'border-fuchsia-500/30', hex: '#D946EF' },
   pink: { bg: 'bg-pink-500/20', text: 'text-pink-400', border: 'border-pink-500/30', hex: '#EC4899' },
   rose: { bg: 'bg-rose-500/20', text: 'text-rose-400', border: 'border-rose-500/30', hex: '#F43F5E' },

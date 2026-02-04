@@ -534,7 +534,7 @@ IMPORTANT INSTRUCTIONS:
           {currentView === "jira" && (
             <ViewErrorBoundary name="JIRA Analyzer">
               <div id="jira-panel" role="tabpanel">
-                <JiraAnalyzerView />
+                <JiraAnalyzerView onAnalysisComplete={actions.viewAnalysis} />
               </div>
             </ViewErrorBoundary>
           )}

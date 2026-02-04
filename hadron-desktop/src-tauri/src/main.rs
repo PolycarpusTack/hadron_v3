@@ -59,6 +59,7 @@ fn main() {
         .manage(pattern_engine_state)
         .invoke_handler(tauri::generate_handler![
             analyze_crash_log,
+            analyze_jira_ticket,
             translate_content,
             save_external_analysis,
             get_all_analyses,

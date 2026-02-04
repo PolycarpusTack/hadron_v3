@@ -237,7 +237,18 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
           <input
             type="checkbox"
             checked={config.enabled}
-            onChange={(e) => setConfig({ ...config, enabled: e.target.checked })}
+            onChange={async (e) => {
+              const enabled = e.target.checked;
+              const updated = { ...config, enabled };
+              setConfig(updated);
+              if (!enabled) {
+                await saveJiraConfig(updated);
+                clearJiraConfigCache();
+                if (onConfigChange) {
+                  onConfigChange();
+                }
+              }
+            }}
             className="w-4 h-4 rounded"
           />
           <span className="text-sm font-medium">Enable</span>

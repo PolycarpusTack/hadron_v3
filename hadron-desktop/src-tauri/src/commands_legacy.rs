@@ -92,6 +92,7 @@ fn auto_tag_color(tag: &str) -> &'static str {
         "performance" => "#F59E0B",
         "code" => "#6366F1",
         "legacy" => "#8B5CF6",
+        "jira" => "#0052CC",
         _ => "#6B7280",
     }
 }
@@ -122,6 +123,7 @@ fn collect_auto_tags(analysis: &Analysis) -> Vec<(String, String)> {
         "quick" => "quick",
         "performance" => "performance",
         "code" => "code",
+        "jira_ticket" => "jira",
         "complete" | "specialized" => "legacy",
         _ => analysis_type.as_str(),
     };
@@ -1307,6 +1309,386 @@ pub async fn analyze_crash_log(
                 meta.coverage.walkback_coverage, meta.coverage.db_sessions_coverage
             );
 
+            (
+                Some(mode_str.to_string()),
+                Some(coverage),
+                Some(meta.token_estimates.utilization),
+            )
+        }
+        None => (None, None, None),
+    };
+
+    Ok(AnalysisResponse {
+        id,
+        filename: response_filename,
+        error_type: response_error_type,
+        severity: response_severity,
+        root_cause: response_root_cause,
+        suggested_fixes: result.suggested_fixes,
+        analyzed_at: response_analyzed_at,
+        cost: response_cost,
+        analysis_mode: analysis_mode_str,
+        coverage_summary,
+        token_utilization,
+    })
+}
+
+// ============================================================================
+// Jira Ticket Analysis
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JiraTicketAnalysisRequest {
+    pub jira_key: String,
+    pub summary: String,
+    pub description: String,
+    pub comments: Vec<String>,
+    pub priority: Option<String>,
+    pub status: Option<String>,
+    pub components: Vec<String>,
+    pub labels: Vec<String>,
+    pub api_key: String,
+    pub model: String,
+    pub provider: String,
+    pub keeper_secret_uid: Option<String>,
+    #[serde(default)]
+    pub use_rag: Option<bool>,
+}
+
+/// Analyze a JIRA ticket using the same AI pipeline as crash log analysis.
+///
+/// Composes the ticket fields into a structured text document and feeds it
+/// through the standard WhatsOn analysis pipeline.
+#[tauri::command]
+pub async fn analyze_jira_ticket(
+    request: JiraTicketAnalysisRequest,
+    db: DbState<'_>,
+    app: AppHandle,
+) -> Result<AnalysisResponse, String> {
+    log::info!(
+        "Starting JIRA ticket analysis: key={}, provider={}, model={}",
+        request.jira_key,
+        request.provider,
+        request.model
+    );
+
+    // Emit initial progress
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Reading,
+            progress: 0,
+            message: format!("Preparing JIRA ticket {} for analysis...", request.jira_key),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    // Compose ticket content into a structured text document
+    let mut content = String::new();
+    content.push_str("=== JIRA Ticket Analysis ===\n");
+    content.push_str(&format!("Key: {}\n", request.jira_key));
+    content.push_str(&format!("Summary: {}\n", request.summary));
+    if let Some(ref priority) = request.priority {
+        content.push_str(&format!("Priority: {}\n", priority));
+    }
+    if let Some(ref status) = request.status {
+        content.push_str(&format!("Status: {}\n", status));
+    }
+    if !request.components.is_empty() {
+        content.push_str(&format!("Components: {}\n", request.components.join(", ")));
+    }
+    if !request.labels.is_empty() {
+        content.push_str(&format!("Labels: {}\n", request.labels.join(", ")));
+    }
+    content.push('\n');
+    content.push_str("=== Description ===\n");
+    content.push_str(&request.description);
+    content.push('\n');
+
+    if !request.comments.is_empty() {
+        content.push_str(&format!("\n=== Comments ({} total) ===\n", request.comments.len()));
+        for (i, comment) in request.comments.iter().enumerate() {
+            content.push_str(&format!("--- Comment {} ---\n", i + 1));
+            content.push_str(comment);
+            content.push('\n');
+        }
+    }
+
+    let content_len = content.len();
+
+    // Emit progress - content composed
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Planning,
+            progress: 10,
+            message: "Planning analysis strategy...".to_string(),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    // Resolve API key - prefer Keeper if configured
+    let api_key: Zeroizing<String> = if let Some(ref keeper_uid) = request.keeper_secret_uid {
+        log::info!("Fetching API key from Keeper for JIRA ticket analysis");
+        keeper_service::get_api_key_from_keeper(keeper_uid)
+            .map_err(|e| format!("Failed to get API key from Keeper: {}", e))?
+    } else {
+        Zeroizing::new(request.api_key.clone())
+    };
+
+    // Use whatson analysis type for comprehensive analysis
+    let analysis_type = "whatson";
+
+    // Emit progress - starting AI analysis
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Analyzing,
+            progress: 20,
+            message: format!("Analyzing JIRA ticket {} with AI...", request.jira_key),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    // Optionally retrieve RAG context for enhanced analysis
+    let rag_context = if request.use_rag.unwrap_or(false) {
+        log::info!("RAG-enhanced analysis enabled for JIRA ticket, retrieving similar cases...");
+        let query = request.description.chars().take(500).collect::<String>();
+
+        match rag_commands::rag_build_context_internal(&query, None, None, 5, api_key.as_str()).await {
+            Ok(ctx) => {
+                log::info!(
+                    "RAG context retrieved: {} similar cases, {} gold matches",
+                    ctx.similar_analyses.len(),
+                    ctx.gold_matches.len()
+                );
+                Some(ai_service::RagContext {
+                    similar_cases: ctx.similar_analyses.iter().map(|c| ai_service::RagSimilarCase {
+                        citation_id: c.citation_id.clone(),
+                        similarity_score: c.similarity_score,
+                        root_cause: c.root_cause.clone(),
+                        suggested_fixes: c.suggested_fixes.clone(),
+                        is_gold: c.is_gold,
+                        component: c.component.clone(),
+                        severity: c.severity.clone(),
+                    }).collect(),
+                    gold_matches: ctx.gold_matches.iter().map(|c| ai_service::RagSimilarCase {
+                        citation_id: c.citation_id.clone(),
+                        similarity_score: c.similarity_score,
+                        root_cause: c.root_cause.clone(),
+                        suggested_fixes: c.suggested_fixes.clone(),
+                        is_gold: c.is_gold,
+                        component: c.component.clone(),
+                        severity: c.severity.clone(),
+                    }).collect(),
+                    confidence_boost: ctx.confidence_boost,
+                    retrieval_time_ms: ctx.retrieval_time_ms,
+                })
+            }
+            Err(e) => {
+                log::warn!("Failed to retrieve RAG context for JIRA ticket, continuing without: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Call AI service - use RAG-enhanced if context available
+    let result = if rag_context.is_some() {
+        ai_service::analyze_crash_log_with_rag(
+            &content,
+            api_key.as_str(),
+            &request.model,
+            &request.provider,
+            analysis_type,
+            rag_context,
+        )
+        .await
+        .map_err(|e| {
+            log::error!("RAG-enhanced AI analysis failed for JIRA ticket {}: {}", request.jira_key, e);
+            format!("AI analysis failed: {}", e)
+        })?
+    } else {
+        ai_service::analyze_crash_log_safe(
+            &content,
+            None,
+            api_key.as_str(),
+            &request.model,
+            &request.provider,
+            analysis_type,
+            None,
+        )
+        .await
+        .map_err(|e| {
+            log::error!("AI analysis failed for JIRA ticket {}: {}", request.jira_key, e);
+            format!("AI analysis failed: {}", e)
+        })?
+    };
+
+    // Emit progress - AI analysis complete
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Saving,
+            progress: 80,
+            message: "Saving analysis results...".to_string(),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    log::info!(
+        "AI analysis completed for JIRA ticket {}: severity={}, confidence={}",
+        request.jira_key,
+        result.severity,
+        result.confidence
+    );
+
+    let file_size_kb = content_len as f64 / 1024.0;
+    let filename = format!("JIRA: {}", request.jira_key);
+
+    // Create analysis record
+    let analysis = Analysis {
+        id: 0,
+        filename: filename.clone(),
+        file_size_kb,
+        error_type: result.error_type.clone(),
+        error_message: result.error_message.clone(),
+        severity: result.severity.to_uppercase(),
+        component: result.component.clone(),
+        stack_trace: result.stack_trace.clone(),
+        root_cause: result.root_cause.clone(),
+        suggested_fixes: serde_json::to_string(&result.suggested_fixes).unwrap_or_else(|e| {
+            log::warn!("Failed to serialize suggested_fixes: {}", e);
+            "[]".to_string()
+        }),
+        confidence: Some(result.confidence.to_uppercase()),
+        analyzed_at: chrono::Utc::now().to_rfc3339(),
+        ai_model: request.model.clone(),
+        ai_provider: Some(request.provider.clone()),
+        tokens_used: result.tokens_used,
+        cost: result.cost,
+        was_truncated: result.was_truncated.unwrap_or(false),
+        full_data: result.raw_enhanced_json.clone().or_else(|| {
+            Some(serde_json::to_string(&result).unwrap_or_else(|e| {
+                log::warn!("Failed to serialize full analysis result: {}", e);
+                "{}".to_string()
+            }))
+        }),
+        is_favorite: false,
+        last_viewed_at: None,
+        view_count: 0,
+        analysis_duration_ms: result.analysis_duration_ms,
+        analysis_type: "jira_ticket".to_string(),
+    };
+
+    // Extract fields for response before moving analysis
+    let response_filename = analysis.filename.clone();
+    let response_error_type = analysis.error_type.clone();
+    let response_severity = analysis.severity.clone();
+    let response_root_cause = analysis.root_cause.clone();
+    let response_analyzed_at = analysis.analyzed_at.clone();
+    let response_cost = analysis.cost;
+
+    // Save to database
+    let analysis_for_tags = analysis.clone();
+    let db_clone = Arc::clone(&db);
+    let jira_key_for_log = request.jira_key.clone();
+    let id = tauri::async_runtime::spawn_blocking(move || db_clone.insert_analysis(&analysis))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| {
+            log::error!("Database insert failed for JIRA ticket {}: {}", jira_key_for_log, e);
+            format!("Database error: {}", e)
+        })?;
+
+    log::info!(
+        "JIRA ticket analysis saved: id={}, key={}, cost={}",
+        id, request.jira_key, response_cost
+    );
+
+    // Auto-tag analysis (best-effort) + add "jira" tag
+    {
+        let db_for_tags = Arc::clone(&db);
+        let mut analysis_for_tags = analysis_for_tags;
+        analysis_for_tags.id = id;
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = apply_auto_tags(&db_for_tags, &analysis_for_tags) {
+                log::warn!("Auto-tagging failed for JIRA ticket analysis {}: {}", analysis_for_tags.id, e);
+            }
+            // Always add "jira" tag
+            let jira_color = "#0052CC"; // JIRA blue
+            match db_for_tags.get_or_create_tag_id("jira", jira_color) {
+                Ok(tag_id) => {
+                    if let Err(e) = db_for_tags.add_tag_to_analysis(analysis_for_tags.id, tag_id) {
+                        log::warn!("Failed to add 'jira' tag to analysis {}: {}", analysis_for_tags.id, e);
+                    }
+                }
+                Err(e) => log::warn!("Failed to get/create 'jira' tag: {}", e),
+            }
+        });
+    }
+
+    // Auto-index into RAG store (fire-and-forget)
+    let analysis_for_indexing = Analysis {
+        id,
+        filename: response_filename.clone(),
+        file_size_kb,
+        error_type: response_error_type.clone(),
+        error_message: None,
+        severity: response_severity.clone(),
+        component: result.component.clone(),
+        stack_trace: None,
+        root_cause: response_root_cause.clone(),
+        suggested_fixes: serde_json::to_string(&result.suggested_fixes).unwrap_or_default(),
+        confidence: Some(result.confidence.clone()),
+        analyzed_at: response_analyzed_at.clone(),
+        ai_model: request.model.clone(),
+        ai_provider: Some(request.provider.clone()),
+        tokens_used: result.tokens_used,
+        cost: response_cost,
+        was_truncated: result.was_truncated.unwrap_or(false),
+        full_data: None,
+        is_favorite: false,
+        last_viewed_at: None,
+        view_count: 0,
+        analysis_duration_ms: None,
+        analysis_type: "jira_ticket".to_string(),
+    };
+
+    let api_key_clone = api_key.to_string();
+    tokio::spawn(async move {
+        auto_index_analysis(&analysis_for_indexing, &api_key_clone).await;
+    });
+
+    // Emit progress - complete
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Complete,
+            progress: 100,
+            message: "JIRA ticket analysis complete!".to_string(),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    // Extract metadata for response
+    let (analysis_mode_str, coverage_summary, token_utilization) = match &result.analysis_meta {
+        Some(meta) => {
+            let mode_str = match meta.mode {
+                ai_service::AnalysisMode::Quick => "Quick",
+                ai_service::AnalysisMode::QuickWithExtraction => "Quick (Extracted)",
+                ai_service::AnalysisMode::DeepScan => "Deep Scan",
+            };
+            let coverage = format!(
+                "Walkback: {:?}, DB: {:?}",
+                meta.coverage.walkback_coverage, meta.coverage.db_sessions_coverage
+            );
             (
                 Some(mode_str.to_string()),
                 Some(coverage),

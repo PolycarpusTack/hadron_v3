@@ -210,6 +210,7 @@ class HealthResponse(BaseModel):
     database_connected: bool = Field(..., description="Database connection status")
     rag_available: bool = Field(..., description="RAG service availability")
     model_available: bool = Field(..., description="AI model availability")
+    keeper_available: bool = Field(default=False, description="Keeper Secrets Manager availability")
     uptime_seconds: int = Field(..., description="Service uptime in seconds")
 
 

@@ -2,8 +2,13 @@ import { Ticket, RefreshCw, Sparkles, Link2 } from "lucide-react";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
 import JiraImportPanel from "./JiraImportPanel";
 import JiraSyncStatus from "./JiraSyncStatus";
+import type { Analysis } from "../services/api";
 
-export default function JiraAnalyzerView() {
+interface JiraAnalyzerViewProps {
+  onAnalysisComplete?: (analysis: Analysis) => void;
+}
+
+export default function JiraAnalyzerView({ onAnalysisComplete }: JiraAnalyzerViewProps) {
   return (
     <div className="space-y-6">
       <AnalyzerEntryPanel
@@ -49,7 +54,7 @@ export default function JiraAnalyzerView() {
         </div>
       </div>
 
-      <JiraImportPanel embedded />
+      <JiraImportPanel embedded onAnalysisComplete={onAnalysisComplete} />
     </div>
   );
 }

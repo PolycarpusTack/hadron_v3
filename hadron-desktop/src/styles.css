@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Poppins', 'Century Gothic', Arial, system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
@@ -18,7 +18,7 @@
 
   /* Feedback component CSS variables */
   --border-color: #374151;
-  --accent-color: #3b82f6;
+  --accent-color: #3805E3;
   --input-bg: #1f2937;
   --text-color: #f3f4f6;
   --text-muted: #9ca3af;
@@ -110,7 +110,7 @@ body {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  background: linear-gradient(90deg, #3805E3, #B8AFDA);
   border-radius: 4px;
   transition: width 0.3s ease-out;
 }

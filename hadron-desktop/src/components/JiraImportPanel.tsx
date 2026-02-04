@@ -20,27 +20,32 @@ import {
   Loader2,
   Link2,
   Plus,
+  Zap,
 } from "lucide-react";
 import JiraImportService, {
   type NormalizedIssue,
   type ImportResult,
 } from "../services/jira-import";
 import { isJiraEnabled } from "../services/jira";
+import { analyzeJiraTicket, getAnalysisById, getStoredApiKey } from "../services/api";
 import logger from "../services/logger";
+import type { Analysis } from "../services/api";
 
 interface JiraImportPanelProps {
   onClose?: () => void;
   onLinkIssue?: (issue: NormalizedIssue) => void;
   embedded?: boolean;
+  onAnalysisComplete?: (analysis: Analysis) => void;
 }
 
 type SortField = "updatedAt" | "crashRelevanceScore" | "key";
 type SortDirection = "asc" | "desc";
 
-export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false }: JiraImportPanelProps) {
+export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false, onAnalysisComplete }: JiraImportPanelProps) {
   const [isEnabled, setIsEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [analyzingKey, setAnalyzingKey] = useState<string | null>(null);
   const [issues, setIssues] = useState<NormalizedIssue[]>([]);
   const [syncResult, setSyncResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +177,41 @@ export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false
       logger.error("Manual JIRA import failed", { error: e });
     } finally {
       setManualImporting(false);
+    }
+  }
+
+  async function handleAnalyzeTicket(issue: NormalizedIssue) {
+    const apiKey = await getStoredApiKey();
+    if (!apiKey) {
+      setError("No API key configured. Please set an API key in Settings.");
+      return;
+    }
+    setAnalyzingKey(issue.key);
+    setError(null);
+    try {
+      const commentTexts = issue.comments.map(c => c.body);
+      const result = await analyzeJiraTicket(
+        issue.key,
+        issue.summary,
+        issue.descriptionPlaintext || "",
+        commentTexts,
+        issue.priority || undefined,
+        issue.status || undefined,
+        issue.components,
+        issue.labels,
+        apiKey,
+      );
+      // Fetch full analysis and navigate to detail view
+      const fullAnalysis = await getAnalysisById(result.id);
+      if (onAnalysisComplete) {
+        onAnalysisComplete(fullAnalysis);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Analysis failed";
+      setError(`Failed to analyze ${issue.key}: ${msg}`);
+      logger.error("JIRA ticket analysis failed", { key: issue.key, error: err });
+    } finally {
+      setAnalyzingKey(null);
     }
   }
 
@@ -535,6 +575,8 @@ export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false
                   expanded={expandedIssues.has(issue.id)}
                   onToggleExpand={() => toggleExpanded(issue.id)}
                   onLink={onLinkIssue ? () => onLinkIssue(issue) : undefined}
+                  onAnalyze={() => handleAnalyzeTicket(issue)}
+                  analyzing={analyzingKey === issue.key}
                 />
               ))}
             </div>
@@ -578,9 +620,11 @@ interface IssueCardProps {
   expanded: boolean;
   onToggleExpand: () => void;
   onLink?: () => void;
+  onAnalyze?: () => void;
+  analyzing?: boolean;
 }
 
-function IssueCard({ issue, expanded, onToggleExpand, onLink }: IssueCardProps) {
+function IssueCard({ issue, expanded, onToggleExpand, onLink, onAnalyze, analyzing }: IssueCardProps) {
   const relevanceColor =
     issue.crashRelevanceScore >= 0.7
       ? "text-green-400"
@@ -716,6 +760,28 @@ function IssueCard({ issue, expanded, onToggleExpand, onLink }: IssueCardProps) 
               >
                 <Link2 className="w-3 h-3" />
                 Link to Crash
+              </button>
+            )}
+            {onAnalyze && (
+              <button
+                onClick={e => {
+                  e.stopPropagation();
+                  onAnalyze();
+                }}
+                disabled={analyzing}
+                className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 disabled:cursor-not-allowed rounded text-sm text-white transition"
+              >
+                {analyzing ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3 h-3" />
+                    Analyze
+                  </>
+                )}
               </button>
             )}
           </div>

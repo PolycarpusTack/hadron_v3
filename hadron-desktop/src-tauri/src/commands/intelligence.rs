@@ -229,7 +229,7 @@ pub fn export_gold_jsonl(db: DbState<'_>) -> Result<FineTuneExportResult, String
         });
     }
 
-    let system_prompt = r#"You are a WHATS'ON broadcast management system crash analysis expert. Analyze Smalltalk crash logs and provide:
+    let system_prompt = r#"You are a WHATS'ON broadcast management system crash analysis expert. Analyze Smalltalk crash logs and JIRA bug tickets and provide:
 1. Root cause identification with specific class/method references
 2. Severity assessment (critical/high/medium/low)
 3. Actionable fix suggestions specific to WHATS'ON

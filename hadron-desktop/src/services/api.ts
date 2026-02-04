@@ -136,6 +136,43 @@ export async function analyzeCrashLog(
 }
 
 /**
+ * Analyze a JIRA ticket through the WhatsOn AI analysis pipeline.
+ * Composes ticket fields into a structured document and runs the same
+ * analysis as crash logs, storing results in the analyses table.
+ */
+export async function analyzeJiraTicket(
+  jiraKey: string,
+  summary: string,
+  description: string,
+  comments: string[],
+  priority: string | undefined,
+  status: string | undefined,
+  components: string[],
+  labels: string[],
+  apiKey: string,
+  model?: string,
+  provider?: string,
+  useRag?: boolean,
+): Promise<AnalysisResponse> {
+  return invoke<AnalysisResponse>("analyze_jira_ticket", {
+    request: {
+      jiraKey,
+      summary,
+      description,
+      comments,
+      priority,
+      status,
+      components,
+      labels,
+      apiKey,
+      model: model || getStoredModel(),
+      provider: provider || getStoredProvider(),
+      useRag: useRag ?? false,
+    },
+  });
+}
+
+/**
  * Translate technical content to plain language
  * Invalidates translation cache after successful translation
  */

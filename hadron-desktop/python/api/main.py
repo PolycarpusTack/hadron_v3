@@ -42,12 +42,34 @@ try:
 except ImportError:
     RAG_AVAILABLE = False
 
+# Optional Keeper Secrets Manager
+try:
+    from api.keeper_secrets import is_keeper_available, get_secret_by_uid
+    KEEPER_AVAILABLE = is_keeper_available()
+except ImportError:
+    KEEPER_AVAILABLE = False
+
 # Optional AI service (for actual analysis)
 try:
     import openai
-    OPENAI_AVAILABLE = bool(os.environ.get("OPENAI_API_KEY"))
+    _openai_imported = True
 except ImportError:
-    OPENAI_AVAILABLE = False
+    _openai_imported = False
+
+
+def _resolve_openai_key() -> Optional[str]:
+    """Resolve OpenAI key: env var first, then Keeper."""
+    env_key = os.environ.get("OPENAI_API_KEY")
+    if env_key:
+        return env_key
+    if KEEPER_AVAILABLE:
+        uid = os.environ.get("HADRON_KEEPER_OPENAI_UID")
+        if uid:
+            return get_secret_by_uid(uid)
+    return None
+
+
+OPENAI_AVAILABLE = _openai_imported and bool(_resolve_openai_key())
 
 logger = structlog.get_logger()
 
@@ -128,6 +150,7 @@ async def health_check():
         database_connected=db_connected,
         rag_available=RAG_AVAILABLE,
         model_available=OPENAI_AVAILABLE,
+        keeper_available=KEEPER_AVAILABLE,
         uptime_seconds=uptime
     )
 
@@ -255,7 +278,10 @@ async def _perform_ai_analysis(
     similar_cases: List[SimilarCase]
 ) -> dict:
     """Perform actual AI analysis using OpenAI"""
-    client = openai.OpenAI()
+    api_key = _resolve_openai_key()
+    if not api_key:
+        raise RuntimeError("OpenAI API key not available from environment or Keeper")
+    client = openai.OpenAI(api_key=api_key)
 
     # Build context from similar cases
     context = ""
@@ -690,6 +716,9 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown"""
     logger.info("Hadron API shutting down")
+    if KEEPER_AVAILABLE:
+        from api.keeper_secrets import clear_cache
+        clear_cache()
 
 
 # ============================================================================

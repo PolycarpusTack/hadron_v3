@@ -16,3 +16,6 @@ tenacity>=8.0.0
 
 # Additional utilities
 structlog>=24.0.0
+
+# Keeper Secrets Manager
+keeper-secrets-manager-core>=16.6.0

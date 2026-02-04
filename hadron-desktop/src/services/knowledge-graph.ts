@@ -377,14 +377,14 @@ export function getNodeColor(node: GraphNode): string {
         case "medium":
           return "#eab308"; // yellow-500
         case "low":
-          return "#3b82f6"; // blue-500
+          return "#5420e8"; // cobalt-500
         default:
           return "#6b7280"; // gray-500
       }
     case "jira":
       return "#22c55e"; // green-500
     case "signature":
-      return "#a855f7"; // purple-500
+      return "#7e6db6"; // mauve-500
     default:
       return "#6b7280";
   }

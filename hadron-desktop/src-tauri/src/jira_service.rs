@@ -325,12 +325,17 @@ pub async fn create_jira_ticket(
 // ============================================================================
 
 /// JIRA search response wrapper
+/// Note: /rest/api/3/search/jql returns only `issues` (no total/startAt/maxResults).
+/// We default the missing fields so downstream consumers stay compatible.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JiraSearchResponse {
     pub issues: Vec<JiraSearchIssue>,
+    #[serde(default)]
     pub total: i32,
+    #[serde(default)]
     pub start_at: i32,
+    #[serde(default)]
     pub max_results: i32,
 }
 
@@ -479,21 +484,21 @@ pub async fn search_jira_issues(
         fields.push("comment");
     }
 
-    let fields_param = fields.join(",");
+    // Build POST body for /rest/api/3/search/jql (replaces removed GET /rest/api/3/search)
+    let url = format!("{}/rest/api/3/search/jql", base_url);
 
-    // Build search URL with parameters
-    let url = format!(
-        "{}/rest/api/3/search?jql={}&maxResults={}&fields={}",
-        base_url,
-        urlencoding::encode(&jql),
-        max_results,
-        urlencoding::encode(&fields_param)
-    );
+    let body = serde_json::json!({
+        "jql": jql,
+        "maxResults": max_results,
+        "fields": fields,
+    });
 
     let response = HTTP_CLIENT
-        .get(&url)
+        .post(&url)
         .header("Authorization", &auth_header)
         .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .json(&body)
         .send()
         .await
         .map_err(|e| format!("Search request failed: {}", e))?;
@@ -501,15 +506,19 @@ pub async fn search_jira_issues(
     let status = response.status();
 
     if status.is_success() {
-        let search_result: JiraSearchResponse = response
+        let mut search_result: JiraSearchResponse = response
             .json()
             .await
             .map_err(|e| format!("Failed to parse search response: {}", e))?;
 
+        // The /rest/api/3/search/jql endpoint doesn't return total — backfill it
+        if search_result.total == 0 && !search_result.issues.is_empty() {
+            search_result.total = search_result.issues.len() as i32;
+        }
+
         log::info!(
-            "JIRA search returned {} issues (total: {})",
-            search_result.issues.len(),
-            search_result.total
+            "JIRA search returned {} issues",
+            search_result.issues.len()
         );
 
         Ok(search_result)

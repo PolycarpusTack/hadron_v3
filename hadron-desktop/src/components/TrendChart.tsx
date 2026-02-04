@@ -19,7 +19,7 @@ const SEVERITY_COLORS = {
   critical: "#EF4444",
   high: "#F97316",
   medium: "#EAB308",
-  low: "#3B82F6",
+  low: "#5420e8",
 };
 
 export const TrendChart = memo(function TrendChart({
