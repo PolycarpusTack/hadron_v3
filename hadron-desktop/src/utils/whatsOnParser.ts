@@ -3,6 +3,7 @@
  */
 
 import type { WhatsOnEnhancedAnalysis } from "../types";
+import logger from '../services/logger';
 
 /**
  * Parse the full_data JSON string into a WhatsOnEnhancedAnalysis object
@@ -20,15 +21,15 @@ export function parseWhatsOnAnalysis(
       if (validation.valid) {
         return parsed;
       } else {
-        console.warn("WHATS'ON validation failed:", validation.missingFields);
-        console.debug("Parsed structure keys:", Object.keys(parsed));
+        logger.warn('WHATS ON validation failed', { missingFields: validation.missingFields });
+        logger.debug('Parsed structure keys', { keys: Object.keys(parsed) });
       }
     } catch (e) {
-      console.warn("Failed to parse full_data as JSON:", e);
-      console.debug("full_data length:", fullData?.length, "preview:", fullData?.substring(0, 200));
+      logger.warn('Failed to parse full_data as JSON', { error: String(e) });
+      logger.debug('full_data preview', { length: fullData?.length });
     }
   } else {
-    console.debug("No full_data provided for WHATS'ON parsing");
+    logger.debug('No full_data for WHATS ON parsing');
   }
 
   // Fallback: try to parse from root_cause if it's JSON

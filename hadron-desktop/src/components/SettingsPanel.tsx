@@ -5,6 +5,7 @@ import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage
 import { checkForUpdates } from "../services/updater";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI, autoTagAnalyses } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
+import logger from '../services/logger';
 
 // Lazy load heavy components since most users won't use them
 const KeeperSettings = lazy(() => import("./KeeperSettings"));
@@ -218,7 +219,7 @@ export default function SettingsPanel({
       try {
         activeProviders = JSON.parse(savedActiveProviders);
       } catch (e) {
-        console.warn("Failed to parse active providers:", e);
+        logger.warn('Failed to parse active providers', { error: String(e) });
       }
     }
 
@@ -249,7 +250,7 @@ export default function SettingsPanel({
           }));
         }
       } catch (e) {
-        console.warn("Failed to load cached models:", e);
+        logger.warn('Failed to load cached models', { error: String(e) });
       }
     }
   }

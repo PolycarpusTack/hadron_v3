@@ -7,6 +7,7 @@
 
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import logger from './logger';
 
 export interface UpdateInfo {
   available: boolean;
@@ -26,9 +27,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
     const update = await check();
 
     if (update) {
-      console.log(
-        `✨ Update available: ${update.version} (current: ${update.currentVersion})`
-      );
+      logger.info('Update available', { version: update.version, currentVersion: update.currentVersion, source: 'updater', category: 'system' });
 
       return {
         available: true,
@@ -38,7 +37,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
         body: update.body,
       };
     } else {
-      console.log('✅ App is up to date');
+      logger.info('App is up to date', { source: 'updater', category: 'system' });
 
       return {
         available: false,
@@ -48,7 +47,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       };
     }
   } catch (error) {
-    console.error('❌ Failed to check for updates:', error);
+    logger.error('Failed to check for updates', { error: String(error), source: 'updater', category: 'system' });
     throw new Error(`Update check failed: ${error}`);
   }
 }
@@ -69,7 +68,7 @@ export async function downloadAndInstall(
       throw new Error('No updates available');
     }
 
-    console.log('📥 Downloading update...');
+    logger.info('Downloading update', { source: 'updater', category: 'system' });
 
     // Download with progress tracking
     let downloaded = 0;
@@ -79,7 +78,7 @@ export async function downloadAndInstall(
       switch (event.event) {
         case 'Started':
           contentLength = event.data.contentLength || 0;
-          console.log(`📦 Download started: ${contentLength} bytes`);
+          logger.info('Download started', { contentLength, source: 'updater', category: 'system' });
           break;
         case 'Progress':
           downloaded += event.data.chunkLength;
@@ -87,20 +86,20 @@ export async function downloadAndInstall(
           const progress = contentLength > 0
             ? Math.round((downloaded / contentLength) * 100)
             : 0;
-          console.log(`⬇️  Progress: ${progress}%`);
+          logger.debug('Download progress', { progress, source: 'updater', category: 'system' });
           if (onProgress) {
             onProgress(downloaded, contentLength);
           }
           break;
         case 'Finished':
-          console.log('✅ Download complete');
+          logger.info('Download complete', { source: 'updater', category: 'system' });
           break;
       }
     });
 
-    console.log('🎉 Update installed successfully');
+    logger.info('Update installed successfully', { source: 'updater', category: 'system' });
   } catch (error) {
-    console.error('❌ Failed to download and install update:', error);
+    logger.error('Failed to download and install update', { error: String(error), source: 'updater', category: 'system' });
     throw new Error(`Update installation failed: ${error}`);
   }
 }
@@ -111,7 +110,7 @@ export async function downloadAndInstall(
  * Note: Only call this after downloadAndInstall() succeeds
  */
 export async function restartApp(): Promise<void> {
-  console.log('🔄 Restarting application...');
+  logger.info('Restarting application', { source: 'updater', category: 'system' });
   await relaunch();
 }
 
@@ -130,11 +129,11 @@ export async function checkAndUpdate(): Promise<boolean> {
 
     // Since dialog: true is set in tauri.conf.json,
     // Tauri will automatically show update dialog
-    console.log('💬 Update dialog shown to user');
+    logger.info('Update dialog shown to user', { source: 'updater', category: 'system' });
 
     return true;
   } catch (error) {
-    console.error('❌ Auto-update failed:', error);
+    logger.error('Auto-update failed', { error: String(error), source: 'updater', category: 'system' });
     return false;
   }
 }
