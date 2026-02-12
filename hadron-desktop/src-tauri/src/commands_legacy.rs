@@ -6114,13 +6114,27 @@ pub async fn analyze_sentry_issue(
         },
     );
 
-    let analysis_content = sentry_service::normalize_sentry_to_analysis_content(&issue, &event);
+    let mut analysis_content = sentry_service::normalize_sentry_to_analysis_content(&issue, &event);
+
+    // Detect known patterns (deadlock, N+1, memory leak, unhandled promise)
+    let detected_patterns = sentry_service::detect_sentry_patterns(&issue, &event);
+    if !detected_patterns.is_empty() {
+        let labels: Vec<&str> = detected_patterns.iter().map(|p| p.pattern_type.label()).collect();
+        log::info!("Sentry patterns detected: {:?}", labels);
+
+        // Append pattern context to the analysis content so the AI can see it
+        if let Some(pattern_prompt) = sentry_service::build_pattern_prompt(&detected_patterns) {
+            analysis_content.push_str(&pattern_prompt);
+        }
+    }
+
     let content_size_kb = analysis_content.len() as f64 / 1024.0;
 
     log::info!(
-        "Sentry issue normalized: {} bytes, short_id={}",
+        "Sentry issue normalized: {} bytes, short_id={}, patterns={}",
         analysis_content.len(),
-        issue.short_id
+        issue.short_id,
+        detected_patterns.len()
     );
 
     // Phase 3: Run AI analysis
@@ -6183,7 +6197,7 @@ pub async fn analyze_sentry_issue(
         cost: result.cost,
         was_truncated: result.was_truncated.unwrap_or(false),
         full_data: result.raw_enhanced_json.clone().or_else(|| {
-            // Build a full_data blob with Sentry context + AI result
+            // Build a full_data blob with Sentry context + AI result + detected patterns
             let full = serde_json::json!({
                 "sentry_issue_id": issue.id,
                 "sentry_short_id": issue.short_id,
@@ -6193,6 +6207,7 @@ pub async fn analyze_sentry_issue(
                 "sentry_platform": issue.platform,
                 "sentry_count": issue.count,
                 "sentry_user_count": issue.user_count,
+                "detected_patterns": serde_json::to_value(&detected_patterns).ok(),
                 "ai_result": serde_json::to_value(&result).ok(),
             });
             Some(full.to_string())

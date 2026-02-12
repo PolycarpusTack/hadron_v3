@@ -583,6 +583,261 @@ pub fn normalize_sentry_to_analysis_content(
 }
 
 // ============================================================================
+// Pattern Detection
+// ============================================================================
+
+/// A detected pattern in a Sentry issue/event
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedPattern {
+    pub pattern_type: PatternType,
+    pub confidence: f32,
+    pub evidence: Vec<String>,
+}
+
+/// Known pattern types for Sentry issues
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PatternType {
+    Deadlock,
+    NPlusOne,
+    MemoryLeak,
+    UnhandledPromise,
+}
+
+impl PatternType {
+    pub fn label(&self) -> &str {
+        match self {
+            PatternType::Deadlock => "Deadlock",
+            PatternType::NPlusOne => "N+1 Query",
+            PatternType::MemoryLeak => "Memory Leak",
+            PatternType::UnhandledPromise => "Unhandled Promise",
+        }
+    }
+}
+
+/// Detect known patterns from a Sentry issue and its latest event
+pub fn detect_sentry_patterns(issue: &SentryIssue, event: &SentryEvent) -> Vec<DetectedPattern> {
+    let mut patterns = Vec::new();
+
+    // Collect searchable text
+    let title_lower = issue.title.to_lowercase();
+    let message_lower = event.message.as_deref().unwrap_or("").to_lowercase();
+    let exceptions = extract_exceptions(event);
+    let breadcrumbs = extract_breadcrumbs(event);
+
+    let exc_text: String = exceptions
+        .iter()
+        .map(|e| {
+            format!(
+                "{} {}",
+                e.exception_type.as_deref().unwrap_or(""),
+                e.value.as_deref().unwrap_or("")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+
+    // --- Deadlock Detection ---
+    {
+        let mut evidence = Vec::new();
+        let keywords = ["deadlock", "lock timeout", "lock wait timeout", "40p01"];
+        for kw in &keywords {
+            if title_lower.contains(kw) {
+                evidence.push(format!("Title contains '{}'", kw));
+            }
+            if message_lower.contains(kw) {
+                evidence.push(format!("Message contains '{}'", kw));
+            }
+            if exc_text.contains(kw) {
+                evidence.push(format!("Exception contains '{}'", kw));
+            }
+        }
+        // Check tags for deadlock error codes
+        if let Some(tags) = &event.tags {
+            for tag in tags {
+                let val_lower = tag.value.to_lowercase();
+                if val_lower.contains("deadlock") || val_lower == "40p01" {
+                    evidence.push(format!("Tag {}={}", tag.key, tag.value));
+                }
+            }
+        }
+        if !evidence.is_empty() {
+            let confidence = if evidence.len() >= 2 { 0.9 } else { 0.7 };
+            patterns.push(DetectedPattern {
+                pattern_type: PatternType::Deadlock,
+                confidence,
+                evidence,
+            });
+        }
+    }
+
+    // --- N+1 Query Detection ---
+    {
+        let mut evidence = Vec::new();
+        // Check breadcrumbs for repeated DB queries
+        let db_breadcrumbs: Vec<&SentryBreadcrumb> = breadcrumbs
+            .iter()
+            .filter(|bc| {
+                let cat = bc.category.as_deref().unwrap_or("");
+                cat == "query" || cat == "db" || cat.starts_with("django.db")
+                    || cat.starts_with("sqlalchemy") || cat == "http"
+            })
+            .collect();
+
+        if db_breadcrumbs.len() >= 3 {
+            // Look for similar messages (3+ threshold)
+            let mut query_counts: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for bc in &db_breadcrumbs {
+                if let Some(msg) = &bc.message {
+                    // Normalize: strip numeric params to group similar queries
+                    let normalized = normalize_query(msg);
+                    *query_counts.entry(normalized).or_insert(0) += 1;
+                }
+            }
+            for (query, count) in &query_counts {
+                if *count >= 3 {
+                    evidence.push(format!(
+                        "Query pattern repeated {} times: {}",
+                        count,
+                        &query[..query.len().min(100)]
+                    ));
+                }
+            }
+        }
+
+        // Also check title/message for N+1 keywords
+        if title_lower.contains("n+1") || message_lower.contains("n+1") {
+            evidence.push("Title/message references N+1".to_string());
+        }
+
+        if !evidence.is_empty() {
+            let confidence = if evidence.iter().any(|e| e.contains("repeated")) {
+                0.85
+            } else {
+                0.6
+            };
+            patterns.push(DetectedPattern {
+                pattern_type: PatternType::NPlusOne,
+                confidence,
+                evidence,
+            });
+        }
+    }
+
+    // --- Memory Leak Detection ---
+    {
+        let mut evidence = Vec::new();
+        let keywords = [
+            "out of memory",
+            "outofmemory",
+            "oom",
+            "heap exhausted",
+            "heap space",
+            "memory limit",
+            "memoryerror",
+            "allocation failed",
+            "gc overhead limit",
+            "java.lang.outofmemoryerror",
+        ];
+        for kw in &keywords {
+            if title_lower.contains(kw) {
+                evidence.push(format!("Title contains '{}'", kw));
+            }
+            if exc_text.contains(kw) {
+                evidence.push(format!("Exception contains '{}'", kw));
+            }
+        }
+        if !evidence.is_empty() {
+            let confidence = if evidence.len() >= 2 { 0.9 } else { 0.75 };
+            patterns.push(DetectedPattern {
+                pattern_type: PatternType::MemoryLeak,
+                confidence,
+                evidence,
+            });
+        }
+    }
+
+    // --- Unhandled Promise Detection ---
+    {
+        let mut evidence = Vec::new();
+        let keywords = ["unhandledrejection", "unhandled promise", "unhandled rejection"];
+        for kw in &keywords {
+            if title_lower.contains(kw) {
+                evidence.push(format!("Title contains '{}'", kw));
+            }
+            if message_lower.contains(kw) {
+                evidence.push(format!("Message contains '{}'", kw));
+            }
+            if exc_text.contains(kw) {
+                evidence.push(format!("Exception contains '{}'", kw));
+            }
+        }
+        // Check exception types
+        for exc in &exceptions {
+            if let Some(etype) = &exc.exception_type {
+                let etype_lower = etype.to_lowercase();
+                if etype_lower.contains("unhandledrejection")
+                    || etype_lower == "unhandledpromiserejection"
+                {
+                    evidence.push(format!("Exception type: {}", etype));
+                }
+            }
+        }
+        if !evidence.is_empty() {
+            let confidence = if evidence.len() >= 2 { 0.9 } else { 0.8 };
+            patterns.push(DetectedPattern {
+                pattern_type: PatternType::UnhandledPromise,
+                confidence,
+                evidence,
+            });
+        }
+    }
+
+    patterns
+}
+
+/// Build a supplementary prompt section describing detected patterns
+pub fn build_pattern_prompt(patterns: &[DetectedPattern]) -> Option<String> {
+    if patterns.is_empty() {
+        return None;
+    }
+
+    let mut prompt = String::from("\n\n[DETECTED PATTERNS]\n");
+    prompt.push_str("The following patterns were detected automatically. Focus your analysis on these:\n");
+    for p in patterns {
+        prompt.push_str(&format!(
+            "- {} (confidence: {:.0}%): {}\n",
+            p.pattern_type.label(),
+            p.confidence * 100.0,
+            p.evidence.join("; ")
+        ));
+    }
+    prompt.push_str("Include these patterns in your response's pattern_type field.\n");
+    Some(prompt)
+}
+
+/// Normalize a SQL query by stripping numeric literals for grouping similar queries
+fn normalize_query(query: &str) -> String {
+    // Replace numeric literals with ?
+    let mut result = String::with_capacity(query.len());
+    let mut chars = query.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch.is_ascii_digit() {
+            result.push('?');
+            while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                chars.next();
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+// ============================================================================
 // AI Analysis Constants
 // ============================================================================
 

@@ -242,6 +242,30 @@ ${analysis.suggested_fixes}
           </div>
         )}
 
+        {/* Sentry Detected Pattern Badges */}
+        {analysis.analysis_type === "sentry" && analysis.full_data && (() => {
+          try {
+            const data = JSON.parse(analysis.full_data);
+            const patterns = data?.detected_patterns;
+            if (!Array.isArray(patterns) || patterns.length === 0) return null;
+            return (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-gray-500 mr-1">Detected:</span>
+                {patterns.map((p: { patternType: string; confidence: number; evidence: string[] }, i: number) => (
+                  <span
+                    key={i}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border ${getPatternBadgeColor(p.patternType)}`}
+                    title={p.evidence?.join("; ") || ""}
+                  >
+                    {getPatternLabel(p.patternType)}
+                    <span className="opacity-60">{Math.round(p.confidence * 100)}%</span>
+                  </span>
+                ))}
+              </div>
+            );
+          } catch { return null; }
+        })()}
+
         {analysis.was_truncated && (
           <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-sm text-yellow-400">
             ⚠️ This file was truncated for analysis. Large portions may have been omitted.
@@ -456,4 +480,35 @@ ${analysis.suggested_fixes}
       />
     </div>
   );
+}
+
+// Pattern badge helpers for Sentry analysis
+function getPatternBadgeColor(patternType: string): string {
+  switch (patternType) {
+    case "deadlock":
+      return "bg-red-500/20 text-red-400 border-red-500/30";
+    case "n_plus_one":
+      return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+    case "memory_leak":
+      return "bg-purple-500/20 text-purple-400 border-purple-500/30";
+    case "unhandled_promise":
+      return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+    default:
+      return "bg-gray-500/20 text-gray-400 border-gray-500/30";
+  }
+}
+
+function getPatternLabel(patternType: string): string {
+  switch (patternType) {
+    case "deadlock":
+      return "Deadlock";
+    case "n_plus_one":
+      return "N+1 Query";
+    case "memory_leak":
+      return "Memory Leak";
+    case "unhandled_promise":
+      return "Unhandled Promise";
+    default:
+      return patternType;
+  }
 }
