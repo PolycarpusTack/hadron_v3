@@ -5,7 +5,7 @@
  * Supports success, error, warning, and info variants.
  */
 
-import { useState, useCallback, useEffect, createContext, useContext, ReactNode } from "react";
+import { useState, useCallback, useEffect, useRef, createContext, useContext, ReactNode } from "react";
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from "lucide-react";
 
 // ============================================================================
@@ -147,6 +147,7 @@ interface ToastItemProps {
 
 function ToastItem({ toast, onRemove }: ToastItemProps) {
   const [isExiting, setIsExiting] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Auto-dismiss after duration
   useEffect(() => {
@@ -163,12 +164,13 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
     return () => {
       clearTimeout(exitTimer);
       clearTimeout(removeTimer);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     };
   }, [toast.id, toast.duration, onRemove]);
 
   const handleClose = () => {
     setIsExiting(true);
-    setTimeout(() => onRemove(toast.id), 300);
+    closeTimerRef.current = setTimeout(() => onRemove(toast.id), 300);
   };
 
   // Style variants

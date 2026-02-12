@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import type { AnalysisProgress, AnalysisPhase } from '../types';
+import logger from '../services/logger';
 
 interface AnalysisProgressBarProps {
   isAnalyzing: boolean;
@@ -51,18 +52,20 @@ export function AnalysisProgressBar({ isAnalyzing }: AnalysisProgressBarProps) {
     // Setup event listener
     (async () => {
       try {
-        // Dynamic import to avoid issues if module not available
         const { listen } = await import('@tauri-apps/api/event');
-
         if (cancelled) return;
-
         unlistenFn = await listen<AnalysisProgress>('analysis-progress', (event) => {
           if (!cancelled) {
             setProgress(event.payload);
           }
         });
+        // If cancelled during the await, clean up immediately
+        if (cancelled && unlistenFn) {
+          unlistenFn();
+          unlistenFn = null;
+        }
       } catch (err) {
-        console.warn('Failed to setup progress listener:', err);
+        logger.warn('Failed to setup progress listener', { error: String(err) });
       }
     })();
 

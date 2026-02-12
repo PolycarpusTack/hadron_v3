@@ -93,7 +93,9 @@ pub async fn run_python_translation(
                 Ok(None) => {
                     // Still running, check timeout
                     if start.elapsed() > Duration::from_secs(PYTHON_TIMEOUT_SECS) {
-                        let _ = child.kill();
+                        if let Err(e) = child.kill() {
+                            log::warn!("Failed to kill timed-out Python process: {}", e);
+                        }
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
                             format!(

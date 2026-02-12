@@ -30,7 +30,14 @@ use std::sync::{Arc, RwLock};
 
 fn main() {
     // Initialize database wrapped in Arc for safe sharing across spawn_blocking tasks
-    let db = Arc::new(Database::new().expect("Failed to initialize database"));
+    let db = Arc::new(match Database::new() {
+        Ok(db) => db,
+        Err(e) => {
+            log::error!("Failed to initialize database: {}", e);
+            eprintln!("FATAL: Failed to initialize database: {}", e);
+            std::process::exit(1);
+        }
+    });
 
     // Initialize pattern engine with built-in patterns
     let pattern_engine = patterns::create_pattern_engine(None);

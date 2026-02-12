@@ -188,7 +188,7 @@ def chunk_analysis(analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
     if isinstance(fixes, str):
         try:
             fixes = json.loads(fixes)
-        except:
+        except (json.JSONDecodeError, ValueError):
             fixes = [fixes] if fixes else []
 
     if root_cause or fixes:

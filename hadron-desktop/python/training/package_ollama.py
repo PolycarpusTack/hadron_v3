@@ -44,7 +44,7 @@ def check_llama_cpp() -> bool:
         # Check for quantize binary
         result = subprocess.run(["which", "quantize"], capture_output=True, text=True)
         return result.returncode == 0
-    except:
+    except Exception:
         return False
 
 
@@ -234,7 +234,8 @@ def package_model(
     if not skip_merge and (model_path / "adapter_config.json").exists():
         if not base_model:
             # Try to read from adapter config
-            adapter_config = json.load(open(model_path / "adapter_config.json"))
+            with open(model_path / "adapter_config.json") as f:
+                adapter_config = json.load(f)
             base_model = adapter_config.get("base_model_name_or_path")
 
         if not base_model:

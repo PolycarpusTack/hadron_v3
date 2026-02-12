@@ -19,7 +19,7 @@ static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
-        .unwrap_or_else(|_| Client::new())
+        .expect("Failed to build HTTP client - check TLS backend")
 });
 
 /// JIRA ticket creation request

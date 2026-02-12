@@ -209,7 +209,7 @@ Be specific about class/method references. Provide actionable fixes."""
         if json_match:
             try:
                 return json.loads(json_match.group())
-            except:
+            except (json.JSONDecodeError, ValueError):
                 pass
 
         # Return structured fallback

@@ -213,10 +213,10 @@ function defaultModelForProvider(provider: string, currentModel: string): string
     return currentModel;
   }
   // Otherwise choose sensible defaults
-  if (p === 'anthropic') return 'claude-3-5-sonnet-20241022';
-  if (p === 'zai') return 'glm-4.6';
-  if (p === 'ollama') return 'llama3.2:3b'; // Default local model (lightweight)
-  return 'gpt-4-turbo-preview';
+  if (p === 'anthropic') return 'claude-sonnet-4-20250514';
+  if (p === 'zai') return 'glm-4';
+  if (p === 'ollama') return 'llama3.2:3b';
+  return 'gpt-4o';
 }
 
 /**

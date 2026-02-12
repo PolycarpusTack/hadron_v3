@@ -411,7 +411,11 @@ export async function saveApiKey(apiKey: string, provider?: string): Promise<voi
  */
 export function getStoredModel(): string {
   const provider = getStoredProvider();
-  const defaultModel = provider === "zai" ? "glm-4.6" : "gpt-4-turbo-preview";
+  const defaultModel =
+    provider === "zai" ? "glm-4" :
+    provider === "anthropic" ? "claude-sonnet-4-20250514" :
+    provider === "ollama" ? "llama3.2:3b" :
+    "gpt-4o";
   return localStorage.getItem("ai_model") || defaultModel;
 }
 
