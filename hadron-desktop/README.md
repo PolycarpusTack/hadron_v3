@@ -41,7 +41,7 @@ Hadron Desktop uses AI to analyze Smalltalk crash logs and provide:
 
 ### Status
 
-- **Version**: 3.5.2
+- **Version**: 3.9.0
 - **Platform**: Windows, macOS, Linux
 - **Security**: 0 production vulnerabilities
 - **Test Coverage**: Core features validated
@@ -53,17 +53,17 @@ Hadron Desktop uses AI to analyze Smalltalk crash logs and provide:
 ### 1. Download
 
 Get the installer for your platform:
-- **Windows**: `hadron-desktop_1.1.0_x64_en-US.msi`
-- **macOS**: `hadron-desktop_1.1.0_x64.dmg` (Intel) or `_aarch64.dmg` (Apple Silicon)
-- **Linux**: `hadron-desktop_1.1.0_amd64.deb` or `.AppImage`
+- **Windows**: `hadron-desktop_3.9.0_x64_en-US.msi`
+- **macOS**: `hadron-desktop_3.9.0_x64.dmg` (Intel) or `_aarch64.dmg` (Apple Silicon)
+- **Linux**: `hadron-desktop_3.9.0_amd64.deb` or `.AppImage`
 
-📥 **Download**: [GitHub Releases](https://github.com/hadron-team/hadron-desktop/releases)
+📥 **Download**: [GitHub Releases](https://github.com/PolycarpusTack/hadron_v3/releases)
 
 ### 2. Install
 
 **Windows**: Run `.msi` installer
 **macOS**: Open `.dmg` and drag to Applications
-**Linux**: `sudo dpkg -i hadron-desktop_1.1.0_amd64.deb`
+**Linux**: `sudo dpkg -i hadron-desktop_3.9.0_amd64.deb`
 
 ### 3. Configure
 

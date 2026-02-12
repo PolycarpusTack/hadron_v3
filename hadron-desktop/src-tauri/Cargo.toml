@@ -1,6 +1,6 @@
 [package]
 name = "hadron-desktop"
-version = "3.5.2"
+version = "3.9.0"
 description = "Smalltalk Crash Analyzer - Desktop Application"
 authors = ["Hadron Team"]
 license = "MIT"

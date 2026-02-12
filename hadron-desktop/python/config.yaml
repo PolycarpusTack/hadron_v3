@@ -5,12 +5,12 @@
 provider: openai  # or 'anthropic' for Claude, 'ollama' for local
 
 # OpenAI Settings
-model: gpt-4-turbo-preview
+model: gpt-4o
 # api_key is read from OPENAI_API_KEY environment variable
 
 # Alternative: Anthropic Claude
 # provider: anthropic
-# model: claude-3-sonnet-20240229
+# model: claude-sonnet-4-20250514
 # api_key: ${ANTHROPIC_API_KEY}
 
 # Alternative: Local Ollama (free!)

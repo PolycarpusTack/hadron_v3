@@ -355,7 +355,7 @@ Include:
 ### Check Hadron Version
 Look at the bottom of the application window:
 ```
-Hadron 3.5.2 - your friendly neighbourhood Analyzer
+Hadron 3.9.0 - your friendly neighbourhood Analyzer
 ```
 
 ### View Raw Crash File

@@ -85,7 +85,7 @@ npm run tauri build
 
 ## Version
 
-**Current**: v3.5.2
+**Current**: v3.9.0
 
 ## License
 
