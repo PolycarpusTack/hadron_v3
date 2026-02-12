@@ -97,6 +97,16 @@ pub fn redact_pii_basic(text: &str) -> Cow<'_, str> {
     Cow::Owned(redacted)
 }
 
+/// Detect PII types present in text (detection only, no redaction)
+pub fn detect_pii_types(text: &str) -> Vec<&'static str> {
+    let mut types = Vec::new();
+    if EMAIL_RE.is_match(text) { types.push("email"); }
+    if IPV4_RE.is_match(text) { types.push("ip"); }
+    if TOKEN_RE.is_match(text) { types.push("token"); }
+    if WIN_PATH_RE.is_match(text) || UNIX_HOME_RE.is_match(text) { types.push("path"); }
+    types
+}
+
 /// Validate and canonicalize a file path for safe access
 pub async fn validate_file_path(
     raw_path: &str,

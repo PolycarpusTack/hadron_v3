@@ -227,38 +227,17 @@ pub fn check_sensitive_content(content: String) -> Result<SensitiveContentResult
     let mut warnings = Vec::new();
     let mut detected_types = Vec::new();
 
-    // Use quick PII check via redact_pii_basic pattern detection
-    use once_cell::sync::Lazy;
-    use regex::Regex;
-
-    static EMAIL_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}").unwrap()
-    });
-    static IPV4_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"\b\d{1,3}(?:\.\d{1,3}){3}\b").unwrap());
-    static TOKEN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\bsk-[A-Za-z0-9-]{10,}").unwrap());
-    static WIN_PATH_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?i)C:\\Users\\[^\\\s]+").unwrap());
-    static UNIX_HOME_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"/home/[^/\s]+").unwrap());
-
-    if EMAIL_RE.is_match(&content) {
-        detected_types.push("email".to_string());
-        warnings.push("Email addresses detected in content".to_string());
-    }
-
-    if IPV4_RE.is_match(&content) {
-        detected_types.push("ip".to_string());
-        warnings.push("IP addresses detected in content".to_string());
-    }
-
-    if TOKEN_RE.is_match(&content) {
-        detected_types.push("token".to_string());
-        warnings.push("API tokens or keys detected in content".to_string());
-    }
-
-    if WIN_PATH_RE.is_match(&content) || UNIX_HOME_RE.is_match(&content) {
-        detected_types.push("path".to_string());
-        warnings.push("User directory paths detected in content".to_string());
+    use super::common::helpers::detect_pii_types;
+    let pii_types = detect_pii_types(&content);
+    for pii_type in &pii_types {
+        detected_types.push(pii_type.to_string());
+        warnings.push(match *pii_type {
+            "email" => "Email addresses detected in content".to_string(),
+            "ip" => "IP addresses detected in content".to_string(),
+            "token" => "API tokens or keys detected in content".to_string(),
+            "path" => "User directory paths detected in content".to_string(),
+            _ => format!("{} detected in content", pii_type),
+        });
     }
 
     let has_sensitive = has_sensitive_content(&content) || !detected_types.is_empty();
