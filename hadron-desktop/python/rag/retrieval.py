@@ -156,7 +156,12 @@ class HybridRetriever:
             # Use FTS5 if available, fall back to LIKE
             try:
                 # Try FTS5 search on analyses_fts
-                fts_query = query.replace('"', '""')  # Escape quotes
+                # Strip FTS5 special characters (AND, OR, NOT, NEAR, *, ^, ")
+                # Keep only word characters and spaces for safe matching
+                import re as _re
+                fts_query = _re.sub(r'[^\w\s]', ' ', query).strip()
+                if not fts_query:
+                    fts_query = '""'  # Empty query safety
                 cursor.execute("""
                     SELECT a.id, a.root_cause, a.error_type, a.component, a.severity,
                            bm25(analyses_fts) as score
