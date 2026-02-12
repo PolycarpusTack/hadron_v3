@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge, Link2 } from "lucide-react";
+import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge, Link2, ExternalLink, Shield } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import type { Analysis } from "../services/api";
@@ -117,6 +117,11 @@ ${analysis.suggested_fixes}
     ? analysis.suggested_fixes.split("\n").filter((line) => line.trim())
     : analysis.suggested_fixes;
 
+  // Parse Sentry metadata from full_data (if sentry analysis)
+  const sentryData = analysis.analysis_type === "sentry" && analysis.full_data
+    ? parseSentryFullData(analysis.full_data)
+    : null;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -172,6 +177,18 @@ ${analysis.suggested_fixes}
               Create JIRA Ticket
             </button>
           )}
+          {sentryData?.permalink && (
+            <a
+              href={sentryData.permalink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg transition"
+              title="View this issue in Sentry"
+            >
+              <ExternalLink className="w-4 h-4" />
+              View in Sentry
+            </a>
+          )}
         </div>
       </div>
 
@@ -198,6 +215,47 @@ ${analysis.suggested_fixes}
             {analysis.severity.toUpperCase()}
           </span>
         </div>
+
+        {/* Sentry Issue Metadata */}
+        {sentryData && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-orange-500/10 border border-orange-500/20 rounded-lg text-orange-400">
+              <Shield className="w-3.5 h-3.5" />
+              Sentry Issue
+            </span>
+            {sentryData.shortId && (
+              <span className="text-gray-400">
+                <span className="text-gray-500">ID:</span>{" "}
+                <span className="font-mono text-gray-300">{sentryData.shortId}</span>
+              </span>
+            )}
+            {sentryData.platform && (
+              <span className="text-gray-400">
+                <span className="text-gray-500">Platform:</span> {sentryData.platform}
+              </span>
+            )}
+            {sentryData.count && (
+              <span className="text-gray-400">
+                <span className="text-gray-500">Events:</span> {sentryData.count}
+              </span>
+            )}
+            {sentryData.userCount != null && sentryData.userCount > 0 && (
+              <span className="text-gray-400">
+                <span className="text-gray-500">Users:</span> {sentryData.userCount}
+              </span>
+            )}
+            {sentryData.level && (
+              <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                sentryData.level === "fatal" ? "bg-red-600 text-white" :
+                sentryData.level === "error" ? "bg-red-500/20 text-red-400" :
+                sentryData.level === "warning" ? "bg-yellow-500/20 text-yellow-400" :
+                "bg-gray-500/20 text-gray-400"
+              }`}>
+                {sentryData.level}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Token-Safe Analysis Metadata */}
         {analysis.analysis_mode && (
@@ -480,6 +538,36 @@ ${analysis.suggested_fixes}
       />
     </div>
   );
+}
+
+// Sentry full_data parser
+interface SentryFullData {
+  issueId?: string;
+  shortId?: string;
+  permalink?: string;
+  level?: string;
+  status?: string;
+  platform?: string;
+  count?: string;
+  userCount?: number;
+}
+
+function parseSentryFullData(fullData: string): SentryFullData | null {
+  try {
+    const data = JSON.parse(fullData);
+    return {
+      issueId: data.sentry_issue_id,
+      shortId: data.sentry_short_id,
+      permalink: data.sentry_permalink,
+      level: data.sentry_level,
+      status: data.sentry_status,
+      platform: data.sentry_platform,
+      count: data.sentry_count,
+      userCount: data.sentry_user_count,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // Pattern badge helpers for Sentry analysis

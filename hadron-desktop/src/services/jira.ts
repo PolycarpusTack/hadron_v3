@@ -171,6 +171,8 @@ export function formatAnalysisForJira(analysis: {
   stack_trace?: string;
   ai_model: string;
   analyzed_at: string;
+  analysis_type?: string;
+  full_data?: string;
 }): string {
   const sections: string[] = [];
 
@@ -215,6 +217,21 @@ export function formatAnalysisForJira(analysis: {
     sections.push(`{code}`);
     sections.push(`{expand}`);
     sections.push("");
+  }
+
+  // Sentry context (if this is a Sentry analysis)
+  if (analysis.analysis_type === "sentry" && analysis.full_data) {
+    try {
+      const data = JSON.parse(analysis.full_data);
+      if (data.sentry_permalink) {
+        sections.push(`h3. Sentry Issue`);
+        sections.push(`[View in Sentry|${data.sentry_permalink}]`);
+        if (data.sentry_short_id) {
+          sections.push(`*Issue:* ${data.sentry_short_id}`);
+        }
+        sections.push("");
+      }
+    } catch { /* ignore parse errors */ }
   }
 
   // Footer
