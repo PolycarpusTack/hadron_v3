@@ -583,6 +583,37 @@ pub fn normalize_sentry_to_analysis_content(
 }
 
 // ============================================================================
+// AI Analysis Constants
+// ============================================================================
+
+/// Sentry-specific system prompt for AI analysis
+pub const SENTRY_ANALYSIS_SYSTEM_PROMPT: &str = r#"You are an expert software debugger analyzing a Sentry error event.
+The event includes a stacktrace with in-app and library frames, breadcrumbs showing user actions before the error, tags, and runtime context.
+
+Analyze this error and provide your response as a JSON object with these fields:
+{
+  "error_type": "The specific error class/type",
+  "error_message": "The error message",
+  "severity": "CRITICAL or HIGH or MEDIUM or LOW",
+  "root_cause": "Technical explanation of what triggered this error",
+  "suggested_fixes": ["Fix 1", "Fix 2", "Fix 3"],
+  "component": "The application component/file affected",
+  "confidence": "HIGH or MEDIUM or LOW",
+  "pattern_type": "deadlock|n_plus_one|memory_leak|unhandled_promise|generic",
+  "user_impact": "Description of how this affects end users",
+  "breadcrumb_analysis": "What the breadcrumbs reveal about the error trigger"
+}
+
+Pay attention to:
+- In-app frames (marked [APP]) vs library frames (marked [LIB]) in the stacktrace
+- Breadcrumb patterns leading up to the error
+- Environment and runtime context clues
+- Recurring patterns suggesting systemic issues
+- Event frequency and affected user count for severity assessment
+
+Return ONLY the JSON object, no markdown fencing or explanation."#;
+
+// ============================================================================
 // Internal Helpers
 // ============================================================================
 

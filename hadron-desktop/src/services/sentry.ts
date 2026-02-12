@@ -14,6 +14,8 @@ import type {
   SentryIssue,
   SentryEvent,
 } from "../types";
+import type { AnalysisResponse } from "./api";
+import { getStoredProvider, getStoredModel, getStoredApiKey } from "./api";
 
 // Default configuration
 const DEFAULT_SENTRY_CONFIG: SentryConfig = {
@@ -244,6 +246,36 @@ export async function isSentryEnabled(): Promise<boolean> {
   const config = await getSentryConfig();
   const token = await getApiKey("sentry");
   return config.enabled && !!config.baseUrl && !!config.organization && !!token;
+}
+
+/**
+ * Analyze a Sentry issue with AI
+ * Fetches the issue + latest event, normalizes content, and runs AI analysis
+ */
+export async function analyzeSentryIssue(issueId: string): Promise<AnalysisResponse> {
+  const config = await getSentryConfig();
+  const authToken = await getApiKey("sentry");
+
+  if (!config.baseUrl || !authToken) {
+    throw new Error("Sentry is not configured");
+  }
+
+  const provider = getStoredProvider();
+  const model = getStoredModel();
+  const apiKey = await getStoredApiKey(provider);
+
+  if (!apiKey) {
+    throw new Error(`No API key configured for ${provider}. Please set one in Settings.`);
+  }
+
+  return invoke<AnalysisResponse>("analyze_sentry_issue", {
+    baseUrl: config.baseUrl,
+    authToken,
+    issueId,
+    apiKey,
+    model,
+    provider,
+  });
 }
 
 /**

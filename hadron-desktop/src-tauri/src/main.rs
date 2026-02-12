@@ -227,7 +227,8 @@ fn main() {
             list_sentry_projects,
             list_sentry_issues,
             fetch_sentry_issue,
-            fetch_sentry_latest_event
+            fetch_sentry_latest_event,
+            analyze_sentry_issue
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

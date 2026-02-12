@@ -1677,6 +1677,7 @@ pub async fn analyze_crash_log_safe(
         "complete" => COMPLETE_ANALYSIS_SYSTEM_PROMPT,
         "whatson" | "comprehensive" => WHATSON_SYSTEM_PROMPT,
         "quick" => QUICK_ANALYSIS_SYSTEM_PROMPT,
+        "sentry" => crate::sentry_service::SENTRY_ANALYSIS_SYSTEM_PROMPT,
         _ => SPECIALIZED_ANALYSIS_SYSTEM_PROMPT,
     };
     let system_tokens = crate::token_budget::estimate_tokens(system_prompt);

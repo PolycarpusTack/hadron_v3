@@ -6056,3 +6056,200 @@ pub async fn fetch_sentry_latest_event(
     log::info!("Fetching latest event for Sentry issue {}", issue_id);
     sentry_service::fetch_sentry_latest_event(&base_url, &auth_token, &issue_id).await
 }
+
+/// Analyze a Sentry issue using the AI pipeline
+#[tauri::command]
+pub async fn analyze_sentry_issue(
+    base_url: String,
+    auth_token: String,
+    issue_id: String,
+    api_key: String,
+    model: String,
+    provider: String,
+    db: DbState<'_>,
+    app: AppHandle,
+) -> Result<AnalysisResponse, String> {
+    log::info!("Starting Sentry issue analysis: issue_id={}", issue_id);
+
+    // Phase 1: Fetch issue and event data
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Reading,
+            progress: 0,
+            message: "Fetching Sentry issue data...".to_string(),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    let issue = sentry_service::fetch_sentry_issue(&base_url, &auth_token, &issue_id)
+        .await
+        .map_err(|e| format!("Failed to fetch Sentry issue: {}", e))?;
+
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Reading,
+            progress: 5,
+            message: "Fetching latest event data...".to_string(),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    let event = sentry_service::fetch_sentry_latest_event(&base_url, &auth_token, &issue_id)
+        .await
+        .map_err(|e| format!("Failed to fetch Sentry event: {}", e))?;
+
+    // Phase 2: Normalize data for analysis
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Planning,
+            progress: 10,
+            message: "Preparing analysis content...".to_string(),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    let analysis_content = sentry_service::normalize_sentry_to_analysis_content(&issue, &event);
+    let content_size_kb = analysis_content.len() as f64 / 1024.0;
+
+    log::info!(
+        "Sentry issue normalized: {} bytes, short_id={}",
+        analysis_content.len(),
+        issue.short_id
+    );
+
+    // Phase 3: Run AI analysis
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Analyzing,
+            progress: 20,
+            message: "Analyzing Sentry issue with AI...".to_string(),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    let api_key_z = Zeroizing::new(api_key);
+    let result = ai_service::analyze_crash_log_safe(
+        &analysis_content,
+        None,
+        api_key_z.as_str(),
+        &model,
+        &provider,
+        "sentry",
+        None,
+    )
+    .await
+    .map_err(|e| {
+        log::error!("Sentry AI analysis failed: issue={}, error={}", issue_id, e);
+        format!("AI analysis failed: {}", e)
+    })?;
+
+    // Phase 4: Save to database
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Saving,
+            progress: 80,
+            message: "Saving analysis results...".to_string(),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    let analysis = Analysis {
+        id: 0,
+        filename: issue.short_id.clone(),
+        file_size_kb: content_size_kb,
+        error_type: result.error_type.clone(),
+        error_message: result.error_message.clone(),
+        severity: result.severity.to_uppercase(),
+        component: result.component.clone().or(issue.culprit.clone()),
+        stack_trace: result.stack_trace.clone(),
+        root_cause: result.root_cause.clone(),
+        suggested_fixes: serde_json::to_string(&result.suggested_fixes)
+            .unwrap_or_else(|_| "[]".to_string()),
+        confidence: Some(result.confidence.to_uppercase()),
+        analyzed_at: chrono::Utc::now().to_rfc3339(),
+        ai_model: model.clone(),
+        ai_provider: Some(provider.clone()),
+        tokens_used: result.tokens_used,
+        cost: result.cost,
+        was_truncated: result.was_truncated.unwrap_or(false),
+        full_data: result.raw_enhanced_json.clone().or_else(|| {
+            // Build a full_data blob with Sentry context + AI result
+            let full = serde_json::json!({
+                "sentry_issue_id": issue.id,
+                "sentry_short_id": issue.short_id,
+                "sentry_permalink": issue.permalink,
+                "sentry_level": issue.level,
+                "sentry_status": issue.status,
+                "sentry_platform": issue.platform,
+                "sentry_count": issue.count,
+                "sentry_user_count": issue.user_count,
+                "ai_result": serde_json::to_value(&result).ok(),
+            });
+            Some(full.to_string())
+        }),
+        is_favorite: false,
+        last_viewed_at: None,
+        view_count: 0,
+        analysis_duration_ms: result.analysis_duration_ms,
+        analysis_type: "sentry".to_string(),
+    };
+
+    let response_filename = analysis.filename.clone();
+    let response_error_type = analysis.error_type.clone();
+    let response_severity = analysis.severity.clone();
+    let response_root_cause = analysis.root_cause.clone();
+    let response_analyzed_at = analysis.analyzed_at.clone();
+    let response_cost = analysis.cost;
+
+    let db_clone = Arc::clone(&db);
+    let id = tauri::async_runtime::spawn_blocking(move || db_clone.insert_analysis(&analysis))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| {
+            log::error!("Database insert failed for Sentry analysis: {}", e);
+            format!("Database error: {}", e)
+        })?;
+
+    log::info!(
+        "Sentry analysis completed: id={}, issue={}, severity={}",
+        id,
+        issue_id,
+        response_severity
+    );
+
+    // Emit completion
+    emit_progress(
+        &app,
+        AnalysisProgress {
+            phase: AnalysisPhase::Complete,
+            progress: 100,
+            message: "Analysis complete!".to_string(),
+            current_step: None,
+            total_steps: None,
+        },
+    );
+
+    Ok(AnalysisResponse {
+        id,
+        filename: response_filename,
+        error_type: response_error_type,
+        severity: response_severity,
+        root_cause: response_root_cause,
+        suggested_fixes: result.suggested_fixes,
+        analyzed_at: response_analyzed_at,
+        cost: response_cost,
+        analysis_mode: None,
+        coverage_summary: None,
+        token_utilization: None,
+    })
+}

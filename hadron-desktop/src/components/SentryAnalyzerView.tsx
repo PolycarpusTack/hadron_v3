@@ -19,6 +19,8 @@ import {
   Import,
   ChevronDown,
   ChevronUp,
+  Zap,
+  Loader2,
 } from "lucide-react";
 import {
   getSentryConfig,
@@ -27,7 +29,10 @@ import {
   fetchSentryIssue,
   parseSentryIssueUrl,
   getCachedSentryProjects,
+  analyzeSentryIssue,
 } from "../services/sentry";
+import { getAnalysisById } from "../services/api";
+import { AnalysisProgressBar } from "./AnalysisProgressBar";
 import logger from "../services/logger";
 import type { SentryConfig, SentryIssue, SentryProjectInfo } from "../types";
 import type { Analysis } from "../services/api";
@@ -38,11 +43,14 @@ interface SentryAnalyzerViewProps {
 
 type StatusFilter = "unresolved" | "resolved" | "ignored" | "";
 
-export default function SentryAnalyzerView({ onAnalysisComplete: _onAnalysisComplete }: SentryAnalyzerViewProps) {
+export default function SentryAnalyzerView({ onAnalysisComplete }: SentryAnalyzerViewProps) {
   // Config state
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [config, setConfig] = useState<SentryConfig | null>(null);
   const [projects, setProjects] = useState<SentryProjectInfo[]>([]);
+
+  // Analysis state
+  const [analyzingIssueId, setAnalyzingIssueId] = useState<string | null>(null);
 
   // Browse state
   const [selectedProject, setSelectedProject] = useState("");
@@ -220,6 +228,26 @@ export default function SentryAnalyzerView({ onAnalysisComplete: _onAnalysisComp
     setNextCursor(null);
   };
 
+  const handleAnalyze = async (issue: SentryIssue) => {
+    setAnalyzingIssueId(issue.id);
+    setError(null);
+
+    try {
+      const result = await analyzeSentryIssue(issue.id);
+      // Fetch the full analysis object for navigation
+      const fullAnalysis = await getAnalysisById(result.id);
+      if (onAnalysisComplete) {
+        onAnalysisComplete(fullAnalysis);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to analyze ${issue.shortId}: ${msg}`);
+      logger.error("Sentry issue analysis failed", { issueId: issue.id, error: msg });
+    } finally {
+      setAnalyzingIssueId(null);
+    }
+  };
+
   // Not configured state
   if (configured === null) {
     return (
@@ -360,6 +388,11 @@ export default function SentryAnalyzerView({ onAnalysisComplete: _onAnalysisComp
         </button>
       </div>
 
+      {/* Analysis Progress Bar */}
+      {analyzingIssueId && (
+        <AnalysisProgressBar isAnalyzing={true} />
+      )}
+
       {/* Issue List */}
       {error && (
         <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm flex items-start gap-2">
@@ -403,6 +436,8 @@ export default function SentryAnalyzerView({ onAnalysisComplete: _onAnalysisComp
               onToggleExpand={() =>
                 setExpandedIssueId(expandedIssueId === issue.id ? null : issue.id)
               }
+              onAnalyze={() => handleAnalyze(issue)}
+              analyzing={analyzingIssueId === issue.id}
             />
           ))}
 
@@ -437,9 +472,11 @@ interface IssueRowProps {
   issue: SentryIssue;
   expanded: boolean;
   onToggleExpand: () => void;
+  onAnalyze: () => void;
+  analyzing: boolean;
 }
 
-function IssueRow({ issue, expanded, onToggleExpand }: IssueRowProps) {
+function IssueRow({ issue, expanded, onToggleExpand, onAnalyze, analyzing }: IssueRowProps) {
   const levelColor = getLevelColor(issue.level);
   const statusColor = getStatusColor(issue.status);
 
@@ -537,6 +574,26 @@ function IssueRow({ issue, expanded, onToggleExpand }: IssueRowProps) {
           </div>
 
           <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAnalyze();
+              }}
+              disabled={analyzing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-600/50 disabled:cursor-not-allowed text-sm text-white rounded-lg transition"
+            >
+              {analyzing ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3 h-3" />
+                  Analyze with AI
+                </>
+              )}
+            </button>
             {issue.permalink && (
               <a
                 href={issue.permalink}
