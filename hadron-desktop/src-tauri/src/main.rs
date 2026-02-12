@@ -9,6 +9,7 @@ mod error;
 mod export;
 mod jira_service;
 mod keeper_service;
+mod sentry_service;
 mod migrations;
 mod model_fetcher;
 mod models;
@@ -220,7 +221,13 @@ fn main() {
             rag_query,
             rag_index_analysis,
             rag_build_context,
-            rag_get_stats
+            rag_get_stats,
+            // Sentry Integration
+            test_sentry_connection,
+            list_sentry_projects,
+            list_sentry_issues,
+            fetch_sentry_issue,
+            fetch_sentry_latest_event
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

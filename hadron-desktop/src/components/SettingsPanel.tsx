@@ -10,6 +10,7 @@ import logger from '../services/logger';
 // Lazy load heavy components since most users won't use them
 const KeeperSettings = lazy(() => import("./KeeperSettings"));
 const JiraSettings = lazy(() => import("./JiraSettings"));
+const SentrySettings = lazy(() => import("./SentrySettings"));
 const DatabaseAdminSection = lazy(() => import("./DatabaseAdminSection"));
 const EmbeddedConsoleViewer = lazy(() => import("./EmbeddedConsoleViewer"));
 
@@ -717,6 +718,17 @@ export default function SettingsPanel({
                 </div>
               }>
                 <KeeperSettings onConfigChange={onSettingsChange} />
+              </Suspense>
+
+              <Suspense fallback={
+                <div className="p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="w-5 h-5 text-orange-400 animate-spin" />
+                    <span className="text-gray-400">Loading Sentry settings...</span>
+                  </div>
+                </div>
+              }>
+                <SentrySettings onConfigChange={onSettingsChange} />
               </Suspense>
             </div>
           )}
