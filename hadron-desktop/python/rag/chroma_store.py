@@ -45,7 +45,7 @@ class HadronChromaStore:
         # Validate persistence directory (prevent path traversal)
         abs_path = os.path.abspath(persistence_dir)
         expected_base = os.path.abspath(os.path.expanduser("~"))
-        if not abs_path.startswith(expected_base):
+        if not (abs_path == expected_base or abs_path.startswith(expected_base + os.sep)):
             raise ValueError("Invalid persistence directory: path must be under user home")
 
         # Ensure directory exists
@@ -179,8 +179,7 @@ class HadronChromaStore:
         metadatas = results["metadatas"][0]
 
         for id_, doc, distance, metadata in zip(ids, documents, distances, metadatas):
-            # Convert distance to similarity score
-            # Chroma returns L2 distance by default, convert to similarity
+            # Convert cosine distance to similarity score (collection uses cosine space)
             similarity = 1.0 / (1.0 + max(0.0, distance))
 
             output.append(QueryResult(

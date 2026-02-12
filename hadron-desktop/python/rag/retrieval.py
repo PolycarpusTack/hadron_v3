@@ -156,10 +156,10 @@ class HybridRetriever:
             # Use FTS5 if available, fall back to LIKE
             try:
                 # Try FTS5 search on analyses_fts
-                # Strip FTS5 special characters (AND, OR, NOT, NEAR, *, ^, ")
-                # Keep only word characters and spaces for safe matching
-                import re as _re
-                fts_query = _re.sub(r'[^\w\s]', ' ', query).strip()
+                # Strip FTS5 special characters and boolean operators
+                import re as _fts_re
+                fts_query = _fts_re.sub(r'[^\w\s]', ' ', query)
+                fts_query = _fts_re.sub(r'\b(AND|OR|NOT|NEAR)\b', ' ', fts_query, flags=_fts_re.IGNORECASE).strip()
                 if not fts_query:
                     fts_query = '""'  # Empty query safety
                 cursor.execute("""

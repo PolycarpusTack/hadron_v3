@@ -33,7 +33,7 @@ fn main() {
     let db = Arc::new(match Database::new() {
         Ok(db) => db,
         Err(e) => {
-            log::error!("Failed to initialize database: {}", e);
+            // Note: log plugin not yet initialized; eprintln is the real output here
             eprintln!("FATAL: Failed to initialize database: {}", e);
             std::process::exit(1);
         }

@@ -26,7 +26,7 @@ export function parseWhatsOnAnalysis(
       }
     } catch (e) {
       logger.warn('Failed to parse full_data as JSON', { error: String(e) });
-      logger.debug('full_data preview', { length: fullData?.length });
+      logger.debug('full_data preview', { length: fullData?.length, preview: fullData?.substring(0, 200) });
     }
   } else {
     logger.debug('No full_data for WHATS ON parsing');
