@@ -1,60 +1,139 @@
-import { Ticket, RefreshCw, Sparkles, Link2 } from "lucide-react";
+/**
+ * JIRA Analyzer View
+ * Shell component with sky-themed tab bar: Analyze Ticket, Project Feed, History
+ */
+
+import { useState, useEffect } from "react";
+import {
+  Ticket,
+  Search,
+  FolderOpen,
+  History,
+  AlertCircle,
+  Loader2,
+} from "lucide-react";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
-import JiraImportPanel from "./JiraImportPanel";
-import JiraSyncStatus from "./JiraSyncStatus";
+import JiraTicketAnalyzer from "./jira/JiraTicketAnalyzer";
+import JiraProjectFeed from "./jira/JiraProjectFeed";
+import JiraAnalysisHistory from "./JiraAnalysisHistory";
+import { isJiraEnabled } from "../services/jira";
 import type { Analysis } from "../services/api";
 
 interface JiraAnalyzerViewProps {
   onAnalysisComplete?: (analysis: Analysis) => void;
 }
 
+type TabId = "analyze" | "feed" | "history";
+
+const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
+  { id: "analyze", label: "Analyze Ticket", icon: <Search className="w-4 h-4" /> },
+  { id: "feed", label: "Project Feed", icon: <FolderOpen className="w-4 h-4" /> },
+  { id: "history", label: "History", icon: <History className="w-4 h-4" /> },
+];
+
 export default function JiraAnalyzerView({ onAnalysisComplete }: JiraAnalyzerViewProps) {
+  const [activeTab, setActiveTab] = useState<TabId>("analyze");
+  const [configured, setConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    isJiraEnabled().then(setConfigured);
+  }, []);
+
+  const handleAnalysisComplete = (analysis: Analysis) => {
+    onAnalysisComplete?.(analysis);
+  };
+
+  // Loading state while checking config
+  if (configured === null) {
+    return (
+      <div className="space-y-6">
+        <AnalyzerEntryPanel
+          icon={<Ticket className="w-6 h-6 text-sky-400" />}
+          title="JIRA Analyzer"
+          subtitle="Analyze JIRA tickets with AI or browse issues from configured projects"
+          iconBgClassName="bg-sky-500/20"
+        >
+          <div className="flex items-center gap-2 text-gray-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-xs">Checking JIRA configuration...</span>
+          </div>
+        </AnalyzerEntryPanel>
+      </div>
+    );
+  }
+
+  // Not configured state
+  if (!configured) {
+    return (
+      <div className="space-y-6">
+        <AnalyzerEntryPanel
+          icon={<Ticket className="w-6 h-6 text-sky-400" />}
+          title="JIRA Analyzer"
+          subtitle="Analyze JIRA tickets with AI or browse issues from configured projects"
+          iconBgClassName="bg-sky-500/20"
+        >
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm text-yellow-300 font-medium">JIRA Not Configured</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Enable JIRA integration in Settings &rarr; Integrations &rarr; JIRA to connect
+                your Atlassian instance. You'll need your JIRA URL, email, and an API token.
+              </p>
+            </div>
+          </div>
+        </AnalyzerEntryPanel>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <AnalyzerEntryPanel
         icon={<Ticket className="w-6 h-6 text-sky-400" />}
         title="JIRA Analyzer"
-        subtitle="Sync and analyze JIRA issues for crash correlation and knowledge reuse"
+        subtitle="Analyze JIRA tickets with AI or browse issues from configured projects"
         iconBgClassName="bg-sky-500/20"
       >
-        <div className="space-y-3 text-sm text-gray-300">
-          <p>
-            Pull crash-relevant issues from your JIRA workspace, enrich them with relevance scoring,
-            and export case files for RAG or investigation workflows.
-          </p>
-          <div className="text-xs text-gray-400">
-            Tip: configure defaults in Settings → Integrations → JIRA.
-          </div>
+        <div className="text-xs text-gray-400">
+          Tip: configure defaults in Settings &rarr; Integrations &rarr; JIRA.
         </div>
       </AnalyzerEntryPanel>
 
-      <JiraSyncStatus />
-
-      <div className="grid md:grid-cols-3 gap-4">
-        <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
-          <RefreshCw className="w-6 h-6 text-sky-400 mb-3" />
-          <h3 className="font-semibold text-white mb-1">Smart Sync</h3>
-          <p className="text-sm text-gray-400">
-            Pull issues by project, time window, and crash-relevance filters with safe JQL.
-          </p>
-        </div>
-        <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
-          <Sparkles className="w-6 h-6 text-purple-400 mb-3" />
-          <h3 className="font-semibold text-white mb-1">RAG-Ready Export</h3>
-          <p className="text-sm text-gray-400">
-            Generate case files for downstream retrieval and analysis workflows.
-          </p>
-        </div>
-        <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
-          <Link2 className="w-6 h-6 text-emerald-400 mb-3" />
-          <h3 className="font-semibold text-white mb-1">Traceable Links</h3>
-          <p className="text-sm text-gray-400">
-            Link issues to analyses for bidirectional crash correlation and updates.
-          </p>
-        </div>
+      {/* Tab Bar */}
+      <div className="border-b border-gray-700">
+        <nav className="flex gap-1 overflow-x-auto pb-px" role="tablist">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "border-sky-500 text-sky-400"
+                  : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </nav>
       </div>
 
-      <JiraImportPanel embedded onAnalysisComplete={onAnalysisComplete} />
+      {/* Tab Content */}
+      {activeTab === "analyze" && (
+        <JiraTicketAnalyzer onAnalysisComplete={handleAnalysisComplete} />
+      )}
+
+      {activeTab === "feed" && (
+        <JiraProjectFeed onAnalysisComplete={handleAnalysisComplete} />
+      )}
+
+      {activeTab === "history" && (
+        <JiraAnalysisHistory onViewAnalysis={handleAnalysisComplete} />
+      )}
     </div>
   );
 }

@@ -9,5 +9,8 @@ requests>=2.31.0
 # Configuration
 pyyaml>=6.0
 
+# Knowledge Base / OpenSearch integration
+opensearch-py>=2.4.0
+
 # Optional: Local AI
 # ollama>=0.1.0

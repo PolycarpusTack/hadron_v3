@@ -32,7 +32,9 @@ import logger from "./services/logger";
 const AnalysisDetailView = lazy(() => import("./components/AnalysisDetailView"));
 const WhatsOnDetailView = lazy(() => import("./components/WhatsOnDetailView"));
 const QuickAnalysisDetailView = lazy(() => import("./components/QuickAnalysisDetailView"));
+const SentryDetailView = lazy(() => import("./components/sentry/SentryDetailView"));
 const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
+const AskHadronView = lazy(() => import("./components/AskHadronView"));
 
 // Loading fallback component
 function LazyLoadFallback() {
@@ -566,6 +568,17 @@ IMPORTANT INSTRUCTIONS:
             </ViewErrorBoundary>
           )}
 
+          {/* Ask Hadron Chat View - lazy loaded */}
+          {currentView === "chat" && (
+            <ViewErrorBoundary name="Ask Hadron">
+              <Suspense fallback={<LazyLoadFallback />}>
+                <div id="chat-panel" role="tabpanel">
+                  <AskHadronView />
+                </div>
+              </Suspense>
+            </ViewErrorBoundary>
+          )}
+
           {/* Detail View - lazy loaded */}
           {currentView === "detail" && selectedAnalysis && (
             <ViewErrorBoundary name="Analysis Details">
@@ -578,6 +591,11 @@ IMPORTANT INSTRUCTIONS:
                   />
                 ) : selectedAnalysis.analysis_type === "quick" ? (
                   <QuickAnalysisDetailView
+                    analysis={selectedAnalysis}
+                    onBack={actions.backToHistory}
+                  />
+                ) : selectedAnalysis.analysis_type === "sentry" ? (
+                  <SentryDetailView
                     analysis={selectedAnalysis}
                     onBack={actions.backToHistory}
                   />

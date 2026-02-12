@@ -16,7 +16,7 @@ import type { Analysis } from '../services/api';
 // State Types
 // ============================================================================
 
-export type View = 'analyze' | 'history' | 'detail' | 'translate' | 'performance' | 'jira' | 'sentry';
+export type View = 'analyze' | 'history' | 'detail' | 'translate' | 'performance' | 'jira' | 'sentry' | 'chat';
 
 export interface BatchProgress {
   total: number;

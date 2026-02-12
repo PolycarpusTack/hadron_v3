@@ -168,6 +168,30 @@ export async function listSentryIssues(
 }
 
 /**
+ * List recent issues across all projects in an organization
+ */
+export async function listSentryOrgIssues(
+  org: string,
+  query?: string,
+  cursor?: string
+): Promise<SentryIssueList> {
+  const config = await getSentryConfig();
+  const authToken = await getApiKey("sentry");
+
+  if (!config.baseUrl || !authToken) {
+    throw new Error("Sentry is not configured");
+  }
+
+  return invoke<SentryIssueList>("list_sentry_org_issues", {
+    baseUrl: config.baseUrl,
+    authToken,
+    org,
+    query: query || null,
+    cursor: cursor || null,
+  });
+}
+
+/**
  * Fetch a single Sentry issue by ID
  */
 export async function fetchSentryIssue(issueId: string): Promise<SentryIssue> {

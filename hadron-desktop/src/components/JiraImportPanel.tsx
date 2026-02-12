@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { open } from "@tauri-apps/plugin-shell";
 import {
   RefreshCw,
   Search,
@@ -741,15 +742,16 @@ function IssueCard({ issue, expanded, onToggleExpand, onLink, onAnalyze, analyzi
 
           {/* Actions */}
           <div className="flex gap-2 pt-2">
-            <a
-              href={issue.url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                open(issue.url);
+              }}
               className="flex items-center gap-1 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm transition"
             >
               <ExternalLink className="w-3 h-3" />
               Open in JIRA
-            </a>
+            </button>
             {onLink && (
               <button
                 onClick={e => {

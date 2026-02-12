@@ -11,6 +11,7 @@ import logger from '../services/logger';
 const KeeperSettings = lazy(() => import("./KeeperSettings"));
 const JiraSettings = lazy(() => import("./JiraSettings"));
 const SentrySettings = lazy(() => import("./SentrySettings"));
+const OpenSearchSettings = lazy(() => import("./OpenSearchSettings"));
 const DatabaseAdminSection = lazy(() => import("./DatabaseAdminSection"));
 const EmbeddedConsoleViewer = lazy(() => import("./EmbeddedConsoleViewer"));
 
@@ -729,6 +730,17 @@ export default function SettingsPanel({
                 </div>
               }>
                 <SentrySettings onConfigChange={onSettingsChange} />
+              </Suspense>
+
+              <Suspense fallback={
+                <div className="p-4 bg-teal-500/10 rounded-lg border border-teal-500/30">
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="w-5 h-5 text-teal-400 animate-spin" />
+                    <span className="text-gray-400">Loading Knowledge Base settings...</span>
+                  </div>
+                </div>
+              }>
+                <OpenSearchSettings onConfigChange={onSettingsChange} />
               </Suspense>
             </div>
           )}

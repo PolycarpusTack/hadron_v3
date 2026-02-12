@@ -176,8 +176,35 @@ export function formatAnalysisForJira(analysis: {
 }): string {
   const sections: string[] = [];
 
+  // Sentry-specific: add summary section at the top with environment, client, error description
+  if (analysis.analysis_type === "sentry" && analysis.full_data) {
+    try {
+      const data = JSON.parse(analysis.full_data);
+      const tags: Array<{ key: string; value: string }> = data.tags || [];
+      const env = tags.find((t: { key: string }) => t.key === "environment")?.value || "unknown";
+      const shortId: string = data.sentry_short_id || analysis.filename || "";
+      const client = shortId.replace(/-[A-Z0-9]+$/, "");
+      const platform: string = data.sentry_platform || "";
+      const culprit: string = data.sentry_culprit || "";
+      const errorMsg = data.ai_result?.error_message || analysis.error_message || "";
+      const userImpact = data.ai_result?.user_impact || "";
+
+      sections.push(`{panel:title=Summary|borderColor=#FF6B35|bgColor=#FFF3ED}`);
+      sections.push(`*Environment:* ${env.toUpperCase()}`);
+      sections.push(`*Client:* ${client}${platform ? ` (${platform})` : ""}`);
+      sections.push(`*Severity:* {color:${getSeverityColor(analysis.severity)}}${analysis.severity.toUpperCase()}{color}`);
+      if (culprit) sections.push(`*Culprit:* {{${culprit}}}`);
+      sections.push("");
+      if (errorMsg) sections.push(`*Error:* ${errorMsg}`);
+      if (userImpact) sections.push(`*User Impact:* ${userImpact}`);
+      if (data.sentry_permalink) sections.push(`*Sentry:* [View Issue|${data.sentry_permalink}]`);
+      sections.push(`{panel}`);
+      sections.push("");
+    } catch { /* ignore parse errors */ }
+  }
+
   // Header
-  sections.push(`h2. Crash Analysis Report`);
+  sections.push(`h2. ${analysis.analysis_type === "sentry" ? "Sentry" : "Crash"} Analysis Report`);
   sections.push(`*File:* ${analysis.filename}`);
   sections.push(`*Analyzed:* ${new Date(analysis.analyzed_at).toLocaleString()}`);
   sections.push(`*AI Model:* ${analysis.ai_model}`);
@@ -261,12 +288,41 @@ function getSeverityColor(severity: string): string {
 
 /**
  * Generate ticket summary from analysis
+ * For Sentry analyses: [ENV] Client — concise ELI5 error description
  */
 export function generateTicketSummary(analysis: {
   filename: string;
   error_type: string;
   severity: string;
+  analysis_type?: string;
+  full_data?: string;
+  error_message?: string;
 }): string {
+  // Sentry-specific: include environment, client, and ELI5 description
+  if (analysis.analysis_type === "sentry" && analysis.full_data) {
+    try {
+      const data = JSON.parse(analysis.full_data);
+      const tags: Array<{ key: string; value: string }> = data.tags || [];
+      const env = tags.find((t: { key: string }) => t.key === "environment")?.value || "";
+      // Derive client from short_id (e.g., "SCHEDULING-BACKEND-REST-C4" → "scheduling-backend-rest")
+      const shortId: string = data.sentry_short_id || analysis.filename || "";
+      const client = shortId.replace(/-[A-Z0-9]+$/, "").toLowerCase().replace(/-/g, " ");
+
+      // Build ELI5 description from error message or error type
+      const rawMsg = data.ai_result?.error_message || analysis.error_message || analysis.error_type;
+      // Truncate to keep JIRA title concise
+      const eli5 = rawMsg.length > 80 ? rawMsg.substring(0, 77) + "..." : rawMsg;
+
+      const parts: string[] = [];
+      if (env) parts.push(`[${env.toUpperCase()}]`);
+      if (client) parts.push(client);
+      if (parts.length > 0 && eli5) parts.push("—");
+      if (eli5) parts.push(eli5);
+
+      return parts.join(" ") || `${analysis.error_type} in ${analysis.filename}`;
+    } catch { /* fall through to default */ }
+  }
+
   const prefix = analysis.severity.toUpperCase() === "CRITICAL" ? "[CRITICAL] " : "";
   return `${prefix}${analysis.error_type} in ${analysis.filename}`;
 }

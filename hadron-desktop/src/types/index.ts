@@ -1049,6 +1049,7 @@ export interface SentryIssue {
   lastSeen: string | null;
   permalink: string | null;
   metadata: Record<string, unknown> | null;
+  project?: { id: string; slug: string; name?: string };
 }
 
 export interface SentryIssueList {

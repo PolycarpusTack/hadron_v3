@@ -6,7 +6,7 @@
 use rusqlite::{Connection, Result};
 
 /// Current schema version. Increment when adding new migrations.
-pub const CURRENT_SCHEMA_VERSION: i32 = 7;
+pub const CURRENT_SCHEMA_VERSION: i32 = 8;
 
 /// Migration function type
 type MigrationFn = fn(&Connection) -> Result<()>;
@@ -54,6 +54,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 7,
         name: "jira_ticket_linking",
         up: migration_007_jira_ticket_linking,
+    },
+    Migration {
+        version: 8,
+        name: "chat_feedback",
+        up: migration_008_chat_feedback,
     },
 ];
 
@@ -829,6 +834,36 @@ fn migration_007_jira_ticket_linking(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migration_008_chat_feedback(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS chat_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            rating TEXT NOT NULL,
+            comment TEXT,
+            tools_used TEXT,
+            sources_cited TEXT,
+            query TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(session_id, message_id)
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chat_feedback_session ON chat_feedback(session_id)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chat_feedback_rating ON chat_feedback(rating)",
+        [],
+    )?;
+
+    Ok(())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -862,11 +897,11 @@ mod tests {
         let version = get_current_version(&conn).unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
-        // Verify only 7 migration records exist
+        // Verify only 8 migration records exist
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 7);
+        assert_eq!(count, 8);
     }
 
     #[test]

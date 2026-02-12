@@ -62,3 +62,26 @@ class RAGContext(BaseModel):
     gold_matches: List[SimilarCase] = Field(default_factory=list)
     confidence_boost: float = 0.0
     retrieval_time_ms: Optional[int] = None
+
+
+# ============================================================================
+# Knowledge Base RAG Models
+# ============================================================================
+
+class KBResult(BaseModel):
+    """A single result from Knowledge Base or Release Notes retrieval."""
+    text: str
+    link: str = ""
+    page_title: str = ""
+    won_version: str = ""
+    customer: str = ""
+    score: float = 0.0
+    source_type: str = "knowledge_base"  # knowledge_base | base_release_notes | customer_release_notes
+
+
+class KBContext(BaseModel):
+    """Context retrieved from KB/Release Notes sources."""
+    kb_results: List[KBResult] = Field(default_factory=list)
+    release_note_results: List[KBResult] = Field(default_factory=list)
+    retrieval_time_ms: Optional[int] = None
+    source_mode: str = "remote"  # remote | local

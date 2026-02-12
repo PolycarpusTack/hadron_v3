@@ -1,6 +1,6 @@
-import { FileUp, Code, History, Cpu, Ticket, Shield } from "lucide-react";
+import { FileUp, Code, History, Cpu, Ticket, Shield, MessageCircle } from "lucide-react";
 
-export type ViewType = "analyze" | "translate" | "history" | "detail" | "performance" | "jira" | "sentry";
+export type ViewType = "analyze" | "translate" | "history" | "detail" | "performance" | "jira" | "sentry" | "chat";
 
 interface NavigationProps {
   currentView: ViewType;
@@ -73,6 +73,15 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
       iconBg: "bg-cyan-500/10",
       activeIconBg: "bg-cyan-500/20",
       isActive: currentView === "performance",
+    },
+    {
+      id: "chat" as ViewType,
+      label: "Ask Hadron",
+      icon: MessageCircle,
+      iconColor: "text-emerald-400",
+      iconBg: "bg-emerald-500/10",
+      activeIconBg: "bg-emerald-500/20",
+      isActive: currentView === "chat",
     },
     {
       id: "history",

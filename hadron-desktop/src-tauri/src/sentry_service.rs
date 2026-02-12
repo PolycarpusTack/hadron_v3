@@ -67,6 +67,15 @@ pub struct SentryIssue {
     pub last_seen: Option<String>,
     pub permalink: Option<String>,
     pub metadata: Option<serde_json::Value>,
+    pub project: Option<SentryIssueProject>,
+}
+
+/// Minimal project info embedded in org-level issue responses
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SentryIssueProject {
+    pub id: String,
+    pub slug: String,
+    pub name: Option<String>,
 }
 
 /// Paginated issue list with cursor
@@ -315,6 +324,84 @@ pub async fn list_sentry_issues(
         .json()
         .await
         .map_err(|e| format!("Failed to parse issues: {}", e))?;
+
+    Ok(SentryIssueList {
+        issues,
+        next_cursor,
+    })
+}
+
+/// List issues across all projects in an organization
+/// Uses the org-level endpoint with a `lastSeen:>-24h` filter by default
+pub async fn list_sentry_org_issues(
+    base_url: &str,
+    auth_token: &str,
+    org: &str,
+    query: Option<&str>,
+    cursor: Option<&str>,
+) -> Result<SentryIssueList, String> {
+    let base_url = base_url.trim_end_matches('/');
+
+    log::info!("Listing recent Sentry issues for org {}", org);
+
+    let mut url = format!(
+        "{}/api/0/organizations/{}/issues/",
+        base_url, org
+    );
+
+    // Build query params — default to lastSeen:-24h if no query provided
+    let mut params: Vec<String> = Vec::new();
+    let effective_query = match query {
+        Some(q) if !q.is_empty() => q.to_string(),
+        _ => "lastSeen:-24h".to_string(),
+    };
+    params.push(format!("query={}", urlencoding::encode(&effective_query)));
+    params.push("sort=date".to_string());
+
+    if let Some(c) = cursor {
+        if !c.is_empty() {
+            params.push(format!("cursor={}", urlencoding::encode(c)));
+        }
+    }
+    url = format!("{}?{}", url, params.join("&"));
+
+    let response = SENTRY_CLIENT
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", auth_token))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    let status = response.status();
+
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after = response
+            .headers()
+            .get("Retry-After")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("60");
+        return Err(format!(
+            "Rate limited by Sentry. Retry after {} seconds.",
+            retry_after
+        ));
+    }
+
+    if !status.is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Failed to list org issues (HTTP {}): {}",
+            status.as_u16(),
+            error_text
+        ));
+    }
+
+    let next_cursor = parse_next_cursor(response.headers());
+
+    let issues: Vec<SentryIssue> = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse org issues: {}", e))?;
 
     Ok(SentryIssueList {
         issues,

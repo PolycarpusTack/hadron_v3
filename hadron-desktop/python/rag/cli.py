@@ -182,6 +182,123 @@ def cmd_context(args):
     print(json.dumps(context.model_dump(), indent=2))
 
 
+def cmd_kb_query(args):
+    """Handle KB query command — query OpenSearch or local ChromaDB for KB docs."""
+    input_data = read_stdin_payload()
+
+    query = input_data.get("query")
+    if not query:
+        raise ValueError("Missing required field: query")
+
+    mode = input_data.get("mode", "remote")
+    won_version = input_data.get("won_version")
+    customer = input_data.get("customer")
+    top_k = input_data.get("top_k", 5)
+
+    if mode == "local":
+        from .kb_local import query_kb as local_query
+        context = local_query(query=query, won_version=won_version, top_k=top_k)
+    else:
+        from .kb_retriever import query_kb as remote_query
+        context = remote_query(
+            host=input_data.get("opensearch_host", ""),
+            port=int(input_data.get("opensearch_port", 443)),
+            username=input_data.get("opensearch_user", ""),
+            password=input_data.get("opensearch_pass", ""),
+            use_ssl=input_data.get("opensearch_ssl", True),
+            query=query,
+            won_version=won_version,
+            customer=customer,
+            use_kb=input_data.get("use_kb", True),
+            use_base_rns=input_data.get("use_base_rns", False),
+            use_customer_rns=input_data.get("use_customer_rns", False),
+            top_k=top_k,
+        )
+
+    print(json.dumps(context.model_dump(), indent=2))
+
+
+def cmd_kb_test(args):
+    """Handle KB test command — test OpenSearch connectivity."""
+    input_data = read_stdin_payload()
+
+    from .kb_client import KBOpenSearchClient
+
+    try:
+        client = KBOpenSearchClient(
+            host=input_data.get("host", ""),
+            port=int(input_data.get("port", 443)),
+            username=input_data.get("username", ""),
+            password=input_data.get("password", ""),
+            use_ssl=input_data.get("use_ssl", True),
+        )
+
+        success = client.ping()
+        indices = client.list_indices("kb-doc-*") if success else []
+        client.close()
+
+        print(json.dumps({
+            "success": success,
+            "message": "Connected successfully" if success else "Connection failed",
+            "available_indices": indices,
+        }, indent=2))
+    except Exception as e:
+        print(json.dumps({
+            "success": False,
+            "message": str(e),
+            "available_indices": [],
+        }, indent=2))
+
+
+def cmd_kb_indices(args):
+    """Handle KB indices command — list available OpenSearch KB indices."""
+    input_data = read_stdin_payload()
+
+    from .kb_client import KBOpenSearchClient
+
+    try:
+        client = KBOpenSearchClient(
+            host=input_data.get("host", ""),
+            port=int(input_data.get("port", 443)),
+            username=input_data.get("username", ""),
+            password=input_data.get("password", ""),
+            use_ssl=input_data.get("use_ssl", True),
+        )
+
+        indices = client.list_indices("kb-doc-*")
+        client.close()
+        print(json.dumps(indices, indent=2))
+    except Exception as e:
+        logger.error(f"Failed to list KB indices: {e}")
+        print(json.dumps([], indent=2))
+
+
+def cmd_kb_import(args):
+    """Handle KB import command — import local HTML files into ChromaDB."""
+    input_data = read_stdin_payload()
+
+    root_path = input_data.get("root_path")
+    won_version = input_data.get("won_version")
+    if not root_path or not won_version:
+        raise ValueError("Missing required fields: root_path, won_version")
+
+    from .kb_local import index_kb_docs
+
+    count = index_kb_docs(root_path, won_version)
+    print(json.dumps({
+        "indexed_chunks": count,
+        "won_version": won_version,
+    }, indent=2))
+
+
+def cmd_kb_stats(args):
+    """Handle KB stats command — get local KB store statistics."""
+    from .kb_local import get_stats
+
+    stats = get_stats()
+    print(json.dumps(stats, indent=2))
+
+
 def cmd_stats(args):
     """Handle stats command."""
     from .chroma_store import HadronChromaStore
@@ -238,6 +355,30 @@ def main():
     # Stats command
     stats_parser = subparsers.add_parser("stats", help="Get RAG store statistics")
     stats_parser.set_defaults(func=cmd_stats)
+
+    # KB Query command
+    kb_query_parser = subparsers.add_parser("kb-query", help="Query KB docs/release notes")
+    kb_query_parser.add_argument("--input", default="-", help="JSON input (or '-' for stdin)")
+    kb_query_parser.set_defaults(func=cmd_kb_query)
+
+    # KB Test command
+    kb_test_parser = subparsers.add_parser("kb-test", help="Test OpenSearch connectivity")
+    kb_test_parser.add_argument("--input", default="-", help="JSON input (or '-' for stdin)")
+    kb_test_parser.set_defaults(func=cmd_kb_test)
+
+    # KB Indices command
+    kb_indices_parser = subparsers.add_parser("kb-indices", help="List available KB indices")
+    kb_indices_parser.add_argument("--input", default="-", help="JSON input (or '-' for stdin)")
+    kb_indices_parser.set_defaults(func=cmd_kb_indices)
+
+    # KB Import command
+    kb_import_parser = subparsers.add_parser("kb-import", help="Import local KB HTML files")
+    kb_import_parser.add_argument("--input", default="-", help="JSON input (or '-' for stdin)")
+    kb_import_parser.set_defaults(func=cmd_kb_import)
+
+    # KB Stats command
+    kb_stats_parser = subparsers.add_parser("kb-stats", help="Get local KB store statistics")
+    kb_stats_parser.set_defaults(func=cmd_kb_stats)
 
     args = parser.parse_args()
 

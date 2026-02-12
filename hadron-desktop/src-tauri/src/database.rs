@@ -2731,6 +2731,87 @@ impl Database {
         )?;
         Ok(count)
     }
+
+    // =========================================================================
+    // Chat Feedback Methods (Phase 4.2)
+    // =========================================================================
+
+    /// Store or update chat feedback (upsert by session_id + message_id)
+    pub fn save_chat_feedback(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        rating: &str,
+        comment: Option<&str>,
+        tools_used: Option<&str>,
+        sources_cited: Option<&str>,
+        query: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "INSERT INTO chat_feedback (session_id, message_id, rating, comment, tools_used, sources_cited, query)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(session_id, message_id) DO UPDATE SET
+                rating = excluded.rating,
+                comment = excluded.comment,
+                created_at = datetime('now')",
+            rusqlite::params![session_id, message_id, rating, comment, tools_used, sources_cited, query],
+        )?;
+        Ok(())
+    }
+
+    /// Get all positive feedback entries (for future retrieval boosting)
+    #[allow(dead_code)]
+    pub fn get_positive_feedback(&self, limit: usize) -> Result<Vec<ChatFeedbackEntry>> {
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, message_id, rating, comment, tools_used, sources_cited, query, created_at
+             FROM chat_feedback WHERE rating = 'positive' ORDER BY created_at DESC LIMIT ?1",
+        )?;
+        let entries = stmt
+            .query_map([limit as i64], |row| {
+                Ok(ChatFeedbackEntry {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    message_id: row.get(2)?,
+                    rating: row.get(3)?,
+                    comment: row.get(4)?,
+                    tools_used: row.get(5)?,
+                    sources_cited: row.get(6)?,
+                    query: row.get(7)?,
+                    created_at: row.get(8)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(entries)
+    }
+
+    /// Get feedback statistics
+    #[allow(dead_code)]
+    pub fn get_feedback_stats(&self) -> Result<serde_json::Value> {
+        let conn = self.lock_conn();
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM chat_feedback",
+            [],
+            |row| row.get(0),
+        )?;
+        let positive: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM chat_feedback WHERE rating = 'positive'",
+            [],
+            |row| row.get(0),
+        )?;
+        let negative: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM chat_feedback WHERE rating = 'negative'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(serde_json::json!({
+            "total": total,
+            "positive": positive,
+            "negative": negative,
+            "satisfaction_rate": if total > 0 { positive as f64 / total as f64 * 100.0 } else { 0.0 }
+        }))
+    }
 }
 
 /// Trend data point for analytics
@@ -2757,4 +2838,19 @@ pub struct ErrorPatternCount {
     pub error_type: String,
     pub component: Option<String>,
     pub count: i32,
+}
+
+/// Chat feedback entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatFeedbackEntry {
+    pub id: i64,
+    pub session_id: String,
+    pub message_id: String,
+    pub rating: String,
+    pub comment: Option<String>,
+    pub tools_used: Option<String>,
+    pub sources_cited: Option<String>,
+    pub query: Option<String>,
+    pub created_at: String,
 }

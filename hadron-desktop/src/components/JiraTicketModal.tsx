@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { open } from "@tauri-apps/plugin-shell";
 import {
   X,
   ExternalLink,
@@ -210,15 +211,13 @@ export default function JiraTicketModal({
                   Your JIRA ticket has been created successfully.
                 </p>
               </div>
-              <a
-                href={success.ticketUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={() => open(success.ticketUrl)}
                 className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition font-semibold"
               >
                 <ExternalLink className="w-5 h-5" />
                 Open {success.ticketKey}
-              </a>
+              </button>
             </div>
           ) : error && !config ? (
             // Configuration error state

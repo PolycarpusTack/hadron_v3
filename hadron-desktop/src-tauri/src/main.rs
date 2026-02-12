@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ai_service;
+mod chat_commands;
+mod chat_tools;
 mod commands;
 mod commands_legacy;
 mod database;
@@ -222,13 +224,23 @@ fn main() {
             rag_index_analysis,
             rag_build_context,
             rag_get_stats,
+            // Knowledge Base RAG
+            kb_query,
+            kb_test_connection,
+            kb_list_indices,
+            kb_import_docs,
+            kb_get_stats,
             // Sentry Integration
             test_sentry_connection,
             list_sentry_projects,
             list_sentry_issues,
+            list_sentry_org_issues,
             fetch_sentry_issue,
             fetch_sentry_latest_event,
-            analyze_sentry_issue
+            analyze_sentry_issue,
+            // Ask Hadron Chat
+            chat_commands::chat_send,
+            chat_commands::chat_submit_feedback
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

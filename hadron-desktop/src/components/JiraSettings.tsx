@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { open } from "@tauri-apps/plugin-shell";
 import {
   Settings,
   Check,
@@ -376,14 +377,13 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
             </div>
             <p className="text-xs text-gray-500 mt-1">
               Create at{" "}
-              <a
-                href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => open("https://id.atlassian.com/manage-profile/security/api-tokens")}
                 className="text-blue-400 hover:underline inline-flex items-center gap-1"
               >
                 Atlassian API Tokens <ExternalLink className="w-3 h-3" />
-              </a>
+              </button>
             </p>
           </div>
 

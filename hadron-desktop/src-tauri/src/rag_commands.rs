@@ -90,6 +90,90 @@ pub struct RAGStatsResponse {
 }
 
 // ============================================================================
+// Knowledge Base RAG Structures
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenSearchConfig {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub use_ssl: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KBQueryRequest {
+    pub query: String,
+    pub mode: String, // "remote" | "local"
+    pub opensearch_config: Option<OpenSearchConfig>,
+    pub won_version: Option<String>,
+    pub customer: Option<String>,
+    pub use_kb: Option<bool>,
+    pub use_base_rns: Option<bool>,
+    pub use_customer_rns: Option<bool>,
+    pub top_k: Option<usize>,
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KBResultItem {
+    pub text: String,
+    pub link: String,
+    pub page_title: String,
+    pub won_version: String,
+    pub customer: String,
+    pub score: f64,
+    pub source_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KBContext {
+    pub kb_results: Vec<KBResultItem>,
+    pub release_note_results: Vec<KBResultItem>,
+    pub retrieval_time_ms: Option<i64>,
+    pub source_mode: String,
+}
+
+impl Default for KBContext {
+    fn default() -> Self {
+        Self {
+            kb_results: Vec::new(),
+            release_note_results: Vec::new(),
+            retrieval_time_ms: None,
+            source_mode: "remote".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KBTestResponse {
+    pub success: bool,
+    pub message: String,
+    pub available_indices: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KBImportRequest {
+    pub root_path: String,
+    pub won_version: String,
+    pub api_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KBImportResponse {
+    pub indexed_chunks: usize,
+    pub won_version: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KBStatsResponse {
+    pub total_chunks: usize,
+    pub indexed_versions: Vec<String>,
+    pub storage_path: String,
+}
+
+// ============================================================================
 // Configuration Constants
 // ============================================================================
 
@@ -202,6 +286,95 @@ pub async fn rag_get_stats() -> Result<RAGStatsResponse, String> {
         gold_analyses: 0,
         storage_path: storage_path.to_string_lossy().to_string(),
     })
+}
+
+// ============================================================================
+// Knowledge Base Tauri Commands
+// ============================================================================
+
+/// Query the KB/Release Notes (remote OpenSearch or local ChromaDB)
+#[tauri::command]
+pub async fn kb_query(request: KBQueryRequest) -> Result<KBContext, String> {
+    if request.query.len() > MAX_QUERY_SIZE {
+        return Err(format!(
+            "Query too large: {} bytes exceeds maximum of {} bytes",
+            request.query.len(),
+            MAX_QUERY_SIZE
+        ));
+    }
+
+    let mut input = serde_json::json!({
+        "query": request.query,
+        "mode": request.mode,
+        "won_version": request.won_version,
+        "customer": request.customer,
+        "use_kb": request.use_kb.unwrap_or(true),
+        "use_base_rns": request.use_base_rns.unwrap_or(false),
+        "use_customer_rns": request.use_customer_rns.unwrap_or(false),
+        "top_k": request.top_k.unwrap_or(5),
+    });
+
+    if let Some(ref config) = request.opensearch_config {
+        input["opensearch_host"] = serde_json::json!(config.host);
+        input["opensearch_port"] = serde_json::json!(config.port);
+        input["opensearch_user"] = serde_json::json!(config.username);
+        input["opensearch_pass"] = serde_json::json!(config.password);
+        input["opensearch_ssl"] = serde_json::json!(config.use_ssl);
+    }
+
+    let result = run_rag_cli_command("kb-query", &input, &request.api_key).await?;
+    serde_json::from_value(result).map_err(|e| format!("Failed to parse KB query results: {}", e))
+}
+
+/// Test OpenSearch connectivity
+#[tauri::command]
+pub async fn kb_test_connection(config: OpenSearchConfig, api_key: String) -> Result<KBTestResponse, String> {
+    let input = serde_json::json!({
+        "host": config.host,
+        "port": config.port,
+        "username": config.username,
+        "password": config.password,
+        "use_ssl": config.use_ssl,
+    });
+
+    let result = run_rag_cli_command("kb-test", &input, &api_key).await?;
+    serde_json::from_value(result).map_err(|e| format!("Failed to parse KB test response: {}", e))
+}
+
+/// List available KB indices from OpenSearch
+#[tauri::command]
+pub async fn kb_list_indices(config: OpenSearchConfig, api_key: String) -> Result<Vec<String>, String> {
+    let input = serde_json::json!({
+        "host": config.host,
+        "port": config.port,
+        "username": config.username,
+        "password": config.password,
+        "use_ssl": config.use_ssl,
+    });
+
+    let result = run_rag_cli_command("kb-indices", &input, &api_key).await?;
+    serde_json::from_value(result).map_err(|e| format!("Failed to parse KB indices: {}", e))
+}
+
+/// Import local KB HTML files into ChromaDB
+#[tauri::command]
+pub async fn kb_import_docs(request: KBImportRequest) -> Result<KBImportResponse, String> {
+    let input = serde_json::json!({
+        "root_path": request.root_path,
+        "won_version": request.won_version,
+    });
+
+    let result = run_rag_cli_command("kb-import", &input, &request.api_key).await?;
+    serde_json::from_value(result).map_err(|e| format!("Failed to parse KB import response: {}", e))
+}
+
+/// Get local KB store statistics
+#[tauri::command]
+pub async fn kb_get_stats() -> Result<KBStatsResponse, String> {
+    // kb-stats doesn't need an API key but we pass empty string
+    let input = serde_json::json!({});
+    let result = run_rag_cli_command("kb-stats", &input, "").await?;
+    serde_json::from_value(result).map_err(|e| format!("Failed to parse KB stats: {}", e))
 }
 
 // ============================================================================
@@ -444,4 +617,47 @@ pub async fn rag_build_context_internal(
 
     // Parse context
     serde_json::from_value(context).map_err(|e| format!("Failed to parse RAG context: {}", e))
+}
+
+/// Query KB/Release Notes for domain knowledge (internal use)
+///
+/// Called by commands_legacy.rs to retrieve domain knowledge for analysis enrichment.
+pub async fn kb_query_internal(
+    query: &str,
+    mode: &str,
+    opensearch_config: Option<OpenSearchConfig>,
+    won_version: Option<String>,
+    customer: Option<String>,
+    top_k: usize,
+    api_key: &str,
+) -> Result<KBContext, String> {
+    if query.len() > MAX_QUERY_SIZE {
+        return Err(format!(
+            "Query too large: {} bytes exceeds maximum of {} bytes",
+            query.len(),
+            MAX_QUERY_SIZE
+        ));
+    }
+
+    let mut input = serde_json::json!({
+        "query": query,
+        "mode": mode,
+        "won_version": won_version,
+        "customer": customer,
+        "use_kb": true,
+        "use_base_rns": false,
+        "use_customer_rns": customer.is_some(),
+        "top_k": top_k,
+    });
+
+    if let Some(ref config) = opensearch_config {
+        input["opensearch_host"] = serde_json::json!(config.host);
+        input["opensearch_port"] = serde_json::json!(config.port);
+        input["opensearch_user"] = serde_json::json!(config.username);
+        input["opensearch_pass"] = serde_json::json!(config.password);
+        input["opensearch_ssl"] = serde_json::json!(config.use_ssl);
+    }
+
+    let result = run_rag_cli_command("kb-query", &input, api_key).await?;
+    serde_json::from_value(result).map_err(|e| format!("Failed to parse KB context: {}", e))
 }

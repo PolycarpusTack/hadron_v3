@@ -44,6 +44,26 @@ pub async fn list_sentry_issues(
     .await
 }
 
+/// List recent issues across all projects in an organization
+#[tauri::command]
+pub async fn list_sentry_org_issues(
+    base_url: String,
+    auth_token: String,
+    org: String,
+    query: Option<String>,
+    cursor: Option<String>,
+) -> Result<sentry_service::SentryIssueList, String> {
+    log::info!("Listing recent Sentry issues for org {}", org);
+    sentry_service::list_sentry_org_issues(
+        &base_url,
+        &auth_token,
+        &org,
+        query.as_deref(),
+        cursor.as_deref(),
+    )
+    .await
+}
+
 /// Fetch a single Sentry issue by ID
 #[tauri::command]
 pub async fn fetch_sentry_issue(

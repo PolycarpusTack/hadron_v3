@@ -24,6 +24,11 @@ export interface AnalysisRequest {
   // RAG-enhanced analysis (Phase 2.3)
   // When true, retrieves similar historical cases to improve analysis quality
   use_rag?: boolean;
+  // Knowledge Base domain knowledge
+  use_kb?: boolean;
+  customer?: string;
+  won_version?: string;
+  kb_mode?: string; // "remote" | "local"
 }
 
 export interface AnalysisResponse {
@@ -153,10 +158,11 @@ export async function analyzeJiraTicket(
   model?: string,
   provider?: string,
   useRag?: boolean,
+  kbOptions?: { useKB?: boolean; customer?: string; wonVersion?: string; kbMode?: string },
 ): Promise<AnalysisResponse> {
   return invoke<AnalysisResponse>("analyze_jira_ticket", {
     request: {
-      jiraKey,
+      jira_key: jiraKey,
       summary,
       description,
       comments,
@@ -164,10 +170,14 @@ export async function analyzeJiraTicket(
       status,
       components,
       labels,
-      apiKey,
+      api_key: apiKey,
       model: model || getStoredModel(),
       provider: provider || getStoredProvider(),
-      useRag: useRag ?? false,
+      use_rag: useRag ?? false,
+      use_kb: kbOptions?.useKB ?? false,
+      customer: kbOptions?.customer,
+      won_version: kbOptions?.wonVersion,
+      kb_mode: kbOptions?.kbMode,
     },
   });
 }

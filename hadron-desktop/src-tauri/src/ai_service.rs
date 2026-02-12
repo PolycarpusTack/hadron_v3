@@ -1,6 +1,8 @@
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
+use tauri::Emitter;
 
 use crate::deep_scan::{ChunkAnalysis, DeepScanRunner};
 use crate::evidence_extractor::{EvidenceExtractor, ExtractionConfig};
@@ -29,6 +31,99 @@ pub struct RagContext {
     pub gold_matches: Vec<RagSimilarCase>,
     pub confidence_boost: f64,
     pub retrieval_time_ms: Option<i64>,
+}
+
+/// Domain knowledge from WHATS'ON Knowledge Base and Release Notes
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DomainKnowledge {
+    pub kb_results: Vec<DomainKnowledgeItem>,
+    pub release_note_results: Vec<DomainKnowledgeItem>,
+    pub retrieval_time_ms: Option<i64>,
+    pub source_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DomainKnowledgeItem {
+    pub text: String,
+    pub link: String,
+    pub page_title: String,
+    pub won_version: String,
+    pub score: f64,
+    pub source_type: String,
+}
+
+impl DomainKnowledge {
+    pub fn has_content(&self) -> bool {
+        !self.kb_results.is_empty() || !self.release_note_results.is_empty()
+    }
+
+    /// Format domain knowledge for injection into the AI prompt
+    pub fn format_for_prompt(&self) -> String {
+        if !self.has_content() {
+            return String::new();
+        }
+
+        let mut output = String::new();
+        output.push_str("\n## WHATS'ON DOMAIN KNOWLEDGE (from Knowledge Base & Release Notes)\n\n");
+
+        for item in self.kb_results.iter().chain(self.release_note_results.iter()) {
+            // Truncate each result to ~800 chars to control token usage
+            let text = if item.text.len() > 800 {
+                format!("{}...", &item.text[..800])
+            } else {
+                item.text.clone()
+            };
+
+            output.push_str("<documentation>\n");
+            if !item.link.is_empty() {
+                output.push_str(&format!("<url>{}</url>", item.link));
+            }
+            output.push_str(&format!("<source>{}</source>", item.source_type));
+            if !item.won_version.is_empty() {
+                output.push_str(&format!("<won_version>{}</won_version>", item.won_version));
+            }
+            if !item.page_title.is_empty() {
+                output.push_str(&format!("<title>{}</title>", item.page_title));
+            }
+            output.push_str(&format!("\n<extract>{}</extract>\n", text));
+            output.push_str("</documentation>\n\n");
+        }
+
+        output
+    }
+}
+
+impl From<crate::rag_commands::KBContext> for DomainKnowledge {
+    fn from(ctx: crate::rag_commands::KBContext) -> Self {
+        Self {
+            kb_results: ctx
+                .kb_results
+                .into_iter()
+                .map(|r| DomainKnowledgeItem {
+                    text: r.text,
+                    link: r.link,
+                    page_title: r.page_title,
+                    won_version: r.won_version,
+                    score: r.score,
+                    source_type: r.source_type,
+                })
+                .collect(),
+            release_note_results: ctx
+                .release_note_results
+                .into_iter()
+                .map(|r| DomainKnowledgeItem {
+                    text: r.text,
+                    link: r.link,
+                    page_title: r.page_title,
+                    won_version: r.won_version,
+                    score: r.score,
+                    source_type: r.source_type,
+                })
+                .collect(),
+            retrieval_time_ms: ctx.retrieval_time_ms,
+            source_mode: ctx.source_mode,
+        }
+    }
 }
 
 impl RagContext {
@@ -820,19 +915,26 @@ IMPORTANT GUIDELINES:
     )
 }
 
-/// Build RAG-enhanced WHATS'ON analysis prompt with similar case context
-fn get_whatson_analysis_prompt_with_rag(crash_content: &str, rag_context: &RagContext) -> String {
+/// Build RAG-enhanced WHATS'ON analysis prompt with similar case context and domain knowledge
+fn get_whatson_analysis_prompt_with_rag(
+    crash_content: &str,
+    rag_context: &RagContext,
+    domain_knowledge: Option<&DomainKnowledge>,
+) -> String {
     let rag_section = rag_context.format_for_prompt();
+    let dk_section = domain_knowledge
+        .map(|dk| dk.format_for_prompt())
+        .unwrap_or_default();
 
-    // If we have RAG context, inject it into the prompt
-    if rag_section.is_empty() {
+    // If we have neither RAG context nor domain knowledge, use standard prompt
+    if rag_section.is_empty() && dk_section.is_empty() {
         return get_whatson_analysis_prompt(crash_content);
     }
 
     format!(
         r#"Analyze this WHATS'ON/VisualWorks Smalltalk crash log and provide a comprehensive structured analysis.
 
-{rag_section}
+{dk_section}{rag_section}
 ═══════════════════════════════════════════════════════════════════
 
 CRASH LOG:
@@ -885,6 +987,7 @@ OUTPUT FORMAT (JSON):
 }}
 
 Return ONLY valid JSON. No markdown, no explanation outside JSON."#,
+        dk_section = dk_section,
         rag_section = rag_section,
         crash_content = crash_content
     )
@@ -1144,6 +1247,56 @@ async fn call_provider_raw(
     Ok(provider_response.content)
 }
 
+/// Unified provider call that returns the raw JSON response (for tool-calling agent loop).
+/// Unlike call_provider_raw, this preserves the full response structure.
+pub async fn call_provider_raw_json(
+    provider: &str,
+    request_body: serde_json::Value,
+    api_key: &str,
+) -> Result<serde_json::Value, String> {
+    let config = match provider {
+        "anthropic" => ProviderConfig::anthropic(),
+        "zai" => ProviderConfig::zai(),
+        "ollama" => ProviderConfig::ollama(),
+        _ => ProviderConfig::openai(),
+    };
+
+    let client = create_http_client();
+
+    let mut request = client
+        .post(config.endpoint)
+        .header("Content-Type", "application/json");
+
+    request = match config.auth_style {
+        AuthStyle::Bearer => request.header("Authorization", format!("Bearer {}", api_key)),
+        AuthStyle::AnthropicHeader => request
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01"),
+        AuthStyle::None => request,
+    };
+
+    let response = request
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| format!("{} API request failed: {}", config.name, e))?;
+
+    if !response.status().is_success() {
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(format!("{} API error: {}", config.name, error_text));
+    }
+
+    let response_data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse {} response: {}", config.name, e))?;
+
+    Ok(response_data)
+}
+
 // ============================================================================
 // Public Provider Functions (thin wrappers for backwards compatibility)
 // ============================================================================
@@ -1252,6 +1405,635 @@ pub async fn call_ollama(
 ) -> Result<AnalysisResult, String> {
     let request_body = build_ollama_request(system_prompt, user_prompt, model);
     call_provider(ProviderConfig::ollama(), request_body, "").await
+}
+
+// ============================================================================
+// Chat Types & Streaming (Ask Hadron)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatStreamEvent {
+    pub token: String,
+    pub done: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatResponse {
+    pub content: String,
+    pub tokens_used: i32,
+    pub cost: f64,
+}
+
+/// Build a multi-turn chat request for OpenAI-compatible APIs
+pub fn build_chat_request_openai(
+    messages: &[ChatMessage],
+    system_prompt: &str,
+    model: &str,
+    max_tokens: u32,
+    stream: bool,
+) -> serde_json::Value {
+    let is_gpt5 = model.starts_with("gpt-5") || model.starts_with("o1") || model.starts_with("o3");
+
+    let mut msgs = vec![json!({"role": "system", "content": system_prompt})];
+    for m in messages {
+        msgs.push(json!({"role": m.role, "content": m.content}));
+    }
+
+    let mut body = json!({
+        "model": model,
+        "messages": msgs,
+        "temperature": 0.3,
+        "stream": stream
+    });
+
+    if is_gpt5 {
+        body["max_completion_tokens"] = json!(max_tokens);
+    } else {
+        body["max_tokens"] = json!(max_tokens);
+    }
+
+    body
+}
+
+/// Build a multi-turn chat request for Anthropic API
+pub fn build_chat_request_anthropic(
+    messages: &[ChatMessage],
+    system_prompt: &str,
+    model: &str,
+    max_tokens: u32,
+    stream: bool,
+) -> serde_json::Value {
+    let msgs: Vec<serde_json::Value> = messages
+        .iter()
+        .map(|m| json!({"role": m.role, "content": m.content}))
+        .collect();
+
+    json!({
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system_prompt,
+        "messages": msgs,
+        "stream": stream
+    })
+}
+
+/// Build a multi-turn chat request for Ollama API
+pub fn build_chat_request_ollama(
+    messages: &[ChatMessage],
+    system_prompt: &str,
+    model: &str,
+    stream: bool,
+) -> serde_json::Value {
+    let mut msgs = vec![json!({"role": "system", "content": system_prompt})];
+    for m in messages {
+        msgs.push(json!({"role": m.role, "content": m.content}));
+    }
+
+    json!({
+        "model": model,
+        "messages": msgs,
+        "stream": stream
+    })
+}
+
+/// Call a provider with streaming enabled, emitting tokens via Tauri events.
+/// Returns the full accumulated response when done.
+pub async fn call_provider_streaming(
+    app: &tauri::AppHandle,
+    provider: &str,
+    request_body: serde_json::Value,
+    api_key: &str,
+) -> Result<ChatResponse, String> {
+    let (config_name, endpoint, auth_style, response_style, cost_calculator) = match provider {
+        "anthropic" => (
+            "Anthropic",
+            "https://api.anthropic.com/v1/messages",
+            AuthStyle::AnthropicHeader,
+            ResponseStyle::Anthropic,
+            CostCalculator::Claude35Sonnet,
+        ),
+        "zai" => (
+            "Z.ai",
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            AuthStyle::Bearer,
+            ResponseStyle::OpenAI,
+            CostCalculator::FlatRate(0.001),
+        ),
+        "ollama" => (
+            "Ollama",
+            "http://127.0.0.1:11434/api/chat",
+            AuthStyle::None,
+            ResponseStyle::Ollama,
+            CostCalculator::Free,
+        ),
+        _ => (
+            "OpenAI",
+            "https://api.openai.com/v1/chat/completions",
+            AuthStyle::Bearer,
+            ResponseStyle::OpenAI,
+            CostCalculator::Gpt4Turbo,
+        ),
+    };
+
+    let client = create_http_client();
+    let mut request = client
+        .post(endpoint)
+        .header("Content-Type", "application/json");
+
+    request = match &auth_style {
+        AuthStyle::Bearer => request.header("Authorization", format!("Bearer {}", api_key)),
+        AuthStyle::AnthropicHeader => request
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01"),
+        AuthStyle::None => request,
+    };
+
+    let response = request
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| format!("{} API request failed: {}", config_name, e))?;
+
+    if !response.status().is_success() {
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(format!("{} API error: {}", config_name, error_text));
+    }
+
+    // Read streaming response
+    let mut accumulated = String::new();
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream read error: {}", e))?;
+        let chunk_str = String::from_utf8_lossy(&chunk);
+        buffer.push_str(&chunk_str);
+
+        // Process complete lines from buffer
+        while let Some(newline_pos) = buffer.find('\n') {
+            let line = buffer[..newline_pos].trim().to_string();
+            buffer = buffer[newline_pos + 1..].to_string();
+
+            if line.is_empty() {
+                continue;
+            }
+
+            // Extract token based on provider response format
+            let token = match &response_style {
+                ResponseStyle::OpenAI => parse_openai_sse_token(&line),
+                ResponseStyle::Anthropic => parse_anthropic_sse_token(&line),
+                ResponseStyle::Ollama => parse_ollama_stream_token(&line),
+            };
+
+            if let Some(tok) = token {
+                if !tok.is_empty() {
+                    accumulated.push_str(&tok);
+                    let _ = app.emit(
+                        "chat-stream",
+                        ChatStreamEvent {
+                            token: tok,
+                            done: false,
+                            error: None,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    // Process any remaining buffer
+    if !buffer.trim().is_empty() {
+        let token = match &response_style {
+            ResponseStyle::OpenAI => parse_openai_sse_token(buffer.trim()),
+            ResponseStyle::Anthropic => parse_anthropic_sse_token(buffer.trim()),
+            ResponseStyle::Ollama => parse_ollama_stream_token(buffer.trim()),
+        };
+        if let Some(tok) = token {
+            if !tok.is_empty() {
+                accumulated.push_str(&tok);
+                let _ = app.emit(
+                    "chat-stream",
+                    ChatStreamEvent {
+                        token: tok,
+                        done: false,
+                        error: None,
+                    },
+                );
+            }
+        }
+    }
+
+    // Emit done event
+    let _ = app.emit(
+        "chat-stream",
+        ChatStreamEvent {
+            token: String::new(),
+            done: true,
+            error: None,
+        },
+    );
+
+    // Estimate tokens (rough: 4 chars per token)
+    let est_tokens = (accumulated.len() as f64 / 4.0) as i32;
+    let cost = match &cost_calculator {
+        CostCalculator::Gpt4Turbo => (est_tokens as f64 / 1000.0) * 0.01,
+        CostCalculator::Claude35Sonnet => (est_tokens as f64 / 1_000_000.0) * 15.0,
+        CostCalculator::FlatRate(rate) => *rate,
+        CostCalculator::Free => 0.0,
+    };
+
+    Ok(ChatResponse {
+        content: accumulated,
+        tokens_used: est_tokens,
+        cost,
+    })
+}
+
+/// Quick non-streaming LLM call for lightweight tasks (query rewriting, routing).
+/// Uses a short timeout and low max_tokens to minimize latency.
+pub async fn call_provider_quick(
+    provider: &str,
+    messages: &[ChatMessage],
+    system_prompt: &str,
+    api_key: &str,
+    model: &str,
+    max_tokens: u32,
+) -> Result<String, String> {
+    let request_body = match provider {
+        "anthropic" => build_chat_request_anthropic(messages, system_prompt, model, max_tokens, false),
+        "ollama" => build_chat_request_ollama(messages, system_prompt, model, false),
+        _ => build_chat_request_openai(messages, system_prompt, model, max_tokens, false),
+    };
+
+    let config = match provider {
+        "anthropic" => ProviderConfig::anthropic(),
+        "zai" => ProviderConfig::zai(),
+        "ollama" => ProviderConfig::ollama(),
+        _ => ProviderConfig::openai(),
+    };
+
+    // Use a short timeout for quick calls
+    let result = tokio::time::timeout(
+        Duration::from_secs(8),
+        call_provider_raw(config, request_body, api_key),
+    )
+    .await
+    .map_err(|_| "Quick LLM call timed out".to_string())?;
+
+    result
+}
+
+/// Non-streaming chat call (fallback)
+pub async fn call_provider_chat(
+    provider: &str,
+    request_body: serde_json::Value,
+    api_key: &str,
+) -> Result<ChatResponse, String> {
+    let config = match provider {
+        "anthropic" => ProviderConfig::anthropic(),
+        "zai" => ProviderConfig::zai(),
+        "ollama" => ProviderConfig::ollama(),
+        _ => ProviderConfig::openai(),
+    };
+
+    let content = call_provider_raw(config, request_body, api_key).await?;
+    let est_tokens = (content.len() as f64 / 4.0) as i32;
+
+    Ok(ChatResponse {
+        content,
+        tokens_used: est_tokens,
+        cost: 0.0,
+    })
+}
+
+// ============================================================================
+// Tool-Aware Request Builders & Response Parsers (Level 2)
+// ============================================================================
+
+use crate::chat_tools::{ParsedToolCall, ToolDefinition};
+
+/// Build an OpenAI-compatible request with tool definitions
+pub fn build_chat_request_with_tools_openai(
+    messages: &[serde_json::Value],
+    tools: &[ToolDefinition],
+    system_prompt: &str,
+    model: &str,
+    max_tokens: u32,
+) -> serde_json::Value {
+    let is_gpt5 = model.starts_with("gpt-5") || model.starts_with("o1") || model.starts_with("o3");
+
+    let mut msgs = vec![json!({"role": "system", "content": system_prompt})];
+    msgs.extend_from_slice(messages);
+
+    let tool_defs: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                }
+            })
+        })
+        .collect();
+
+    let mut body = json!({
+        "model": model,
+        "messages": msgs,
+        "temperature": 0.3,
+        "stream": false
+    });
+
+    if is_gpt5 {
+        body["max_completion_tokens"] = json!(max_tokens);
+    } else {
+        body["max_tokens"] = json!(max_tokens);
+    }
+
+    if !tool_defs.is_empty() {
+        body["tools"] = json!(tool_defs);
+        body["tool_choice"] = json!("auto");
+    }
+
+    body
+}
+
+/// Build an Anthropic request with tool definitions
+pub fn build_chat_request_with_tools_anthropic(
+    messages: &[serde_json::Value],
+    tools: &[ToolDefinition],
+    system_prompt: &str,
+    model: &str,
+    max_tokens: u32,
+) -> serde_json::Value {
+    let tool_defs: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            json!({
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.parameters,
+            })
+        })
+        .collect();
+
+    let mut body = json!({
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system_prompt,
+        "messages": messages,
+        "stream": false
+    });
+
+    if !tool_defs.is_empty() {
+        body["tools"] = json!(tool_defs);
+    }
+
+    body
+}
+
+/// Build an Ollama request with tool definitions (OpenAI-compatible format)
+pub fn build_chat_request_with_tools_ollama(
+    messages: &[serde_json::Value],
+    tools: &[ToolDefinition],
+    system_prompt: &str,
+    model: &str,
+) -> serde_json::Value {
+    let mut msgs = vec![json!({"role": "system", "content": system_prompt})];
+    msgs.extend_from_slice(messages);
+
+    let tool_defs: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                }
+            })
+        })
+        .collect();
+
+    let mut body = json!({
+        "model": model,
+        "messages": msgs,
+        "stream": false
+    });
+
+    if !tool_defs.is_empty() {
+        body["tools"] = json!(tool_defs);
+    }
+
+    body
+}
+
+/// Check if the LLM response contains tool calls
+pub fn response_wants_tools(response: &serde_json::Value, provider: &str) -> bool {
+    match provider {
+        "anthropic" => {
+            // Anthropic: stop_reason == "tool_use" or content has type: "tool_use"
+            if response["stop_reason"].as_str() == Some("tool_use") {
+                return true;
+            }
+            if let Some(content) = response["content"].as_array() {
+                return content.iter().any(|c| c["type"].as_str() == Some("tool_use"));
+            }
+            false
+        }
+        _ => {
+            // OpenAI/Ollama: finish_reason == "tool_calls" or message has tool_calls
+            if let Some(choices) = response["choices"].as_array() {
+                if let Some(choice) = choices.first() {
+                    if choice["finish_reason"].as_str() == Some("tool_calls") {
+                        return true;
+                    }
+                    if let Some(tool_calls) = choice["message"]["tool_calls"].as_array() {
+                        return !tool_calls.is_empty();
+                    }
+                }
+            }
+            false
+        }
+    }
+}
+
+/// Extract the text content from a response (non-tool text)
+pub fn extract_text_from_response(response: &serde_json::Value, provider: &str) -> String {
+    match provider {
+        "anthropic" => {
+            if let Some(content) = response["content"].as_array() {
+                content
+                    .iter()
+                    .filter(|c| c["type"].as_str() == Some("text"))
+                    .filter_map(|c| c["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("")
+            } else {
+                String::new()
+            }
+        }
+        _ => {
+            response["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        }
+    }
+}
+
+/// Parse tool calls from provider response
+pub fn parse_tool_calls(response: &serde_json::Value, provider: &str) -> Vec<ParsedToolCall> {
+    match provider {
+        "anthropic" => parse_anthropic_tool_calls(response),
+        _ => parse_openai_tool_calls(response),
+    }
+}
+
+fn parse_openai_tool_calls(response: &serde_json::Value) -> Vec<ParsedToolCall> {
+    let mut calls = Vec::new();
+    if let Some(choices) = response["choices"].as_array() {
+        if let Some(choice) = choices.first() {
+            if let Some(tool_calls) = choice["message"]["tool_calls"].as_array() {
+                for tc in tool_calls {
+                    let id = tc["id"].as_str().unwrap_or("").to_string();
+                    let name = tc["function"]["name"].as_str().unwrap_or("").to_string();
+                    let args_str = tc["function"]["arguments"].as_str().unwrap_or("{}");
+                    let arguments = serde_json::from_str(args_str).unwrap_or(json!({}));
+                    if !name.is_empty() {
+                        calls.push(ParsedToolCall { id, name, arguments });
+                    }
+                }
+            }
+        }
+    }
+    calls
+}
+
+fn parse_anthropic_tool_calls(response: &serde_json::Value) -> Vec<ParsedToolCall> {
+    let mut calls = Vec::new();
+    if let Some(content) = response["content"].as_array() {
+        for block in content {
+            if block["type"].as_str() == Some("tool_use") {
+                let id = block["id"].as_str().unwrap_or("").to_string();
+                let name = block["name"].as_str().unwrap_or("").to_string();
+                let arguments = block["input"].clone();
+                if !name.is_empty() {
+                    calls.push(ParsedToolCall { id, name, arguments });
+                }
+            }
+        }
+    }
+    calls
+}
+
+/// Build the assistant message in the format expected by the provider for tool call turns
+pub fn build_assistant_tool_message(
+    response: &serde_json::Value,
+    provider: &str,
+) -> serde_json::Value {
+    match provider {
+        "anthropic" => {
+            // Return the full content array as the assistant message
+            json!({
+                "role": "assistant",
+                "content": response["content"].clone()
+            })
+        }
+        _ => {
+            // OpenAI: return the message as-is (includes tool_calls)
+            if let Some(choices) = response["choices"].as_array() {
+                if let Some(choice) = choices.first() {
+                    return choice["message"].clone();
+                }
+            }
+            json!({"role": "assistant", "content": ""})
+        }
+    }
+}
+
+/// Build tool result messages in the format expected by the provider
+pub fn build_tool_result_messages(
+    results: &[crate::chat_tools::ToolResult],
+    provider: &str,
+) -> Vec<serde_json::Value> {
+    match provider {
+        "anthropic" => {
+            // Anthropic: single user message with array of tool_result content blocks
+            let blocks: Vec<serde_json::Value> = results
+                .iter()
+                .map(|r| {
+                    json!({
+                        "type": "tool_result",
+                        "tool_use_id": r.tool_use_id,
+                        "content": r.content,
+                        "is_error": r.is_error,
+                    })
+                })
+                .collect();
+            vec![json!({"role": "user", "content": blocks})]
+        }
+        _ => {
+            // OpenAI: one "tool" role message per result
+            results
+                .iter()
+                .map(|r| {
+                    json!({
+                        "role": "tool",
+                        "tool_call_id": r.tool_use_id,
+                        "content": r.content,
+                    })
+                })
+                .collect()
+        }
+    }
+}
+
+/// Parse a token from an OpenAI SSE line: `data: {"choices":[{"delta":{"content":"..."}}]}`
+fn parse_openai_sse_token(line: &str) -> Option<String> {
+    let data = line.strip_prefix("data: ")?;
+    if data == "[DONE]" {
+        return None;
+    }
+    let parsed: serde_json::Value = serde_json::from_str(data).ok()?;
+    parsed["choices"][0]["delta"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+/// Parse a token from an Anthropic SSE line
+fn parse_anthropic_sse_token(line: &str) -> Option<String> {
+    let data = line.strip_prefix("data: ")?;
+    let parsed: serde_json::Value = serde_json::from_str(data).ok()?;
+    // content_block_delta events have delta.text
+    if parsed["type"].as_str() == Some("content_block_delta") {
+        return parsed["delta"]["text"].as_str().map(|s| s.to_string());
+    }
+    None
+}
+
+/// Parse a token from an Ollama streaming JSON line
+fn parse_ollama_stream_token(line: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+    if parsed["done"].as_bool() == Some(true) {
+        return None;
+    }
+    parsed["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
 }
 
 // ============================================================================
@@ -1526,13 +2308,17 @@ pub async fn analyze_crash_log(
             COMPLETE_ANALYSIS_SYSTEM_PROMPT,
             get_complete_analysis_prompt(crash_content),
         ),
-        "whatson" | "comprehensive" => (
+        "whatson" | "comprehensive" | "jira" => (
             WHATSON_SYSTEM_PROMPT,
             get_whatson_analysis_prompt(crash_content),
         ),
         "quick" => (
             QUICK_ANALYSIS_SYSTEM_PROMPT,
             get_quick_analysis_prompt(crash_content),
+        ),
+        "sentry" => (
+            crate::sentry_service::SENTRY_ANALYSIS_SYSTEM_PROMPT,
+            format!("Analyze this Sentry error event:\n\n{}", crash_content),
         ),
         _ => (
             SPECIALIZED_ANALYSIS_SYSTEM_PROMPT,
@@ -1559,13 +2345,10 @@ pub async fn analyze_crash_log(
     Ok(result)
 }
 
-/// Analyze crash log with RAG context for enhanced accuracy
+/// Analyze crash log with RAG context and domain knowledge for enhanced accuracy
 ///
-/// This function uses retrieved similar cases to improve analysis quality.
-/// Similar cases provide historical context that helps the AI:
-/// - Recognize patterns from past crashes
-/// - Apply proven solutions from verified gold cases
-/// - Provide citations for increased transparency
+/// This function uses retrieved similar cases and KB domain knowledge
+/// to improve analysis quality.
 ///
 /// # Arguments
 /// * `crash_content` - The crash log content
@@ -1574,6 +2357,7 @@ pub async fn analyze_crash_log(
 /// * `provider` - Provider name
 /// * `analysis_type` - Type of analysis
 /// * `rag_context` - Optional RAG context with similar cases
+/// * `domain_knowledge` - Optional KB domain knowledge
 pub async fn analyze_crash_log_with_rag(
     crash_content: &str,
     api_key: &str,
@@ -1581,26 +2365,37 @@ pub async fn analyze_crash_log_with_rag(
     provider: &str,
     analysis_type: &str,
     rag_context: Option<RagContext>,
+    domain_knowledge: Option<DomainKnowledge>,
 ) -> Result<AnalysisResult, String> {
     let start_time = std::time::Instant::now();
 
-    // Build prompt with RAG context if available
+    let dk_ref = domain_knowledge.as_ref();
+
+    // Build prompt with RAG context and domain knowledge if available
     let (system_prompt, user_prompt) = match analysis_type {
-        "whatson" | "comprehensive" => {
+        "whatson" | "comprehensive" | "jira" => {
             if let Some(ref ctx) = rag_context {
-                if ctx.has_context() {
+                if ctx.has_context() || dk_ref.map_or(false, |dk| dk.has_content()) {
                     log::info!(
-                        "Using RAG-enhanced prompt with {} similar cases and {} gold matches",
+                        "Using RAG-enhanced prompt with {} similar cases, {} gold matches, and {} KB docs",
                         ctx.similar_cases.len(),
-                        ctx.gold_matches.len()
+                        ctx.gold_matches.len(),
+                        dk_ref.map_or(0, |dk| dk.kb_results.len() + dk.release_note_results.len())
                     );
                     (
                         WHATSON_SYSTEM_PROMPT,
-                        get_whatson_analysis_prompt_with_rag(crash_content, ctx),
+                        get_whatson_analysis_prompt_with_rag(crash_content, ctx, dk_ref),
                     )
                 } else {
                     (WHATSON_SYSTEM_PROMPT, get_whatson_analysis_prompt(crash_content))
                 }
+            } else if dk_ref.map_or(false, |dk| dk.has_content()) {
+                // Domain knowledge only (no historical cases)
+                let empty_rag = RagContext::default();
+                (
+                    WHATSON_SYSTEM_PROMPT,
+                    get_whatson_analysis_prompt_with_rag(crash_content, &empty_rag, dk_ref),
+                )
             } else {
                 (WHATSON_SYSTEM_PROMPT, get_whatson_analysis_prompt(crash_content))
             }
@@ -1675,7 +2470,7 @@ pub async fn analyze_crash_log_safe(
     // Get system prompt to estimate its tokens
     let system_prompt = match analysis_type {
         "complete" => COMPLETE_ANALYSIS_SYSTEM_PROMPT,
-        "whatson" | "comprehensive" => WHATSON_SYSTEM_PROMPT,
+        "whatson" | "comprehensive" | "jira" => WHATSON_SYSTEM_PROMPT,
         "quick" => QUICK_ANALYSIS_SYSTEM_PROMPT,
         "sentry" => crate::sentry_service::SENTRY_ANALYSIS_SYSTEM_PROMPT,
         _ => SPECIALIZED_ANALYSIS_SYSTEM_PROMPT,
@@ -1696,7 +2491,7 @@ pub async fn analyze_crash_log_safe(
     // Determine actual mode to use based on analysis type and budget
     // - Comprehensive/WhatsOn: Prioritize full coverage (SingleCall or DeepScan, skip extraction)
     // - Quick: Prioritize speed (SingleCall or Extraction, skip deep scan)
-    let is_comprehensive = matches!(analysis_type, "comprehensive" | "whatson" | "complete" | "specialized");
+    let is_comprehensive = matches!(analysis_type, "comprehensive" | "whatson" | "jira" | "complete" | "specialized");
 
     let mode = config.force_mode.unwrap_or({
         match budget_analysis.strategy {

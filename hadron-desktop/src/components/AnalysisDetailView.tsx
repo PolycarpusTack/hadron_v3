@@ -1,5 +1,6 @@
 import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge, Link2, ExternalLink, Shield } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { open } from "@tauri-apps/plugin-shell";
 import { format } from "date-fns";
 import type { Analysis } from "../services/api";
 import StackTraceViewer from "./StackTraceViewer";
@@ -178,16 +179,14 @@ ${analysis.suggested_fixes}
             </button>
           )}
           {sentryData?.permalink && (
-            <a
-              href={sentryData.permalink}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => open(sentryData.permalink!)}
               className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg transition"
               title="View this issue in Sentry"
             >
               <ExternalLink className="w-4 h-4" />
               View in Sentry
-            </a>
+            </button>
           )}
         </div>
       </div>

@@ -1,0 +1,1813 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hadron - Release Notes Generator Prototype</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            hadron: {
+              50: '#f0fdfa',
+              100: '#ccfbf1',
+              200: '#99f6e4',
+              300: '#5eead4',
+              400: '#2dd4bf',
+              500: '#14b8a6',
+              600: '#0d9488',
+              700: '#0f766e',
+              800: '#115e59',
+              900: '#134e4a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+    /* Markdown editor */
+    .markdown-editor {
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      tab-size: 2;
+      resize: none;
+    }
+
+    /* Pulse animation for generating state */
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .shimmer {
+      background: linear-gradient(90deg, transparent, rgba(20,184,166,0.1), transparent);
+      background-size: 200% 100%;
+      animation: shimmer 2s infinite;
+    }
+
+    /* Typing animation */
+    @keyframes typewriter {
+      from { max-height: 0; }
+      to { max-height: 2000px; }
+    }
+    .typewriter-reveal {
+      animation: typewriter 3s ease-out forwards;
+      overflow: hidden;
+    }
+
+    /* Fade in */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in-up {
+      animation: fadeInUp 0.3s ease-out forwards;
+    }
+
+    /* Spin */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin { animation: spin 1s linear infinite; }
+
+    /* Progress bar */
+    @keyframes progress {
+      0% { width: 0%; }
+      20% { width: 15%; }
+      40% { width: 35%; }
+      60% { width: 55%; }
+      75% { width: 70%; }
+      85% { width: 82%; }
+      95% { width: 92%; }
+      100% { width: 100%; }
+    }
+    .progress-bar {
+      animation: progress 4s ease-out forwards;
+    }
+
+    /* Diff highlighting */
+    .diff-add { background: rgba(34, 197, 94, 0.1); border-left: 3px solid #22c55e; }
+    .diff-section { background: rgba(59, 130, 246, 0.05); border-left: 3px solid #3b82f6; }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white p-8">
+  <div id="app" class="max-w-6xl mx-auto">
+
+    <!-- Header -->
+    <header class="mb-8 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <div class="w-14 h-14 rounded-lg bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-teal-500/20">
+          H
+        </div>
+        <div>
+          <h1 class="text-3xl font-bold text-white">Hadron Crash Analyzer</h1>
+          <p class="text-gray-400 mt-1">AI-powered crash log analysis for Smalltalk applications</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <button class="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition text-sm">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Help
+        </button>
+        <button class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition text-sm">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Dashboard
+        </button>
+        <button class="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition text-sm">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Navigation -->
+    <nav class="mb-6 flex items-center gap-1 border-b border-gray-700 overflow-x-auto" role="tablist">
+      <button class="flex items-center gap-2.5 px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-all">
+        <span class="p-1.5 rounded-md bg-blue-500/10"><svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+        <span class="font-medium text-sm">Crash Analyzer</span>
+      </button>
+      <button class="flex items-center gap-2.5 px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-all">
+        <span class="p-1.5 rounded-md bg-violet-500/10"><svg class="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
+        <span class="font-medium text-sm">Code Analyzer</span>
+      </button>
+      <button class="flex items-center gap-2.5 px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-all">
+        <span class="p-1.5 rounded-md bg-sky-500/10"><svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 5v2"/><path d="M15 11v2"/><path d="M15 17v2"/><path d="M5 5h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4V7a2 2 0 0 1 2-2z"/></svg></span>
+        <span class="font-medium text-sm">JIRA Analyzer</span>
+      </button>
+      <button class="flex items-center gap-2.5 px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-all">
+        <span class="p-1.5 rounded-md bg-orange-500/10"><svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+        <span class="font-medium text-sm">Sentry Analyzer</span>
+      </button>
+      <!-- Active Tab: Release Notes -->
+      <button class="flex items-center gap-2.5 px-4 py-3 border-b-2 border-white text-white transition-all">
+        <span class="p-1.5 rounded-md bg-teal-500/20"><svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+        <span class="font-medium text-sm">Release Notes</span>
+      </button>
+      <button class="flex items-center gap-2.5 px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-all">
+        <span class="p-1.5 rounded-md bg-cyan-500/10"><svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg></span>
+        <span class="font-medium text-sm">Performance</span>
+      </button>
+      <button class="flex items-center gap-2.5 px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-all">
+        <span class="p-1.5 rounded-md bg-amber-500/10"><svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+        <span class="font-medium text-sm">History</span>
+      </button>
+    </nav>
+
+    <!-- Release Notes Content Area -->
+    <div id="release-notes-view" class="space-y-6">
+
+      <!-- Entry Panel Header -->
+      <div class="space-y-6">
+        <div class="flex items-center gap-3">
+          <span class="p-2 rounded-lg bg-teal-500/20">
+            <svg class="w-6 h-6 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </span>
+          <div>
+            <h2 class="text-2xl font-bold">Release Notes Generator</h2>
+            <p class="text-sm text-gray-400">Generate AI-powered release notes from JIRA tickets</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub-tab Navigation -->
+      <div class="border-b border-gray-700">
+        <nav class="flex gap-1 overflow-x-auto pb-px" role="tablist">
+          <button onclick="switchSubTab('generate')" id="tab-generate" class="sub-tab flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 border-teal-500 text-teal-400 transition whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            Generate
+          </button>
+          <button onclick="switchSubTab('history')" id="tab-history" class="sub-tab flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600 transition whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            History
+            <span class="ml-1 px-1.5 py-0.5 text-[10px] font-semibold bg-gray-700 text-gray-300 rounded-full">3</span>
+          </button>
+          <button onclick="switchSubTab('templates')" id="tab-templates" class="sub-tab flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600 transition whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            Templates
+          </button>
+        </nav>
+      </div>
+
+      <!-- GENERATE TAB -->
+      <div id="content-generate" class="space-y-6">
+
+        <!-- Configuration Row -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+          <!-- Version Picker -->
+          <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+            <label class="block text-xs font-medium text-gray-400 mb-2">Fix Version</label>
+            <div class="relative">
+              <select id="version-select" onchange="onVersionChange()" class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white appearance-none cursor-pointer focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition">
+                <option value="">Select a version...</option>
+                <option value="3.10.0">v3.10.0 (Unreleased - 14 tickets)</option>
+                <option value="3.9.0" selected>v3.9.0 (Released Feb 10 - 23 tickets)</option>
+                <option value="3.8.2">v3.8.2 (Released Jan 28 - 8 tickets)</option>
+                <option value="3.8.1">v3.8.1 (Released Jan 15 - 5 tickets)</option>
+                <option value="3.8.0">v3.8.0 (Released Jan 3 - 31 tickets)</option>
+              </select>
+              <svg class="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+            <div id="version-meta" class="mt-2 text-xs text-gray-500">
+              <span class="inline-flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                Released Feb 10, 2026
+              </span>
+            </div>
+          </div>
+
+          <!-- Tone Selector -->
+          <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+            <label class="block text-xs font-medium text-gray-400 mb-2">Audience / Tone</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="selectTone(this, 'client')" class="tone-btn px-3 py-2 rounded-lg text-xs font-medium border-2 border-teal-500 bg-teal-500/10 text-teal-300 transition">
+                Client-facing
+              </button>
+              <button onclick="selectTone(this, 'internal')" class="tone-btn px-3 py-2 rounded-lg text-xs font-medium border-2 border-gray-600 bg-gray-800 text-gray-400 hover:border-gray-500 transition">
+                Internal
+              </button>
+              <button onclick="selectTone(this, 'executive')" class="tone-btn px-3 py-2 rounded-lg text-xs font-medium border-2 border-gray-600 bg-gray-800 text-gray-400 hover:border-gray-500 transition">
+                Executive
+              </button>
+              <button onclick="selectTone(this, 'technical')" class="tone-btn px-3 py-2 rounded-lg text-xs font-medium border-2 border-gray-600 bg-gray-800 text-gray-400 hover:border-gray-500 transition">
+                Technical
+              </button>
+            </div>
+          </div>
+
+          <!-- Filters -->
+          <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+            <label class="block text-xs font-medium text-gray-400 mb-2">Filters</label>
+            <div class="space-y-2">
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition">
+                <input type="checkbox" checked class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50">
+                <span>Include ticket keys</span>
+              </label>
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition">
+                <input type="checkbox" checked class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50">
+                <span>Exclude internal/spike tickets</span>
+              </label>
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition">
+                <input type="checkbox" checked class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50">
+                <span>Exclude security-labeled issues</span>
+              </label>
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition">
+                <input type="checkbox" class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50">
+                <span>Merge duplicate themes</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Enrichment Options -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              <label class="text-xs font-medium text-gray-400">Screenshot Suggestions</label>
+            </div>
+            <p class="text-xs text-gray-500 mb-3">AI analyzes tickets for UI-visible changes and recommends where to place screenshots in the release notes.</p>
+            <div class="space-y-2">
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition">
+                <input type="checkbox" checked id="chk-screenshots" class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50">
+                <span>Suggest screenshot placements</span>
+              </label>
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition">
+                <input type="checkbox" id="chk-screenshot-placeholders" class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50">
+                <span>Auto-insert placeholders into markdown</span>
+              </label>
+            </div>
+          </div>
+          <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              <label class="text-xs font-medium text-gray-400">Cross-References</label>
+            </div>
+            <p class="text-xs text-gray-500 mb-3">AI traces linked issues and epic history to reference earlier versions where related work was introduced.</p>
+            <div class="space-y-2">
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition">
+                <input type="checkbox" checked id="chk-crossrefs" class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50">
+                <span>Include references to prior versions</span>
+              </label>
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition">
+                <input type="checkbox" checked id="chk-crossrefs-inline" class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50">
+                <span>Inline references in release notes text</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ticket Preview -->
+        <div id="ticket-preview" class="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-semibold text-gray-300">Tickets for v3.9.0</h3>
+              <span class="px-2 py-0.5 text-[10px] font-bold bg-teal-500/20 text-teal-400 rounded-full">23 tickets</span>
+            </div>
+            <button onclick="toggleTicketPreview()" class="text-xs text-gray-500 hover:text-gray-300 transition flex items-center gap-1">
+              <svg id="chevron-tickets" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+              <span id="toggle-text">Show tickets</span>
+            </button>
+          </div>
+          <div id="ticket-list" class="hidden">
+            <div class="divide-y divide-gray-700/50 max-h-64 overflow-y-auto">
+              <!-- Stories -->
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-green-500/20 text-green-400 rounded">Story</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1247</span>
+                <span class="text-sm text-gray-300 flex-1">Sentry integration with AI-powered issue analysis</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-green-500/20 text-green-400 rounded">Story</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1251</span>
+                <span class="text-sm text-gray-300 flex-1">Pattern detection for deadlocks, memory leaks, N+1 queries</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-green-500/20 text-green-400 rounded">Story</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1253</span>
+                <span class="text-sm text-gray-300 flex-1">JIRA ticket creation from Sentry analysis results</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-green-500/20 text-green-400 rounded">Story</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1255</span>
+                <span class="text-sm text-gray-300 flex-1">Batch analysis mode for multiple crash logs</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <!-- Improvements -->
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-blue-500/20 text-blue-400 rounded">Improvement</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1260</span>
+                <span class="text-sm text-gray-300 flex-1">Enhanced code analyzer with quality scoring</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-blue-500/20 text-blue-400 rounded">Improvement</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1262</span>
+                <span class="text-sm text-gray-300 flex-1">Performance analyzer memory profiling dashboard</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-blue-500/20 text-blue-400 rounded">Improvement</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1264</span>
+                <span class="text-sm text-gray-300 flex-1">Encrypted API key storage using OS keychain</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <!-- Bugs -->
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400 rounded">Bug</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1270</span>
+                <span class="text-sm text-gray-300 flex-1">Crash analysis fails on logs with Unicode BOM markers</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400 rounded">Bug</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1272</span>
+                <span class="text-sm text-gray-300 flex-1">Settings panel not persisting provider selection on restart</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400 rounded">Bug</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1275</span>
+                <span class="text-sm text-gray-300 flex-1">History view pagination resets on tab switch</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <div class="px-4 py-2 flex items-center gap-3 hover:bg-gray-700/30 transition">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400 rounded">Bug</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1278</span>
+                <span class="text-sm text-gray-300 flex-1">JIRA import panel truncates long ticket descriptions</span>
+                <span class="text-[10px] text-gray-500">Done</span>
+              </div>
+              <!-- Filtered out -->
+              <div class="px-4 py-2 flex items-center gap-3 opacity-40">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-gray-500/20 text-gray-400 rounded">Spike</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1280</span>
+                <span class="text-sm text-gray-500 flex-1 line-through">Investigate Ollama multi-model routing</span>
+                <span class="text-[10px] text-red-400">Excluded</span>
+              </div>
+              <div class="px-4 py-2 flex items-center gap-3 opacity-40">
+                <span class="px-1.5 py-0.5 text-[10px] font-bold bg-gray-500/20 text-gray-400 rounded">Task</span>
+                <span class="text-xs text-gray-500 font-mono">HAD-1282</span>
+                <span class="text-sm text-gray-500 flex-1 line-through">Upgrade Tauri to v2.3 (internal refactor)</span>
+                <span class="text-[10px] text-red-400">Excluded</span>
+              </div>
+            </div>
+            <div class="px-4 py-2 bg-gray-900/50 border-t border-gray-700 flex items-center justify-between">
+              <span class="text-xs text-gray-500">Showing 11 of 23 tickets (2 excluded by filters)</span>
+              <span class="text-xs text-teal-400 cursor-pointer hover:underline">View all in JIRA</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Generate Button -->
+        <div id="generate-section" class="flex items-center gap-4">
+          <button onclick="generateNotes()" id="generate-btn" class="flex items-center gap-2 px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition font-medium shadow-lg shadow-teal-500/20 hover:shadow-teal-500/30">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            Generate Release Notes
+          </button>
+          <span class="text-xs text-gray-500">Uses your configured AI provider</span>
+        </div>
+
+        <!-- Progress Bar (hidden by default) -->
+        <div id="progress-section" class="hidden space-y-3">
+          <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-teal-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+                <span class="text-sm font-medium text-gray-300" id="progress-label">Fetching tickets from JIRA...</span>
+              </div>
+              <span class="text-xs text-gray-500" id="progress-pct">0%</span>
+            </div>
+            <div class="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">
+              <div id="progress-bar" class="h-full bg-gradient-to-r from-teal-500 to-cyan-400 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+            <div class="mt-3 space-y-1" id="progress-steps">
+              <!-- Steps filled dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Output Section (hidden by default) -->
+        <div id="output-section" class="hidden space-y-4 fade-in-up">
+
+          <!-- Output Header -->
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="p-1.5 bg-green-500/20 rounded-lg">
+                <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </div>
+              <div>
+                <h3 class="text-lg font-semibold">Release Notes Generated</h3>
+                <p class="text-xs text-gray-400">v3.9.0 &middot; Client-facing &middot; 11 tickets processed</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="regenerate()" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-white bg-gray-800 border border-gray-600 rounded-lg hover:border-gray-500 transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                Regenerate
+              </button>
+            </div>
+          </div>
+
+          <!-- Markdown Editor -->
+          <div class="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+            <!-- Editor toolbar -->
+            <div class="px-4 py-2 border-b border-gray-700 flex items-center justify-between bg-gray-800/80">
+              <div class="flex items-center gap-1">
+                <button onclick="switchEditorMode('edit')" id="mode-edit" class="editor-mode px-3 py-1 text-xs font-medium rounded bg-teal-500/20 text-teal-400 transition">Edit</button>
+                <button onclick="switchEditorMode('preview')" id="mode-preview" class="editor-mode px-3 py-1 text-xs font-medium rounded text-gray-400 hover:text-gray-300 transition">Preview</button>
+                <button onclick="switchEditorMode('diff')" id="mode-diff" class="editor-mode px-3 py-1 text-xs font-medium rounded text-gray-400 hover:text-gray-300 transition">Diff</button>
+              </div>
+              <div class="flex items-center gap-2 text-xs text-gray-500">
+                <span id="word-count">127 words</span>
+                <span>&middot;</span>
+                <span>Markdown</span>
+              </div>
+            </div>
+            <!-- Editor content -->
+            <div id="editor-area">
+              <textarea id="markdown-editor" class="markdown-editor w-full bg-transparent text-gray-200 p-4 focus:outline-none" rows="28" spellcheck="false"># Release Notes - Hadron v3.9.0
+*February 10, 2026*
+
+## New Features
+
+- **Sentry Integration** — Hadron now connects directly to your Sentry instance, allowing you to browse, search, and analyze error events with AI-powered insights. Building on the JIRA integration introduced in v3.8.0, issues can be triaged and converted to JIRA tickets without leaving the application. *(HAD-1247, HAD-1253)*
+
+<!-- 📸 SCREENSHOT: Sentry issue browser with search filters and AI analysis button -->
+
+- **Automated Pattern Detection** — The analyzer now automatically identifies common failure patterns including deadlocks, memory leaks, and N+1 query issues across your Sentry data, surfacing systemic problems before they escalate. This extends the crash pattern analysis first introduced in v3.7.0. *(HAD-1251)*
+
+- **Batch Analysis** — Analyze multiple crash logs in a single operation. Select a folder or multiple files, and Hadron processes them sequentially with progress tracking and a consolidated summary. *(HAD-1255)*
+
+<!-- 📸 SCREENSHOT: Batch analysis progress view with file list and status indicators -->
+
+## Improvements
+
+- **Code Analyzer Quality Scores** — Code analysis results now include detailed quality scores across security, performance, maintainability, and best practices, giving you a quantified view of code health. Complements the code walkthrough feature added in v3.8.0. *(HAD-1260)*
+
+<!-- 📸 SCREENSHOT: Quality score radar chart in the code analysis results -->
+
+- **Performance Dashboard** — The performance analyzer now includes a memory profiling dashboard with heap allocation tracking and garbage collection metrics. *(HAD-1262)*
+
+- **Secure Credential Storage** — API keys are now stored in your operating system's native keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) instead of local storage. Replaces the localStorage-based approach used since v3.5.0. *(HAD-1264)*
+
+## Bug Fixes
+
+- Fixed crash analysis failing on log files containing Unicode BOM markers *(HAD-1270)*
+- Fixed settings panel not persisting AI provider selection across application restarts *(HAD-1272)*
+- Fixed history view pagination resetting when switching between tabs — originally reported as a regression from v3.8.2 *(HAD-1275)*
+- Fixed JIRA import panel truncating long ticket descriptions *(HAD-1278)*</textarea>
+            </div>
+            <!-- Preview content (hidden by default) -->
+            <div id="preview-area" class="hidden p-6 prose prose-invert prose-sm max-w-none">
+              <!-- Filled by JS -->
+            </div>
+            <!-- Diff content (hidden by default) -->
+            <div id="diff-area" class="hidden p-4 text-sm font-mono space-y-0.5">
+              <!-- Filled by JS -->
+            </div>
+          </div>
+
+          <!-- AI Insights Panel -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            <!-- Screenshot Suggestions -->
+            <div class="bg-gray-800/50 border border-amber-500/30 rounded-lg overflow-hidden">
+              <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between bg-amber-500/5">
+                <div class="flex items-center gap-2">
+                  <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  <h4 class="text-sm font-semibold text-amber-300">Screenshot Suggestions</h4>
+                  <span class="px-1.5 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-400 rounded-full">4 recommended</span>
+                </div>
+                <button onclick="toggleInsightsPanel('screenshots')" class="text-xs text-gray-500 hover:text-gray-300 transition">
+                  <svg id="chevron-screenshots" class="w-4 h-4 transition-transform rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+              </div>
+              <div id="panel-screenshots" class="divide-y divide-gray-700/50">
+                <!-- Suggestion 1 -->
+                <div class="p-3 hover:bg-gray-700/20 transition">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 p-1.5 bg-amber-500/10 rounded border border-dashed border-amber-500/30 flex-shrink-0">
+                      <svg class="w-5 h-5 text-amber-400/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold text-white">Sentry Issue Browser</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-green-500/20 text-green-400 rounded">High impact</span>
+                      </div>
+                      <p class="text-xs text-gray-400 mb-1.5">Show the Sentry issue browser with search filters, project selector, and the AI "Analyze" button visible. This is the primary new UI surface.</p>
+                      <div class="flex items-center gap-1 text-[10px] text-gray-500">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        Insert after: "Sentry Integration" feature
+                      </div>
+                    </div>
+                    <button onclick="insertScreenshot(0)" class="flex-shrink-0 px-2 py-1 text-[10px] font-medium bg-amber-500/10 text-amber-400 rounded border border-amber-500/30 hover:bg-amber-500/20 transition" title="Insert placeholder into editor">
+                      Insert
+                    </button>
+                  </div>
+                </div>
+                <!-- Suggestion 2 -->
+                <div class="p-3 hover:bg-gray-700/20 transition">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 p-1.5 bg-amber-500/10 rounded border border-dashed border-amber-500/30 flex-shrink-0">
+                      <svg class="w-5 h-5 text-amber-400/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold text-white">Batch Analysis Progress</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-green-500/20 text-green-400 rounded">High impact</span>
+                      </div>
+                      <p class="text-xs text-gray-400 mb-1.5">Capture the batch processing view showing multiple files queued with per-file progress indicators and the consolidated summary bar.</p>
+                      <div class="flex items-center gap-1 text-[10px] text-gray-500">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        Insert after: "Batch Analysis" feature
+                      </div>
+                    </div>
+                    <button onclick="insertScreenshot(1)" class="flex-shrink-0 px-2 py-1 text-[10px] font-medium bg-amber-500/10 text-amber-400 rounded border border-amber-500/30 hover:bg-amber-500/20 transition" title="Insert placeholder into editor">
+                      Insert
+                    </button>
+                  </div>
+                </div>
+                <!-- Suggestion 3 -->
+                <div class="p-3 hover:bg-gray-700/20 transition">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 p-1.5 bg-amber-500/10 rounded border border-dashed border-amber-500/30 flex-shrink-0">
+                      <svg class="w-5 h-5 text-amber-400/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold text-white">Quality Score Radar</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-yellow-500/20 text-yellow-400 rounded">Medium</span>
+                      </div>
+                      <p class="text-xs text-gray-400 mb-1.5">Show the code analyzer results with the new quality score breakdown (security, performance, maintainability, best practices).</p>
+                      <div class="flex items-center gap-1 text-[10px] text-gray-500">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        Insert after: "Code Analyzer Quality Scores" improvement
+                      </div>
+                    </div>
+                    <button onclick="insertScreenshot(2)" class="flex-shrink-0 px-2 py-1 text-[10px] font-medium bg-amber-500/10 text-amber-400 rounded border border-amber-500/30 hover:bg-amber-500/20 transition" title="Insert placeholder into editor">
+                      Insert
+                    </button>
+                  </div>
+                </div>
+                <!-- Suggestion 4 -->
+                <div class="p-3 hover:bg-gray-700/20 transition">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 p-1.5 bg-amber-500/10 rounded border border-dashed border-amber-500/30 flex-shrink-0">
+                      <svg class="w-5 h-5 text-amber-400/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold text-white">Memory Profiling Dashboard</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-yellow-500/20 text-yellow-400 rounded">Medium</span>
+                      </div>
+                      <p class="text-xs text-gray-400 mb-1.5">Screenshot of the new performance dashboard tab showing heap allocation timeline and GC metrics. Visually rich — good for client demos.</p>
+                      <div class="flex items-center gap-1 text-[10px] text-gray-500">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        Insert after: "Performance Dashboard" improvement
+                      </div>
+                    </div>
+                    <button onclick="insertScreenshot(3)" class="flex-shrink-0 px-2 py-1 text-[10px] font-medium bg-amber-500/10 text-amber-400 rounded border border-amber-500/30 hover:bg-amber-500/20 transition" title="Insert placeholder into editor">
+                      Insert
+                    </button>
+                  </div>
+                </div>
+                <!-- Bulk action -->
+                <div class="px-3 py-2 bg-gray-900/40 flex items-center justify-between">
+                  <span class="text-[10px] text-gray-500">Based on ticket labels, components, and attachment metadata</span>
+                  <button onclick="insertAllScreenshots()" class="text-[10px] font-medium text-amber-400 hover:text-amber-300 hover:underline transition">Insert all placeholders</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Cross-References -->
+            <div class="bg-gray-800/50 border border-purple-500/30 rounded-lg overflow-hidden">
+              <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between bg-purple-500/5">
+                <div class="flex items-center gap-2">
+                  <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  <h4 class="text-sm font-semibold text-purple-300">Cross-References Detected</h4>
+                  <span class="px-1.5 py-0.5 text-[10px] font-bold bg-purple-500/20 text-purple-400 rounded-full">4 found</span>
+                </div>
+                <button onclick="toggleInsightsPanel('crossrefs')" class="text-xs text-gray-500 hover:text-gray-300 transition">
+                  <svg id="chevron-crossrefs" class="w-4 h-4 transition-transform rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+              </div>
+              <div id="panel-crossrefs" class="divide-y divide-gray-700/50">
+                <!-- Reference 1 -->
+                <div class="p-3 hover:bg-gray-700/20 transition">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 flex-shrink-0">
+                      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-purple-500/10 border border-purple-500/30 text-[10px] font-bold text-purple-400">3.8</span>
+                    </div>
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold text-white">Sentry builds on JIRA Integration</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-purple-500/15 text-purple-400 rounded">Auto-detected</span>
+                      </div>
+                      <p class="text-xs text-gray-400 mb-1">The Sentry-to-JIRA ticket creation (HAD-1253) uses the JIRA API client and ticket creation flow introduced in v3.8.0 (HAD-1180). Epic link: HAD-1100.</p>
+                      <div class="flex items-center gap-3 mt-1.5">
+                        <span class="text-[10px] text-gray-500 flex items-center gap-1">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                          Linked via epic HAD-1100
+                        </span>
+                        <span class="text-[10px] text-green-400">Inserted in notes</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Reference 2 -->
+                <div class="p-3 hover:bg-gray-700/20 transition">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 flex-shrink-0">
+                      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-purple-500/10 border border-purple-500/30 text-[10px] font-bold text-purple-400">3.7</span>
+                    </div>
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold text-white">Pattern Detection extends Crash Analysis</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-purple-500/15 text-purple-400 rounded">Auto-detected</span>
+                      </div>
+                      <p class="text-xs text-gray-400 mb-1">Automated pattern detection (HAD-1251) reuses the crash pattern matching engine from v3.7.0 (HAD-1095), now extended to Sentry event data.</p>
+                      <div class="flex items-center gap-3 mt-1.5">
+                        <span class="text-[10px] text-gray-500 flex items-center gap-1">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                          Shared component: PatternMatcher
+                        </span>
+                        <span class="text-[10px] text-green-400">Inserted in notes</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Reference 3 -->
+                <div class="p-3 hover:bg-gray-700/20 transition">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 flex-shrink-0">
+                      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-purple-500/10 border border-purple-500/30 text-[10px] font-bold text-purple-400">3.8</span>
+                    </div>
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold text-white">Quality Scores complement Code Walkthrough</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-blue-500/15 text-blue-400 rounded">Inferred</span>
+                      </div>
+                      <p class="text-xs text-gray-400 mb-1">The quality scoring (HAD-1260) adds a quantitative layer to the code walkthrough feature shipped in v3.8.0 (HAD-1150). Both appear in the same analysis results view.</p>
+                      <div class="flex items-center gap-3 mt-1.5">
+                        <span class="text-[10px] text-gray-500 flex items-center gap-1">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                          Same component: CodeAnalyzerView
+                        </span>
+                        <span class="text-[10px] text-green-400">Inserted in notes</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Reference 4 -->
+                <div class="p-3 hover:bg-gray-700/20 transition">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 flex-shrink-0">
+                      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-purple-500/10 border border-purple-500/30 text-[10px] font-bold text-purple-400">3.5</span>
+                    </div>
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold text-white">Secure Storage replaces localStorage</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-blue-500/15 text-blue-400 rounded">Inferred</span>
+                      </div>
+                      <p class="text-xs text-gray-400 mb-1">Keychain-based storage (HAD-1264) supersedes the localStorage approach introduced in v3.5.0. Migration is automatic — existing keys are moved on first launch.</p>
+                      <div class="flex items-center gap-3 mt-1.5">
+                        <span class="text-[10px] text-gray-500 flex items-center gap-1">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                          Detected via: migrateFromLocalStorage()
+                        </span>
+                        <span class="text-[10px] text-green-400">Inserted in notes</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Footer -->
+                <div class="px-3 py-2 bg-gray-900/40 flex items-center justify-between">
+                  <span class="text-[10px] text-gray-500">Traced via JIRA linked issues, epics, and shared code components</span>
+                  <button onclick="toggleCrossRefs()" id="crossref-toggle" class="text-[10px] font-medium text-purple-400 hover:text-purple-300 hover:underline transition">Remove all from notes</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Export Actions -->
+          <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+            <div class="flex items-center justify-between">
+              <h4 class="text-sm font-medium text-gray-300">Export</h4>
+              <div class="flex items-center gap-2">
+                <button onclick="copyToClipboard()" id="copy-btn" class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  Copy Markdown
+                </button>
+                <button class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Download .md
+                </button>
+                <button class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Push to Confluence
+                </button>
+                <button class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                  Share
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HISTORY TAB -->
+      <div id="content-history" class="hidden space-y-4">
+        <div class="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+          <div class="divide-y divide-gray-700/50">
+            <div class="px-4 py-4 flex items-center justify-between hover:bg-gray-700/30 transition cursor-pointer" onclick="loadHistoryItem('3.9.0')">
+              <div class="flex items-center gap-4">
+                <div class="p-2 bg-teal-500/10 rounded-lg">
+                  <svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-semibold text-white">v3.9.0 Release Notes</span>
+                    <span class="px-1.5 py-0.5 text-[10px] font-bold bg-green-500/20 text-green-400 rounded">Latest</span>
+                  </div>
+                  <div class="text-xs text-gray-500 mt-0.5">Generated Feb 10, 2026 &middot; Client-facing &middot; 11 tickets &middot; 127 words</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-500">2 revisions</span>
+                <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+            </div>
+            <div class="px-4 py-4 flex items-center justify-between hover:bg-gray-700/30 transition cursor-pointer">
+              <div class="flex items-center gap-4">
+                <div class="p-2 bg-gray-700/50 rounded-lg">
+                  <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div>
+                  <span class="text-sm font-semibold text-gray-300">v3.8.2 Release Notes</span>
+                  <div class="text-xs text-gray-500 mt-0.5">Generated Jan 28, 2026 &middot; Client-facing &middot; 6 tickets &middot; 84 words</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-500">1 revision</span>
+                <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+            </div>
+            <div class="px-4 py-4 flex items-center justify-between hover:bg-gray-700/30 transition cursor-pointer">
+              <div class="flex items-center gap-4">
+                <div class="p-2 bg-gray-700/50 rounded-lg">
+                  <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div>
+                  <span class="text-sm font-semibold text-gray-300">v3.8.0 Release Notes</span>
+                  <div class="text-xs text-gray-500 mt-0.5">Generated Jan 3, 2026 &middot; Internal &middot; 24 tickets &middot; 210 words</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-500">3 revisions</span>
+                <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEMPLATES TAB -->
+      <div id="content-templates" class="hidden space-y-6">
+
+        <!-- Template Gallery -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-gray-300">Saved Templates</h3>
+            <div class="flex items-center gap-2">
+              <button onclick="importTemplate()" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-400 bg-gray-800 border border-gray-600 rounded-lg hover:border-gray-500 hover:text-white transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Import .json
+              </button>
+              <button onclick="openTemplateEditor(null)" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-400 bg-teal-500/10 border border-teal-500/30 rounded-lg hover:bg-teal-500/20 transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                New Template
+              </button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Client-Facing Template -->
+            <div class="bg-gray-800/50 border-2 border-teal-500/50 rounded-lg p-4 relative group">
+              <div class="absolute top-3 right-3 flex items-center gap-1">
+                <span class="px-2 py-0.5 text-[10px] font-bold bg-teal-500/20 text-teal-400 rounded-full">Active</span>
+              </div>
+              <h3 class="text-sm font-bold text-white mb-1">Client-Facing</h3>
+              <p class="text-xs text-gray-400 mb-2">Professional, business-oriented. No technical details.</p>
+              <div class="bg-gray-900/50 rounded p-2 text-[10px] text-gray-500 font-mono leading-relaxed mb-3">
+                <div class="text-gray-400"># Release Notes - {product} {version}</div>
+                <div class="text-gray-500">## New Features</div>
+                <div class="text-gray-500">- **{title}** &mdash; {summary}</div>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] text-gray-500">Max 150 words</span>
+                <div class="flex items-center gap-2">
+                  <button onclick="exportTemplate('client-facing')" class="text-[10px] text-gray-500 hover:text-white transition" title="Export as JSON">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </button>
+                  <button onclick="openTemplateEditor('client-facing')" class="text-[10px] text-teal-400 hover:underline">Edit</button>
+                </div>
+              </div>
+            </div>
+            <!-- Internal Template -->
+            <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4 hover:border-gray-600 transition group">
+              <h3 class="text-sm font-bold text-white mb-1">Internal / Technical</h3>
+              <p class="text-xs text-gray-400 mb-2">Detailed changelog with implementation notes.</p>
+              <div class="bg-gray-900/50 rounded p-2 text-[10px] text-gray-500 font-mono leading-relaxed mb-3">
+                <div class="text-gray-400"># Changelog {version}</div>
+                <div class="text-gray-500">## Breaking Changes</div>
+                <div class="text-gray-500">- [{key}] {summary}</div>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] text-gray-500">No word limit</span>
+                <div class="flex items-center gap-2">
+                  <button onclick="exportTemplate('internal')" class="text-[10px] text-gray-500 hover:text-white transition" title="Export as JSON">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </button>
+                  <button onclick="openTemplateEditor('internal')" class="text-[10px] text-gray-400 hover:text-white hover:underline">Edit</button>
+                </div>
+              </div>
+            </div>
+            <!-- Executive Template -->
+            <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4 hover:border-gray-600 transition group">
+              <h3 class="text-sm font-bold text-white mb-1">Executive Summary</h3>
+              <p class="text-xs text-gray-400 mb-2">High-level overview for leadership.</p>
+              <div class="bg-gray-900/50 rounded p-2 text-[10px] text-gray-500 font-mono leading-relaxed mb-3">
+                <div class="text-gray-400"># {product} {version} &mdash; Summary</div>
+                <div class="text-gray-500">## Highlights</div>
+                <div class="text-gray-500">- {business_impact_summary}</div>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] text-gray-500">Max 80 words</span>
+                <div class="flex items-center gap-2">
+                  <button onclick="exportTemplate('executive')" class="text-[10px] text-gray-500 hover:text-white transition" title="Export as JSON">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </button>
+                  <button onclick="openTemplateEditor('executive')" class="text-[10px] text-gray-400 hover:text-white hover:underline">Edit</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Template Editor (initially hidden, shown when editing) -->
+        <div id="template-editor-panel" class="hidden space-y-4 fade-in-up">
+          <div class="bg-gray-800/50 border border-teal-500/30 rounded-lg overflow-hidden">
+            <!-- Editor Header -->
+            <div class="px-4 py-3 border-b border-gray-700 bg-teal-500/5 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                <h3 class="text-sm font-semibold text-white" id="template-editor-title">Editing: Client-Facing</h3>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="closeTemplateEditor()" class="text-xs text-gray-400 hover:text-white transition">Cancel</button>
+                <button onclick="saveTemplate()" class="px-3 py-1 text-xs font-medium bg-teal-600 hover:bg-teal-700 text-white rounded transition">Save Template</button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-700">
+              <!-- Left: Template Definition -->
+              <div class="p-4 space-y-4">
+                <!-- Meta fields -->
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[10px] font-medium text-gray-400 mb-1">Template Name</label>
+                    <input type="text" value="Client-Facing" id="tpl-name" class="w-full bg-gray-900 border border-gray-600 rounded px-2.5 py-1.5 text-sm text-white focus:ring-1 focus:ring-teal-500/50 focus:border-teal-500">
+                  </div>
+                  <div>
+                    <label class="block text-[10px] font-medium text-gray-400 mb-1">Word Limit</label>
+                    <input type="number" value="150" id="tpl-wordlimit" class="w-full bg-gray-900 border border-gray-600 rounded px-2.5 py-1.5 text-sm text-white focus:ring-1 focus:ring-teal-500/50 focus:border-teal-500">
+                  </div>
+                </div>
+
+                <!-- Tone instructions -->
+                <div>
+                  <label class="block text-[10px] font-medium text-gray-400 mb-1">AI Tone Instructions</label>
+                  <textarea id="tpl-tone" rows="2" class="markdown-editor w-full bg-gray-900 border border-gray-600 rounded px-2.5 py-1.5 text-xs text-gray-300 focus:ring-1 focus:ring-teal-500/50 focus:border-teal-500" placeholder="Describe the voice and audience...">Professional, client-facing language. Avoid technical implementation details. Focus on business value and user-visible changes. Max one sentence per feature.</textarea>
+                </div>
+
+                <!-- Section definitions -->
+                <div>
+                  <div class="flex items-center justify-between mb-1">
+                    <label class="text-[10px] font-medium text-gray-400">Sections</label>
+                    <button class="text-[10px] text-teal-400 hover:underline">+ Add section</button>
+                  </div>
+                  <div class="space-y-1.5">
+                    <div class="flex items-center gap-2 bg-gray-900/50 rounded px-2.5 py-1.5 border border-gray-700 group">
+                      <svg class="w-3 h-3 text-gray-600 cursor-grab" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                      <span class="text-xs text-white flex-1">New Features</span>
+                      <span class="text-[10px] text-gray-500">type: Story</span>
+                      <span class="text-[10px] text-gray-600 opacity-0 group-hover:opacity-100 cursor-pointer hover:text-red-400 transition">x</span>
+                    </div>
+                    <div class="flex items-center gap-2 bg-gray-900/50 rounded px-2.5 py-1.5 border border-gray-700 group">
+                      <svg class="w-3 h-3 text-gray-600 cursor-grab" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                      <span class="text-xs text-white flex-1">Improvements</span>
+                      <span class="text-[10px] text-gray-500">type: Improvement</span>
+                      <span class="text-[10px] text-gray-600 opacity-0 group-hover:opacity-100 cursor-pointer hover:text-red-400 transition">x</span>
+                    </div>
+                    <div class="flex items-center gap-2 bg-gray-900/50 rounded px-2.5 py-1.5 border border-gray-700 group">
+                      <svg class="w-3 h-3 text-gray-600 cursor-grab" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                      <span class="text-xs text-white flex-1">Bug Fixes</span>
+                      <span class="text-[10px] text-gray-500">type: Bug</span>
+                      <span class="text-[10px] text-gray-600 opacity-0 group-hover:opacity-100 cursor-pointer hover:text-red-400 transition">x</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Formatting rules -->
+                <div>
+                  <label class="block text-[10px] font-medium text-gray-400 mb-1">Formatting Rules</label>
+                  <div class="space-y-1.5">
+                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                      <input type="checkbox" checked class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50 w-3 h-3">
+                      Show ticket keys after each item
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                      <input type="checkbox" checked class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50 w-3 h-3">
+                      Bold feature names
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                      <input type="checkbox" checked class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50 w-3 h-3">
+                      Include date header
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                      <input type="checkbox" class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50 w-3 h-3">
+                      Include "Breaking Changes" section
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                      <input type="checkbox" checked class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50 w-3 h-3">
+                      Suggest screenshot placements
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                      <input type="checkbox" checked class="rounded bg-gray-700 border-gray-600 text-teal-500 focus:ring-teal-500/50 w-3 h-3">
+                      Include cross-references to prior versions
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Markdown template -->
+                <div>
+                  <label class="block text-[10px] font-medium text-gray-400 mb-1">Markdown Template (uses variables)</label>
+                  <textarea id="tpl-markdown" rows="10" class="markdown-editor w-full bg-gray-900 border border-gray-600 rounded px-2.5 py-1.5 text-xs text-gray-300 focus:ring-1 focus:ring-teal-500/50 focus:border-teal-500"># Release Notes - {product} {version}
+*{date}*
+
+{{#each sections}}
+## {section.title}
+
+{{#each section.tickets}}
+- **{ticket.summary}** — {ticket.ai_description} {{#if cross_ref}}({cross_ref}){{/if}} *({ticket.keys})*
+
+{{#if ticket.screenshot_suggested}}
+&lt;!-- 📸 SCREENSHOT: {ticket.screenshot_hint} --&gt;
+{{/if}}
+{{/each}}
+{{/each}}</textarea>
+                </div>
+              </div>
+
+              <!-- Right: Reference & Preview -->
+              <div class="p-4 space-y-4">
+                <!-- Variable reference -->
+                <div>
+                  <div class="flex items-center gap-2 mb-2">
+                    <svg class="w-3.5 h-3.5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    <label class="text-[10px] font-medium text-gray-400">Available Variables</label>
+                  </div>
+                  <div class="bg-gray-900/80 rounded border border-gray-700 divide-y divide-gray-700/50 text-[11px] max-h-48 overflow-y-auto">
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{product}</code>
+                      <span class="text-gray-500">Product name from settings</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{version}</code>
+                      <span class="text-gray-500">Selected fix version</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{date}</code>
+                      <span class="text-gray-500">Release date from JIRA</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{ticket.key}</code>
+                      <span class="text-gray-500">JIRA issue key (HAD-1234)</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{ticket.summary}</code>
+                      <span class="text-gray-500">Issue summary from JIRA</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{ticket.ai_description}</code>
+                      <span class="text-gray-500">AI-rewritten description for tone</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{ticket.type}</code>
+                      <span class="text-gray-500">Story, Bug, Improvement, Task</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{ticket.labels[]}</code>
+                      <span class="text-gray-500">All labels on the ticket</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{ticket.components[]}</code>
+                      <span class="text-gray-500">JIRA components</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{ticket.keys}</code>
+                      <span class="text-gray-500">Grouped keys (HAD-1, HAD-2)</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-purple-300 font-mono">{cross_ref}</code>
+                      <span class="text-gray-500">AI-generated version reference</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-purple-300 font-mono">{cross_ref.version}</code>
+                      <span class="text-gray-500">Referenced prior version (v3.8.0)</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-purple-300 font-mono">{cross_ref.relationship}</code>
+                      <span class="text-gray-500">builds_on, extends, replaces</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-amber-300 font-mono">{ticket.screenshot_suggested}</code>
+                      <span class="text-gray-500">Boolean: AI thinks visual change</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-amber-300 font-mono">{ticket.screenshot_hint}</code>
+                      <span class="text-gray-500">AI-generated caption for screenshot</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{section.title}</code>
+                      <span class="text-gray-500">Section heading name</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{section.ticket_count}</code>
+                      <span class="text-gray-500">Number of tickets in section</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{stats.total_tickets}</code>
+                      <span class="text-gray-500">Total included ticket count</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{stats.features}</code>
+                      <span class="text-gray-500">Count of features</span>
+                    </div>
+                    <div class="px-3 py-1.5 flex items-center justify-between">
+                      <code class="text-teal-300 font-mono">{stats.fixes}</code>
+                      <span class="text-gray-500">Count of bug fixes</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Block helpers reference -->
+                <div>
+                  <div class="flex items-center gap-2 mb-2">
+                    <svg class="w-3.5 h-3.5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    <label class="text-[10px] font-medium text-gray-400">Block Helpers</label>
+                  </div>
+                  <div class="bg-gray-900/80 rounded border border-gray-700 divide-y divide-gray-700/50 text-[11px]">
+                    <div class="px-3 py-1.5">
+                      <code class="text-violet-300 font-mono">{{#each sections}}</code>
+                      <span class="text-gray-500 ml-2">Loop over defined sections</span>
+                    </div>
+                    <div class="px-3 py-1.5">
+                      <code class="text-violet-300 font-mono">{{#each section.tickets}}</code>
+                      <span class="text-gray-500 ml-2">Loop over tickets in section</span>
+                    </div>
+                    <div class="px-3 py-1.5">
+                      <code class="text-violet-300 font-mono">{{#if condition}}</code>
+                      <span class="text-gray-500 ml-2">Conditional block</span>
+                    </div>
+                    <div class="px-3 py-1.5">
+                      <code class="text-violet-300 font-mono">{{#unless condition}}</code>
+                      <span class="text-gray-500 ml-2">Inverse conditional</span>
+                    </div>
+                    <div class="px-3 py-1.5">
+                      <code class="text-violet-300 font-mono">{{#group_by ticket.type}}</code>
+                      <span class="text-gray-500 ml-2">Auto-group tickets by field</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- JSON Schema Preview -->
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                      <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                      <label class="text-[10px] font-medium text-gray-400">Exported JSON Schema</label>
+                    </div>
+                    <button onclick="copySchemaToClipboard()" class="text-[10px] text-gray-500 hover:text-white transition flex items-center gap-1">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      Copy
+                    </button>
+                  </div>
+                  <pre id="schema-preview" class="bg-gray-900/80 rounded border border-gray-700 p-3 text-[10px] font-mono text-gray-400 overflow-x-auto max-h-64 overflow-y-auto leading-relaxed">{
+  "name": "Client-Facing",
+  "version": "1.0",
+  "word_limit": 150,
+  "tone": {
+    "voice": "professional",
+    "audience": "external_client",
+    "instructions": "Professional, client-facing language. Avoid technical implementation details. Focus on business value and user-visible changes."
+  },
+  "sections": [
+    {
+      "title": "New Features",
+      "filter": { "type": ["Story"] },
+      "item_format": "- **{ticket.summary}** — {ticket.ai_description} *({ticket.keys})*"
+    },
+    {
+      "title": "Improvements",
+      "filter": { "type": ["Improvement"] },
+      "item_format": "- **{ticket.summary}** — {ticket.ai_description} *({ticket.keys})*"
+    },
+    {
+      "title": "Bug Fixes",
+      "filter": { "type": ["Bug"] },
+      "item_format": "- {ticket.ai_description} *({ticket.key})*"
+    }
+  ],
+  "enrichment": {
+    "cross_references": {
+      "enabled": true,
+      "inline": true,
+      "source": ["linked_issues", "epics", "shared_components"]
+    },
+    "screenshots": {
+      "enabled": true,
+      "detection": ["ui_labels", "component_tags", "attachment_types"],
+      "format": "&lt;!-- 📸 SCREENSHOT: {ticket.screenshot_hint} --&gt;"
+    }
+  },
+  "filters": {
+    "exclude_labels": ["internal", "spike", "security"],
+    "exclude_types": ["Sub-task"],
+    "status": ["Done", "Closed"]
+  },
+  "output": {
+    "format": "markdown",
+    "header": "# Release Notes - {product} {version}\n*{date}*"
+  }
+}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Template Authoring Guide -->
+        <div class="bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+              <h3 class="text-sm font-semibold text-gray-300">Template Authoring Guide</h3>
+            </div>
+            <button onclick="toggleGuide()" class="text-xs text-gray-500 hover:text-gray-300 transition flex items-center gap-1">
+              <svg id="chevron-guide" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+              <span id="guide-toggle-text">Show guide</span>
+            </button>
+          </div>
+          <div id="guide-content" class="hidden">
+            <div class="p-5 space-y-5 text-sm leading-relaxed">
+              <!-- How It Works -->
+              <div>
+                <h4 class="text-xs font-bold text-teal-400 uppercase tracking-wider mb-2">How Templates Work</h4>
+                <p class="text-xs text-gray-400">Templates define <strong class="text-white">what</strong> Hadron generates and <strong class="text-white">how</strong> the AI formats it. A template is a JSON document with three layers:</p>
+                <div class="mt-2 grid grid-cols-3 gap-2">
+                  <div class="bg-gray-900/50 rounded p-2.5 border border-gray-700">
+                    <div class="text-[10px] font-bold text-teal-300 mb-1">1. Structure</div>
+                    <p class="text-[10px] text-gray-500">Sections, ordering, and which ticket types map to which headings.</p>
+                  </div>
+                  <div class="bg-gray-900/50 rounded p-2.5 border border-gray-700">
+                    <div class="text-[10px] font-bold text-teal-300 mb-1">2. AI Instructions</div>
+                    <p class="text-[10px] text-gray-500">Tone, word limits, and formatting rules that constrain the AI output.</p>
+                  </div>
+                  <div class="bg-gray-900/50 rounded p-2.5 border border-gray-700">
+                    <div class="text-[10px] font-bold text-teal-300 mb-1">3. Enrichment</div>
+                    <p class="text-[10px] text-gray-500">Cross-references, screenshot suggestions, and metadata annotations.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Creating a template -->
+              <div>
+                <h4 class="text-xs font-bold text-teal-400 uppercase tracking-wider mb-2">Creating a Template</h4>
+                <div class="space-y-2 text-xs text-gray-400">
+                  <div class="flex gap-2">
+                    <span class="text-teal-400 font-bold flex-shrink-0">1.</span>
+                    <div><strong class="text-white">Define sections</strong> — Map JIRA ticket types to output headings. For example, <code class="px-1 py-0.5 bg-gray-900 rounded text-teal-300 text-[10px]">"filter": {"type": ["Story"]}</code> captures all Story tickets into that section. You can also filter by label, component, or priority.</div>
+                  </div>
+                  <div class="flex gap-2">
+                    <span class="text-teal-400 font-bold flex-shrink-0">2.</span>
+                    <div><strong class="text-white">Set the tone</strong> — The <code class="px-1 py-0.5 bg-gray-900 rounded text-teal-300 text-[10px]">tone.instructions</code> field is passed directly to the AI as a system prompt. Be specific: "Write for C-level executives. No jargon. Max 8 words per bullet." works better than "Be professional."</div>
+                  </div>
+                  <div class="flex gap-2">
+                    <span class="text-teal-400 font-bold flex-shrink-0">3.</span>
+                    <div><strong class="text-white">Write the markdown template</strong> — Use <code class="px-1 py-0.5 bg-gray-900 rounded text-violet-300 text-[10px]">{{#each}}</code> to loop, <code class="px-1 py-0.5 bg-gray-900 rounded text-violet-300 text-[10px]">{{#if}}</code> for conditionals, and <code class="px-1 py-0.5 bg-gray-900 rounded text-teal-300 text-[10px]">{variable}</code> for interpolation. The AI fills <code class="px-1 py-0.5 bg-gray-900 rounded text-teal-300 text-[10px]">{ticket.ai_description}</code> at generation time — everything else is literal.</div>
+                  </div>
+                  <div class="flex gap-2">
+                    <span class="text-teal-400 font-bold flex-shrink-0">4.</span>
+                    <div><strong class="text-white">Configure enrichment</strong> — Enable <code class="px-1 py-0.5 bg-gray-900 rounded text-purple-300 text-[10px]">cross_references</code> to have the AI trace linked issues and prior versions. Enable <code class="px-1 py-0.5 bg-gray-900 rounded text-amber-300 text-[10px]">screenshots</code> to have it detect UI-visible changes and insert placement hints.</div>
+                  </div>
+                  <div class="flex gap-2">
+                    <span class="text-teal-400 font-bold flex-shrink-0">5.</span>
+                    <div><strong class="text-white">Set filters</strong> — Exclude ticket labels (<code class="px-1 py-0.5 bg-gray-900 rounded text-teal-300 text-[10px]">internal</code>, <code class="px-1 py-0.5 bg-gray-900 rounded text-teal-300 text-[10px]">security</code>), types (<code class="px-1 py-0.5 bg-gray-900 rounded text-teal-300 text-[10px]">Sub-task</code>), or statuses. Only tickets passing all filters are fed to the AI.</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Cross-references detail -->
+              <div>
+                <h4 class="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Cross-References</h4>
+                <p class="text-xs text-gray-400 mb-2">When enabled, the AI traces three sources to find connections to earlier releases:</p>
+                <div class="grid grid-cols-3 gap-2">
+                  <div class="bg-purple-500/5 rounded p-2.5 border border-purple-500/20">
+                    <div class="text-[10px] font-bold text-purple-300 mb-1">Linked Issues</div>
+                    <p class="text-[10px] text-gray-500">JIRA "is caused by", "relates to", "blocks" links pointing to tickets in older fixVersions.</p>
+                  </div>
+                  <div class="bg-purple-500/5 rounded p-2.5 border border-purple-500/20">
+                    <div class="text-[10px] font-bold text-purple-300 mb-1">Epic History</div>
+                    <p class="text-[10px] text-gray-500">If a ticket belongs to an epic that spans versions, the AI references when the epic work began.</p>
+                  </div>
+                  <div class="bg-purple-500/5 rounded p-2.5 border border-purple-500/20">
+                    <div class="text-[10px] font-bold text-purple-300 mb-1">Shared Components</div>
+                    <p class="text-[10px] text-gray-500">Tickets touching the same JIRA component as older tickets trigger an inferred relationship.</p>
+                  </div>
+                </div>
+                <p class="text-[10px] text-gray-500 mt-2">References appear as inline phrases like "Building on the JIRA integration introduced in v3.8.0" when <code class="px-1 py-0.5 bg-gray-900 rounded text-purple-300">inline: true</code>, or as a separate "Related Versions" section when <code class="px-1 py-0.5 bg-gray-900 rounded text-purple-300">inline: false</code>.</p>
+              </div>
+
+              <!-- Screenshot suggestions detail -->
+              <div>
+                <h4 class="text-xs font-bold text-amber-400 uppercase tracking-wider mb-2">Screenshot Suggestions</h4>
+                <p class="text-xs text-gray-400 mb-2">The AI detects which tickets involve UI-visible changes using three signals:</p>
+                <div class="grid grid-cols-3 gap-2">
+                  <div class="bg-amber-500/5 rounded p-2.5 border border-amber-500/20">
+                    <div class="text-[10px] font-bold text-amber-300 mb-1">UI Labels</div>
+                    <p class="text-[10px] text-gray-500">Tickets with labels like <code class="text-amber-300">ui</code>, <code class="text-amber-300">frontend</code>, <code class="text-amber-300">ux</code>, or <code class="text-amber-300">design</code>.</p>
+                  </div>
+                  <div class="bg-amber-500/5 rounded p-2.5 border border-amber-500/20">
+                    <div class="text-[10px] font-bold text-amber-300 mb-1">Component Tags</div>
+                    <p class="text-[10px] text-gray-500">JIRA components mapped as visual (e.g., "Dashboard", "Settings Panel", "Analysis View").</p>
+                  </div>
+                  <div class="bg-amber-500/5 rounded p-2.5 border border-amber-500/20">
+                    <div class="text-[10px] font-bold text-amber-300 mb-1">Attachment Types</div>
+                    <p class="text-[10px] text-gray-500">Tickets with .png/.jpg/.gif attachments (mockups, designs) automatically flag.</p>
+                  </div>
+                </div>
+                <p class="text-[10px] text-gray-500 mt-2">Each suggestion includes an AI-generated caption describing what to capture. Placeholders use <code class="px-1 py-0.5 bg-gray-900 rounded text-amber-300">&lt;!-- 📸 SCREENSHOT: ... --&gt;</code> in the markdown which renders as visual hints in preview mode.</p>
+              </div>
+
+              <!-- Import/Export -->
+              <div>
+                <h4 class="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2">Import &amp; Export</h4>
+                <p class="text-xs text-gray-400 mb-2">Templates are portable JSON files. Share them across teams or version-control them alongside your project.</p>
+                <div class="flex gap-3">
+                  <div class="flex-1 bg-gray-900/50 rounded p-3 border border-gray-700">
+                    <div class="text-[10px] font-bold text-white mb-1">Export</div>
+                    <p class="text-[10px] text-gray-500">Click the export icon on any template card, or use the "Copy" button on the JSON Schema preview in the editor. The exported <code class="text-cyan-300">.json</code> file contains everything needed to reproduce the template.</p>
+                  </div>
+                  <div class="flex-1 bg-gray-900/50 rounded p-3 border border-gray-700">
+                    <div class="text-[10px] font-bold text-white mb-1">Import</div>
+                    <p class="text-[10px] text-gray-500">Click "Import .json" and select a template file. Hadron validates the schema, shows a preview, and lets you rename before saving. Duplicates are detected by template name.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tips -->
+              <div class="bg-teal-500/5 border border-teal-500/20 rounded-lg p-3">
+                <h4 class="text-xs font-bold text-teal-400 mb-2">Tips for Effective Templates</h4>
+                <ul class="space-y-1 text-[10px] text-gray-400">
+                  <li class="flex gap-1.5"><span class="text-teal-400">&#8227;</span> Be brutally specific in tone instructions. "No sentences over 15 words" beats "Be concise."</li>
+                  <li class="flex gap-1.5"><span class="text-teal-400">&#8227;</span> Use <code class="text-teal-300">{ticket.ai_description}</code> instead of <code class="text-teal-300">{ticket.summary}</code> — the AI rewrites the JIRA summary to match your tone.</li>
+                  <li class="flex gap-1.5"><span class="text-teal-400">&#8227;</span> Set word limits per section, not just globally. Features deserve more words than bug fixes.</li>
+                  <li class="flex gap-1.5"><span class="text-teal-400">&#8227;</span> Cross-references work best when your JIRA has consistent epic/linking hygiene. Garbage in, garbage out.</li>
+                  <li class="flex gap-1.5"><span class="text-teal-400">&#8227;</span> For screenshot suggestions, tag your JIRA components as visual/backend in Settings &gt; Integrations. The AI uses this mapping.</li>
+                  <li class="flex gap-1.5"><span class="text-teal-400">&#8227;</span> Test templates against a past version first — generate notes for v3.8.0 and compare to what you manually wrote.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="fixed bottom-6 right-6 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 flex items-center gap-2 z-50">
+    <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    <span id="toast-text" class="text-sm text-gray-300">Copied to clipboard!</span>
+  </div>
+
+  <script>
+    // State
+    let currentTone = 'client';
+    let isGenerating = false;
+    let ticketsExpanded = false;
+    let currentEditorMode = 'edit';
+    const originalContent = document.getElementById('markdown-editor').value;
+
+    // Sub-tab switching
+    function switchSubTab(tabId) {
+      // Update tab styles
+      document.querySelectorAll('.sub-tab').forEach(tab => {
+        tab.className = 'sub-tab flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600 transition whitespace-nowrap';
+      });
+      const activeTab = document.getElementById('tab-' + tabId);
+      activeTab.className = 'sub-tab flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 border-teal-500 text-teal-400 transition whitespace-nowrap';
+
+      // Show/hide content
+      document.getElementById('content-generate').classList.add('hidden');
+      document.getElementById('content-history').classList.add('hidden');
+      document.getElementById('content-templates').classList.add('hidden');
+      document.getElementById('content-' + tabId).classList.remove('hidden');
+    }
+
+    // Tone selection
+    function selectTone(btn, tone) {
+      currentTone = tone;
+      document.querySelectorAll('.tone-btn').forEach(b => {
+        b.className = 'tone-btn px-3 py-2 rounded-lg text-xs font-medium border-2 border-gray-600 bg-gray-800 text-gray-400 hover:border-gray-500 transition';
+      });
+      btn.className = 'tone-btn px-3 py-2 rounded-lg text-xs font-medium border-2 border-teal-500 bg-teal-500/10 text-teal-300 transition';
+    }
+
+    // Version change
+    function onVersionChange() {
+      const sel = document.getElementById('version-select');
+      const meta = document.getElementById('version-meta');
+      const versions = {
+        '3.10.0': '<span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>Unreleased &middot; 14 tickets</span>',
+        '3.9.0': '<span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Released Feb 10, 2026</span>',
+        '3.8.2': '<span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Released Jan 28, 2026</span>',
+        '3.8.1': '<span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Released Jan 15, 2026</span>',
+        '3.8.0': '<span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Released Jan 3, 2026</span>',
+      };
+      meta.innerHTML = versions[sel.value] || '';
+    }
+
+    // Toggle ticket preview
+    function toggleTicketPreview() {
+      ticketsExpanded = !ticketsExpanded;
+      const list = document.getElementById('ticket-list');
+      const chevron = document.getElementById('chevron-tickets');
+      const toggleText = document.getElementById('toggle-text');
+
+      if (ticketsExpanded) {
+        list.classList.remove('hidden');
+        chevron.style.transform = 'rotate(180deg)';
+        toggleText.textContent = 'Hide tickets';
+      } else {
+        list.classList.add('hidden');
+        chevron.style.transform = 'rotate(0)';
+        toggleText.textContent = 'Show tickets';
+      }
+    }
+
+    // Generate release notes
+    async function generateNotes() {
+      if (isGenerating) return;
+      isGenerating = true;
+
+      // Hide output, show progress
+      document.getElementById('output-section').classList.add('hidden');
+      document.getElementById('generate-section').classList.add('hidden');
+      document.getElementById('progress-section').classList.remove('hidden');
+
+      const steps = [
+        { label: 'Fetching tickets from JIRA...', pct: 10, duration: 800 },
+        { label: 'Filtering and normalizing ticket data...', pct: 20, duration: 600 },
+        { label: 'Mapping categories and deduplicating themes...', pct: 30, duration: 500 },
+        { label: 'Tracing linked issues and epic history across versions...', pct: 42, duration: 700 },
+        { label: 'Detecting UI-visible changes for screenshot suggestions...', pct: 52, duration: 600 },
+        { label: 'Generating release notes with AI...', pct: 75, duration: 1800 },
+        { label: 'Inserting cross-references to prior releases...', pct: 85, duration: 500 },
+        { label: 'Validating against style guide...', pct: 93, duration: 400 },
+        { label: 'Complete!', pct: 100, duration: 300 },
+      ];
+
+      const progressBar = document.getElementById('progress-bar');
+      const progressLabel = document.getElementById('progress-label');
+      const progressPct = document.getElementById('progress-pct');
+      const progressSteps = document.getElementById('progress-steps');
+      progressSteps.innerHTML = '';
+
+      for (const step of steps) {
+        progressLabel.textContent = step.label;
+        progressBar.style.width = step.pct + '%';
+        progressPct.textContent = step.pct + '%';
+
+        // Add step indicator
+        const stepEl = document.createElement('div');
+        stepEl.className = 'flex items-center gap-2 text-xs fade-in-up';
+        const isComplete = step.pct < 100;
+        stepEl.innerHTML = `
+          <svg class="w-3 h-3 ${step.pct === 100 ? 'text-green-400' : 'text-teal-400'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            ${step.pct === 100
+              ? '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'
+              : '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'}
+          </svg>
+          <span class="text-gray-400">${step.label}</span>
+        `;
+        progressSteps.appendChild(stepEl);
+
+        await sleep(step.duration);
+      }
+
+      // Short pause, then show output
+      await sleep(500);
+
+      document.getElementById('progress-section').classList.add('hidden');
+      document.getElementById('generate-section').classList.remove('hidden');
+      document.getElementById('output-section').classList.remove('hidden');
+
+      // Scroll to output
+      document.getElementById('output-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      isGenerating = false;
+    }
+
+    // Regenerate
+    function regenerate() {
+      generateNotes();
+    }
+
+    // Editor modes
+    function switchEditorMode(mode) {
+      currentEditorMode = mode;
+
+      // Update mode buttons
+      document.querySelectorAll('.editor-mode').forEach(btn => {
+        btn.className = 'editor-mode px-3 py-1 text-xs font-medium rounded text-gray-400 hover:text-gray-300 transition';
+      });
+      document.getElementById('mode-' + mode).className = 'editor-mode px-3 py-1 text-xs font-medium rounded bg-teal-500/20 text-teal-400 transition';
+
+      // Toggle areas
+      document.getElementById('editor-area').classList.add('hidden');
+      document.getElementById('preview-area').classList.add('hidden');
+      document.getElementById('diff-area').classList.add('hidden');
+
+      if (mode === 'edit') {
+        document.getElementById('editor-area').classList.remove('hidden');
+      } else if (mode === 'preview') {
+        renderPreview();
+        document.getElementById('preview-area').classList.remove('hidden');
+      } else if (mode === 'diff') {
+        renderDiff();
+        document.getElementById('diff-area').classList.remove('hidden');
+      }
+    }
+
+    // Simple markdown to HTML
+    function renderPreview() {
+      const md = document.getElementById('markdown-editor').value;
+      let html = md
+        .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold text-white mb-2">$1</h1>')
+        .replace(/^## (.+)$/gm, '<h2 class="text-lg font-semibold text-teal-400 mt-6 mb-3 pb-1 border-b border-gray-700">$1</h2>')
+        // Screenshot placeholders
+        .replace(/^!\[(.+?)\]\((.+?)\)$/gm, '<div class="my-4 mx-4 p-4 border-2 border-dashed border-amber-500/30 rounded-lg bg-amber-500/5 flex items-center gap-3"><svg class="w-8 h-8 text-amber-400/50 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><div><div class="text-xs font-medium text-amber-300">$1</div><div class="text-[10px] text-gray-500 mt-0.5">$2</div></div></div>')
+        // HTML comments (screenshot hints from generation)
+        .replace(/^<!-- 📸 SCREENSHOT: (.+?) -->$/gm, '<div class="my-3 mx-4 px-3 py-2 border border-dashed border-amber-500/20 rounded bg-amber-500/5 flex items-center gap-2"><svg class="w-4 h-4 text-amber-400/40 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span class="text-[10px] text-amber-400/60">Suggested: $1</span></div>')
+        .replace(/^- \*\*(.+?)\*\* — (.+)$/gm, '<div class="flex gap-2 mb-3 pl-4"><span class="text-teal-400 mt-1">&#8226;</span><div><strong class="text-white">$1</strong> <span class="text-gray-400">— $2</span></div></div>')
+        .replace(/^- (.+)$/gm, '<div class="flex gap-2 mb-2 pl-4"><span class="text-gray-500 mt-1">&#8226;</span><span class="text-gray-300">$1</span></div>')
+        .replace(/\*\((.+?)\)\*/g, '<span class="text-xs text-gray-500 font-mono">($1)</span>')
+        // Cross-reference styling: highlight "v3.X.Y" version references
+        .replace(/v(\d+\.\d+\.\d+)/g, '<span class="px-1 py-0.5 bg-purple-500/10 text-purple-300 rounded text-xs font-mono border border-purple-500/20">v$1</span>')
+        .replace(/\*(.+?)\*/g, '<em class="text-gray-400">$1</em>')
+        .replace(/\n\n/g, '<div class="mb-2"></div>')
+        .replace(/\n/g, '');
+
+      document.getElementById('preview-area').innerHTML = html;
+    }
+
+    // Simple diff view
+    function renderDiff() {
+      const current = document.getElementById('markdown-editor').value;
+      const lines = current.split('\n');
+      let html = '';
+
+      lines.forEach((line, i) => {
+        const lineNum = (i + 1).toString().padStart(3, ' ');
+        const escapedLine = line.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        if (line.startsWith('# ') || line.startsWith('## ')) {
+          html += `<div class="diff-section px-3 py-0.5 flex"><span class="text-gray-600 mr-4 select-none">${lineNum}</span><span class="text-blue-300">${escapedLine}</span></div>`;
+        } else if (line.startsWith('![')) {
+          // Screenshot placeholder
+          html += `<div class="px-3 py-0.5 flex" style="background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b"><span class="text-gray-600 mr-4 select-none">${lineNum}</span><span class="text-amber-300">${escapedLine}</span></div>`;
+        } else if (line.startsWith('&lt;!-- 📸') || line.startsWith('<!-- 📸')) {
+          // Screenshot comment hint
+          html += `<div class="px-3 py-0.5 flex" style="background:rgba(245,158,11,0.05);border-left:3px solid rgba(245,158,11,0.3)"><span class="text-gray-600 mr-4 select-none">${lineNum}</span><span class="text-amber-400/60">${escapedLine}</span></div>`;
+        } else if (line.includes(' v3.') && (line.includes('introduced in') || line.includes('first introduced') || line.includes('added in') || line.includes('used since') || line.includes('Replaces') || line.includes('extends') || line.includes('Complements') || line.includes('Building on') || line.includes('regression from'))) {
+          // Cross-reference line
+          html += `<div class="px-3 py-0.5 flex" style="background:rgba(168,85,247,0.08);border-left:3px solid #a855f7"><span class="text-gray-600 mr-4 select-none">${lineNum}</span><span class="text-purple-300">${escapedLine}</span></div>`;
+        } else if (line.startsWith('- ')) {
+          html += `<div class="diff-add px-3 py-0.5 flex"><span class="text-gray-600 mr-4 select-none">${lineNum}</span><span class="text-green-300">${escapedLine}</span></div>`;
+        } else {
+          html += `<div class="px-3 py-0.5 flex"><span class="text-gray-600 mr-4 select-none">${lineNum}</span><span class="text-gray-400">${escapedLine}</span></div>`;
+        }
+      });
+
+      // Diff legend
+      html += `<div class="mt-3 pt-3 border-t border-gray-700 px-3 flex items-center gap-4 text-[10px] text-gray-500">
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded" style="background:#3b82f6"></span> Headings</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded" style="background:#22c55e"></span> Content</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded" style="background:#f59e0b"></span> Screenshots</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded" style="background:#a855f7"></span> Cross-references</span>
+      </div>`;
+
+      document.getElementById('diff-area').innerHTML = html;
+    }
+
+    // Copy to clipboard
+    function copyToClipboard() {
+      const text = document.getElementById('markdown-editor').value;
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Copied to clipboard!');
+      });
+    }
+
+    // Toast
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-text').textContent = msg;
+      toast.style.transform = 'translateY(0)';
+      toast.style.opacity = '1';
+      setTimeout(() => {
+        toast.style.transform = 'translateY(20px)';
+        toast.style.opacity = '0';
+      }, 2500);
+    }
+
+    // Load history item
+    function loadHistoryItem(version) {
+      switchSubTab('generate');
+      document.getElementById('version-select').value = version;
+      onVersionChange();
+      // Show the output directly
+      document.getElementById('output-section').classList.remove('hidden');
+      showToast('Loaded v' + version + ' release notes');
+    }
+
+    // --- Template Editor Functions ---
+
+    function openTemplateEditor(templateId) {
+      const panel = document.getElementById('template-editor-panel');
+      const title = document.getElementById('template-editor-title');
+      if (templateId) {
+        const names = { 'client-facing': 'Client-Facing', 'internal': 'Internal / Technical', 'executive': 'Executive Summary' };
+        title.textContent = 'Editing: ' + (names[templateId] || templateId);
+      } else {
+        title.textContent = 'New Template';
+        document.getElementById('tpl-name').value = '';
+        document.getElementById('tpl-wordlimit').value = '';
+        document.getElementById('tpl-tone').value = '';
+      }
+      panel.classList.remove('hidden');
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function closeTemplateEditor() {
+      document.getElementById('template-editor-panel').classList.add('hidden');
+    }
+
+    function saveTemplate() {
+      const name = document.getElementById('tpl-name').value;
+      if (!name) { showToast('Template name is required'); return; }
+      showToast('Template "' + name + '" saved');
+      closeTemplateEditor();
+    }
+
+    function exportTemplate(templateId) {
+      const schema = document.getElementById('schema-preview').textContent;
+      const blob = new Blob([schema], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (templateId || 'template') + '.hadron-template.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Template exported as ' + a.download);
+    }
+
+    function importTemplate() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const tpl = JSON.parse(ev.target.result);
+            document.getElementById('tpl-name').value = tpl.name || file.name;
+            document.getElementById('tpl-wordlimit').value = tpl.word_limit || '';
+            document.getElementById('tpl-tone').value = tpl.tone?.instructions || '';
+            openTemplateEditor(null);
+            document.getElementById('template-editor-title').textContent = 'Imported: ' + (tpl.name || file.name);
+            showToast('Template imported: ' + (tpl.name || file.name));
+          } catch (err) {
+            showToast('Invalid template JSON');
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    }
+
+    function copySchemaToClipboard() {
+      const text = document.getElementById('schema-preview').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('JSON schema copied to clipboard');
+      });
+    }
+
+    let guideExpanded = false;
+    function toggleGuide() {
+      guideExpanded = !guideExpanded;
+      const content = document.getElementById('guide-content');
+      const chevron = document.getElementById('chevron-guide');
+      const text = document.getElementById('guide-toggle-text');
+      if (guideExpanded) {
+        content.classList.remove('hidden');
+        chevron.style.transform = 'rotate(180deg)';
+        text.textContent = 'Hide guide';
+      } else {
+        content.classList.add('hidden');
+        chevron.style.transform = 'rotate(0)';
+        text.textContent = 'Show guide';
+      }
+    }
+
+    // Screenshot insertion
+    const screenshotData = [
+      { marker: 'Sentry Integration', comment: 'Sentry issue browser with search filters and AI analysis button', filename: 'sentry-issue-browser.png' },
+      { marker: 'Batch Analysis', comment: 'Batch analysis progress view with file list and status indicators', filename: 'batch-analysis-progress.png' },
+      { marker: 'Code Analyzer Quality Scores', comment: 'Quality score radar chart in the code analysis results', filename: 'quality-score-radar.png' },
+      { marker: 'Performance Dashboard', comment: 'Memory profiling dashboard with heap allocation timeline', filename: 'memory-profiling-dashboard.png' },
+    ];
+
+    function insertScreenshot(index) {
+      const editor = document.getElementById('markdown-editor');
+      const data = screenshotData[index];
+      const placeholder = `\n\n![${data.comment}](screenshots/${data.filename})\n`;
+
+      // Find the feature line in the text and insert after it
+      const lines = editor.value.split('\n');
+      let insertIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes(data.marker) && lines[i].startsWith('- **')) {
+          // Find end of this bullet (next line that starts with - or ## or is empty after content)
+          insertIdx = i;
+          // Walk forward past continuation lines
+          while (insertIdx + 1 < lines.length && lines[insertIdx + 1] !== '' && !lines[insertIdx + 1].startsWith('- ') && !lines[insertIdx + 1].startsWith('##') && !lines[insertIdx + 1].startsWith('<!--')) {
+            insertIdx++;
+          }
+          break;
+        }
+      }
+
+      if (insertIdx >= 0) {
+        // Check if placeholder already exists
+        if (editor.value.includes(data.filename)) {
+          showToast('Screenshot placeholder already present');
+          return;
+        }
+        lines.splice(insertIdx + 1, 0, '', `![${data.comment}](screenshots/${data.filename})`);
+        editor.value = lines.join('\n');
+        updateWordCount();
+        showToast('Inserted: ' + data.filename);
+      } else {
+        // Fallback: append at end
+        editor.value += placeholder;
+        updateWordCount();
+        showToast('Inserted at end: ' + data.filename);
+      }
+    }
+
+    function insertAllScreenshots() {
+      for (let i = 0; i < screenshotData.length; i++) {
+        insertScreenshot(i);
+      }
+      showToast('All 4 screenshot placeholders inserted');
+    }
+
+    // Toggle insights panels
+    function toggleInsightsPanel(panelId) {
+      const panel = document.getElementById('panel-' + panelId);
+      const chevron = document.getElementById('chevron-' + panelId);
+      if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        chevron.style.transform = 'rotate(180deg)';
+      } else {
+        panel.classList.add('hidden');
+        chevron.style.transform = 'rotate(0)';
+      }
+    }
+
+    // Toggle cross-references in the markdown text
+    let crossRefsActive = true;
+    const crossRefPhrases = [
+      'Building on the JIRA integration introduced in v3.8.0, ',
+      ' This extends the crash pattern analysis first introduced in v3.7.0.',
+      ' Complements the code walkthrough feature added in v3.8.0.',
+      ' Replaces the localStorage-based approach used since v3.5.0.',
+      ' — originally reported as a regression from v3.8.2',
+    ];
+    function toggleCrossRefs() {
+      const editor = document.getElementById('markdown-editor');
+      const toggleBtn = document.getElementById('crossref-toggle');
+      if (crossRefsActive) {
+        // Remove cross-references
+        let text = editor.value;
+        crossRefPhrases.forEach(phrase => {
+          text = text.replace(phrase, '');
+        });
+        editor.value = text;
+        toggleBtn.textContent = 'Restore all in notes';
+        crossRefsActive = false;
+        showToast('Cross-references removed from notes');
+      } else {
+        // Restore original cross-references by resetting to the generated text
+        editor.value = document.getElementById('markdown-editor').defaultValue;
+        toggleBtn.textContent = 'Remove all from notes';
+        crossRefsActive = true;
+        showToast('Cross-references restored in notes');
+      }
+      updateWordCount();
+    }
+
+    // Word count
+    function updateWordCount() {
+      const editor = document.getElementById('markdown-editor');
+      const words = editor.value.trim().split(/\s+/).filter(w => w.length > 0).length;
+      document.getElementById('word-count').textContent = words + ' words';
+    }
+    document.getElementById('markdown-editor').addEventListener('input', updateWordCount);
+
+    // Helper
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+  </script>
+</body>
+</html>

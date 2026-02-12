@@ -842,6 +842,15 @@ pub struct AnalysisRequest {
     /// When true, retrieves similar historical cases to improve analysis quality
     #[serde(default)]
     pub use_rag: Option<bool>,
+    /// Enable KB domain knowledge retrieval
+    #[serde(default)]
+    pub use_kb: Option<bool>,
+    /// Customer name for customer-specific release notes
+    pub customer: Option<String>,
+    /// WHATS'ON version (e.g. "2024r8")
+    pub won_version: Option<String>,
+    /// KB mode: "remote" | "local"
+    pub kb_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -863,6 +872,52 @@ pub struct AnalysisResponse {
     /// Token utilization percentage
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_utilization: Option<f32>,
+}
+
+// ============================================================================
+// KB Helper Functions
+// ============================================================================
+
+/// Auto-detect WHATS'ON version from content (e.g. "2024r8", "2024.r8", "2024R8")
+fn detect_won_version(content: &str) -> Option<String> {
+    let re = regex::Regex::new(r"(\d{4})\.?[rR](\d{1,2})").ok()?;
+    re.captures(content)
+        .map(|c| format!("{}r{}", &c[1], &c[2]))
+}
+
+/// Extract a KB-relevant query from content
+fn extract_kb_query(content: &str, analysis_type: &str) -> String {
+    match analysis_type {
+        "jira" => {
+            // For JIRA: summary (first line) is the best query
+            content
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(300)
+                .collect()
+        }
+        _ => {
+            // For crash logs: extract error/exception lines + WON namespace references
+            let key_lines: Vec<&str> = content
+                .lines()
+                .filter(|l| {
+                    l.contains("Error")
+                        || l.contains("Exception")
+                        || l.contains("PSI.")
+                        || l.contains("BM.")
+                        || l.contains("WOn.")
+                })
+                .take(3)
+                .collect();
+            if key_lines.is_empty() {
+                content.chars().take(300).collect()
+            } else {
+                key_lines.join(" ").chars().take(500).collect()
+            }
+        }
+    }
 }
 
 /// Analyze a crash log file using Rust AI service
@@ -1069,8 +1124,56 @@ pub async fn analyze_crash_log(
         None
     };
 
+    // Optionally retrieve KB domain knowledge
+    let domain_knowledge = if request.use_kb.unwrap_or(false) {
+        log::info!("KB domain knowledge retrieval enabled");
+        let version = detect_won_version(&crash_content).or(request.won_version.clone());
+        let kb_query = extract_kb_query(&crash_content, &request.analysis_type);
+        let mode = request.kb_mode.as_deref().unwrap_or("remote");
+
+        emit_progress(
+            &app,
+            AnalysisProgress {
+                phase: AnalysisPhase::Analyzing,
+                progress: 25,
+                message: "Retrieving domain knowledge...".to_string(),
+                current_step: None,
+                total_steps: None,
+            },
+        );
+
+        match rag_commands::kb_query_internal(
+            &kb_query,
+            mode,
+            None, // OpenSearch config passed via settings, not per-request for now
+            version,
+            request.customer.clone(),
+            5,
+            api_key.as_str(),
+        )
+        .await
+        {
+            Ok(ctx) => {
+                log::info!(
+                    "KB context retrieved: {} KB docs, {} release notes ({}ms)",
+                    ctx.kb_results.len(),
+                    ctx.release_note_results.len(),
+                    ctx.retrieval_time_ms.unwrap_or(0)
+                );
+                Some(ai_service::DomainKnowledge::from(ctx))
+            }
+            Err(e) => {
+                log::warn!("KB retrieval failed, continuing without: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Call AI service - use RAG-enhanced if context available
-    let result = if rag_context.is_some() && matches!(request.analysis_type.as_str(), "whatson" | "comprehensive") {
+    let has_extra_context = rag_context.is_some() || domain_knowledge.is_some();
+    let result = if has_extra_context && matches!(request.analysis_type.as_str(), "whatson" | "comprehensive" | "jira") {
         // Use RAG-enhanced analysis for WHATS'ON types
         ai_service::analyze_crash_log_with_rag(
             &crash_content,
@@ -1079,6 +1182,7 @@ pub async fn analyze_crash_log(
             &request.provider,
             &request.analysis_type,
             rag_context,
+            domain_knowledge,
         )
         .await
         .map_err(|e| {
@@ -1354,6 +1458,15 @@ pub struct JiraTicketAnalysisRequest {
     pub keeper_secret_uid: Option<String>,
     #[serde(default)]
     pub use_rag: Option<bool>,
+    /// Enable KB domain knowledge retrieval
+    #[serde(default)]
+    pub use_kb: Option<bool>,
+    /// Customer name for customer-specific release notes
+    pub customer: Option<String>,
+    /// WHATS'ON version (e.g. "2024r8")
+    pub won_version: Option<String>,
+    /// KB mode: "remote" | "local"
+    pub kb_mode: Option<String>,
 }
 
 /// Analyze a JIRA ticket using the same AI pipeline as crash log analysis.
@@ -1439,8 +1552,8 @@ pub async fn analyze_jira_ticket(
         Zeroizing::new(request.api_key.clone())
     };
 
-    // Use whatson analysis type for comprehensive analysis
-    let analysis_type = "whatson";
+    // Use jira analysis type for JIRA ticket analyses
+    let analysis_type = "jira";
 
     // Emit progress - starting AI analysis
     emit_progress(
@@ -1498,8 +1611,55 @@ pub async fn analyze_jira_ticket(
         None
     };
 
+    // Optionally retrieve KB domain knowledge for JIRA ticket
+    let domain_knowledge = if request.use_kb.unwrap_or(false) {
+        log::info!("KB domain knowledge retrieval enabled for JIRA ticket");
+        let version = detect_won_version(&content).or(request.won_version.clone());
+        let kb_query = extract_kb_query(&content, analysis_type);
+        let mode = request.kb_mode.as_deref().unwrap_or("remote");
+
+        emit_progress(
+            &app,
+            AnalysisProgress {
+                phase: AnalysisPhase::Analyzing,
+                progress: 25,
+                message: "Retrieving domain knowledge...".to_string(),
+                current_step: None,
+                total_steps: None,
+            },
+        );
+
+        match rag_commands::kb_query_internal(
+            &kb_query,
+            mode,
+            None,
+            version,
+            request.customer.clone(),
+            5,
+            api_key.as_str(),
+        )
+        .await
+        {
+            Ok(ctx) => {
+                log::info!(
+                    "KB context retrieved for JIRA: {} KB docs, {} release notes",
+                    ctx.kb_results.len(),
+                    ctx.release_note_results.len()
+                );
+                Some(ai_service::DomainKnowledge::from(ctx))
+            }
+            Err(e) => {
+                log::warn!("KB retrieval failed for JIRA ticket, continuing without: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Call AI service - use RAG-enhanced if context available
-    let result = if rag_context.is_some() {
+    let has_extra_context = rag_context.is_some() || domain_knowledge.is_some();
+    let result = if has_extra_context {
         ai_service::analyze_crash_log_with_rag(
             &content,
             api_key.as_str(),
@@ -1507,6 +1667,7 @@ pub async fn analyze_jira_ticket(
             &request.provider,
             analysis_type,
             rag_context,
+            domain_knowledge,
         )
         .await
         .map_err(|e| {
@@ -6035,6 +6196,26 @@ pub async fn list_sentry_issues(
     .await
 }
 
+/// List recent issues across all projects in an organization
+#[tauri::command]
+pub async fn list_sentry_org_issues(
+    base_url: String,
+    auth_token: String,
+    org: String,
+    query: Option<String>,
+    cursor: Option<String>,
+) -> Result<sentry_service::SentryIssueList, String> {
+    log::info!("Listing recent Sentry issues for org {}", org);
+    sentry_service::list_sentry_org_issues(
+        &base_url,
+        &auth_token,
+        &org,
+        query.as_deref(),
+        cursor.as_deref(),
+    )
+    .await
+}
+
 /// Fetch a single Sentry issue by ID
 #[tauri::command]
 pub async fn fetch_sentry_issue(
@@ -6183,7 +6364,7 @@ pub async fn analyze_sentry_issue(
         file_size_kb: content_size_kb,
         error_type: result.error_type.clone(),
         error_message: result.error_message.clone(),
-        severity: result.severity.to_uppercase(),
+        severity: normalize_severity(&result.severity),
         component: result.component.clone().or(issue.culprit.clone()),
         stack_trace: result.stack_trace.clone(),
         root_cause: result.root_cause.clone(),
@@ -6197,7 +6378,11 @@ pub async fn analyze_sentry_issue(
         cost: result.cost,
         was_truncated: result.was_truncated.unwrap_or(false),
         full_data: result.raw_enhanced_json.clone().or_else(|| {
-            // Build a full_data blob with Sentry context + AI result + detected patterns
+            // Extract event data for rich frontend display
+            let breadcrumbs = sentry_service::extract_breadcrumbs(&event);
+            let exceptions = sentry_service::extract_exceptions(&event);
+
+            // Build a full_data blob with Sentry context + AI result + detected patterns + event data
             let full = serde_json::json!({
                 "sentry_issue_id": issue.id,
                 "sentry_short_id": issue.short_id,
@@ -6207,8 +6392,15 @@ pub async fn analyze_sentry_issue(
                 "sentry_platform": issue.platform,
                 "sentry_count": issue.count,
                 "sentry_user_count": issue.user_count,
+                "sentry_first_seen": issue.first_seen,
+                "sentry_last_seen": issue.last_seen,
+                "sentry_culprit": issue.culprit,
                 "detected_patterns": serde_json::to_value(&detected_patterns).ok(),
                 "ai_result": serde_json::to_value(&result).ok(),
+                "breadcrumbs": serde_json::to_value(&breadcrumbs).ok(),
+                "exceptions": serde_json::to_value(&exceptions).ok(),
+                "tags": serde_json::to_value(&event.tags).ok(),
+                "contexts": &event.contexts,
             });
             Some(full.to_string())
         }),
