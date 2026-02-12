@@ -1,11 +1,12 @@
-import { FileUp, Code, History, Cpu, Ticket } from "lucide-react";
+import { FileUp, Code, History, Cpu, Ticket, Shield } from "lucide-react";
 
-export type ViewType = "analyze" | "translate" | "history" | "detail" | "performance" | "jira";
+export type ViewType = "analyze" | "translate" | "history" | "detail" | "performance" | "jira" | "sentry";
 
 interface NavigationProps {
   currentView: ViewType;
   onViewChange: (view: ViewType) => void;
   showJiraAnalyzer?: boolean;
+  showSentryAnalyzer?: boolean;
 }
 
 interface TabConfig {
@@ -18,7 +19,7 @@ interface TabConfig {
   isActive: boolean;
 }
 
-export default function Navigation({ currentView, onViewChange, showJiraAnalyzer = false }: NavigationProps) {
+export default function Navigation({ currentView, onViewChange, showJiraAnalyzer = false, showSentryAnalyzer = false }: NavigationProps) {
   const tabs: TabConfig[] = [
     {
       id: "analyze",
@@ -48,6 +49,19 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
             iconBg: "bg-sky-500/10",
             activeIconBg: "bg-sky-500/20",
             isActive: currentView === "jira",
+          },
+        ]
+      : []),
+    ...(showSentryAnalyzer
+      ? [
+          {
+            id: "sentry" as ViewType,
+            label: "Sentry Analyzer",
+            icon: Shield,
+            iconColor: "text-orange-400",
+            iconBg: "bg-orange-500/10",
+            activeIconBg: "bg-orange-500/20",
+            isActive: currentView === "sentry",
           },
         ]
       : []),

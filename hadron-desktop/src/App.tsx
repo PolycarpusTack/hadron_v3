@@ -7,6 +7,7 @@ import HistoryView from "./components/HistoryView";
 import CodeAnalyzerView from "./components/CodeAnalyzerView";
 import PerformanceAnalyzerView from "./components/PerformanceAnalyzerView";
 import JiraAnalyzerView from "./components/JiraAnalyzerView";
+import SentryAnalyzerView from "./components/SentryAnalyzerView";
 import ConsoleViewer from "./components/ConsoleViewer";
 import DocumentationViewer from "./components/DocumentationViewer";
 import Splashscreen from "./components/Splashscreen";
@@ -19,6 +20,7 @@ import AppHeader from "./components/AppHeader";
 import AppFooter from "./components/AppFooter";
 import { analyzeCrashLog, translateTechnicalContent, getStoredModel, getStoredProvider, getAnalysisById, saveExternalAnalysis, type AnalysisMode } from "./services/api";
 import { isJiraEnabled } from "./services/jira";
+import { isSentryEnabled } from "./services/sentry";
 import { checkAndUpdate } from "./services/updater";
 import { getApiKey, migrateFromLocalStorage } from "./services/secure-storage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -48,6 +50,7 @@ function App() {
   const [showDocs, setShowDocs] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [jiraEnabled, setJiraEnabled] = useState(false);
+  const [sentryEnabled, setSentryEnabled] = useState(false);
 
   // Destructure for cleaner code
   const {
@@ -109,6 +112,7 @@ function App() {
 
   useEffect(() => {
     isJiraEnabled().then(setJiraEnabled);
+    isSentryEnabled().then(setSentryEnabled);
   }, []);
 
   // Update theme when it changes
@@ -434,6 +438,11 @@ IMPORTANT INSTRUCTIONS:
     if (!jiraStatus && currentView === "jira") {
       actions.setView("analyze");
     }
+    const sentryStatus = await isSentryEnabled();
+    setSentryEnabled(sentryStatus);
+    if (!sentryStatus && currentView === "sentry") {
+      actions.setView("analyze");
+    }
   };
 
   // Handle opening analysis from dashboard
@@ -465,7 +474,7 @@ IMPORTANT INSTRUCTIONS:
         />
 
         {/* Navigation Tabs */}
-        <Navigation currentView={currentView} onViewChange={actions.setView} showJiraAnalyzer={jiraEnabled} />
+        <Navigation currentView={currentView} onViewChange={actions.setView} showJiraAnalyzer={jiraEnabled} showSentryAnalyzer={sentryEnabled} />
 
         {/* API Key Warning */}
         <ApiKeyWarning hasApiKey={!!apiKey} />
@@ -535,6 +544,15 @@ IMPORTANT INSTRUCTIONS:
             <ViewErrorBoundary name="JIRA Analyzer">
               <div id="jira-panel" role="tabpanel">
                 <JiraAnalyzerView onAnalysisComplete={actions.viewAnalysis} />
+              </div>
+            </ViewErrorBoundary>
+          )}
+
+          {/* Sentry Analyzer View */}
+          {currentView === "sentry" && (
+            <ViewErrorBoundary name="Sentry Analyzer">
+              <div id="sentry-panel" role="tabpanel">
+                <SentryAnalyzerView onAnalysisComplete={actions.viewAnalysis} />
               </div>
             </ViewErrorBoundary>
           )}
