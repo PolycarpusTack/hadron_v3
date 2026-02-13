@@ -110,7 +110,7 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
 
   return (
     <nav
-      className="mb-6 flex items-center gap-1 border-b border-gray-200 dark:border-gray-700"
+      className="mb-6 flex items-center gap-1 overflow-x-auto border-b border-gray-200 dark:border-gray-700"
       role="tablist"
       aria-label="Main navigation"
     >
@@ -123,7 +123,7 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
             role="tab"
             aria-selected={tab.isActive}
             aria-controls={`${tab.id}-panel`}
-            className={`flex items-center gap-2.5 px-4 py-3 border-b-2 transition-all ${
+            className={`flex items-center gap-2.5 px-4 py-2.5 border-b-2 transition-all whitespace-nowrap ${
               tab.isActive
                 ? "border-gray-800 dark:border-white text-gray-900 dark:text-white"
                 : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50"

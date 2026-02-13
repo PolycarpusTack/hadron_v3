@@ -18,7 +18,7 @@ export default function AnalyzerEntryPanel({
   const iconBg = iconBgClassName ?? "bg-blue-500/20";
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         <span className={`p-2 rounded-lg ${iconBg}`}>
           {icon}
         </span>

@@ -8,7 +8,7 @@ interface AppHeaderProps {
 
 export default function AppHeader({ onOpenDashboard, onOpenSettings, onOpenDocs }: AppHeaderProps) {
   return (
-    <header className="mb-8 flex items-center justify-between">
+    <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
       <div className="flex items-center gap-4">
         <img
           src="/hadron-logo.png"
@@ -17,10 +17,10 @@ export default function AppHeader({ onOpenDashboard, onOpenSettings, onOpenDocs 
         />
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            Hadron Crash Analyzer
+            Hadron
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            AI-powered crash log analysis for Smalltalk applications
+            Your Friendly AI-powered Support Assistant
           </p>
         </div>
       </div>
