@@ -106,13 +106,6 @@ pub struct SentryTag {
     pub value: String,
 }
 
-/// Extracted stacktrace from event entries
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct SentryStacktrace {
-    pub frames: Vec<SentryFrame>,
-}
-
 /// Single stack frame
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -529,26 +522,6 @@ pub fn extract_breadcrumbs(event: &SentryEvent) -> Vec<SentryBreadcrumb> {
     }
 
     breadcrumbs
-}
-
-/// Build a combined stacktrace from all exception entries
-pub fn extract_stacktrace(event: &SentryEvent) -> Option<SentryStacktrace> {
-    let exceptions = extract_exceptions(event);
-
-    let mut all_frames: Vec<SentryFrame> = Vec::new();
-    for exc in &exceptions {
-        if let Some(st) = &exc.stacktrace {
-            if let Some(frames) = &st.frames {
-                all_frames.extend(frames.clone());
-            }
-        }
-    }
-
-    if all_frames.is_empty() {
-        None
-    } else {
-        Some(SentryStacktrace { frames: all_frames })
-    }
 }
 
 /// Normalize Sentry issue + event data into a structured text block for AI analysis
