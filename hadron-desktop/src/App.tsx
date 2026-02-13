@@ -35,6 +35,7 @@ const QuickAnalysisDetailView = lazy(() => import("./components/QuickAnalysisDet
 const SentryDetailView = lazy(() => import("./components/sentry/SentryDetailView"));
 const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
 const AskHadronView = lazy(() => import("./components/AskHadronView"));
+const ReleaseNotesView = lazy(() => import("./components/ReleaseNotesView"));
 
 // Loading fallback component
 function LazyLoadFallback() {
@@ -445,6 +446,9 @@ IMPORTANT INSTRUCTIONS:
     if (!sentryStatus && currentView === "sentry") {
       actions.setView("analyze");
     }
+    if (!jiraStatus && currentView === "release_notes") {
+      actions.setView("analyze");
+    }
   };
 
   // Handle opening analysis from dashboard
@@ -476,7 +480,7 @@ IMPORTANT INSTRUCTIONS:
         />
 
         {/* Navigation Tabs */}
-        <Navigation currentView={currentView} onViewChange={actions.setView} showJiraAnalyzer={jiraEnabled} showSentryAnalyzer={sentryEnabled} />
+        <Navigation currentView={currentView} onViewChange={actions.setView} showJiraAnalyzer={jiraEnabled} showSentryAnalyzer={sentryEnabled} showReleaseNotes={jiraEnabled} />
 
         {/* API Key Warning */}
         <ApiKeyWarning hasApiKey={!!apiKey} />
@@ -559,6 +563,17 @@ IMPORTANT INSTRUCTIONS:
             </ViewErrorBoundary>
           )}
 
+          {/* Release Notes Generator View - lazy loaded */}
+          {currentView === "release_notes" && (
+            <ViewErrorBoundary name="Release Notes">
+              <Suspense fallback={<LazyLoadFallback />}>
+                <div id="release_notes-panel" role="tabpanel">
+                  <ReleaseNotesView />
+                </div>
+              </Suspense>
+            </ViewErrorBoundary>
+          )}
+
           {/* Performance Analyzer View */}
           {currentView === "performance" && (
             <ViewErrorBoundary name="Performance">
@@ -573,7 +588,7 @@ IMPORTANT INSTRUCTIONS:
             <ViewErrorBoundary name="Ask Hadron">
               <Suspense fallback={<LazyLoadFallback />}>
                 <div id="chat-panel" role="tabpanel">
-                  <AskHadronView />
+                  <AskHadronView selectedAnalysisId={selectedAnalysis?.id ?? null} />
                 </div>
               </Suspense>
             </ViewErrorBoundary>

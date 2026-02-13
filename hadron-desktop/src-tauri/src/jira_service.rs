@@ -321,6 +321,70 @@ pub async fn create_jira_ticket(
 }
 
 // ============================================================================
+// JIRA Fix Versions
+// ============================================================================
+
+/// JIRA fix version
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraFixVersion {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub released: bool,
+    pub archived: bool,
+    #[serde(default)]
+    pub release_date: Option<String>,
+}
+
+/// List all fix versions for a JIRA project
+pub async fn list_fix_versions(
+    base_url: String,
+    email: String,
+    api_token: String,
+    project_key: String,
+) -> Result<Vec<JiraFixVersion>, String> {
+    let base_url = base_url.trim_end_matches('/');
+    let auth_header = create_auth_header(&email, &api_token);
+
+    log::info!("Listing fix versions for project {}", project_key);
+
+    let response = HTTP_CLIENT
+        .get(format!(
+            "{}/rest/api/3/project/{}/versions",
+            base_url, project_key
+        ))
+        .header("Authorization", &auth_header)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    let status = response.status();
+
+    if status.is_success() {
+        let versions: Vec<JiraFixVersion> = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse versions response: {}", e))?;
+
+        log::info!("Found {} fix versions for {}", versions.len(), project_key);
+        Ok(versions)
+    } else if status == reqwest::StatusCode::UNAUTHORIZED {
+        Err("Authentication failed. Check your credentials.".to_string())
+    } else if status == reqwest::StatusCode::NOT_FOUND {
+        Err(format!("Project '{}' not found.", project_key))
+    } else {
+        let error_body = response.text().await.unwrap_or_default();
+        Err(format!(
+            "Failed to list versions (HTTP {}): {}",
+            status.as_u16(),
+            error_body
+        ))
+    }
+}
+
+// ============================================================================
 // JIRA Search/Import Functionality (Phase 3)
 // ============================================================================
 

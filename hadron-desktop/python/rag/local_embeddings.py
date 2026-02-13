@@ -1,14 +1,14 @@
 """
 Local Embeddings Service
-Phase 5: Offline embedding generation using nomic-embed-text via Ollama
+Phase 5: Offline embedding generation using OpenAI-compatible API (llama.cpp / llama-server)
 
 This replaces OpenAI embeddings for fully offline operation.
+Uses /v1/embeddings endpoint exposed by llama-server.
 """
 
 import os
 import json
 import logging
-import subprocess
 from typing import List, Optional, Union
 from pathlib import Path
 
@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ============================================================================
 
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+LLAMACPP_HOST = os.environ.get("LLAMACPP_HOST", "http://localhost:8080")
 DEFAULT_MODEL = os.environ.get("HADRON_EMBEDDING_MODEL", "nomic-embed-text")
 EMBEDDING_DIM = 768  # nomic-embed-text dimension
 
-# Alternative local models (must be pulled first)
+# Alternative local models
 SUPPORTED_MODELS = {
     "nomic-embed-text": 768,
     "all-minilm": 384,
@@ -34,15 +34,15 @@ SUPPORTED_MODELS = {
 
 
 # ============================================================================
-# Ollama Client
+# llama.cpp Embedding Client (OpenAI-compatible)
 # ============================================================================
 
-class OllamaEmbeddingClient:
-    """Client for generating embeddings via Ollama"""
+class LlamaCppEmbeddingClient:
+    """Client for generating embeddings via llama-server's OpenAI-compatible API"""
 
     def __init__(
         self,
-        host: str = OLLAMA_HOST,
+        host: str = LLAMACPP_HOST,
         model: str = DEFAULT_MODEL,
         timeout: float = 30.0,
     ):
@@ -53,57 +53,43 @@ class OllamaEmbeddingClient:
         self._available = None
 
     def is_available(self) -> bool:
-        """Check if Ollama is running and model is available"""
+        """Check if llama-server is running and serving embeddings"""
         if self._available is not None:
             return self._available
 
         try:
-            response = self._client.get(f"{self.host}/api/tags")
+            response = self._client.get(f"{self.host}/v1/models")
             if response.status_code == 200:
                 data = response.json()
-                models = [m["name"].split(":")[0] for m in data.get("models", [])]
-                self._available = self.model in models
-                if not self._available:
-                    logger.warning(f"Model {self.model} not found. Available: {models}")
+                models = [m.get("id", "") for m in data.get("data", [])]
+                self._available = len(models) > 0
+                if self._available and self.model not in models and models:
+                    # Use first available model
+                    self.model = models[0]
+                    logger.info(f"Using available embedding model: {self.model}")
                 return self._available
             return False
         except Exception as e:
-            logger.debug(f"Ollama not available: {e}")
+            logger.debug(f"llama-server not available: {e}")
             self._available = False
             return False
 
-    def pull_model(self) -> bool:
-        """Pull the embedding model"""
-        logger.info(f"Pulling model: {self.model}")
-        try:
-            result = subprocess.run(
-                ["ollama", "pull", self.model],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                self._available = True
-                return True
-            logger.error(f"Failed to pull model: {result.stderr}")
-            return False
-        except FileNotFoundError:
-            logger.error("Ollama CLI not found")
-            return False
-
     def generate_embedding(self, text: str) -> Optional[List[float]]:
-        """Generate embedding for a single text"""
+        """Generate embedding for a single text via /v1/embeddings"""
         if not self.is_available():
             return None
 
         try:
             response = self._client.post(
-                f"{self.host}/api/embeddings",
-                json={"model": self.model, "prompt": text},
+                f"{self.host}/v1/embeddings",
+                json={"model": self.model, "input": text},
             )
 
             if response.status_code == 200:
                 data = response.json()
-                return data.get("embedding")
+                embeddings = data.get("data", [])
+                if embeddings:
+                    return embeddings[0].get("embedding")
             else:
                 logger.error(f"Embedding request failed: {response.status_code}")
                 return None
@@ -114,11 +100,29 @@ class OllamaEmbeddingClient:
 
     def generate_embeddings(self, texts: List[str]) -> List[Optional[List[float]]]:
         """Generate embeddings for multiple texts"""
-        embeddings = []
-        for text in texts:
-            embedding = self.generate_embedding(text)
-            embeddings.append(embedding)
-        return embeddings
+        if not self.is_available():
+            return [None] * len(texts)
+
+        try:
+            # llama-server supports batch input
+            response = self._client.post(
+                f"{self.host}/v1/embeddings",
+                json={"model": self.model, "input": texts},
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                embeddings_data = data.get("data", [])
+                # Sort by index to maintain order
+                embeddings_data.sort(key=lambda x: x.get("index", 0))
+                return [e.get("embedding") for e in embeddings_data]
+            else:
+                # Fallback to individual requests
+                return [self.generate_embedding(text) for text in texts]
+
+        except Exception as e:
+            logger.error(f"Batch embedding generation failed: {e}")
+            return [self.generate_embedding(text) for text in texts]
 
     @property
     def dimension(self) -> int:
@@ -141,7 +145,7 @@ class OllamaEmbeddingClient:
 # ============================================================================
 
 class SentenceTransformerClient:
-    """Fallback to sentence-transformers if Ollama is unavailable"""
+    """Fallback to sentence-transformers if llama-server is unavailable"""
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
         self.model_name = model_name
@@ -192,34 +196,35 @@ class SentenceTransformerClient:
 class LocalEmbeddings:
     """
     Unified local embedding interface.
-    Tries Ollama first, falls back to sentence-transformers.
+    Tries llama-server first, falls back to sentence-transformers.
     """
 
     def __init__(
         self,
         ollama_model: str = DEFAULT_MODEL,
         fallback_model: str = "all-MiniLM-L6-v2",
-        ollama_host: str = OLLAMA_HOST,
+        ollama_host: str = LLAMACPP_HOST,
     ):
-        self.ollama = OllamaEmbeddingClient(host=ollama_host, model=ollama_model)
+        # Keep parameter names for backward compatibility
+        self.llamacpp = LlamaCppEmbeddingClient(host=ollama_host, model=ollama_model)
         self.fallback = SentenceTransformerClient(fallback_model)
-        self._use_ollama = None
+        self._use_llamacpp = None
 
     def _select_backend(self) -> bool:
-        """Select which backend to use"""
-        if self._use_ollama is not None:
-            return self._use_ollama
+        """Select which backend to use. Returns True for llama.cpp."""
+        if self._use_llamacpp is not None:
+            return self._use_llamacpp
 
-        if self.ollama.is_available():
-            logger.info(f"Using Ollama embeddings: {self.ollama.model}")
-            self._use_ollama = True
+        if self.llamacpp.is_available():
+            logger.info(f"Using llama.cpp embeddings: {self.llamacpp.model}")
+            self._use_llamacpp = True
         elif self.fallback.is_available():
             logger.info(f"Using sentence-transformers: {self.fallback.model_name}")
-            self._use_ollama = False
+            self._use_llamacpp = False
         else:
             raise RuntimeError("No embedding backend available")
 
-        return self._use_ollama
+        return self._use_llamacpp
 
     def generate(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
         """
@@ -231,50 +236,45 @@ class LocalEmbeddings:
         Returns:
             Single embedding or list of embeddings
         """
-        use_ollama = self._select_backend()
+        use_llamacpp = self._select_backend()
 
         if isinstance(text, str):
-            if use_ollama:
-                return self.ollama.generate_embedding(text)
+            if use_llamacpp:
+                return self.llamacpp.generate_embedding(text)
             else:
                 return self.fallback.generate_embedding(text)
         else:
-            if use_ollama:
-                return self.ollama.generate_embeddings(text)
+            if use_llamacpp:
+                return self.llamacpp.generate_embeddings(text)
             else:
                 return self.fallback.generate_embeddings(text)
 
     @property
     def dimension(self) -> int:
         """Get embedding dimension"""
-        use_ollama = self._select_backend()
-        if use_ollama:
-            return self.ollama.dimension
+        use_llamacpp = self._select_backend()
+        if use_llamacpp:
+            return self.llamacpp.dimension
         else:
             return self.fallback.dimension
 
     @property
     def model_name(self) -> str:
         """Get current model name"""
-        use_ollama = self._select_backend()
-        if use_ollama:
-            return f"ollama:{self.ollama.model}"
+        use_llamacpp = self._select_backend()
+        if use_llamacpp:
+            return f"llamacpp:{self.llamacpp.model}"
         else:
             return f"sentence-transformers:{self.fallback.model_name}"
 
     def ensure_model(self) -> bool:
-        """Ensure embedding model is available, pulling if necessary"""
-        if self.ollama.is_available():
-            return True
-
-        # Try to pull Ollama model
-        if self.ollama.pull_model():
-            self._use_ollama = True
+        """Ensure embedding model is available"""
+        if self.llamacpp.is_available():
             return True
 
         # Fall back to sentence-transformers
         if self.fallback.is_available():
-            self._use_ollama = False
+            self._use_llamacpp = False
             return True
 
         return False
@@ -349,5 +349,6 @@ if __name__ == "__main__":
             print("Failed to generate embedding")
     else:
         print("No embedding backend available")
-        print("Install Ollama and run: ollama pull nomic-embed-text")
+        print("Ensure llama-server is running with an embedding model:")
+        print("  llama-server -m nomic-embed-text.gguf --host 127.0.0.1 --port 8080 --embedding")
         print("Or install: pip install sentence-transformers")

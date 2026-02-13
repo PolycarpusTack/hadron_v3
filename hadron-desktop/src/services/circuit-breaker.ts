@@ -193,7 +193,7 @@ function getActiveProviders(): string[] {
     }
   }
   // Default to primary providers (vLLM and llama.cpp are opt-in)
-  return ['openai', 'anthropic', 'ollama', 'zai'];
+  return ['openai', 'anthropic', 'llamacpp', 'zai'];
 }
 
 /**
@@ -215,7 +215,7 @@ function defaultModelForProvider(provider: string, currentModel: string): string
   // Otherwise choose sensible defaults
   if (p === 'anthropic') return 'claude-sonnet-4-20250514';
   if (p === 'zai') return 'glm-4';
-  if (p === 'ollama') return 'llama3.2:3b';
+  if (p === 'llamacpp') return 'default';
   return 'gpt-4o';
 }
 
@@ -288,16 +288,16 @@ export async function analyzeWithResilience(
       // Check if Keeper is configured for this provider
       const keeperSecretUid = await getKeeperSecretForProvider(provider);
 
-      // Ollama runs locally and doesn't need an API key
+      // llama.cpp runs locally and doesn't need an API key
       // If Keeper is configured, we don't need a direct API key
-      const providerKey = provider === "ollama"
+      const providerKey = provider === "llamacpp"
         ? ""
         : keeperSecretUid
           ? ""  // Keeper will provide the key in the backend
           : ((await getApiKey(provider)) || apiKey);
 
-      // Only check for API key if not using Ollama and not using Keeper
-      if (provider !== "ollama" && !providerKey && !keeperSecretUid) {
+      // Only check for API key if not using llama.cpp and not using Keeper
+      if (provider !== "llamacpp" && !providerKey && !keeperSecretUid) {
         throw new Error('Missing API key for provider');
       }
 

@@ -2,7 +2,7 @@
 # Week 1 MVP
 
 # AI Provider Configuration
-provider: openai  # or 'anthropic' for Claude, 'ollama' for local
+provider: openai  # or 'anthropic' for Claude, 'llamacpp' for local (llama-server)
 
 # OpenAI Settings
 model: gpt-4o
@@ -13,10 +13,10 @@ model: gpt-4o
 # model: claude-sonnet-4-20250514
 # api_key: ${ANTHROPIC_API_KEY}
 
-# Alternative: Local Ollama (free!)
-# provider: ollama
-# model: llama3
-# api_url: http://localhost:11434
+# Alternative: Local llama.cpp (free!)
+# provider: llamacpp
+# model: default
+# api_url: http://localhost:8080
 
 # Analysis Settings
 temperature: 0.3  # Lower = more consistent (0.0 to 1.0)

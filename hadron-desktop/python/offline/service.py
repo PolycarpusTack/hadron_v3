@@ -1,6 +1,6 @@
 """
 Offline Analysis Service
-Phase 5: Local AI analysis using Ollama and local RAG
+Phase 5: Local AI analysis using llama.cpp and local RAG
 
 This provides the same interface as the cloud-based analysis but runs entirely locally.
 """
@@ -39,15 +39,16 @@ class OfflineAnalysisResult:
 
 class OfflineAnalysisService:
     """
-    Local analysis service using Ollama.
+    Local analysis service using llama.cpp (llama-server).
     Provides the same interface as cloud-based analysis.
+    Uses OpenAI-compatible API at localhost:8080.
     """
 
     def __init__(self, config: Optional[OfflineConfig] = None):
         self.config = config or OfflineConfig.from_env()
-        self._client = httpx.Client(timeout=self.config.ollama.timeout)
+        self._client = httpx.Client(timeout=self.config.llamacpp.timeout)
         self._embeddings = LocalEmbeddings(
-            ollama_model=self.config.ollama.embedding_model,
+            ollama_model=self.config.llamacpp.embedding_model,
         )
         self._available = None
 
@@ -57,26 +58,26 @@ class OfflineAnalysisService:
             return self._available
 
         try:
-            # Check Ollama
-            response = self._client.get(f"{self.config.ollama.host}/api/tags")
+            # Check llama-server via OpenAI-compatible endpoint
+            response = self._client.get(f"{self.config.llamacpp.host}/v1/models")
             if response.status_code != 200:
                 self._available = False
                 return False
 
-            # Check model availability
+            # Check that at least one model is loaded
             data = response.json()
-            models = [m["name"].split(":")[0] for m in data.get("models", [])]
-            model_name = self.config.ollama.model.split(":")[0]
+            models = data.get("data", [])
 
-            if model_name not in models:
-                logger.warning(f"Model {self.config.ollama.model} not found")
-                # Try fallback to llama3
-                if "llama3" in models or "llama3.1" in models:
-                    self.config.ollama.model = "llama3.1:8b"
-                    logger.info(f"Using fallback model: {self.config.ollama.model}")
-                else:
-                    self._available = False
-                    return False
+            if not models:
+                logger.warning("No models loaded in llama-server")
+                self._available = False
+                return False
+
+            # Use first available model if configured model not found
+            model_ids = [m.get("id", "") for m in models]
+            if self.config.llamacpp.model not in model_ids and model_ids:
+                self.config.llamacpp.model = model_ids[0]
+                logger.info(f"Using available model: {self.config.llamacpp.model}")
 
             self._available = True
             return True
@@ -93,7 +94,7 @@ class OfflineAnalysisService:
         rag_context: Optional[List[Dict]] = None,
     ) -> OfflineAnalysisResult:
         """
-        Analyze crash content using local Ollama model.
+        Analyze crash content using local llama.cpp model.
 
         Args:
             content: Crash log or ticket content
@@ -110,28 +111,27 @@ class OfflineAnalysisService:
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(content, content_type, rag_context)
 
-        # Call Ollama
+        # Call llama-server via OpenAI-compatible API
         try:
             response = self._client.post(
-                f"{self.config.ollama.host}/api/generate",
+                f"{self.config.llamacpp.host}/v1/chat/completions",
                 json={
-                    "model": self.config.ollama.model,
-                    "prompt": user_prompt,
-                    "system": system_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": self.config.ollama.temperature,
-                        "num_predict": self.config.ollama.max_tokens,
-                    },
-                    "format": "json",
+                    "model": self.config.llamacpp.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": self.config.llamacpp.temperature,
+                    "max_tokens": self.config.llamacpp.max_tokens,
+                    "response_format": {"type": "json_object"},
                 },
             )
 
             if response.status_code != 200:
-                raise Exception(f"Ollama request failed: {response.status_code}")
+                raise Exception(f"llama-server request failed: {response.status_code}")
 
             result = response.json()
-            response_text = result.get("response", "{}")
+            response_text = result["choices"][0]["message"]["content"]
 
             # Parse JSON response
             try:
@@ -150,7 +150,7 @@ class OfflineAnalysisService:
                 component=analysis.get("component"),
                 confidence=analysis.get("confidence", 0.7),
                 similar_cases=rag_context,
-                model_used=self.config.ollama.model,
+                model_used=self.config.llamacpp.model,
                 processing_time_ms=processing_time,
             )
 
@@ -162,7 +162,7 @@ class OfflineAnalysisService:
                 root_cause=f"Analysis failed: {e}",
                 suggested_fixes=["Please check the crash log manually"],
                 confidence=0.0,
-                model_used=self.config.ollama.model,
+                model_used=self.config.llamacpp.model,
                 processing_time_ms=int((time.time() - start_time) * 1000),
             )
 
@@ -327,7 +327,7 @@ if __name__ == "__main__":
 
     print("Checking offline service availability...")
     if service.is_available():
-        print(f"Service available using model: {service.config.ollama.model}")
+        print(f"Service available using model: {service.config.llamacpp.model}")
 
         test_content = """
 MessageNotUnderstood: BMProgramSegmentDurations>>calculateTotalDuration
@@ -350,6 +350,5 @@ Stack trace:
         print(f"  Processing Time: {result.processing_time_ms}ms")
     else:
         print("Offline service not available")
-        print("Ensure Ollama is running and has a model available")
-        print("  ollama serve")
-        print("  ollama pull llama3.1:8b")
+        print("Ensure llama-server is running:")
+        print("  llama-server -m your-model.gguf --port 8080")

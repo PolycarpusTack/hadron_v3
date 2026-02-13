@@ -1,6 +1,6 @@
 """
 Offline Deployment Configuration
-Phase 5: Settings for fully offline Hadron operation
+Phase 5: Settings for fully offline Hadron operation (using llama.cpp)
 """
 
 import os
@@ -18,9 +18,9 @@ class OfflineMode(Enum):
 
 
 @dataclass
-class OllamaSettings:
-    """Ollama service configuration"""
-    host: str = "http://localhost:11434"
+class LlamaCppSettings:
+    """llama.cpp (llama-server) service configuration"""
+    host: str = "http://localhost:8080"
     model: str = "hadron:v1"  # Fine-tuned model
     embedding_model: str = "nomic-embed-text"
     timeout: float = 120.0
@@ -51,7 +51,7 @@ class CacheSettings:
 class OfflineConfig:
     """Complete offline deployment configuration"""
     mode: OfflineMode = OfflineMode.HYBRID
-    ollama: OllamaSettings = field(default_factory=OllamaSettings)
+    llamacpp: LlamaCppSettings = field(default_factory=LlamaCppSettings)
     rag: RAGSettings = field(default_factory=RAGSettings)
     cache: CacheSettings = field(default_factory=CacheSettings)
 
@@ -64,14 +64,14 @@ class OfflineConfig:
         """Validate configuration and return list of issues"""
         issues = []
 
-        # Check Ollama availability
+        # Check llama-server availability via OpenAI-compatible endpoint
         import httpx
         try:
-            response = httpx.get(f"{self.ollama.host}/api/tags", timeout=5.0)
+            response = httpx.get(f"{self.llamacpp.host}/v1/models", timeout=5.0)
             if response.status_code != 200:
-                issues.append(f"Ollama not responding at {self.ollama.host}")
+                issues.append(f"llama-server not responding at {self.llamacpp.host}")
         except Exception as e:
-            issues.append(f"Cannot connect to Ollama: {e}")
+            issues.append(f"Cannot connect to llama-server: {e}")
 
         # Check paths exist
         cache_path = Path(self.cache.cache_dir).expanduser()
@@ -88,9 +88,9 @@ class OfflineConfig:
         """Export configuration as environment variables"""
         return {
             "HADRON_OFFLINE_MODE": self.mode.value,
-            "OLLAMA_HOST": self.ollama.host,
-            "HADRON_OLLAMA_MODEL": self.ollama.model,
-            "HADRON_EMBEDDING_MODEL": self.ollama.embedding_model,
+            "LLAMACPP_HOST": self.llamacpp.host,
+            "HADRON_LLAMACPP_MODEL": self.llamacpp.model,
+            "HADRON_EMBEDDING_MODEL": self.llamacpp.embedding_model,
             "HADRON_VECTOR_DB_PATH": str(Path(self.rag.vector_db_path).expanduser()),
             "HADRON_CACHE_DIR": str(Path(self.cache.cache_dir).expanduser()),
             "HADRON_CACHE_ENABLED": str(self.cache.enabled).lower(),
@@ -105,9 +105,9 @@ class OfflineConfig:
         except ValueError:
             mode = OfflineMode.HYBRID
 
-        ollama = OllamaSettings(
-            host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
-            model=os.environ.get("HADRON_OLLAMA_MODEL", "hadron:v1"),
+        llamacpp = LlamaCppSettings(
+            host=os.environ.get("LLAMACPP_HOST", "http://localhost:8080"),
+            model=os.environ.get("HADRON_LLAMACPP_MODEL", "hadron:v1"),
             embedding_model=os.environ.get("HADRON_EMBEDDING_MODEL", "nomic-embed-text"),
         )
 
@@ -120,7 +120,7 @@ class OfflineConfig:
             cache_dir=os.environ.get("HADRON_CACHE_DIR", "~/.hadron/cache"),
         )
 
-        return cls(mode=mode, ollama=ollama, rag=rag, cache=cache)
+        return cls(mode=mode, llamacpp=llamacpp, rag=rag, cache=cache)
 
 
 def get_default_config() -> OfflineConfig:

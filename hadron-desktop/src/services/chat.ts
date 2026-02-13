@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getApiKey } from "./secure-storage";
 import { getOpenSearchConfig, getOpenSearchPassword } from "./opensearch";
 import { getStoredModel, getStoredProvider } from "./api";
+import { getJiraConfig } from "./jira";
 import logger from "./logger";
 
 // ============================================================================
@@ -67,6 +68,7 @@ export async function sendChatMessage(
     useKb?: boolean;
     wonVersion?: string;
     customer?: string;
+    analysisId?: number | null;
   } = {}
 ): Promise<ChatResponse> {
   const provider = getStoredProvider();
@@ -97,6 +99,26 @@ export async function sendChatMessage(
     }
   }
 
+  // Build JIRA config if enabled
+  let jiraBaseUrl: string | null = null;
+  let jiraEmail: string | null = null;
+  let jiraApiToken: string | null = null;
+  let jiraProjectKey: string | null = null;
+  try {
+    const jiraConfig = await getJiraConfig();
+    if (jiraConfig.enabled && jiraConfig.baseUrl) {
+      const jiraToken = await getApiKey("jira");
+      if (jiraToken) {
+        jiraBaseUrl = jiraConfig.baseUrl;
+        jiraEmail = jiraConfig.email;
+        jiraApiToken = jiraToken;
+        jiraProjectKey = jiraConfig.projectKey || null;
+      }
+    }
+  } catch (e) {
+    logger.warn("Failed to load JIRA config for chat", { error: String(e) });
+  }
+
   // Convert to backend format (only user/assistant messages)
   const backendMessages = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
@@ -116,6 +138,11 @@ export async function sendChatMessage(
       customer: options.customer || kbConfig?.defaultCustomer || null,
       kb_mode: kbConfig?.mode || "remote",
       opensearch_config: opensearchConfig,
+      jira_base_url: jiraBaseUrl,
+      jira_email: jiraEmail,
+      jira_api_token: jiraApiToken,
+      jira_project_key: jiraProjectKey,
+      analysis_id: options.analysisId ?? null,
     },
   });
 }
@@ -216,46 +243,85 @@ export function getChatFeedback(messageId: string): ChatFeedback | null {
 }
 
 // ============================================================================
-// Session Persistence (localStorage)
+// Session Persistence (SQLite via Tauri)
 // ============================================================================
 
-const SESSIONS_KEY = "hadron_chat_sessions";
-const MAX_SESSIONS = 50;
+interface ChatSessionRecord {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
 
-export function getChatSessions(): ChatSession[] {
+interface ChatMessageRecord {
+  id: string;
+  sessionId: string;
+  role: string;
+  content: string;
+  sourcesJson: string | null;
+  timestamp: number;
+}
+
+export async function getChatSessions(): Promise<ChatSession[]> {
   try {
-    const stored = localStorage.getItem(SESSIONS_KEY);
-    if (!stored) return [];
-    const sessions: ChatSession[] = JSON.parse(stored);
-    return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
-  } catch {
+    const records = await invoke<ChatSessionRecord[]>("chat_list_sessions");
+    // Return sessions without messages (loaded on demand via selectSession)
+    return records.map((r) => ({
+      id: r.id,
+      title: r.title,
+      messages: [],
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }));
+  } catch (e) {
+    logger.warn("Failed to load chat sessions from DB", { error: String(e) });
     return [];
   }
 }
 
-export function saveChatSession(session: ChatSession): void {
+export async function getChatSessionMessages(sessionId: string): Promise<ChatMessage[]> {
   try {
-    const sessions = getChatSessions();
-    const idx = sessions.findIndex((s) => s.id === session.id);
-    if (idx >= 0) {
-      sessions[idx] = session;
-    } else {
-      sessions.unshift(session);
-    }
-    // Trim to max sessions
-    const trimmed = sessions.slice(0, MAX_SESSIONS);
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(trimmed));
+    const records = await invoke<ChatMessageRecord[]>("chat_get_messages", { sessionId });
+    return records.map((r) => ({
+      id: r.id,
+      role: r.role as "user" | "assistant" | "system",
+      content: r.content,
+      timestamp: r.timestamp,
+      sources: r.sourcesJson ? JSON.parse(r.sourcesJson) : undefined,
+    }));
   } catch (e) {
-    logger.warn("Failed to save chat session", { error: String(e) });
+    logger.warn("Failed to load chat messages from DB", { error: String(e) });
+    return [];
   }
 }
 
-export function deleteChatSession(sessionId: string): void {
+export async function saveChatSession(session: ChatSession): Promise<void> {
   try {
-    const sessions = getChatSessions().filter((s) => s.id !== sessionId);
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    await invoke("chat_save_session", {
+      request: {
+        id: session.id,
+        title: session.title,
+        created_at: session.createdAt,
+        updated_at: session.updatedAt,
+        messages: session.messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          sources_json: m.sources ? JSON.stringify(m.sources) : null,
+          timestamp: m.timestamp,
+        })),
+      },
+    });
   } catch (e) {
-    logger.warn("Failed to delete chat session", { error: String(e) });
+    logger.warn("Failed to save chat session to DB", { error: String(e) });
+  }
+}
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  try {
+    await invoke("chat_delete_session", { sessionId });
+  } catch (e) {
+    logger.warn("Failed to delete chat session from DB", { error: String(e) });
   }
 }
 

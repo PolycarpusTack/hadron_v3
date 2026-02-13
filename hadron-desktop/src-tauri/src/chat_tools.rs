@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use crate::ai_service::{call_provider_quick, ChatMessage};
 use crate::database::{Analysis, Database};
+use crate::jira_service;
 use crate::rag_commands::{kb_query_internal, OpenSearchConfig};
 
 // ============================================================================
@@ -37,6 +38,15 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
+/// JIRA credentials for chatbot tool access
+#[derive(Debug, Clone)]
+pub struct JiraConfig {
+    pub base_url: String,
+    pub email: String,
+    pub api_token: String,
+    pub project_key: Option<String>,
+}
+
 /// Configuration passed to tool executor for external service access
 pub struct ToolContext {
     pub db: Arc<Database>,
@@ -47,6 +57,7 @@ pub struct ToolContext {
     pub kb_mode: String,
     pub won_version: Option<String>,
     pub customer: Option<String>,
+    pub jira_config: Option<JiraConfig>,
 }
 
 // ============================================================================
@@ -257,6 +268,58 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                 "required": ["component"]
             }),
         },
+        // --- JIRA Tools (Sprint 2) ---
+        ToolDefinition {
+            name: "search_jira".to_string(),
+            description: "Search JIRA issues by JQL query or text. Returns matching tickets with key, summary, status, assignee, and priority.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "JQL query or text search (e.g., 'project = PSI AND status = Open', 'NilReceiver scheduling crash')"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max results (default 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDefinition {
+            name: "create_jira_ticket".to_string(),
+            description: "Create a new JIRA ticket. Use when the user asks to file a bug or create a ticket from a crash analysis.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "project_key": {
+                        "type": "string",
+                        "description": "JIRA project key (e.g., 'PSI', 'WON')"
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Ticket summary/title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Detailed ticket description"
+                    },
+                    "issue_type": {
+                        "type": "string",
+                        "enum": ["Bug", "Task", "Story"],
+                        "description": "Issue type (default: Bug)"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["Highest", "High", "Medium", "Low", "Lowest"],
+                        "description": "Priority level (default: Medium)"
+                    }
+                },
+                "required": ["project_key", "summary", "description"]
+            }),
+        },
     ]
 }
 
@@ -282,6 +345,8 @@ pub async fn execute_tool(
         "get_crash_timeline" => execute_get_crash_timeline(&tool_call.arguments, ctx).await,
         "compare_crashes" => execute_compare_crashes(&tool_call.arguments, ctx).await,
         "get_component_health" => execute_get_component_health(&tool_call.arguments, ctx).await,
+        "search_jira" => execute_search_jira(&tool_call.arguments, ctx).await,
+        "create_jira_ticket" => execute_create_jira_ticket(&tool_call.arguments, ctx).await,
         _ => Err(format!("Unknown tool: {}", tool_call.name)),
     };
 
@@ -350,7 +415,7 @@ async fn execute_search_analyses(
     }
 
     // Merge with RRF if we have multiple result sets
-    let results = if result_lists.len() > 1 {
+    let mut results = if result_lists.len() > 1 {
         reciprocal_rank_fusion(result_lists)
     } else {
         result_lists.into_iter().next().unwrap_or_default()
@@ -358,6 +423,32 @@ async fn execute_search_analyses(
 
     if results.is_empty() {
         return Ok("No analyses found matching the query.".to_string());
+    }
+
+    // Apply feedback-based boosting: re-rank results using accept/reject signals
+    let ids: Vec<i64> = results.iter().map(|a| a.id).collect();
+    let db_clone = Arc::clone(&ctx.db);
+    if let Ok(feedback_scores) = tokio::task::spawn_blocking(move || {
+        db_clone.get_feedback_scores_for_analyses(&ids)
+    })
+    .await
+    .unwrap_or_else(|_| Ok(HashMap::new()))
+    {
+        if !feedback_scores.is_empty() {
+            // Assign each result an ordinal score, then apply multiplier, then re-sort
+            let n = results.len() as f64;
+            let mut scored: Vec<(Analysis, f64)> = results
+                .into_iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    let base = n - i as f64; // higher = better rank
+                    let mult = feedback_scores.get(&a.id).copied().unwrap_or(1.0);
+                    (a, base * mult)
+                })
+                .collect();
+            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            results = scored.into_iter().map(|(a, _)| a).collect();
+        }
     }
 
     let variant_note = if !variants.is_empty() {
@@ -1005,6 +1096,141 @@ async fn execute_get_component_health(
     }
 
     Ok(output)
+}
+
+// ============================================================================
+// JIRA Tool Handlers (Sprint 2)
+// ============================================================================
+
+async fn execute_search_jira(
+    args: &serde_json::Value,
+    ctx: &ToolContext,
+) -> Result<String, String> {
+    let jira = ctx
+        .jira_config
+        .as_ref()
+        .ok_or("JIRA is not configured. Please set up JIRA credentials in Settings.")?;
+
+    let query = args["query"]
+        .as_str()
+        .ok_or("Missing 'query' parameter")?
+        .to_string();
+    let max_results = args["max_results"].as_i64().unwrap_or(5) as i32;
+
+    // If the query doesn't look like JQL (no operators), wrap it as a text search
+    let jql = if query.contains('=') || query.contains("ORDER BY") || query.starts_with("project") {
+        query.clone()
+    } else {
+        format!("text ~ \"{}\" ORDER BY updated DESC", query.replace('"', "\\\""))
+    };
+
+    let result = jira_service::search_jira_issues(
+        jira.base_url.clone(),
+        jira.email.clone(),
+        jira.api_token.clone(),
+        jql,
+        max_results,
+        false, // don't include comments for search results
+    )
+    .await
+    .map_err(|e| format!("JIRA search failed: {}", e))?;
+
+    if result.issues.is_empty() {
+        return Ok(format!("No JIRA issues found matching '{}'.", query));
+    }
+
+    let mut output = format!("Found {} JIRA issues:\n\n", result.issues.len());
+    output.push_str("| Key | Summary | Status | Priority | Assignee | Type |\n");
+    output.push_str("|-----|---------|--------|----------|----------|------|\n");
+
+    for issue in &result.issues {
+        let assignee = issue
+            .fields
+            .assignee
+            .as_ref()
+            .map(|a| a.display_name.as_str())
+            .unwrap_or("Unassigned");
+        let priority = issue
+            .fields
+            .priority
+            .as_ref()
+            .map(|p| p.name.as_str())
+            .unwrap_or("-");
+
+        output.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} |\n",
+            issue.key,
+            truncate(&issue.fields.summary, 60),
+            issue.fields.status.name,
+            priority,
+            assignee,
+            issue.fields.issuetype.name,
+        ));
+    }
+
+    Ok(output)
+}
+
+async fn execute_create_jira_ticket(
+    args: &serde_json::Value,
+    ctx: &ToolContext,
+) -> Result<String, String> {
+    let jira = ctx
+        .jira_config
+        .as_ref()
+        .ok_or("JIRA is not configured. Please set up JIRA credentials in Settings.")?;
+
+    let project_key = args["project_key"]
+        .as_str()
+        .map(|s| s.to_string())
+        .or_else(|| jira.project_key.clone())
+        .ok_or("Missing 'project_key' parameter and no default JIRA project configured")?;
+    let summary = args["summary"]
+        .as_str()
+        .ok_or("Missing 'summary' parameter")?
+        .to_string();
+    let description = args["description"]
+        .as_str()
+        .ok_or("Missing 'description' parameter")?
+        .to_string();
+    let issue_type = args["issue_type"]
+        .as_str()
+        .unwrap_or("Bug")
+        .to_string();
+    let priority = args["priority"]
+        .as_str()
+        .unwrap_or("Medium")
+        .to_string();
+
+    let ticket = jira_service::JiraTicketRequest {
+        summary: summary.clone(),
+        description: description.clone(),
+        priority,
+        labels: vec!["hadron-created".to_string()],
+        components: None,
+    };
+
+    let result = jira_service::create_jira_ticket(
+        jira.base_url.clone(),
+        jira.email.clone(),
+        jira.api_token.clone(),
+        project_key.clone(),
+        issue_type,
+        ticket,
+    )
+    .await
+    .map_err(|e| format!("JIRA ticket creation failed: {}", e))?;
+
+    if result.success {
+        let key = result.ticket_key.unwrap_or_default();
+        let url = result.ticket_url.unwrap_or_default();
+        Ok(format!(
+            "JIRA ticket created successfully!\n\n- **Key**: {}\n- **URL**: {}\n- **Summary**: {}",
+            key, url, summary
+        ))
+    } else {
+        Err(result.error.unwrap_or_else(|| "Unknown error creating JIRA ticket".to_string()))
+    }
 }
 
 // ============================================================================

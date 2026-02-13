@@ -12,5 +12,6 @@ pyyaml>=6.0
 # Knowledge Base / OpenSearch integration
 opensearch-py>=2.4.0
 
-# Optional: Local AI
-# ollama>=0.1.0
+# Optional: Local AI (llama.cpp uses OpenAI-compatible API, no Python package needed)
+# httpx is used for local embeddings
+httpx>=0.24.0

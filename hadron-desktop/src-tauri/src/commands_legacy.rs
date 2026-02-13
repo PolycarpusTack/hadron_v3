@@ -1,5 +1,5 @@
 use crate::ai_service;
-use crate::ai_service::translate_ollama;
+use crate::ai_service::translate_llamacpp;
 use crate::database::{
     Analysis, AnalysisNote, Database, ErrorPatternCount, Tag, Translation, TrendDataPoint,
 };
@@ -1911,13 +1911,13 @@ pub async fn translate_content(
         Cow::Borrowed(&content)
     };
 
-    // For Ollama, use Rust-native translation (no Python needed)
-    let translation_text = if provider.to_lowercase() == "ollama" {
-        translate_ollama(&content_for_ai, &model)
+    // For llama.cpp, use Rust-native translation (no Python needed)
+    let translation_text = if provider.to_lowercase() == "llamacpp" {
+        translate_llamacpp(&content_for_ai, &model)
             .await
             .map_err(|e| {
-                log::error!("Ollama translation failed: error={}", e);
-                format!("Ollama translation failed: {}", e)
+                log::error!("llama.cpp translation failed: error={}", e);
+                format!("llama.cpp translation failed: {}", e)
             })?
     } else {
         // Run Python translation for cloud providers

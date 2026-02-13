@@ -168,8 +168,8 @@ def analyze_with_ai(crash_data: Dict[str, Any], config: Dict[str, Any], analysis
     provider = config.get('provider', 'openai')
     model = config.get('model', 'gpt-4-turbo-preview')
 
-    # Validate API key (not needed for Ollama)
-    if provider != 'ollama' and not config.get('api_key'):
+    # Validate API key (not needed for llamacpp)
+    if provider != 'llamacpp' and not config.get('api_key'):
         raise Exception("No API key found. Set AI_API_KEY environment variable.")
 
     # Get prompts from template system with analysis type
@@ -222,36 +222,24 @@ def analyze_with_ai(crash_data: Dict[str, Any], config: Dict[str, Any], analysis
             ai_output = response.choices[0].message.content.strip()
             tokens_used = response.usage.total_tokens
 
-        elif provider == 'ollama':
-            # Local Ollama via HTTP API
-            base_url = os.getenv('OLLAMA_API_URL', 'http://127.0.0.1:11434')
+        elif provider == 'llamacpp':
+            # Local llama.cpp via OpenAI-compatible API
+            base_url = os.getenv('LLAMACPP_API_URL', 'http://127.0.0.1:8080')
             try:
-                payload = {
-                    "model": model,
-                    "messages": [
+                client = OpenAI(api_key="no-key", base_url=f"{base_url}/v1")
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
                         {"role": "system", "content": prompts['system']},
                         {"role": "user", "content": prompts['user']}
                     ],
-                    "stream": False,
-                    # "options": {"temperature": config.get('temperature', 0.3)}  # optional
-                }
-                r = requests.post(f"{base_url}/api/chat", json=payload, timeout=120)
-                if r.status_code != 200:
-                    raise Exception(f"Ollama API error {r.status_code}: {r.text[:200]}")
-                data = r.json()
-                # Try to read chat content
-                ai_output = None
-                if isinstance(data, dict):
-                    if 'message' in data and isinstance(data['message'], dict):
-                        ai_output = data['message'].get('content')
-                    if not ai_output:
-                        ai_output = data.get('response')
-                if not ai_output:
-                    raise Exception("Empty response from Ollama")
-
-                tokens_used = 0  # Ollama local; no billing
+                    temperature=config.get('temperature', 0.3),
+                    max_tokens=config.get('max_tokens', 2000)
+                )
+                ai_output = response.choices[0].message.content.strip()
+                tokens_used = 0  # llama.cpp local; no billing
             except Exception as e:
-                raise Exception(f"Ollama request failed: {e}")
+                raise Exception(f"llama.cpp request failed: {e}")
 
         else:  # openai (default)
             client = OpenAI(api_key=config['api_key'])
@@ -357,11 +345,11 @@ def estimate_cost(tokens: int, model: str, provider: str = 'openai') -> float:
         # Assuming ~200K tokens/month usage = $0.015 per 1K tokens
         'glm-4.6': 0.000015 / 1000,  # effectively free with subscription
 
-        # Ollama - local, effectively zero cost
-        'ollama': 0.0,
+        # llama.cpp - local, effectively zero cost
+        'llamacpp': 0.0,
     }
 
-    if provider == 'ollama':
+    if provider == 'llamacpp':
         return 0.0
 
     rate = pricing.get(model, 0.01 / 1000)

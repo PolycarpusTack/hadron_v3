@@ -1,5 +1,5 @@
 # Training Pipeline Dependencies
-# For QLoRA fine-tuning and Ollama packaging
+# For QLoRA fine-tuning and GGUF packaging (llama.cpp)
 
 # Core training
 torch>=2.1.0

@@ -4,14 +4,14 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 use crate::ai_service::{
-    build_assistant_tool_message, build_chat_request_anthropic, build_chat_request_ollama,
+    build_assistant_tool_message, build_chat_request_anthropic,
     build_chat_request_openai, build_chat_request_with_tools_anthropic,
-    build_chat_request_with_tools_ollama, build_chat_request_with_tools_openai,
+    build_chat_request_with_tools_openai,
     build_tool_result_messages, call_provider_chat, call_provider_quick,
-    call_provider_raw_json, extract_text_from_response,
+    call_provider_raw_json, call_provider_streaming, extract_text_from_response,
     parse_tool_calls, response_wants_tools, ChatMessage, ChatResponse, ChatStreamEvent,
 };
-use crate::chat_tools::{execute_tool, get_tool_definitions, ToolContext};
+use crate::chat_tools::{execute_tool, get_tool_definitions, JiraConfig, ToolContext};
 use crate::database::Database;
 use crate::rag_commands::{kb_query_internal, rag_build_context_internal, OpenSearchConfig};
 
@@ -31,6 +31,11 @@ pub struct ChatRequest {
     pub customer: Option<String>,
     pub kb_mode: Option<String>,
     pub opensearch_config: Option<ChatOpenSearchConfig>,
+    pub jira_base_url: Option<String>,
+    pub jira_email: Option<String>,
+    pub jira_api_token: Option<String>,
+    pub jira_project_key: Option<String>,
+    pub analysis_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,8 +81,10 @@ Tool usage strategy:
 - For understanding crash history: use `get_crash_timeline`
 - For comparing two crashes: use `compare_crashes`
 - For component health assessment: use `get_component_health`
+- For searching JIRA tickets: use `search_jira` with JQL or text
+- For creating a bug/ticket: use `create_jira_ticket`
 - You can call multiple tools in sequence to build a complete answer
-- Always cite your sources (analysis IDs, KB doc titles, signature hashes)
+- Always cite your sources (analysis IDs, KB doc titles, signature hashes, JIRA keys)
 
 ## Response Formatting
 - Be concise but thorough. Default to 2-3 paragraphs unless asked for more detail.
@@ -375,6 +382,19 @@ pub async fn chat_send(
         use_ssl: c.use_ssl,
     });
 
+    // Build JIRA config if credentials are provided
+    let jira_config = match (&request.jira_base_url, &request.jira_email, &request.jira_api_token) {
+        (Some(base_url), Some(email), Some(token)) if !base_url.is_empty() && !token.is_empty() => {
+            Some(JiraConfig {
+                base_url: base_url.clone(),
+                email: email.clone(),
+                api_token: token.clone(),
+                project_key: request.jira_project_key.clone(),
+            })
+        }
+        _ => None,
+    };
+
     let tool_ctx = ToolContext {
         db: Arc::clone(&db),
         api_key: request.api_key.clone(),
@@ -384,11 +404,13 @@ pub async fn chat_send(
         kb_mode: request.kb_mode.clone().unwrap_or_else(|| "remote".to_string()),
         won_version: request.won_version.clone(),
         customer: request.customer.clone(),
+        jira_config,
     };
 
     // --- Determine available tools based on user toggles ---
     let all_tools = get_tool_definitions();
     let use_rag = request.use_rag;
+    let has_jira = tool_ctx.jira_config.is_some();
     let tools: Vec<_> = all_tools
         .into_iter()
         .filter(|t| {
@@ -397,6 +419,8 @@ pub async fn chat_send(
                 "search_kb" => request.use_kb,
                 // RAG-powered tools gated on use_rag
                 "search_analyses" | "find_similar_crashes" | "get_analysis_detail" => use_rag,
+                // JIRA tools only available when JIRA is configured
+                "search_jira" | "create_jira_ticket" => has_jira,
                 // All other tools (stats, signatures, trends) are always available
                 _ => true,
             }
@@ -406,7 +430,47 @@ pub async fn chat_send(
     // --- Build system prompt ---
     // The agent system prompt is simpler now — no pre-fetched context blocks.
     // The LLM decides what to search via tool calls.
-    let system_prompt = CHAT_SYSTEM_PROMPT_BASE.to_string();
+    let mut system_prompt = CHAT_SYSTEM_PROMPT_BASE.to_string();
+
+    // If an analysis is selected, load it and prepend as context
+    if let Some(analysis_id) = request.analysis_id {
+        let db_clone = Arc::clone(&db);
+        match tokio::task::spawn_blocking(move || db_clone.get_analysis_by_id(analysis_id))
+            .await
+        {
+            Ok(Ok(analysis)) => {
+                let fixes: Vec<String> = serde_json::from_str(&analysis.suggested_fixes)
+                    .unwrap_or_default();
+                system_prompt.push_str(&format!(
+                    "\n\n## Currently Selected Analysis\n\
+                     The user is viewing this analysis. Answer questions in its context.\n\
+                     <current_analysis id=\"{}\" filename=\"{}\" severity=\"{}\" type=\"{}\">\n\
+                     Error: {}\n\
+                     Component: {}\n\
+                     Root Cause: {}\n\
+                     Suggested Fixes: {}\n\
+                     Stack Trace: {}\n\
+                     </current_analysis>",
+                    analysis.id,
+                    analysis.filename,
+                    analysis.severity,
+                    analysis.error_type,
+                    analysis.error_message.as_deref().unwrap_or("N/A"),
+                    analysis.component.as_deref().unwrap_or("unknown"),
+                    analysis.root_cause,
+                    fixes.join("; "),
+                    analysis.stack_trace.as_deref().unwrap_or("N/A"),
+                ));
+                log::info!("Loaded analysis #{} as chat context", analysis_id);
+            }
+            Ok(Err(e)) => {
+                log::warn!("Failed to load analysis #{}: {}", analysis_id, e);
+            }
+            Err(e) => {
+                log::warn!("Task error loading analysis #{}: {}", analysis_id, e);
+            }
+        }
+    }
 
     // --- Build initial message history as serde_json::Value ---
     let mut agent_messages: Vec<serde_json::Value> = request
@@ -446,11 +510,12 @@ pub async fn chat_send(
                 &request.model,
                 4000,
             ),
-            "ollama" => build_chat_request_with_tools_ollama(
+            "llamacpp" => build_chat_request_with_tools_openai(
                 &agent_messages,
                 &tools,
                 &system_prompt,
                 &request.model,
+                4000,
             ),
             _ => build_chat_request_with_tools_openai(
                 &agent_messages,
@@ -471,21 +536,53 @@ pub async fn chat_send(
 
         // Check if the LLM wants to call tools
         if !response_wants_tools(&response, &request.provider) {
-            // --- Final text response — stream it to the frontend ---
-            let final_text = extract_text_from_response(&response, &request.provider);
+            let _ = app.emit("chat-context", &context_summary);
 
-            // Emit context summary
-            let _ = app.emit("chat-context", context_summary);
+            // If no tool calls happened at all (first iteration), just chunk-emit
+            // the existing response — no need for a second API call.
+            if total_tool_calls == 0 {
+                let final_text = extract_text_from_response(&response, &request.provider);
+                emit_text_as_stream(&app, &final_text);
+                let est_tokens = (final_text.len() as f64 / 4.0) as i32;
+                return Ok(ChatResponse {
+                    content: final_text,
+                    tokens_used: est_tokens,
+                    cost: 0.0,
+                });
+            }
 
-            // Emit the response as stream events (chunked for smooth rendering)
-            emit_text_as_stream(&app, &final_text);
+            // Tools were called — make a true streaming request without tool
+            // definitions so the user sees token-by-token output.
+            let stream_body = build_streaming_request(
+                &agent_messages,
+                &system_prompt,
+                &request.provider,
+                &request.model,
+            );
 
-            let est_tokens = (final_text.len() as f64 / 4.0) as i32;
-            return Ok(ChatResponse {
-                content: final_text,
-                tokens_used: est_tokens,
-                cost: 0.0,
-            });
+            let stream_result = call_provider_streaming(
+                &app,
+                &request.provider,
+                stream_body,
+                &request.api_key,
+            )
+            .await;
+
+            return match stream_result {
+                Ok(resp) => Ok(resp),
+                Err(e) => {
+                    // Fallback: emit the non-streaming text if streaming fails
+                    log::warn!("Streaming failed, falling back: {}", e);
+                    let final_text = extract_text_from_response(&response, &request.provider);
+                    emit_text_as_stream(&app, &final_text);
+                    let est_tokens = (final_text.len() as f64 / 4.0) as i32;
+                    Ok(ChatResponse {
+                        content: final_text,
+                        tokens_used: est_tokens,
+                        cost: 0.0,
+                    })
+                }
+            };
         }
 
         // --- Tool calls detected — execute them ---
@@ -549,40 +646,52 @@ pub async fn chat_send(
         agent_messages.extend(result_msgs);
     }
 
-    // --- Max iterations reached — get a final response without tools ---
-    log::warn!("Agent loop hit max iterations ({}), requesting final answer", MAX_AGENT_ITERATIONS);
+    // --- Max iterations reached — get a final response via true streaming ---
+    log::warn!("Agent loop hit max iterations ({}), requesting final answer with streaming", MAX_AGENT_ITERATIONS);
 
-    let final_body = match request.provider.as_str() {
-        "anthropic" => build_chat_request_anthropic(
-            // For the final call, convert agent_messages back to ChatMessage format
-            // Actually, we can use the JSON messages directly via the with_tools builder but with empty tools
-            &request.messages,
-            &system_prompt,
-            &request.model,
-            4000,
-            false,
-        ),
-        "ollama" => build_chat_request_ollama(
-            &request.messages,
-            &system_prompt,
-            &request.model,
-            false,
-        ),
-        _ => build_chat_request_openai(
-            &request.messages,
-            &system_prompt,
-            &request.model,
-            4000,
-            false,
-        ),
-    };
+    let _ = app.emit("chat-context", &context_summary);
 
-    let final_response = call_provider_chat(&request.provider, final_body, &request.api_key).await?;
+    let stream_body = build_streaming_request(
+        &agent_messages,
+        &system_prompt,
+        &request.provider,
+        &request.model,
+    );
 
-    let _ = app.emit("chat-context", context_summary);
-    emit_text_as_stream(&app, &final_response.content);
+    let stream_result = call_provider_streaming(
+        &app,
+        &request.provider,
+        stream_body,
+        &request.api_key,
+    )
+    .await;
 
-    Ok(final_response)
+    match stream_result {
+        Ok(resp) => Ok(resp),
+        Err(e) => {
+            // Fallback: non-streaming
+            log::warn!("Streaming failed, falling back: {}", e);
+            let final_body = match request.provider.as_str() {
+                "anthropic" => build_chat_request_anthropic(
+                    &request.messages,
+                    &system_prompt,
+                    &request.model,
+                    4000,
+                    false,
+                ),
+                _ => build_chat_request_openai(
+                    &request.messages,
+                    &system_prompt,
+                    &request.model,
+                    4000,
+                    false,
+                ),
+            };
+            let final_response = call_provider_chat(&request.provider, final_body, &request.api_key).await?;
+            emit_text_as_stream(&app, &final_response.content);
+            Ok(final_response)
+        }
+    }
 }
 
 // ============================================================================
@@ -634,6 +743,167 @@ pub async fn chat_submit_feedback(
     );
 
     Ok(())
+}
+
+// ============================================================================
+// Chat Session Commands (Sprint 6)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct SaveChatSessionRequest {
+    pub id: String,
+    pub title: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub messages: Vec<SaveChatMessageItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveChatMessageItem {
+    pub id: String,
+    pub role: String,
+    pub content: String,
+    pub sources_json: Option<String>,
+    pub timestamp: i64,
+}
+
+#[tauri::command]
+pub async fn chat_save_session(
+    db: tauri::State<'_, Arc<Database>>,
+    request: SaveChatSessionRequest,
+) -> Result<(), String> {
+    let db = Arc::clone(&db);
+    let req = request;
+    tokio::task::spawn_blocking(move || {
+        db.save_chat_session(&req.id, &req.title, req.created_at, req.updated_at)?;
+        for msg in &req.messages {
+            db.save_chat_message(
+                &msg.id,
+                &req.id,
+                &msg.role,
+                &msg.content,
+                msg.sources_json.as_deref(),
+                msg.timestamp,
+            )?;
+        }
+        Ok::<(), rusqlite::Error>(())
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+    .map_err(|e| format!("Database error: {}", e))
+}
+
+#[tauri::command]
+pub async fn chat_list_sessions(
+    db: tauri::State<'_, Arc<Database>>,
+) -> Result<Vec<crate::database::ChatSessionRecord>, String> {
+    let db = Arc::clone(&db);
+    tokio::task::spawn_blocking(move || db.get_chat_sessions())
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| format!("Database error: {}", e))
+}
+
+#[tauri::command]
+pub async fn chat_get_messages(
+    db: tauri::State<'_, Arc<Database>>,
+    session_id: String,
+) -> Result<Vec<crate::database::ChatMessageRecord>, String> {
+    let db = Arc::clone(&db);
+    tokio::task::spawn_blocking(move || db.get_chat_messages(&session_id))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| format!("Database error: {}", e))
+}
+
+#[tauri::command]
+pub async fn chat_delete_session(
+    db: tauri::State<'_, Arc<Database>>,
+    session_id: String,
+) -> Result<(), String> {
+    let db = Arc::clone(&db);
+    tokio::task::spawn_blocking(move || db.delete_chat_session(&session_id))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| format!("Database error: {}", e))
+}
+
+#[tauri::command]
+pub async fn chat_rename_session(
+    db: tauri::State<'_, Arc<Database>>,
+    session_id: String,
+    title: String,
+) -> Result<(), String> {
+    let db = Arc::clone(&db);
+    tokio::task::spawn_blocking(move || db.update_chat_session_title(&session_id, &title))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| format!("Database error: {}", e))
+}
+
+/// Build a streaming request body from JSON agent messages (no tools).
+/// Filters out tool-related messages that providers don't accept in plain chat.
+fn build_streaming_request(
+    agent_messages: &[serde_json::Value],
+    system_prompt: &str,
+    provider: &str,
+    model: &str,
+) -> serde_json::Value {
+    // Filter to user/assistant messages only (strip tool_use and tool results)
+    let clean_messages: Vec<serde_json::Value> = agent_messages
+        .iter()
+        .filter(|m| {
+            let role = m["role"].as_str().unwrap_or("");
+            role == "user" || role == "assistant"
+        })
+        .map(|m| {
+            // Ensure assistant messages have plain string content (strip tool_calls)
+            if m["role"].as_str() == Some("assistant") {
+                if let Some(content) = m["content"].as_str() {
+                    json!({"role": "assistant", "content": content})
+                } else {
+                    // If content is array (Anthropic tool_use blocks), extract text
+                    if let Some(blocks) = m["content"].as_array() {
+                        let text: String = blocks
+                            .iter()
+                            .filter(|b| b["type"].as_str() == Some("text"))
+                            .filter_map(|b| b["text"].as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if text.is_empty() {
+                            json!({"role": "assistant", "content": "I used tools to gather information. Let me summarize my findings."})
+                        } else {
+                            json!({"role": "assistant", "content": text})
+                        }
+                    } else {
+                        json!({"role": "assistant", "content": ""})
+                    }
+                }
+            } else {
+                m.clone()
+            }
+        })
+        .collect();
+
+    match provider {
+        "anthropic" => json!({
+            "model": model,
+            "max_tokens": 4000,
+            "system": system_prompt,
+            "stream": true,
+            "messages": clean_messages,
+        }),
+        _ => {
+            let mut messages = vec![json!({"role": "system", "content": system_prompt})];
+            messages.extend(clean_messages);
+            json!({
+                "model": model,
+                "max_tokens": 4000,
+                "stream": true,
+                "messages": messages,
+            })
+        }
+    }
 }
 
 /// Emit text content as chunked stream events for smooth frontend rendering.

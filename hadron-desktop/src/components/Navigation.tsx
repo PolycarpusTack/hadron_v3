@@ -1,12 +1,13 @@
-import { FileUp, Code, History, Cpu, Ticket, Shield, MessageCircle } from "lucide-react";
+import { FileUp, Code, History, Cpu, Ticket, Shield, MessageCircle, FileText } from "lucide-react";
 
-export type ViewType = "analyze" | "translate" | "history" | "detail" | "performance" | "jira" | "sentry" | "chat";
+export type ViewType = "analyze" | "translate" | "history" | "detail" | "performance" | "jira" | "sentry" | "chat" | "release_notes";
 
 interface NavigationProps {
   currentView: ViewType;
   onViewChange: (view: ViewType) => void;
   showJiraAnalyzer?: boolean;
   showSentryAnalyzer?: boolean;
+  showReleaseNotes?: boolean;
 }
 
 interface TabConfig {
@@ -19,7 +20,7 @@ interface TabConfig {
   isActive: boolean;
 }
 
-export default function Navigation({ currentView, onViewChange, showJiraAnalyzer = false, showSentryAnalyzer = false }: NavigationProps) {
+export default function Navigation({ currentView, onViewChange, showJiraAnalyzer = false, showSentryAnalyzer = false, showReleaseNotes = false }: NavigationProps) {
   const tabs: TabConfig[] = [
     {
       id: "analyze",
@@ -62,6 +63,19 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
             iconBg: "bg-orange-500/10",
             activeIconBg: "bg-orange-500/20",
             isActive: currentView === "sentry",
+          },
+        ]
+      : []),
+    ...(showReleaseNotes
+      ? [
+          {
+            id: "release_notes" as ViewType,
+            label: "Release Notes",
+            icon: FileText,
+            iconColor: "text-amber-400",
+            iconBg: "bg-amber-500/10",
+            activeIconBg: "bg-amber-500/20",
+            isActive: currentView === "release_notes",
           },
         ]
       : []),

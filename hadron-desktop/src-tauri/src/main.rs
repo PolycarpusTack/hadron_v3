@@ -11,6 +11,7 @@ mod error;
 mod export;
 mod jira_service;
 mod keeper_service;
+mod release_notes_service;
 mod sentry_service;
 mod migrations;
 mod model_fetcher;
@@ -240,7 +241,24 @@ fn main() {
             analyze_sentry_issue,
             // Ask Hadron Chat
             chat_commands::chat_send,
-            chat_commands::chat_submit_feedback
+            chat_commands::chat_submit_feedback,
+            chat_commands::chat_save_session,
+            chat_commands::chat_list_sessions,
+            chat_commands::chat_get_messages,
+            chat_commands::chat_delete_session,
+            chat_commands::chat_rename_session,
+            // Release Notes Generator
+            commands::release_notes::generate_release_notes,
+            commands::release_notes::preview_release_notes_tickets,
+            commands::release_notes::list_jira_fix_versions,
+            commands::release_notes::get_release_notes,
+            commands::release_notes::list_release_notes,
+            commands::release_notes::update_release_notes_content,
+            commands::release_notes::update_release_notes_status,
+            commands::release_notes::update_release_notes_checklist,
+            commands::release_notes::append_to_release_notes,
+            commands::release_notes::export_release_notes,
+            commands::release_notes::delete_release_notes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

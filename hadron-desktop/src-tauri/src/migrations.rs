@@ -6,7 +6,7 @@
 use rusqlite::{Connection, Result};
 
 /// Current schema version. Increment when adding new migrations.
-pub const CURRENT_SCHEMA_VERSION: i32 = 8;
+pub const CURRENT_SCHEMA_VERSION: i32 = 10;
 
 /// Migration function type
 type MigrationFn = fn(&Connection) -> Result<()>;
@@ -59,6 +59,16 @@ const MIGRATIONS: &[Migration] = &[
         version: 8,
         name: "chat_feedback",
         up: migration_008_chat_feedback,
+    },
+    Migration {
+        version: 9,
+        name: "chat_sessions",
+        up: migration_009_chat_sessions,
+    },
+    Migration {
+        version: 10,
+        name: "release_notes",
+        up: migration_010_release_notes,
     },
 ];
 
@@ -864,6 +874,90 @@ fn migration_008_chat_feedback(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migration_009_chat_sessions(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS chat_sessions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS chat_messages (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            sources_json TEXT,
+            timestamp INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, timestamp)",
+        [],
+    )?;
+
+    Ok(())
+}
+
+/// Migration 10: Release Notes Generator
+/// Adds table for AI-generated release notes with draft/review lifecycle
+fn migration_010_release_notes(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS release_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fix_version TEXT NOT NULL,
+            content_type TEXT NOT NULL DEFAULT 'both',
+            title TEXT NOT NULL,
+            markdown_content TEXT NOT NULL,
+            original_ai_content TEXT,
+            ticket_keys TEXT NOT NULL DEFAULT '[]',
+            ticket_count INTEGER NOT NULL DEFAULT 0,
+            jql_filter TEXT,
+            module_filter TEXT,
+            ai_model TEXT NOT NULL,
+            ai_provider TEXT NOT NULL,
+            tokens_used INTEGER DEFAULT 0,
+            cost REAL DEFAULT 0.0,
+            generation_duration_ms INTEGER,
+            ai_insights TEXT,
+            status TEXT NOT NULL DEFAULT 'draft'
+                CHECK(status IN ('draft','in_review','approved','published','archived')),
+            checklist_state TEXT,
+            reviewed_by TEXT,
+            reviewed_at TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            parent_id INTEGER REFERENCES release_notes(id),
+            is_manual_edit INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            published_at TEXT,
+            deleted_at TEXT DEFAULT NULL
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rn_fix_version ON release_notes(fix_version)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rn_status ON release_notes(status)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rn_created_at ON release_notes(created_at)",
+        [],
+    )?;
+
+    Ok(())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -897,11 +991,11 @@ mod tests {
         let version = get_current_version(&conn).unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
-        // Verify only 8 migration records exist
+        // Verify only 10 migration records exist
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 8);
+        assert_eq!(count, 10);
     }
 
     #[test]

@@ -24,7 +24,7 @@ pub async fn list_models(provider: &str, api_key: &str) -> Result<Vec<Model>, St
         "openai" => list_openai_models(&client, api_key).await,
         "anthropic" => list_anthropic_models(&client, api_key).await,
         "zai" => list_zai_models(&client, api_key).await,
-        "ollama" => list_ollama_models(&client).await,
+        "llamacpp" => list_llamacpp_models(&client).await,
         _ => Err(format!("Unknown provider: {}", provider)),
     }
 }
@@ -349,42 +349,42 @@ fn format_model_label(id: &str) -> String {
         .join(" ")
 }
 
-// -------- Ollama (local) --------
+// -------- llama.cpp (local) --------
 #[derive(Deserialize)]
-struct OllamaTagsResponse {
-    models: Vec<OllamaModel>,
+struct LlamaCppModelsResponse {
+    data: Vec<LlamaCppModel>,
 }
 
 #[derive(Deserialize)]
-struct OllamaModel {
-    name: String,
+struct LlamaCppModel {
+    id: String,
 }
 
-async fn list_ollama_models(client: &Client) -> Result<Vec<Model>, String> {
-    // Default local endpoint
-    let url = "http://127.0.0.1:11434/api/tags";
+async fn list_llamacpp_models(client: &Client) -> Result<Vec<Model>, String> {
+    // llama-server exposes an OpenAI-compatible /v1/models endpoint
+    let url = "http://127.0.0.1:8080/v1/models";
 
     let resp = client
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("Failed to connect to Ollama at {}: {}", url, e))?;
+        .map_err(|e| format!("Failed to connect to llama-server at {}: {}", url, e))?;
 
     if !resp.status().is_success() {
-        return Err(format!("Ollama responded with status {}", resp.status()));
+        return Err(format!("llama-server responded with status {}", resp.status()));
     }
 
-    let body: OllamaTagsResponse = resp
+    let body: LlamaCppModelsResponse = resp
         .json()
         .await
-        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+        .map_err(|e| format!("Failed to parse llama-server response: {}", e))?;
 
     let models = body
-        .models
+        .data
         .into_iter()
         .map(|m| Model {
-            id: m.name.clone(),
-            label: m.name,
+            id: m.id.clone(),
+            label: format_model_label(&m.id),
             context: None,
             category: Some("chat".to_string()),
         })

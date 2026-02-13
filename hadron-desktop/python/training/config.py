@@ -74,8 +74,8 @@ class TrainingConfig:
 
 
 @dataclass
-class OllamaConfig:
-    """Ollama model packaging configuration"""
+class LlamaCppConfig:
+    """llama.cpp model packaging configuration"""
     model_name: str = "hadron"
     model_version: str = "v1"
     quantization: str = "q4_k_m"  # q4_0, q4_k_m, q5_0, q5_k_m, q8_0
@@ -88,20 +88,12 @@ Analyze Smalltalk crash logs and provide:
 
 Return your analysis as structured JSON."""
 
-    template: str = """{{ if .System }}<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-
-{{ .System }}<|eot_id|>{{ end }}{{ if .Prompt }}<|start_header_id|>user<|end_header_id|>
-
-{{ .Prompt }}<|eot_id|>{{ end }}<|start_header_id|>assistant<|end_header_id|>
-
-{{ .Response }}<|eot_id|>"""
-
     parameters: dict = field(default_factory=lambda: {
         "temperature": 0.3,
         "top_p": 0.9,
         "top_k": 40,
-        "num_ctx": 4096,
-        "num_predict": 2048,
+        "n_ctx": 4096,
+        "n_predict": 2048,
         "stop": ["<|eot_id|>", "<|end_of_text|>"]
     })
 
@@ -112,10 +104,10 @@ def get_default_config() -> dict:
         "lora": LoRAConfig().__dict__,
         "quantization": QuantizationConfig().__dict__,
         "training": TrainingConfig().__dict__,
-        "ollama": {
-            "model_name": OllamaConfig.model_name,
-            "model_version": OllamaConfig.model_version,
-            "quantization": OllamaConfig.quantization,
+        "llamacpp": {
+            "model_name": LlamaCppConfig.model_name,
+            "model_version": LlamaCppConfig.model_version,
+            "quantization": LlamaCppConfig.quantization,
         }
     }
 

@@ -248,49 +248,6 @@ def translate_with_zai(content: str, config: Dict[str, Any]) -> str:
         else:
             raise Exception(f"Z.ai error: {str(e)}")
 
-def translate_with_ollama(content: str, config: Dict[str, Any]) -> str:
-    base_url = os.getenv('OLLAMA_API_URL', 'http://127.0.0.1:11434')
-    try:
-        payload = {
-            "model": config['model'],
-            "messages": [
-                {"role": "system", "content": SYSTEM_MESSAGE},
-                {"role": "user", "content": create_translation_prompt(content)}
-            ],
-            "stream": False
-        }
-        r = requests.post(f"{base_url}/api/chat", json=payload, timeout=120)
-        if r.status_code == 404:
-            raise Exception(
-                f"Model '{config['model']}' not found in Ollama. Please pull the model with: ollama pull {config['model']}"
-            )
-        elif r.status_code != 200:
-            raise Exception(f"Ollama API error {r.status_code}: {r.text[:200]}")
-        data = r.json()
-        text = None
-        if isinstance(data, dict):
-            if 'message' in data and isinstance(data['message'], dict):
-                text = data['message'].get('content')
-            if not text:
-                text = data.get('response')
-        if not text:
-            raise Exception(
-                "Received empty response from Ollama. The model may not have generated any output. Please try again."
-            )
-        return text.strip()
-    except requests.exceptions.ConnectionError:
-        raise Exception(
-            f"Cannot connect to Ollama at {base_url}. Please ensure Ollama is running and accessible."
-        )
-    except requests.exceptions.Timeout:
-        raise Exception(
-            "Request to Ollama timed out. The model may be too slow or the prompt too complex. Try a smaller model or simpler prompt."
-        )
-    except Exception as e:
-        if "Ollama" in str(e):
-            raise
-        raise Exception(f"Ollama error: {str(e)}")
-
 def translate_with_vllm(content: str, config: Dict[str, Any]) -> str:
     """Translate using vLLM - OpenAI-compatible local inference server."""
     base_url = os.getenv('VLLM_API_URL', 'http://127.0.0.1:8000')
@@ -372,8 +329,6 @@ def translate_content(content: str, stdin_config: Dict[str, Any] = None) -> Dict
             translation = translate_with_anthropic(content, config)
         elif provider == 'zai':
             translation = translate_with_zai(content, config)
-        elif provider == 'ollama':
-            translation = translate_with_ollama(content, config)
         elif provider == 'vllm':
             translation = translate_with_vllm(content, config)
         elif provider == 'llamacpp':

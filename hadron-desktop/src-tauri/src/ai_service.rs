@@ -360,8 +360,6 @@ enum ResponseStyle {
     OpenAI,
     /// Anthropic-style: content[0].text
     Anthropic,
-    /// Ollama-style: message.content
-    Ollama,
 }
 
 enum CostCalculator {
@@ -406,12 +404,12 @@ impl ProviderConfig {
         }
     }
 
-    fn ollama() -> Self {
+    fn llamacpp() -> Self {
         Self {
-            name: "Ollama",
-            endpoint: "http://127.0.0.1:11434/api/chat",
+            name: "llama.cpp",
+            endpoint: "http://127.0.0.1:8080/v1/chat/completions",
             auth_style: AuthStyle::None,
-            response_style: ResponseStyle::Ollama,
+            response_style: ResponseStyle::OpenAI,
             cost_calculator: CostCalculator::Free,
         }
     }
@@ -1058,18 +1056,6 @@ fn build_anthropic_request(
     })
 }
 
-/// Build request body for Ollama API
-fn build_ollama_request(system_prompt: &str, user_prompt: &str, model: &str) -> serde_json::Value {
-    json!({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "stream": false
-    })
-}
-
 /// Response data extracted from provider response
 struct ProviderResponse {
     content: String,
@@ -1111,18 +1097,6 @@ fn extract_response(
                 tokens: (input_tokens + output_tokens) as i32,
                 input_tokens: Some(input_tokens),
                 output_tokens: Some(output_tokens),
-            })
-        }
-        ResponseStyle::Ollama => {
-            let content = response_data["message"]["content"]
-                .as_str()
-                .ok_or("No content in response")?
-                .to_string();
-            Ok(ProviderResponse {
-                content,
-                tokens: 0,
-                input_tokens: None,
-                output_tokens: None,
             })
         }
     }
@@ -1257,7 +1231,7 @@ pub async fn call_provider_raw_json(
     let config = match provider {
         "anthropic" => ProviderConfig::anthropic(),
         "zai" => ProviderConfig::zai(),
-        "ollama" => ProviderConfig::ollama(),
+        "llamacpp" => ProviderConfig::llamacpp(),
         _ => ProviderConfig::openai(),
     };
 
@@ -1368,16 +1342,6 @@ pub async fn call_zai_raw(
     call_provider_raw(ProviderConfig::zai(), request_body, api_key).await
 }
 
-/// Call Ollama and return raw content string (for chunk analysis)
-pub async fn call_ollama_raw(
-    system_prompt: &str,
-    user_prompt: &str,
-    model: &str,
-) -> Result<String, String> {
-    let request_body = build_ollama_request(system_prompt, user_prompt, model);
-    call_provider_raw(ProviderConfig::ollama(), request_body, "").await
-}
-
 pub async fn call_anthropic(
     system_prompt: &str,
     user_prompt: &str,
@@ -1398,13 +1362,13 @@ pub async fn call_zai(
     call_provider(ProviderConfig::zai(), request_body, api_key).await
 }
 
-pub async fn call_ollama(
+pub async fn call_llamacpp(
     system_prompt: &str,
     user_prompt: &str,
     model: &str,
 ) -> Result<AnalysisResult, String> {
-    let request_body = build_ollama_request(system_prompt, user_prompt, model);
-    call_provider(ProviderConfig::ollama(), request_body, "").await
+    let request_body = build_openai_request(system_prompt, user_prompt, model);
+    call_provider(ProviderConfig::llamacpp(), request_body, "").await
 }
 
 // ============================================================================
@@ -1484,25 +1448,6 @@ pub fn build_chat_request_anthropic(
     })
 }
 
-/// Build a multi-turn chat request for Ollama API
-pub fn build_chat_request_ollama(
-    messages: &[ChatMessage],
-    system_prompt: &str,
-    model: &str,
-    stream: bool,
-) -> serde_json::Value {
-    let mut msgs = vec![json!({"role": "system", "content": system_prompt})];
-    for m in messages {
-        msgs.push(json!({"role": m.role, "content": m.content}));
-    }
-
-    json!({
-        "model": model,
-        "messages": msgs,
-        "stream": stream
-    })
-}
-
 /// Call a provider with streaming enabled, emitting tokens via Tauri events.
 /// Returns the full accumulated response when done.
 pub async fn call_provider_streaming(
@@ -1526,11 +1471,11 @@ pub async fn call_provider_streaming(
             ResponseStyle::OpenAI,
             CostCalculator::FlatRate(0.001),
         ),
-        "ollama" => (
-            "Ollama",
-            "http://127.0.0.1:11434/api/chat",
+        "llamacpp" => (
+            "llama.cpp",
+            "http://127.0.0.1:8080/v1/chat/completions",
             AuthStyle::None,
-            ResponseStyle::Ollama,
+            ResponseStyle::OpenAI,
             CostCalculator::Free,
         ),
         _ => (
@@ -1592,7 +1537,6 @@ pub async fn call_provider_streaming(
             let token = match &response_style {
                 ResponseStyle::OpenAI => parse_openai_sse_token(&line),
                 ResponseStyle::Anthropic => parse_anthropic_sse_token(&line),
-                ResponseStyle::Ollama => parse_ollama_stream_token(&line),
             };
 
             if let Some(tok) = token {
@@ -1616,7 +1560,6 @@ pub async fn call_provider_streaming(
         let token = match &response_style {
             ResponseStyle::OpenAI => parse_openai_sse_token(buffer.trim()),
             ResponseStyle::Anthropic => parse_anthropic_sse_token(buffer.trim()),
-            ResponseStyle::Ollama => parse_ollama_stream_token(buffer.trim()),
         };
         if let Some(tok) = token {
             if !tok.is_empty() {
@@ -1671,14 +1614,13 @@ pub async fn call_provider_quick(
 ) -> Result<String, String> {
     let request_body = match provider {
         "anthropic" => build_chat_request_anthropic(messages, system_prompt, model, max_tokens, false),
-        "ollama" => build_chat_request_ollama(messages, system_prompt, model, false),
         _ => build_chat_request_openai(messages, system_prompt, model, max_tokens, false),
     };
 
     let config = match provider {
         "anthropic" => ProviderConfig::anthropic(),
         "zai" => ProviderConfig::zai(),
-        "ollama" => ProviderConfig::ollama(),
+        "llamacpp" => ProviderConfig::llamacpp(),
         _ => ProviderConfig::openai(),
     };
 
@@ -1702,7 +1644,7 @@ pub async fn call_provider_chat(
     let config = match provider {
         "anthropic" => ProviderConfig::anthropic(),
         "zai" => ProviderConfig::zai(),
-        "ollama" => ProviderConfig::ollama(),
+        "llamacpp" => ProviderConfig::llamacpp(),
         _ => ProviderConfig::openai(),
     };
 
@@ -1804,43 +1746,6 @@ pub fn build_chat_request_with_tools_anthropic(
     body
 }
 
-/// Build an Ollama request with tool definitions (OpenAI-compatible format)
-pub fn build_chat_request_with_tools_ollama(
-    messages: &[serde_json::Value],
-    tools: &[ToolDefinition],
-    system_prompt: &str,
-    model: &str,
-) -> serde_json::Value {
-    let mut msgs = vec![json!({"role": "system", "content": system_prompt})];
-    msgs.extend_from_slice(messages);
-
-    let tool_defs: Vec<serde_json::Value> = tools
-        .iter()
-        .map(|t| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                }
-            })
-        })
-        .collect();
-
-    let mut body = json!({
-        "model": model,
-        "messages": msgs,
-        "stream": false
-    });
-
-    if !tool_defs.is_empty() {
-        body["tools"] = json!(tool_defs);
-    }
-
-    body
-}
-
 /// Check if the LLM response contains tool calls
 pub fn response_wants_tools(response: &serde_json::Value, provider: &str) -> bool {
     match provider {
@@ -1855,7 +1760,7 @@ pub fn response_wants_tools(response: &serde_json::Value, provider: &str) -> boo
             false
         }
         _ => {
-            // OpenAI/Ollama: finish_reason == "tool_calls" or message has tool_calls
+            // OpenAI/llama.cpp: finish_reason == "tool_calls" or message has tool_calls
             if let Some(choices) = response["choices"].as_array() {
                 if let Some(choice) = choices.first() {
                     if choice["finish_reason"].as_str() == Some("tool_calls") {
@@ -2023,17 +1928,6 @@ fn parse_anthropic_sse_token(line: &str) -> Option<String> {
         return parsed["delta"]["text"].as_str().map(|s| s.to_string());
     }
     None
-}
-
-/// Parse a token from an Ollama streaming JSON line
-fn parse_ollama_stream_token(line: &str) -> Option<String> {
-    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
-    if parsed["done"].as_bool() == Some(true) {
-        return None;
-    }
-    parsed["message"]["content"]
-        .as_str()
-        .map(|s| s.to_string())
 }
 
 // ============================================================================
@@ -2240,13 +2134,11 @@ fn add_analysis_meta(
 }
 
 // ============================================================================
-// Translation (Ollama only)
+// Translation (llama.cpp local)
 // ============================================================================
 
-/// Translate technical content to plain language using Ollama
-pub async fn translate_ollama(content: &str, model: &str) -> Result<String, String> {
-    let client = create_http_client();
-
+/// Translate technical content to plain language using llama.cpp
+pub async fn translate_llamacpp(content: &str, model: &str) -> Result<String, String> {
     let system_prompt = "You are a technical translator. Convert complex technical content into clear, plain language that non-technical users can understand. Maintain accuracy while simplifying jargon and explaining concepts.";
 
     let user_prompt = format!(
@@ -2254,40 +2146,8 @@ pub async fn translate_ollama(content: &str, model: &str) -> Result<String, Stri
         content
     );
 
-    let request_body = build_ollama_request(system_prompt, &user_prompt, model);
-
-    let response = client
-        .post("http://127.0.0.1:11434/api/chat")
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| {
-            format!(
-                "Ollama translation request failed (is Ollama running?): {}",
-                e
-            )
-        })?;
-
-    if !response.status().is_success() {
-        let error_text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("Ollama translation error: {}", error_text));
-    }
-
-    let response_data: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Ollama translation response: {}", e))?;
-
-    let translation = response_data["message"]["content"]
-        .as_str()
-        .ok_or("No content in Ollama translation response")?
-        .to_string();
-
-    Ok(translation)
+    let request_body = build_openai_request(system_prompt, &user_prompt, model);
+    call_provider_raw(ProviderConfig::llamacpp(), request_body, "").await
 }
 
 // ============================================================================
@@ -2330,10 +2190,10 @@ pub async fn analyze_crash_log(
         "openai" => call_openai(system_prompt, &user_prompt, api_key, model).await?,
         "anthropic" => call_anthropic(system_prompt, &user_prompt, api_key, model).await?,
         "zai" => call_zai(system_prompt, &user_prompt, api_key, model).await?,
-        "ollama" => call_ollama(system_prompt, &user_prompt, model).await?,
+        "llamacpp" => call_llamacpp(system_prompt, &user_prompt, model).await?,
         _ => {
             return Err(format!(
-                "Unknown provider: {}. Supported: openai, anthropic, zai, ollama",
+                "Unknown provider: {}. Supported: openai, anthropic, zai, llamacpp",
                 provider
             ))
         }
@@ -2418,10 +2278,10 @@ pub async fn analyze_crash_log_with_rag(
         "openai" => call_openai(system_prompt, &user_prompt, api_key, model).await?,
         "anthropic" => call_anthropic(system_prompt, &user_prompt, api_key, model).await?,
         "zai" => call_zai(system_prompt, &user_prompt, api_key, model).await?,
-        "ollama" => call_ollama(system_prompt, &user_prompt, model).await?,
+        "llamacpp" => call_llamacpp(system_prompt, &user_prompt, model).await?,
         _ => {
             return Err(format!(
-                "Unknown provider: {}. Supported: openai, anthropic, zai, ollama",
+                "Unknown provider: {}. Supported: openai, anthropic, zai, llamacpp",
                 provider
             ))
         }
@@ -2449,7 +2309,7 @@ pub async fn analyze_crash_log_with_rag(
 /// * `raw_walkback` - Optional separate raw walkback text
 /// * `api_key` - API key for the provider
 /// * `model` - Model identifier
-/// * `provider` - Provider name (openai, anthropic, zai, ollama)
+/// * `provider` - Provider name (openai, anthropic, zai, llamacpp)
 /// * `analysis_type` - Type of analysis (complete, whatson, specialized)
 /// * `config` - Optional token-safe configuration
 pub async fn analyze_crash_log_safe(
@@ -2757,7 +2617,10 @@ async fn analyze_deep_scan(
                     "zai" => {
                         call_zai_raw(&system_prompt, &user_prompt, &*api_key_ref, &*model_ref).await
                     }
-                    "ollama" => call_ollama_raw(&system_prompt, &user_prompt, &*model_ref).await,
+                    "llamacpp" => {
+                        let request_body = build_openai_request_with_options(&system_prompt, &user_prompt, &*model_ref, true, 1000);
+                        call_provider_raw(ProviderConfig::llamacpp(), request_body, "").await
+                    }
                     _ => Err(format!("Unknown provider: {}", provider_ref)),
                 };
 
@@ -2834,7 +2697,7 @@ async fn analyze_deep_scan(
         "openai" => call_openai(&system_prompt, &user_prompt, api_key, model).await?,
         "anthropic" => call_anthropic(&system_prompt, &user_prompt, api_key, model).await?,
         "zai" => call_zai(&system_prompt, &user_prompt, api_key, model).await?,
-        "ollama" => call_ollama(&system_prompt, &user_prompt, model).await?,
+        "llamacpp" => call_llamacpp(&system_prompt, &user_prompt, model).await?,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
 

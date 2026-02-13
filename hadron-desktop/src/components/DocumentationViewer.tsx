@@ -75,7 +75,7 @@ Before analyzing crashes, you need to set up an AI provider:
 2. **Enter your API key:**
    - For OpenAI: Get yours at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
    - For Anthropic: Get yours at [console.anthropic.com](https://console.anthropic.com/settings/keys)
-   - For Ollama (local/free): No key needed, just install Ollama
+   - For llama.cpp (local/free): No key needed, just start llama-server
 3. **Click "Save Settings"**
 
 > **Checkpoint:** You should see a green "API Key Set" indicator in the footer.

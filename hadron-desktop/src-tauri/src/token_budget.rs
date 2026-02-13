@@ -45,7 +45,7 @@ pub fn get_model_context_limit(model: &str) -> u32 {
         return 128_000;
     }
 
-    // Ollama local models - conservative default
+    // llama.cpp local models - conservative default
     if model_lower.contains("llama") || model_lower.contains("mistral") {
         return 8_192;
     }

@@ -29,6 +29,7 @@ import {
   subscribeToChatContext,
   subscribeToChatToolUse,
   getChatSessions,
+  getChatSessionMessages,
   saveChatSession,
   deleteChatSession,
   generateSessionTitle,
@@ -56,6 +57,13 @@ const STARTER_PROMPTS = [
   "What are common PSI namespace errors?",
 ];
 
+const CONTEXTUAL_STARTERS = [
+  "Explain this crash in simple terms",
+  "Find similar crashes to this one",
+  "What JIRA tickets relate to this crash?",
+  "Suggest a fix for this issue",
+];
+
 // ============================================================================
 // Tool Activity Labels
 // ============================================================================
@@ -74,13 +82,19 @@ const TOOL_LABELS: Record<string, string> = {
   get_crash_timeline: "Building crash timeline",
   compare_crashes: "Comparing crashes",
   get_component_health: "Checking component health",
+  search_jira: "Searching JIRA issues",
+  create_jira_ticket: "Creating JIRA ticket",
 };
 
 // ============================================================================
 // Main Component
 // ============================================================================
 
-export default function AskHadronView() {
+interface AskHadronViewProps {
+  selectedAnalysisId?: number | null;
+}
+
+export default function AskHadronView({ selectedAnalysisId }: AskHadronViewProps) {
   // Session state
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -105,7 +119,7 @@ export default function AskHadronView() {
 
   // Load sessions and check KB on mount
   useEffect(() => {
-    setSessions(getChatSessions());
+    getChatSessions().then(setSessions).catch(() => setSessions([]));
     isKBEnabled().then(setKbAvailable).catch(() => setKbAvailable(false));
   }, []);
 
@@ -130,17 +144,19 @@ export default function AskHadronView() {
     inputRef.current?.focus();
   }, []);
 
-  const selectSession = useCallback((session: ChatSession) => {
+  const selectSession = useCallback(async (session: ChatSession) => {
     setActiveSessionId(session.id);
-    setMessages(session.messages);
     setInput("");
+    const msgs = await getChatSessionMessages(session.id);
+    setMessages(msgs);
   }, []);
 
   const handleDeleteSession = useCallback(
-    (sessionId: string, e: React.MouseEvent) => {
+    async (sessionId: string, e: React.MouseEvent) => {
       e.stopPropagation();
-      deleteChatSession(sessionId);
-      setSessions(getChatSessions());
+      await deleteChatSession(sessionId);
+      const updated = await getChatSessions();
+      setSessions(updated);
       if (activeSessionId === sessionId) {
         startNewSession();
       }
@@ -238,6 +254,7 @@ export default function AskHadronView() {
         await sendChatMessage(messagesForBackend, {
           useRag,
           useKb: useKb && kbAvailable,
+          analysisId: selectedAnalysisId,
         });
 
         // Finalize the assistant message
@@ -280,7 +297,7 @@ export default function AskHadronView() {
         setIsLoading(false);
         setToolActivity(null);
 
-        // Save session
+        // Save session to SQLite
         setMessages((prev) => {
           const title =
             messages.length === 0
@@ -297,8 +314,9 @@ export default function AskHadronView() {
               Date.now(),
             updatedAt: Date.now(),
           };
-          saveChatSession(session);
-          setSessions(getChatSessions());
+          saveChatSession(session).then(() =>
+            getChatSessions().then(setSessions)
+          );
           return prev;
         });
       }
@@ -424,8 +442,13 @@ export default function AskHadronView() {
               </div>
 
               {/* Starter Prompts */}
+              {selectedAnalysisId && (
+                <p className="text-xs text-emerald-400/70 -mb-2">
+                  Analysis #{selectedAnalysisId} selected — ask about it:
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-2 max-w-lg w-full">
-                {STARTER_PROMPTS.map((prompt) => (
+                {(selectedAnalysisId ? CONTEXTUAL_STARTERS : STARTER_PROMPTS).map((prompt) => (
                   <button
                     key={prompt}
                     onClick={() => handleSend(prompt)}

@@ -1,6 +1,7 @@
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::migrations;
@@ -2812,6 +2813,174 @@ impl Database {
             "satisfaction_rate": if total > 0 { positive as f64 / total as f64 * 100.0 } else { 0.0 }
         }))
     }
+
+    /// Get feedback-based boost scores for a set of analysis IDs.
+    /// Returns a map of analysis_id -> score_multiplier.
+    /// Positively-rated analyses get > 1.0, negatively-rated get < 1.0.
+    pub fn get_feedback_scores_for_analyses(&self, ids: &[i64]) -> Result<HashMap<i64, f64>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let conn = self.lock_conn();
+        let mut scores = HashMap::new();
+
+        // Query analysis_feedback for accept/reject counts per analysis
+        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let sql = format!(
+            "SELECT analysis_id, feedback_type, COUNT(*) as cnt \
+             FROM analysis_feedback \
+             WHERE analysis_id IN ({}) \
+             GROUP BY analysis_id, feedback_type",
+            placeholders.join(", ")
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+
+        // Build per-analysis accept/reject tallies
+        let mut accepts: HashMap<i64, i64> = HashMap::new();
+        let mut rejects: HashMap<i64, i64> = HashMap::new();
+
+        for row in rows {
+            let (aid, ftype, cnt) = row?;
+            match ftype.as_str() {
+                "accept" => { accepts.insert(aid, cnt); }
+                "reject" => { rejects.insert(aid, cnt); }
+                _ => {}
+            }
+        }
+
+        // Compute multipliers
+        for &id in ids {
+            let acc = *accepts.get(&id).unwrap_or(&0);
+            let rej = *rejects.get(&id).unwrap_or(&0);
+            if acc > 0 || rej > 0 {
+                // Simple formula: base 1.0, +0.2 per accept, -0.3 per reject, clamped
+                let multiplier = (1.0 + (acc as f64 * 0.2) - (rej as f64 * 0.3))
+                    .max(0.3)
+                    .min(2.0);
+                scores.insert(id, multiplier);
+            }
+        }
+
+        Ok(scores)
+    }
+
+    // ========================================================================
+    // Chat Sessions (Sprint 6)
+    // ========================================================================
+
+    pub fn save_chat_session(&self, id: &str, title: &str, created_at: i64, updated_at: i64) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "INSERT INTO chat_sessions (id, title, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
+            params![id, title, created_at, updated_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn save_chat_message(
+        &self,
+        id: &str,
+        session_id: &str,
+        role: &str,
+        content: &str,
+        sources_json: Option<&str>,
+        timestamp: i64,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "INSERT OR REPLACE INTO chat_messages (id, session_id, role, content, sources_json, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, session_id, role, content, sources_json, timestamp],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_chat_sessions(&self) -> Result<Vec<ChatSessionRecord>> {
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, title, created_at, updated_at FROM chat_sessions ORDER BY updated_at DESC LIMIT 50",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ChatSessionRecord {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_chat_messages(&self, session_id: &str) -> Result<Vec<ChatMessageRecord>> {
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, sources_json, timestamp
+             FROM chat_messages WHERE session_id = ?1 ORDER BY timestamp ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| {
+            Ok(ChatMessageRecord {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                sources_json: row.get(4)?,
+                timestamp: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn delete_chat_session(&self, session_id: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        // Messages cascade-delete via FK, but SQLite FK enforcement can be off —
+        // explicitly delete messages first for safety.
+        conn.execute("DELETE FROM chat_messages WHERE session_id = ?1", params![session_id])?;
+        conn.execute("DELETE FROM chat_sessions WHERE id = ?1", params![session_id])?;
+        Ok(())
+    }
+
+    pub fn update_chat_session_title(&self, session_id: &str, title: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE chat_sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
+            params![title, chrono::Utc::now().timestamp_millis(), session_id],
+        )?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSessionRecord {
+    pub id: String,
+    pub title: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageRecord {
+    pub id: String,
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    pub sources_json: Option<String>,
+    pub timestamp: i64,
 }
 
 /// Trend data point for analytics
@@ -2853,4 +3022,264 @@ pub struct ChatFeedbackEntry {
     pub sources_cited: Option<String>,
     pub query: Option<String>,
     pub created_at: String,
+}
+
+// ============================================================================
+// Release Notes Types & CRUD
+// ============================================================================
+
+/// Full release notes draft record
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNotesDraft {
+    pub id: i64,
+    pub fix_version: String,
+    pub content_type: String,
+    pub title: String,
+    pub markdown_content: String,
+    pub original_ai_content: Option<String>,
+    pub ticket_keys: String,
+    pub ticket_count: i32,
+    pub jql_filter: Option<String>,
+    pub module_filter: Option<String>,
+    pub ai_model: String,
+    pub ai_provider: String,
+    pub tokens_used: i32,
+    pub cost: f64,
+    pub generation_duration_ms: Option<i32>,
+    pub ai_insights: Option<String>,
+    pub status: String,
+    pub checklist_state: Option<String>,
+    pub reviewed_by: Option<String>,
+    pub reviewed_at: Option<String>,
+    pub version: i32,
+    pub parent_id: Option<i64>,
+    pub is_manual_edit: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub published_at: Option<String>,
+}
+
+/// Summary record for list views
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNotesSummary {
+    pub id: i64,
+    pub fix_version: String,
+    pub content_type: String,
+    pub title: String,
+    pub ticket_count: i32,
+    pub status: String,
+    pub version: i32,
+    pub is_manual_edit: bool,
+    pub ai_model: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Insert params for a new release notes draft
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsertReleaseNotes {
+    pub fix_version: String,
+    pub content_type: String,
+    pub title: String,
+    pub markdown_content: String,
+    pub original_ai_content: Option<String>,
+    pub ticket_keys: String,
+    pub ticket_count: i32,
+    pub jql_filter: Option<String>,
+    pub module_filter: Option<String>,
+    pub ai_model: String,
+    pub ai_provider: String,
+    pub tokens_used: i32,
+    pub cost: f64,
+    pub generation_duration_ms: Option<i32>,
+    pub ai_insights: Option<String>,
+}
+
+impl Database {
+    // ========================================================================
+    // Release Notes CRUD
+    // ========================================================================
+
+    pub fn insert_release_notes(&self, draft: &InsertReleaseNotes) -> Result<i64> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "INSERT INTO release_notes (
+                fix_version, content_type, title, markdown_content, original_ai_content,
+                ticket_keys, ticket_count, jql_filter, module_filter,
+                ai_model, ai_provider, tokens_used, cost, generation_duration_ms, ai_insights
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                draft.fix_version,
+                draft.content_type,
+                draft.title,
+                draft.markdown_content,
+                draft.original_ai_content,
+                draft.ticket_keys,
+                draft.ticket_count,
+                draft.jql_filter,
+                draft.module_filter,
+                draft.ai_model,
+                draft.ai_provider,
+                draft.tokens_used,
+                draft.cost,
+                draft.generation_duration_ms,
+                draft.ai_insights,
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn get_release_notes(&self, id: i64) -> Result<Option<ReleaseNotesDraft>> {
+        let conn = self.lock_conn();
+        conn.query_row(
+            "SELECT id, fix_version, content_type, title, markdown_content, original_ai_content,
+                    ticket_keys, ticket_count, jql_filter, module_filter,
+                    ai_model, ai_provider, tokens_used, cost, generation_duration_ms, ai_insights,
+                    status, checklist_state, reviewed_by, reviewed_at,
+                    version, parent_id, is_manual_edit, created_at, updated_at, published_at
+             FROM release_notes WHERE id = ?1 AND deleted_at IS NULL",
+            params![id],
+            |row| {
+                Ok(ReleaseNotesDraft {
+                    id: row.get(0)?,
+                    fix_version: row.get(1)?,
+                    content_type: row.get(2)?,
+                    title: row.get(3)?,
+                    markdown_content: row.get(4)?,
+                    original_ai_content: row.get(5)?,
+                    ticket_keys: row.get(6)?,
+                    ticket_count: row.get(7)?,
+                    jql_filter: row.get(8)?,
+                    module_filter: row.get(9)?,
+                    ai_model: row.get(10)?,
+                    ai_provider: row.get(11)?,
+                    tokens_used: row.get(12)?,
+                    cost: row.get(13)?,
+                    generation_duration_ms: row.get(14)?,
+                    ai_insights: row.get(15)?,
+                    status: row.get(16)?,
+                    checklist_state: row.get(17)?,
+                    reviewed_by: row.get(18)?,
+                    reviewed_at: row.get(19)?,
+                    version: row.get(20)?,
+                    parent_id: row.get(21)?,
+                    is_manual_edit: row.get::<_, i32>(22)? != 0,
+                    created_at: row.get(23)?,
+                    updated_at: row.get(24)?,
+                    published_at: row.get(25)?,
+                })
+            },
+        )
+        .optional()
+    }
+
+    pub fn list_release_notes(
+        &self,
+        status_filter: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ReleaseNotesSummary>> {
+        let conn = self.lock_conn();
+        let (sql, has_status) = if status_filter.is_some() {
+            (
+                "SELECT id, fix_version, content_type, title, ticket_count, status,
+                        version, is_manual_edit, ai_model, created_at, updated_at
+                 FROM release_notes
+                 WHERE deleted_at IS NULL AND status = ?1
+                 ORDER BY updated_at DESC LIMIT ?2 OFFSET ?3",
+                true,
+            )
+        } else {
+            (
+                "SELECT id, fix_version, content_type, title, ticket_count, status,
+                        version, is_manual_edit, ai_model, created_at, updated_at
+                 FROM release_notes
+                 WHERE deleted_at IS NULL
+                 ORDER BY updated_at DESC LIMIT ?1 OFFSET ?2",
+                false,
+            )
+        };
+
+        let mut stmt = conn.prepare(sql)?;
+
+        let map_row = |row: &rusqlite::Row| {
+            Ok(ReleaseNotesSummary {
+                id: row.get(0)?,
+                fix_version: row.get(1)?,
+                content_type: row.get(2)?,
+                title: row.get(3)?,
+                ticket_count: row.get(4)?,
+                status: row.get(5)?,
+                version: row.get(6)?,
+                is_manual_edit: row.get::<_, i32>(7)? != 0,
+                ai_model: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        };
+
+        if has_status {
+            stmt.query_map(params![status_filter.unwrap(), limit, offset], map_row)?
+                .collect()
+        } else {
+            stmt.query_map(params![limit, offset], map_row)?
+                .collect()
+        }
+    }
+
+    pub fn update_release_notes_content(&self, id: i64, content: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE release_notes SET markdown_content = ?1, is_manual_edit = 1,
+                    updated_at = datetime('now') WHERE id = ?2 AND deleted_at IS NULL",
+            params![content, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_release_notes_status(
+        &self,
+        id: i64,
+        status: &str,
+        reviewed_by: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        let published_at = if status == "published" {
+            "datetime('now')"
+        } else {
+            "published_at"
+        };
+        let sql = format!(
+            "UPDATE release_notes SET status = ?1, reviewed_by = ?2,
+                    reviewed_at = datetime('now'), published_at = {},
+                    updated_at = datetime('now')
+             WHERE id = ?3 AND deleted_at IS NULL",
+            published_at
+        );
+        conn.execute(&sql, params![status, reviewed_by, id])?;
+        Ok(())
+    }
+
+    pub fn update_release_notes_checklist(&self, id: i64, checklist_json: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE release_notes SET checklist_state = ?1, updated_at = datetime('now')
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![checklist_json, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn soft_delete_release_notes(&self, id: i64) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE release_notes SET deleted_at = datetime('now')
+             WHERE id = ?1 AND deleted_at IS NULL",
+            params![id],
+        )?;
+        Ok(())
+    }
 }

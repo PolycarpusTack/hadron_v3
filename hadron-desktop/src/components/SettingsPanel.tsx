@@ -48,10 +48,9 @@ type SettingsTab = "ai" | "integrations" | "appearance" | "advanced";
 const AI_PROVIDERS = [
   { value: "openai", label: "OpenAI", defaultActive: true },
   { value: "anthropic", label: "Anthropic", defaultActive: true },
-  { value: "ollama", label: "Ollama", defaultActive: true },
   { value: "zai", label: "Z.ai (GLM/Qwen)", defaultActive: true },
+  { value: "llamacpp", label: "llama.cpp (Local)", defaultActive: true },
   { value: "vllm", label: "vLLM", defaultActive: false },
-  { value: "llamacpp", label: "llama.cpp", defaultActive: false },
 ];
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -208,7 +207,7 @@ export default function SettingsPanel({
     const defaultModel =
       provider === "zai" ? "glm-4" :
       provider === "anthropic" ? "claude-sonnet-4-20250514" :
-      provider === "ollama" ? "llama3.2:3b" :
+      provider === "llamacpp" ? "default" :
       "gpt-4o";
     const model = localStorage.getItem("ai_model") || defaultModel;
     const customModel = localStorage.getItem("ai_custom_model") || "";
@@ -261,7 +260,7 @@ export default function SettingsPanel({
     const defaultModel =
       newProvider === "zai" ? "glm-4" :
       newProvider === "anthropic" ? "claude-sonnet-4-20250514" :
-      newProvider === "ollama" ? "llama3.2:3b" :
+      newProvider === "llamacpp" ? "default" :
       "gpt-4o";
 
     const savedModel = localStorage.getItem(`ai_model:${newProvider}`);
@@ -386,11 +385,11 @@ export default function SettingsPanel({
     setModelsMessage(null);
 
     try {
-      const apiKey = settings.provider === "ollama"
+      const apiKey = settings.provider === "llamacpp"
         ? ""
         : settings.apiKeys[settings.provider as keyof typeof settings.apiKeys];
 
-      if (settings.provider !== "ollama" && !apiKey) {
+      if (settings.provider !== "llamacpp" && !apiKey) {
         setConnectionTestResult("Please enter an API key first");
         setIsRefreshingModels(false);
         return;
@@ -426,11 +425,11 @@ export default function SettingsPanel({
     setConnectionTestResult(null);
 
     try {
-      const apiKey = settings.provider === "ollama"
+      const apiKey = settings.provider === "llamacpp"
         ? ""
         : settings.apiKeys[settings.provider as keyof typeof settings.apiKeys];
 
-      if (settings.provider !== "ollama" && !apiKey) {
+      if (settings.provider !== "llamacpp" && !apiKey) {
         setConnectionTestResult("Please enter an API key first");
         setIsTestingConnection(false);
         return;
@@ -554,7 +553,7 @@ export default function SettingsPanel({
               <div>
                 <p className="font-semibold text-yellow-300">Offline Mode</p>
                 <p className="text-sm text-gray-400">
-                  Cloud AI providers unavailable. Ollama will work if running locally.
+                  Cloud AI providers unavailable. llama.cpp will work if running locally.
                 </p>
               </div>
             </div>
@@ -579,23 +578,18 @@ export default function SettingsPanel({
                 </select>
 
                 {/* Provider-specific info */}
-                {settings.provider === "ollama" && (
+                {settings.provider === "llamacpp" && (
                   <div className="mt-3 bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
                     <div className="flex items-start gap-3">
                       <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-medium text-blue-300">Ollama (Local)</p>
+                        <p className="text-sm font-medium text-blue-300">llama.cpp (Local)</p>
                         <p className="text-xs text-gray-400 mt-1">
-                          No API key required. Runs locally at <code className="bg-gray-900 px-1.5 py-0.5 rounded text-blue-400">localhost:11434</code>
+                          No API key required. Start <code className="bg-gray-900 px-1.5 py-0.5 rounded text-blue-400">llama-server</code> on <code className="bg-gray-900 px-1.5 py-0.5 rounded text-blue-400">localhost:8080</code>
                         </p>
-                        <a
-                          href="https://ollama.com/download"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-400 hover:underline mt-2 inline-block"
-                        >
-                          Download Ollama
-                        </a>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Example: <code className="bg-gray-900 px-1 py-0.5 rounded text-gray-400">llama-server -m model.gguf --port 8080</code>
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -603,7 +597,7 @@ export default function SettingsPanel({
               </div>
 
               {/* API Key - Only for cloud providers */}
-              {settings.provider !== "ollama" && (
+              {settings.provider !== "llamacpp" && (
                 <div className="space-y-4">
                   {settings.provider === "openai" && renderApiKeyInput("openai", "OpenAI API Key", "sk-...")}
                   {settings.provider === "anthropic" && renderApiKeyInput("anthropic", "Anthropic API Key", "sk-ant-...")}
@@ -621,7 +615,7 @@ export default function SettingsPanel({
                   <label className="text-sm font-semibold">Model</label>
                   <button
                     onClick={handleRefreshModels}
-                    disabled={isRefreshingModels || (settings.provider !== 'ollama' && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys])}
+                    disabled={isRefreshingModels || (settings.provider !== 'llamacpp' && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys])}
                     className="text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed rounded-lg flex items-center gap-1.5 transition"
                   >
                     <RefreshCw className={`w-3 h-3 ${isRefreshingModels ? 'animate-spin' : ''}`} />
@@ -643,7 +637,7 @@ export default function SettingsPanel({
                     <>
                       {settings.provider === "openai" && <option value="gpt-4o">GPT-4o</option>}
                       {settings.provider === "anthropic" && <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>}
-                      {settings.provider === "ollama" && <option value="llama3.2:3b">Llama 3.2 3B</option>}
+                      {settings.provider === "llamacpp" && <option value="default">Default Model</option>}
                       {settings.provider === "zai" && <option value="glm-4">GLM-4</option>}
                     </>
                   )}
@@ -668,7 +662,7 @@ export default function SettingsPanel({
               {/* Test Connection */}
               <button
                 onClick={handleTestConnection}
-                disabled={isTestingConnection || (settings.provider !== 'ollama' && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys]) || (settings.provider !== 'ollama' && !isOnline)}
+                disabled={isTestingConnection || (settings.provider !== 'llamacpp' && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys]) || (settings.provider !== 'llamacpp' && !isOnline)}
                 className="w-full px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2"
               >
                 {isTestingConnection ? (
