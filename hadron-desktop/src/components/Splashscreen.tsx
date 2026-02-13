@@ -47,18 +47,10 @@ export default function Splashscreen({
       >
         <img
           src="/logo.png"
-          alt="Hadron Logo"
-          className="w-64 h-64 object-contain drop-shadow-2xl"
+          alt="Hadron - AI Support Assistant"
+          className="w-80 h-80 object-contain drop-shadow-2xl"
           onLoad={() => setImageLoaded(true)}
         />
-
-        {/* App name */}
-        <h1 className="mt-6 text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-          Hadron
-        </h1>
-        <p className="mt-2 text-gray-400 text-sm">
-          AI Support Assistant
-        </p>
 
         {/* Loading indicator */}
         <div className="mt-8 flex items-center gap-2">
