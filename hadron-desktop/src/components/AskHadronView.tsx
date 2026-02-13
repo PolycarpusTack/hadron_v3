@@ -352,7 +352,7 @@ export default function AskHadronView({ selectedAnalysisId }: AskHadronViewProps
   const hasMessages = messages.length > 0;
 
   return (
-    <div className="flex h-[calc(100vh-220px)] min-h-[500px] gap-4">
+    <div className="flex h-[calc(100vh-14rem)] min-h-[500px] gap-4">
       {/* Sessions Sidebar */}
       {showSidebar && (
         <div className="w-64 flex-shrink-0 bg-gray-800/50 border border-gray-700 rounded-lg flex flex-col">
@@ -400,19 +400,19 @@ export default function AskHadronView({ selectedAnalysisId }: AskHadronViewProps
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col bg-gray-800/30 border border-gray-700 rounded-lg overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => setShowSidebar((s) => !s)}
               className="p-1.5 rounded-md hover:bg-gray-700/50 transition text-gray-400"
               title={showSidebar ? "Hide sidebar" : "Show sidebar"}
             >
-              <MessageCircle className="w-4 h-4" />
+              <MessageCircle className="w-5 h-5" />
             </button>
-            <h2 className="text-sm font-semibold text-emerald-400">
-              Ask Hadron
-            </h2>
-            <span className="text-xs text-gray-500">AI Assistant</span>
+            <div>
+              <h2 className="text-2xl font-bold">Ask Hadron</h2>
+              <p className="text-sm text-gray-400">AI Assistant</p>
+            </div>
           </div>
           {activeSessionId && (
             <button

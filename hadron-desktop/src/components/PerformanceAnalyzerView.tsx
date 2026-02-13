@@ -794,7 +794,7 @@ export default function PerformanceAnalyzerView() {
         <div className="space-y-6">
           {/* Header with reset button */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <span className="p-2 bg-cyan-500/20 rounded-lg">
                 <Cpu size={24} className="text-cyan-400" />
               </span>

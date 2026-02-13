@@ -90,14 +90,14 @@ export default function ReleaseNotesView() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-2">
-        <div className="p-2 rounded-lg bg-amber-500/10">
-          <FileText className="w-5 h-5 text-amber-400" />
-        </div>
+      <div className="flex items-center gap-4">
+        <span className="p-2 rounded-lg bg-amber-500/10">
+          <FileText className="w-6 h-6 text-amber-400" />
+        </span>
         <div>
-          <h2 className="text-lg font-semibold text-white">Release Notes Generator</h2>
+          <h2 className="text-2xl font-bold">Release Notes Generator</h2>
           <p className="text-sm text-gray-400">
             AI-powered release notes from JIRA tickets
           </p>
@@ -121,21 +121,23 @@ export default function ReleaseNotesView() {
       )}
 
       {/* Tab Bar */}
-      <div className="flex items-center gap-1 border-b border-gray-700">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 border-b-2 transition-all text-sm font-medium ${
-              activeTab === tab.id
-                ? "border-amber-400 text-amber-400"
-                : "border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50"
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
+      <div className="border-b border-gray-700">
+        <nav className="flex gap-1 overflow-x-auto pb-px">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "border-amber-400 text-amber-400"
+                  : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </nav>
       </div>
 
       {/* Tab Content */}

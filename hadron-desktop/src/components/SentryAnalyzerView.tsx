@@ -136,15 +136,15 @@ export default function SentryAnalyzerView({ onAnalysisComplete }: SentryAnalyze
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-orange-500/20 rounded-lg">
+        <div className="flex items-center gap-4">
+          <span className="p-2 bg-orange-500/20 rounded-lg">
             <Shield className="w-6 h-6 text-orange-400" />
-          </div>
+          </span>
           <div>
-            <h2 className="text-xl font-bold">Sentry Analyzer</h2>
+            <h2 className="text-2xl font-bold">Sentry Analyzer</h2>
             <p className="text-sm text-gray-400">Browse and analyze Sentry issues with AI</p>
           </div>
         </div>
@@ -171,9 +171,9 @@ export default function SentryAnalyzerView({ onAnalysisComplete }: SentryAnalyze
               onClick={() => setActiveTab(tab.id)}
               role="tab"
               aria-selected={activeTab === tab.id}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition whitespace-nowrap ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
                 activeTab === tab.id
-                  ? "border-emerald-500 text-emerald-400"
+                  ? "border-orange-500 text-orange-400"
                   : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
               }`}
             >

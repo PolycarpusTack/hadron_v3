@@ -1063,10 +1063,10 @@ export default function CodeAnalyzerView({
                 <button
                   key={tab.id}
                   onClick={() => onTabChange(tab.id)}
-                  className={`px-4 py-3 text-sm font-medium border-b-2 transition whitespace-nowrap ${
+                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
                     activeTab === tab.id
                       ? "border-violet-600 text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20"
-                      : "border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                      : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 hover:border-gray-400 dark:hover:border-gray-600"
                   }`}
                 >
                   {tab.label}
