@@ -30,16 +30,16 @@ interface JiraCredentials {
 }
 
 async function getJiraCredentials(): Promise<JiraCredentials> {
-  const baseUrl = await getSetting<string>("jira_base_url", "");
-  const email = await getSetting<string>("jira_email", "");
-  const apiToken = await getApiKey("jira");
-  const projectKey = await getSetting<string>("jira_project_key", "");
+  const baseUrl = (await getSetting<string>("jira_base_url", "")) || "";
+  const email = (await getSetting<string>("jira_email", "")) || "";
+  const apiToken = (await getApiKey("jira")) || "";
+  const projectKey = (await getSetting<string>("jira_project_key", "")) || "";
 
   if (!baseUrl || !email || !apiToken) {
     throw new Error("JIRA is not configured. Please set up JIRA in Settings.");
   }
 
-  return { baseUrl, email, apiToken: apiToken || "", projectKey };
+  return { baseUrl, email, apiToken, projectKey };
 }
 
 async function getAiCredentials(): Promise<{ apiKey: string; model: string; provider: string }> {

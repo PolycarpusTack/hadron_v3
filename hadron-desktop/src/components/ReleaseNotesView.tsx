@@ -4,19 +4,22 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { FileText, Wand2, CheckCircle, BookOpen, History, AlertCircle } from "lucide-react";
+import { FileText, Wand2, CheckCircle, BookOpen, History, AlertCircle, Loader2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { isJiraEnabled } from "../services/jira";
+import { getReleaseNotes } from "../services/release-notes";
 import logger from "../services/logger";
-import type { ReleaseNotesProgress } from "../types";
+import type { ReleaseNotesProgress, ReleaseNotesDraft } from "../types";
 
 import ReleaseNotesGenerator from "./release-notes/ReleaseNotesGenerator";
 import ReleaseNotesEditor from "./release-notes/ReleaseNotesEditor";
 import ReleaseNotesReview from "./release-notes/ReleaseNotesReview";
+import ReleaseNotesInsights from "./release-notes/ReleaseNotesInsights";
 import ReleaseNotesStyleGuide from "./release-notes/ReleaseNotesStyleGuide";
 import ReleaseNotesHistory from "./release-notes/ReleaseNotesHistory";
 
 type TabId = "generate" | "review" | "style_guide" | "history";
+type ReviewSubTab = "editor" | "checklist" | "insights";
 
 const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "generate", label: "Generate", icon: <Wand2 className="w-4 h-4" /> },
@@ -28,6 +31,7 @@ const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
 export default function ReleaseNotesView() {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("generate");
+  const [reviewSubTab, setReviewSubTab] = useState<ReviewSubTab>("editor");
   const [progress, setProgress] = useState<ReleaseNotesProgress | null>(null);
   const [activeDraftId, setActiveDraftId] = useState<number | null>(null);
 
@@ -52,12 +56,14 @@ export default function ReleaseNotesView() {
   const handleGenerated = useCallback((id: number) => {
     setActiveDraftId(id);
     setActiveTab("review");
+    setReviewSubTab("editor");
     logger.info("Release notes generated, switching to review", { id });
   }, []);
 
   const handleOpenDraft = useCallback((id: number) => {
     setActiveDraftId(id);
     setActiveTab("review");
+    setReviewSubTab("editor");
   }, []);
 
   // Not-configured state
@@ -142,7 +148,38 @@ export default function ReleaseNotesView() {
         )}
         {activeTab === "review" && (
           activeDraftId ? (
-            <ReleaseNotesEditor draftId={activeDraftId} />
+            <div className="space-y-4">
+              {/* Review Sub-tabs */}
+              <div className="flex items-center gap-1 bg-gray-800/50 rounded-lg p-1">
+                {([
+                  { id: "editor" as const, label: "Editor" },
+                  { id: "checklist" as const, label: "Checklist" },
+                  { id: "insights" as const, label: "Insights" },
+                ]).map((sub) => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setReviewSubTab(sub.id)}
+                    className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                      reviewSubTab === sub.id
+                        ? "bg-gray-700 text-amber-400"
+                        : "text-gray-400 hover:text-gray-200"
+                    }`}
+                  >
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+
+              {reviewSubTab === "editor" && (
+                <ReleaseNotesEditor draftId={activeDraftId} />
+              )}
+              {reviewSubTab === "checklist" && (
+                <ReleaseNotesReview draftId={activeDraftId} />
+              )}
+              {reviewSubTab === "insights" && (
+                <ReleaseNotesInsightsWrapper draftId={activeDraftId} />
+              )}
+            </div>
           ) : (
             <div className="text-center py-12 text-gray-500">
               <AlertCircle className="w-8 h-8 mx-auto mb-3 text-gray-600" />
@@ -154,5 +191,39 @@ export default function ReleaseNotesView() {
         {activeTab === "history" && <ReleaseNotesHistory onOpenDraft={handleOpenDraft} />}
       </div>
     </div>
+  );
+}
+
+/** Wrapper that loads draft data for the insights panel */
+function ReleaseNotesInsightsWrapper({ draftId }: { draftId: number }) {
+  const [draft, setDraft] = useState<ReleaseNotesDraft | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    getReleaseNotes(draftId)
+      .then((d) => setDraft(d))
+      .catch(() => setDraft(null))
+      .finally(() => setLoading(false));
+  }, [draftId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!draft) return null;
+
+  return (
+    <ReleaseNotesInsights
+      insightsJson={draft.aiInsights}
+      ticketCount={draft.ticketCount}
+      tokensUsed={draft.tokensUsed}
+      cost={draft.cost}
+      durationMs={draft.generationDurationMs}
+    />
   );
 }

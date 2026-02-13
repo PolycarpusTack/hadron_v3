@@ -16,7 +16,7 @@ import {
   listReleaseNotes,
   deleteReleaseNotes,
 } from "../../services/release-notes";
-import type { ReleaseNotesSummary, ReleaseNotesStatus } from "../../types";
+import type { ReleaseNotesSummary } from "../../types";
 import logger from "../../services/logger";
 
 interface Props {
