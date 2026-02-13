@@ -114,6 +114,7 @@ export default function AskHadronView({ selectedAnalysisId }: AskHadronViewProps
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const streamingContentRef = useRef("");
 
@@ -123,14 +124,17 @@ export default function AskHadronView({ selectedAnalysisId }: AskHadronViewProps
     isKBEnabled().then(setKbAvailable).catch(() => setKbAvailable(false));
   }, []);
 
-  // Auto-scroll on new messages
+  // Auto-scroll on new messages (scroll container only, not the page)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [messages]);
 
-  // Focus input on session change
+  // Focus input on session change (without scrolling the page)
   useEffect(() => {
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, [activeSessionId]);
 
   // ============================================================================
@@ -141,7 +145,7 @@ export default function AskHadronView({ selectedAnalysisId }: AskHadronViewProps
     setActiveSessionId(null);
     setMessages([]);
     setInput("");
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, []);
 
   const selectSession = useCallback(async (session: ChatSession) => {
@@ -425,7 +429,7 @@ export default function AskHadronView({ selectedAnalysisId }: AskHadronViewProps
         </div>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {!hasMessages && (
             <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
               <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
