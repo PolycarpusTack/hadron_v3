@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Smalltalk Crash Analyzer - JSON Output Version
+Hadron AI Support Assistant - JSON Output Version
 Multi-Provider Support (OpenAI + Anthropic + Z.ai/GLM)
 
 Usage: python analyze_json.py crash-log.txt

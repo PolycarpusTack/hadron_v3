@@ -57,7 +57,7 @@ export default function Splashscreen({
           Hadron
         </h1>
         <p className="mt-2 text-gray-400 text-sm">
-          Smalltalk Crash Analyzer
+          AI Support Assistant
         </p>
 
         {/* Loading indicator */}

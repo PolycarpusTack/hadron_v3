@@ -1,4 +1,4 @@
-# Smalltalk Crash Analyzer - MVP Dependencies
+# Hadron AI Support Assistant - Dependencies
 # Install with: pip install -r requirements.txt
 
 # AI Providers

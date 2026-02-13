@@ -1,7 +1,7 @@
 {
   "name": "hadron-desktop",
-  "version": "3.9.0",
-  "description": "Smalltalk Crash Analyzer - Desktop Application",
+  "version": "4.0.1",
+  "description": "Hadron - AI Support Assistant",
   "type": "module",
   "scripts": {
     "dev": "vite",
