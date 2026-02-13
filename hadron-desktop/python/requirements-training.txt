@@ -23,9 +23,6 @@ wandb>=0.16.0
 sentencepiece>=0.1.99
 protobuf>=3.20.0
 
-# Configuration
-pyyaml>=6.0.0
-
 # Utilities
 tqdm>=4.66.0
 safetensors>=0.4.0

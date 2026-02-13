@@ -1,9 +1,8 @@
-# Hadron Desktop - User Guide
+# Hadron Desktop — User Guide
 
-**Version**: 1.0.0
-**Last Updated**: 2025-11-13
+**Version**: 4.0.1 | **Last Updated**: 2026-02-13
 
-Complete guide to using Hadron Desktop for Smalltalk crash analysis.
+Complete guide to using Hadron Desktop for crash analysis, AI-assisted support, and team collaboration.
 
 ---
 
@@ -13,31 +12,34 @@ Complete guide to using Hadron Desktop for Smalltalk crash analysis.
 2. [Installation](#installation)
 3. [First-Time Setup](#first-time-setup)
 4. [Analyzing Crash Logs](#analyzing-crash-logs)
-5. [Managing API Keys](#managing-api-keys)
+5. [Ask Hadron (AI Chatbot)](#ask-hadron-ai-chatbot)
 6. [Search & History](#search--history)
-7. [Favorites](#favorites)
-8. [Exporting Analyses](#exporting-analyses)
-9. [Settings & Preferences](#settings--preferences)
-10. [Keyboard Shortcuts](#keyboard-shortcuts)
+7. [JIRA Integration](#jira-integration)
+8. [Sentry Integration](#sentry-integration)
+9. [Release Notes](#release-notes)
+10. [Settings & Preferences](#settings--preferences)
+11. [Keyboard Shortcuts](#keyboard-shortcuts)
 
 ---
 
 ## Overview
 
-Hadron Desktop is an **AI-powered Smalltalk crash log analyzer** that helps developers:
+Hadron Desktop is an **AI-powered support assistant** for the WHATS'ON broadcast management system. It helps developers and support engineers:
 
-- 🔍 **Understand crashes faster** - AI explains root causes in plain English
-- 🎯 **Get fix suggestions** - Actionable steps to resolve issues
-- 📚 **Build knowledge** - Search and reference past analyses
-- ⚡ **Save time** - 10x faster than manual debugging
+- **Analyze crash logs** — AI explains root causes and suggests fixes
+- **Ask questions** — Agentic chatbot with access to your crash history, JIRA, and knowledge base
+- **Monitor production** — Browse and analyze Sentry issues with pattern detection
+- **Generate release notes** — AI-powered release notes from JIRA fix versions
+- **Track patterns** — Crash signatures, deduplication, and trend analysis
 
 ### Key Features
 
-- **Multi-provider AI**: Choose from OpenAI, Anthropic Claude, or Z.ai
-- **Full-text search**: Find past analyses instantly with BM25 ranking
-- **Auto-updater**: Stay current with automatic updates
+- **Multi-provider AI**: OpenAI, Anthropic Claude, Z.ai, or llama.cpp (local/offline)
+- **Agentic chatbot**: 15 tools including search, JIRA, knowledge base, and crash analysis
+- **Full-text search**: SQLite FTS5 with BM25 relevance ranking
+- **Feedback loop**: Rate responses to improve future search results
 - **Encrypted storage**: API keys secured with OS-level encryption
-- **Export**: Share analyses as Markdown or PDF
+- **Export**: Share analyses as Markdown, HTML, or JSON
 
 ---
 
@@ -45,79 +47,56 @@ Hadron Desktop is an **AI-powered Smalltalk crash log analyzer** that helps deve
 
 ### Download
 
-Get the installer for your platform:
-- **Windows**: `hadron-desktop_1.0.0_x64_en-US.msi`
-- **macOS (Intel)**: `hadron-desktop_1.0.0_x64.dmg`
-- **macOS (Apple Silicon)**: `hadron-desktop_1.0.0_aarch64.dmg`
-- **Linux (Debian/Ubuntu)**: `hadron-desktop_1.0.0_amd64.deb`
-- **Linux (AppImage)**: `hadron-desktop_1.0.0_amd64.AppImage`
+Get the installer for your platform from the releases page.
 
-Download from: [GitHub Releases](https://github.com/hadron-team/hadron-desktop/releases)
+| Platform | Package |
+|----------|---------|
+| **Windows** | `hadron-desktop_4.0.1_x64_en-US.msi` |
+| **macOS (Intel)** | `hadron-desktop_4.0.1_x64.dmg` |
+| **macOS (Apple Silicon)** | `hadron-desktop_4.0.1_aarch64.dmg` |
+| **Linux (Debian/Ubuntu)** | `hadron-desktop_4.0.1_amd64.deb` |
+| **Linux (AppImage)** | `hadron-desktop_4.0.1_amd64.AppImage` |
 
 ### Install
 
-**Windows**:
-1. Double-click `.msi` installer
-2. Follow installation wizard
-3. Launch from Start Menu
+**Windows**: Double-click the `.msi` installer, follow the wizard, launch from Start Menu.
 
-**macOS**:
-1. Open `.dmg` file
-2. Drag Hadron to Applications folder
-3. First launch: Right-click → Open (to bypass Gatekeeper)
+**macOS**: Open the `.dmg`, drag Hadron to Applications. First launch: right-click > Open (to bypass Gatekeeper).
 
 **Linux (Debian/Ubuntu)**:
 ```bash
-sudo dpkg -i hadron-desktop_1.0.0_amd64.deb
+sudo dpkg -i hadron-desktop_4.0.1_amd64.deb
 ```
 
 **Linux (AppImage)**:
 ```bash
-chmod +x hadron-desktop_1.0.0_amd64.AppImage
-./hadron-desktop_1.0.0_amd64.AppImage
+chmod +x hadron-desktop_4.0.1_amd64.AppImage
+./hadron-desktop_4.0.1_amd64.AppImage
 ```
 
 ---
 
 ## First-Time Setup
 
-### Step 1: Launch Hadron
+### Step 1: Choose AI Provider
 
-- **Windows**: Start Menu → Hadron
-- **macOS**: Applications → Hadron
-- **Linux**: Run from command line or applications menu
-
-### Step 2: Choose AI Provider
-
-Click the **Settings** icon (⚙️) in the top-right corner.
-
-You have three options:
+Open **Settings** (`Ctrl+,`) and select your AI provider:
 
 | Provider | Cost | Best For |
 |----------|------|----------|
-| **OpenAI** | $0.01-$0.03/analysis | Occasional use, reliable |
-| **Anthropic** | $0.003-$0.015/analysis | Large logs, best reasoning |
-| **Z.ai** | $3/month (unlimited) | Daily use, heavy users |
+| **OpenAI** | ~$0.01-0.03/analysis | General use, reliable |
+| **Anthropic** | ~$0.003-0.015/analysis | Large logs, strong reasoning |
+| **Z.ai** | $3/month (unlimited) | Heavy daily use |
+| **llama.cpp** | Free (runs locally) | Offline use, privacy |
 
-Select your provider and recommended model:
-- **OpenAI**: GPT-4 Turbo
-- **Anthropic**: Claude 3.5 Sonnet
-- **Z.ai**: GLM-4.6
+### Step 2: Add API Key
 
-### Step 3: Add API Key
+- **OpenAI**: Get key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+- **Anthropic**: Get key at [console.anthropic.com](https://console.anthropic.com)
+- **Z.ai**: Get key at [z.ai](https://z.ai)
+- **llama.cpp**: No key needed — start the server: `llama-server -m model.gguf --host 127.0.0.1 --port 8080`
 
-**Get your API key**:
-- **OpenAI**: https://platform.openai.com/api-keys
-- **Anthropic**: https://console.anthropic.com
-- **Z.ai**: https://z.ai
-
-Paste your API key into the Settings panel and click **Save Settings**.
-
-✅ **Your API key is encrypted** and stored securely using OS-level encryption.
-
-### Step 4: Analyze Your First Crash Log
-
-Use **Choose File** or **Paste Log Text** to start an analysis.
+Paste your API key and click **Save Settings**. Keys are encrypted using OS-level storage (macOS Keychain / Windows Credential Manager / Linux Secret Service).
 
 ---
 
@@ -125,220 +104,198 @@ Use **Choose File** or **Paste Log Text** to start an analysis.
 
 ### Supported File Types
 
-- `.log` - Smalltalk crash logs
-- `.txt` - Text files with stack traces
-- `.crash` - Crash reports
-- Any text file containing error messages
+Any text file containing error messages or stack traces: `.log`, `.txt`, `.crash`, etc.
 
 ### How to Analyze
 
-**Method 1: Choose File**
-1. Click **Choose File**
-2. Select a crash log in the file picker
-3. Choose **Quick** or **Comprehensive**
-4. Wait for analysis
+**Method 1: Choose File** — Click **Choose File**, select one or more crash logs.
 
-**Method 2: Paste Log Text**
-1. Click **Paste Log Text**
-2. Paste the crash log content
-3. Click **Analyze Pasted Log**
+**Method 2: Paste Log Text** — Click **Paste Log Text**, paste content, click **Analyze**.
+
+### Analysis Types
+
+| | Quick Analysis | Comprehensive (WHATS'ON) |
+|-|----------------|--------------------------|
+| **Speed** | 5-10 seconds | 30-60 seconds |
+| **Focus** | Root cause + fix | Full 10-part structured report |
+| **Includes** | Summary, severity, fix | Impact analysis, test scenarios, reproduction steps |
 
 ### Understanding Results
 
 Each analysis includes:
+- **Summary** — What went wrong in plain English
+- **Root Cause** — Technical explanation of the failure
+- **Suggested Fix** — Code changes or steps to resolve
+- **Severity** — Critical, High, Medium, or Low
+- **Component** — Which application module was affected
 
-1. **Root Cause** 🎯
-   - What triggered the crash
-   - Which component failed
-   - Why it happened
+### Actions on Results
 
-2. **Stack Trace Explanation** 📚
-   - Step-by-step breakdown
-   - Key methods and line numbers
-   - Flow of execution
-
-3. **Suggested Fix** 🔧
-   - Code changes needed
-   - Configuration updates
-   - Workarounds
-
-4. **Prevention Tips** 🛡️
-   - How to avoid similar crashes
-   - Best practices
-   - Testing recommendations
-
-### Analysis Metadata
-
-Each analysis tracks:
-- **File name**: Original crash log name
-- **AI Provider**: Which AI analyzed it (OpenAI/Anthropic/Z.ai)
-- **Model**: Specific AI model used
-- **Cost**: Estimated API cost
-- **Timestamp**: When analysis was performed
+- **Export** — Markdown, HTML, or JSON
+- **Create JIRA Ticket** — Pre-filled ticket from the analysis
+- **Add Tags** — Organize with custom labels
+- **Add Notes** — Record your investigation findings
+- **Re-analyze** — Try a different provider or analysis type
 
 ---
 
-## Managing API Keys
+## Ask Hadron (AI Chatbot)
 
-### View Current API Key
+Click the **Ask Hadron** tab in the sidebar.
 
-Settings → Shows masked key: `sk-••••••••••••••••••1234`
+### What It Can Do
 
-### Update API Key
+Ask Hadron is an **agentic AI assistant** with access to 15 tools:
 
-1. Settings → Enter new API key
-2. Click **Save Settings**
-3. Old key is automatically replaced
+| Category | Tools |
+|----------|-------|
+| **Search** | Search crash analyses, knowledge base, JIRA issues |
+| **Analysis** | Get analysis details, find similar crashes, compare crashes |
+| **Patterns** | Get crash signatures, top signatures, error patterns |
+| **Trends** | Get trend data, statistics, component health |
+| **Actions** | Create JIRA tickets, correlate crashes to JIRA |
 
-### Clear API Key
+### How to Use
 
-1. Settings → Click **Clear** button
-2. Confirm deletion
-3. You'll need to re-enter to analyze files
+1. Type a question or select a starter prompt
+2. Watch the tool activity panel to see the agent's reasoning
+3. Rate responses with thumbs up/down
 
-### Security
+### Example Questions
 
-- ✅ **Encrypted** - OS-level encryption (Keychain/Credential Manager/Secret Service)
-- ✅ **Never transmitted** - Keys stay on your machine
-- ✅ **Auto-migration** - Old localStorage keys migrated automatically
+- "What are the most common crashes this week?"
+- "Find crashes related to database timeouts"
+- "What JIRA tickets are linked to NullReferenceException crashes?"
+- "Compare crash #42 with crash #57"
+- "How is the OrderProcessor component doing?"
+
+### Chat Sessions
+
+Conversations are saved automatically. Click **New Chat** to start fresh, or browse previous sessions in the sidebar.
 
 ---
 
 ## Search & History
 
-### View All Analyses
-
-All analyses appear in the sidebar automatically.
-
-**Sorted by**:
-- Most recent first
-- With file name and timestamp
+Press `Ctrl+H` to open History.
 
 ### Search
 
-Use the search bar at the top to find analyses:
+Type in the search bar to find analyses by:
+- File name, error message, class name, method name
+- Any text in the analysis content
 
-**Search by**:
-- File name (`test.log`)
-- Error message (`NullPointerException`)
-- Class name (`MessageHandler`)
-- Method name (`processMessage`)
-- Any text in the analysis
-
-**Powered by**: SQLite FTS5 with BM25 ranking (relevance-based)
+Search is powered by SQLite FTS5 with BM25 relevance ranking.
 
 ### Filters
 
-Click **Filters** to narrow results:
-
-- **Provider**: Show only OpenAI/Anthropic/Z.ai analyses
-- **Model**: Filter by specific model
+- **Severity**: Critical, High, Medium, Low
 - **Date Range**: Last 7 days, 30 days, all time
-- **Favorites**: Show only starred analyses
+- **Tags**: Filter by custom tags
+- **Provider**: OpenAI, Anthropic, Z.ai, llama.cpp
 
-### Re-analyze
+### Tags & Notes
 
-Click any past analysis to view it. You can:
-- Read the full analysis
-- Export to Markdown/PDF
-- Star as favorite
-- Delete
+- Click the **tag icon** on any analysis to add tags (`production`, `investigated`, `wontfix`)
+- Click **Add Notes** to record findings, decisions, or follow-ups
 
 ---
 
-## Favorites
+## JIRA Integration
 
-### Star an Analysis
+### Setup
 
-Click the ★ icon on any analysis to mark as favorite.
+1. Settings > JIRA Integration
+2. Enter:
+   - **Base URL**: `https://yourcompany.atlassian.net` (must include `https://`)
+   - **Email**: Your Atlassian account email
+   - **API Token**: Generate at [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens)
+   - **Project Key** (optional): Default project (e.g., `PSI`)
+3. Click **Test Connection**
 
-### View Favorites
+### Usage
 
-Click **Favorites** in the sidebar to see only starred analyses.
-
-**Use cases**:
-- Production crashes
-- Critical bugs
-- Reference examples
-- Learning material
-
-### Unstar
-
-Click the filled ★ icon to remove from favorites.
+- **From crash analysis**: Click **Create JIRA Ticket** to create a pre-filled ticket
+- **From Ask Hadron**: Ask "search JIRA for timeout issues" or "create a JIRA ticket for this crash"
+- **Linked tickets**: Crash analyses show linked JIRA tickets
 
 ---
 
-## Exporting Analyses
+## Sentry Integration
 
-### Export to Markdown
+### Setup
 
-1. Click **Export** button on any analysis
-2. Select "Markdown (.md)"
-3. Choose save location
-4. File includes full analysis with formatting
+1. Settings > Sentry Integration
+2. Enter:
+   - **Base URL**: `https://sentry.io` (or your self-hosted URL)
+   - **Auth Token**: Generate at Sentry > Settings > Auth Tokens (needs `project:read`, `event:read`)
+   - **Organization**: Your org slug
+   - **Project**: Your project slug
+3. Click **Test Connection**
 
-**Use for**:
-- GitHub Issues
-- Documentation
-- Team sharing
-- Version control
+### Usage
 
-### Export to PDF
+Click the **Sentry Analyzer** tab to:
+- Browse production errors with search, filtering, and pagination
+- View event details, stack traces, and breadcrumbs
+- Run AI analysis on individual Sentry issues
+- View detected patterns:
 
-1. Click **Export** button
-2. Select "PDF (.pdf)"
-3. Choose save location
-4. Formatted PDF with syntax highlighting
+| Pattern | What It Detects |
+|---------|----------------|
+| **Deadlock** | Lock timeouts, deadlock keywords |
+| **N+1 Query** | Repeated database query patterns |
+| **Memory Leak** | Out-of-memory, heap exhaustion |
+| **Unhandled Promise** | Unhandled rejections in async code |
 
-**Use for**:
-- Reports
-- Presentations
-- Printing
-- Archiving
+---
+
+## Release Notes
+
+### Prerequisites
+
+JIRA must be configured (release notes pull from JIRA fix versions).
+
+### How to Generate
+
+1. Click the **Release Notes** tab in the sidebar
+2. In the **Generate** sub-tab, select a JIRA fix version
+3. Click **Generate** — AI creates draft release notes from the tickets
+4. Switch to the **Review** sub-tab to edit and refine
+
+### Lifecycle
+
+```
+Draft -> In Review -> Approved -> Published
+```
+
+You can also discard drafts or archive published notes.
 
 ---
 
 ## Settings & Preferences
 
-### AI Provider Settings
+### AI Provider
 
-**Switch Provider**:
-1. Settings → Select new provider
-2. Enter API key for new provider
-3. Save Settings
-
-**Change Model**:
-- Select different model from dropdown
-- Each provider has 2-3 models
-- Recommended models are marked
-
-### File Size Limit
-
-**Default**: 400 KB
-
-**Adjust**:
-- Settings → Max File Size slider (100 KB - 1000 KB)
-- Larger files = higher API costs
-- Files auto-truncated if over limit
+- Switch providers anytime in Settings
+- Each provider has recommended models
+- llama.cpp runs locally with no API key
 
 ### Theme
 
-**Toggle Dark/Light Mode**:
-- Settings → Theme selector
-- Default: Dark mode
-- Preference saved automatically
+Toggle dark/light mode in the top-right corner.
 
-### Software Updates
+### Database Administration
 
-**Check for Updates**:
-1. Settings → Software Updates section
-2. Click "Check for Updates"
-3. If available, Tauri shows update dialog
+- **Verify Database** — Check for schema issues
+- **Repair Database** — Fix corrupted data
+- **Cleanup Old Records** — Remove old analyses
 
-**Auto-update**:
-- Checks on app startup (silent)
-- Notifies when update available
-- One-click install
+### Security
+
+- API keys are encrypted using OS-level storage
+- Keys are cleared from memory after use (`zeroize` crate)
+- Keys are never written to log files or transmitted to third parties
 
 ---
 
@@ -346,77 +303,29 @@ Click the filled ★ icon to remove from favorites.
 
 | Action | Shortcut |
 |--------|----------|
-| **Open Settings** | `Ctrl+,` (Windows/Linux) <br> `Cmd+,` (macOS) |
-| **Search** | `Ctrl+F` (Windows/Linux) <br> `Cmd+F` (macOS) |
-| **Star/Unstar** | `Ctrl+D` (Windows/Linux) <br> `Cmd+D` (macOS) |
-| **Export** | `Ctrl+E` (Windows/Linux) <br> `Cmd+E` (macOS) |
-| **Delete** | `Delete` |
-| **Close Panel** | `Esc` |
-
----
-
-## Tips & Tricks
-
-### Faster Analysis
-
-- **Use GPT-3.5 Turbo** for simple crashes (5x faster, 10x cheaper)
-- **Reduce file size limit** if you have small logs
-- **Z.ai unlimited** = no cost worries
-
-### Better Results
-
-- **Include full stack trace** in crash log
-- **Add context** (what user was doing)
-- **Use Claude 3.5 Sonnet** for complex multi-file crashes
-
-### Organization
-
-- **Star critical crashes** for quick reference
-- **Use descriptive file names** for easier search
-- **Export to Markdown** for team documentation
-
-### Cost Savings
-
-- **Anthropic** = 3-5x cheaper than OpenAI for large files
-- **Z.ai** = best for >10 analyses/day
-- **Reduce file size** = lower API costs
+| New Analysis | `Ctrl+N` |
+| Open History | `Ctrl+H` |
+| Open Settings | `Ctrl+,` |
+| Open Console | `Ctrl+Y` |
+| Close Panel | `Esc` |
 
 ---
 
 ## Troubleshooting
 
-For detailed troubleshooting, see [TROUBLESHOOTING.md](../../TROUBLESHOOTING.md).
+For detailed troubleshooting, see the **Help & Troubleshooting** guide in the Documentation viewer (`Ctrl+,` > Help icon).
 
-### Common Issues
+### Quick Fixes
 
-**"API Key Invalid"**
-- Check key format (OpenAI: `sk-`, Anthropic: `sk-ant-`)
-- Verify account has credits/subscription
-- Re-enter key in Settings
+| Problem | Solution |
+|---------|----------|
+| "All AI providers failed" | Re-enter API key in Settings |
+| Empty analysis results | Retry; check Console (`Ctrl+Y`) |
+| JIRA connection failed | Verify URL has `https://`, check token |
+| Sentry access denied | Token needs `project:read`, `event:read` scopes |
+| Slow performance | Cleanup old records, use Quick Analysis |
+| History empty | Settings > Database Administration > Verify/Repair |
 
-**"Analysis Failed"**
-- Check internet connection
-- Try different provider (circuit breaker should auto-switch)
-- Check file is valid text format
+### Console Viewer
 
-**"File Too Large"**
-- Increase Max File Size in Settings
-- Or split large log into smaller files
-
-**"Update Check Failed"**
-- Check internet connection
-- Verify GitHub is accessible
-- Manual download from GitHub Releases
-
----
-
-## Getting Help
-
-- **Issues**: [GitHub Issues](https://github.com/hadron-team/hadron-desktop/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/hadron-team/hadron-desktop/discussions)
-- **Documentation**: [DOCUMENTATION.md](../../DOCUMENTATION.md)
-
----
-
-**Version**: 1.0.0
-**Last Updated**: 2025-11-13
+Press `Ctrl+Y` for detailed logs: API requests, parsing progress, error details, token usage.

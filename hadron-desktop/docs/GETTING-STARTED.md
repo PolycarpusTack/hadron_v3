@@ -1,19 +1,19 @@
 # Getting Started with Hadron
 
-Welcome to Hadron - your AI-powered Smalltalk crash log analyzer! This tutorial will walk you through everything you need to know to become productive with Hadron.
+Welcome to Hadron — your AI-powered support assistant for WHATS'ON crash analysis, JIRA integration, Sentry monitoring, and release notes generation.
+
+**Version**: 4.0.1 | **Estimated setup time**: 10 minutes
 
 ---
 
 ## What You'll Learn
 
 By the end of this tutorial, you'll be able to:
-- [ ] Set up Hadron with your API key
-- [ ] Analyze your first crash log
-- [ ] Understand analysis results
-- [ ] Use the History feature
-- [ ] Export and share reports
-
-**Estimated time: 15 minutes**
+- Set up Hadron with your AI provider
+- Analyze your first crash log
+- Use Ask Hadron (the AI chatbot)
+- Connect JIRA and Sentry integrations
+- Export and share reports
 
 ---
 
@@ -21,53 +21,28 @@ By the end of this tutorial, you'll be able to:
 
 ### Step 1.1: Launch Hadron
 
-When you first open Hadron, you'll see the main interface:
+When you first open Hadron, a splash screen appears, then the main interface with the Crash Analyzer panel.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  🔬 Hadron                                    ☀️ ⚙️         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│     ┌─────────────────────────────────────────────┐        │
-│     │                                             │        │
-│     │        Choose File or Paste Log Text        │        │
-│     │            to start analysis                │        │
-│     │                                             │        │
-│     └─────────────────────────────────────────────┘        │
-│                                                             │
-│     [  Dashboard  ] [  History  ] [  Patterns  ]           │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+### Step 1.2: Configure Your AI Provider
 
-### Step 1.2: Configure Your API Key
+1. **Click the Settings icon** (gear) in the top right corner, or press `Ctrl+,`
+2. **Select a provider** and enter your API key:
 
-Before analyzing crashes, you need to set up an AI provider:
+| Provider | Key Source | Cost Model |
+|----------|-----------|------------|
+| **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Per-token pricing |
+| **Anthropic** | [console.anthropic.com](https://console.anthropic.com) | Per-token pricing |
+| **Z.ai** | [z.ai](https://z.ai) | Flat-rate ($3/month) |
+| **llama.cpp (Local)** | No key needed | Free |
 
-1. **Click the Settings icon** (⚙️) in the top right corner, or press `Ctrl+,`
+3. **Click "Save Settings"**
 
-2. **You'll see the Settings panel:**
-   ```
-   ┌─────────────── Settings ────────────────┐
-   │                                         │
-   │  AI Provider:  [ OpenAI        ▼]      │
-   │                                         │
-   │  API Key:      [_________________]     │
-   │                                         │
-   │  Model:        [ gpt-4o         ▼]      │
-   │                                         │
-   │            [ Save Settings ]            │
-   └─────────────────────────────────────────┘
-   ```
+> **Tip:** For llama.cpp, start the server first:
+> ```bash
+> llama-server -m model.gguf --host 127.0.0.1 --port 8080
+> ```
 
-3. **Enter your API key:**
-   - For OpenAI: Get yours at https://platform.openai.com/api-keys
-   - For Anthropic: Get yours at https://console.anthropic.com/settings/keys
-   - For Ollama (local/free): No key needed, just install Ollama
-
-4. **Click "Save Settings"**
-
-> ✅ **Checkpoint:** You should see a green "API Key Set" indicator in the footer.
+> **Checkpoint:** You should see the provider status indicator in the footer bar.
 
 ---
 
@@ -75,297 +50,155 @@ Before analyzing crashes, you need to set up an AI provider:
 
 ### Step 2.1: Load a Crash Log
 
-Use one of the two inputs in the Crash Analyzer panel:
-
 **Option A: Choose File**
 1. Click **Choose File**
-2. Navigate to your crash log
-3. Select one or more files and click **Open**
+2. Select one or more crash log files (`.log`, `.txt`, `.crash`, or any text file)
+3. Click **Open**
 
 **Option B: Paste Log Text**
 1. Click **Paste Log Text**
 2. Paste the crash log content
-3. Click **Analyze Pasted Log**
+3. Click **Analyze**
 
 ### Step 2.2: Choose Analysis Type
 
-Pick the analysis type before starting:
+| Quick Analysis | Comprehensive (WHATS'ON) |
+|----------------|--------------------------|
+| Fast (5-10 seconds) | Full scan (30-60 seconds) |
+| Crash focus only | 10-part structured report |
+| Root cause + fix | Impact, test scenarios, reproduction steps |
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│   📄 CrashLog_2025-01-22.wks loaded                       │
-│                                                            │
-│   ┌──────────────────┐    ┌──────────────────┐            │
-│   │  Quick Analysis  │    │ Comprehensive    │            │
-│   │                  │    │                  │            │
-│   │  • Fast (5-10s)  │    │  • Full scan     │            │
-│   │  • Crash focus   │    │  • Full context  │            │
-│   │  • Root cause    │    │  • Test scenarios│            │
-│   └──────────────────┘    └──────────────────┘            │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
+**For your first analysis, try "Quick Analysis"** — it's faster and focuses on the crash and fix.
 
-**For your first analysis, try "Quick Analysis"** - it's faster and focuses on the crash and fix.
+### Step 2.3: Understanding Results
 
-### Step 2.3: Watch the Progress
+When analysis completes, you'll see:
+- **Summary** — One-paragraph explanation of what crashed and why
+- **Root Cause** — The underlying technical reason
+- **Suggested Fix** — Code changes or steps to resolve the issue
+- **Severity** — Critical, High, Medium, or Low
+- **Component** — Which part of the application was affected
 
-During analysis, you'll see:
+From results, you can:
+- **Export** in Markdown, HTML, or JSON
+- **Create JIRA Ticket** directly from the analysis
+- **Add Tags** for organization
+- **Re-analyze** with a different provider or analysis type
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                                                            │
-│   Analyzing crash log...                                   │
-│                                                            │
-│   ████████████████████░░░░░░░░░░░░░░░░░░░░  45%           │
-│                                                            │
-│   Current: Extracting stack trace...                       │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-> 💡 **Tip:** The analysis has multiple phases: parsing, pattern matching, AI analysis, and result formatting.
-
-### Step 2.4: Understanding Results
-
-When analysis completes, you'll see results like this:
-
-```
-┌─────────────────── Analysis Results ───────────────────────┐
-│                                                            │
-│  📊 Summary                                                │
-│  ─────────────────────────────────────────────────────     │
-│  NullReferenceException in OrderProcessor when            │
-│  attempting to access customer billing information.        │
-│                                                            │
-│  🔍 Root Cause                                             │
-│  ─────────────────────────────────────────────────────     │
-│  The order.customer.billingAddress field is nil           │
-│  because the customer profile was created without         │
-│  billing information.                                      │
-│                                                            │
-│  💡 Suggested Fix                                          │
-│  ─────────────────────────────────────────────────────     │
-│  Add nil check before accessing billing address:          │
-│  `order customer billingAddress ifNotNil: [...]`          │
-│                                                            │
-│  [Copy] [Export] [Create JIRA Ticket] [Re-analyze]        │
-└────────────────────────────────────────────────────────────┘
-```
-
-> ✅ **Checkpoint:** You've successfully analyzed your first crash log!
+> **Checkpoint:** You've successfully analyzed your first crash log!
 
 ---
 
-## Module 3: Understanding the Results
+## Module 3: Ask Hadron (AI Chatbot)
 
-### 3.1: Result Sections Explained
+Click the **Ask Hadron** tab in the sidebar to open the AI assistant.
 
-| Section | What It Tells You |
-|---------|-------------------|
-| **Summary** | One-paragraph explanation of what crashed and why |
-| **Root Cause** | The underlying technical reason for the crash |
-| **Suggested Fix** | Code changes or steps to resolve the issue |
-| **Severity** | How critical the crash is (Critical, High, Medium, Low) |
-| **Component** | Which part of the application was affected |
+### What It Can Do
 
-### 3.2: Reading the Stack Trace
+Ask Hadron is an **agentic chatbot** with access to 15 tools. It can:
+- Search your crash analysis history
+- Search JIRA for related issues
+- Query the WHATS'ON knowledge base
+- Find similar crashes by signature
+- Get crash trends and statistics
+- Create JIRA tickets
+- Compare crashes side-by-side
 
-Click "Show Stack Trace" to see the technical details:
+### How to Use It
 
-```
-┌─────────────────── Stack Trace ────────────────────────────┐
-│                                                            │
-│  1. OrderProcessor>>processOrder:      ← Crash location   │
-│  2. OrderController>>submitOrder:                          │
-│  3. WebHandler>>handlePost:                                │
-│  4. HttpServer>>processRequest:                            │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
+1. Type a question or select a **starter prompt**:
+   - "What are the most common crashes this week?"
+   - "Find crashes related to database timeouts"
+   - "What components have the most issues?"
+2. Watch the **tool activity** panel to see which tools the agent invokes
+3. **Rate responses** with thumbs up/down — this improves future search results
 
-The **top of the stack** shows where the crash occurred. Read downward to see how the code got there.
+### Contextual Mode
 
-### 3.3: Try Comprehensive (WHATS'ON) for Deeper Analysis
-
-Now that you've seen Quick Analysis, try Comprehensive on the same crash:
-
-1. Click **"Re-analyze"**
-2. Select **"Comprehensive"**
-3. Wait for the comprehensive analysis
-
-Comprehensive (WHATS'ON) provides additional insights:
-- **User Scenario**: What was the user trying to do?
-- **Impact Analysis**: What's affected by this crash?
-- **Test Scenarios**: How to verify the fix works
-- **Reproduction Steps**: How to recreate the crash
+If you have a crash analysis selected, contextual starters appear:
+- "Explain this crash in simple terms"
+- "Find similar crashes to this one"
+- "What JIRA tickets relate to this crash?"
+- "Suggest a fix for this issue"
 
 ---
 
 ## Module 4: Using History
 
-### 4.1: Access History
-
 Press `Ctrl+H` or click the **History** tab to see past analyses.
 
-```
-┌──────────────────────── History ───────────────────────────┐
-│                                                            │
-│  🔍 Search...                    [Filter ▼] [Date Range]  │
-│                                                            │
-│  ┌──────────────────────────────────────────────────────┐ │
-│  │ CrashLog_2025-01-22.wks                              │ │
-│  │ NullReferenceException • High • 2 hours ago          │ │
-│  └──────────────────────────────────────────────────────┘ │
-│                                                            │
-│  ┌──────────────────────────────────────────────────────┐ │
-│  │ production_error_01-21.txt                           │ │
-│  │ DatabaseConnectionError • Critical • Yesterday       │ │
-│  └──────────────────────────────────────────────────────┘ │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-```
-
-### 4.2: Search and Filter
-
-- **Search**: Type keywords like "null" or "database"
+- **Search**: Type keywords like "null" or "database" (powered by SQLite FTS5 with BM25 ranking)
 - **Filter by Severity**: Show only Critical or High issues
 - **Filter by Date**: Focus on recent crashes
-- **Filter by Component**: See crashes in specific areas
-
-### 4.3: Compare Analyses
-
-Select two analyses to compare them side-by-side. This helps identify patterns across crashes.
+- **Tags**: Organize analyses with custom tags (`production`, `investigated`, `wontfix`)
+- **Notes**: Add your own findings to any analysis
 
 ---
 
-## Module 5: Exporting Reports
+## Module 5: Integrations
 
-### 5.1: Export a Single Analysis
+### JIRA
 
-From the results view:
-1. Click **"Export"**
-2. Choose format:
-   - **Markdown** - For documentation/wikis
-   - **HTML** - For sharing in browsers
-   - **JSON** - For integrations
+1. Go to **Settings** > **JIRA Integration**
+2. Enter your JIRA base URL (include `https://`), email, and API token
+3. Click **Test Connection**
+4. Once connected:
+   - Create tickets directly from crash analyses
+   - Ask Hadron can search and create JIRA issues
+   - Link crash analyses to JIRA tickets
 
-### 5.2: Export to JIRA
+### Sentry
 
-If JIRA is configured:
-1. Click **"Create JIRA Ticket"**
-2. Review the pre-filled ticket
-3. Adjust priority/assignee if needed
-4. Click **"Create"**
+1. Go to **Settings** > **Sentry Integration**
+2. Enter your Sentry base URL, auth token (needs `project:read`, `event:read`), org slug, and project slug
+3. Click **Test Connection**
+4. Switch to the **Sentry Analyzer** tab to:
+   - Browse production errors with filtering and pagination
+   - View event details and stack traces
+   - Run AI analysis on Sentry issues
+   - Detect patterns: Deadlocks, N+1 Queries, Memory Leaks, Unhandled Promises
 
-### 5.3: Bulk Export
+### Release Notes
 
-From History:
-1. Select multiple analyses (checkbox)
-2. Click **"Bulk Actions"**
-3. Choose **"Export Selected"**
+1. Ensure JIRA is configured (release notes pull from JIRA fix versions)
+2. Click the **Release Notes** tab in the sidebar
+3. Select a JIRA fix version and click **Generate**
+4. Review, edit, and publish through the lifecycle: Draft -> In Review -> Approved -> Published
 
 ---
 
-## Module 6: Tips for Power Users
+## Module 6: Keyboard Shortcuts
 
-### Keyboard Shortcuts
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+N` | New analysis |
+| `Ctrl+H` | Open History |
+| `Ctrl+,` | Open Settings |
+| `Ctrl+Y` | Open Console Viewer |
+| `Esc` | Close current panel/modal |
 
-| Action | Shortcut |
-|--------|----------|
-| New Analysis | `Ctrl+N` |
-| Open History | `Ctrl+H` |
-| Open Settings | `Ctrl+,` |
-| Open Console | `Ctrl+Y` |
-| Close Panel | `Esc` |
+---
+
+## Module 7: Tips for Power Users
 
 ### Batch Analysis
+Select multiple files at once — Hadron processes them sequentially.
 
-Have many crash logs? Select multiple files at once:
-1. Click **Choose File**
-2. Multi-select files in Explorer/Finder
-3. Choose analysis type
-4. Hadron processes them sequentially
+### Tags & Notes
+Organize analyses with tags and add your own investigation notes.
 
-### Using Tags
+### Feedback Loop
+Rate Ask Hadron responses and crash analyses. Positive ratings boost search ranking; negative ratings suppress irrelevant results.
 
-Organize analyses with tags:
-1. Click the **tag icon** on any analysis
-2. Add tags like `production`, `investigated`, `wontfix`
-3. Filter by tags in History
-
-### Notes
-
-Add your own notes to any analysis:
-1. Open an analysis from History
-2. Click **"Add Notes"**
-3. Record your findings, decisions, or follow-ups
-
----
-
-## Knowledge Check
-
-Test your understanding:
-
-1. **Q: Where do you configure your API key?**
-   <details>
-   <summary>Show Answer</summary>
-   Settings panel (Ctrl+,) > API Key field
-   </details>
-
-2. **Q: What's the difference between Quick and Comprehensive analysis?**
-   <details>
-   <summary>Show Answer</summary>
-   Quick is fast (5-10s) and focused on the crash, root cause, and fix. Comprehensive is a full scan (30-60s) with broader context, impact analysis, and test cases.
-   </details>
-
-3. **Q: How do you find a crash you analyzed yesterday?**
-   <details>
-   <summary>Show Answer</summary>
-   Press Ctrl+H to open History, then use date filter or search.
-   </details>
-
-4. **Q: What shortcut opens the console for debugging?**
-   <details>
-   <summary>Show Answer</summary>
-   Ctrl+Y
-   </details>
-
----
-
-## What's Next?
-
-Now that you know the basics:
-
-- [ ] **Analyze 5 crash logs** to get comfortable with the workflow
-- [ ] **Try Comprehensive analysis** for a complex crash
-- [ ] **Set up JIRA integration** if your team uses JIRA
-- [ ] **Explore the Dashboard** for crash trends and statistics
-- [ ] **Read the [Developer Guide](./DEVELOPER-GUIDE.md)** if you want to contribute
+### Console Viewer
+Press `Ctrl+Y` to see API requests, parsing progress, error details, and token usage.
 
 ---
 
 ## Getting Help
 
-Stuck? Here's where to go:
-
 | Problem | Solution |
 |---------|----------|
-| Feature not working | Check [Help Guide](./HELP.md) |
-| Bug in Hadron | Report at GitHub Issues |
-| General questions | Ask your team lead or check docs |
-
----
-
-## Summary
-
-Congratulations! You've completed the Hadron Getting Started tutorial. You now know how to:
-
-- ✅ Configure Hadron with your API key
-- ✅ Run Quick and Comprehensive analyses
-- ✅ Interpret analysis results
-- ✅ Use History to find past analyses
-- ✅ Export reports in multiple formats
-
-Happy crash hunting! 🔬
+| Feature not working | Check the **Help & Troubleshooting** guide |
+| Bug in Hadron | Check Console (`Ctrl+Y`) for error details |
+| General questions | Ask Hadron — it can search the knowledge base |

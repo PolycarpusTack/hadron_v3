@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { format } from "date-fns";
+import logger from "../services/logger";
 import {
   ArrowLeft,
   Download,
@@ -82,7 +83,7 @@ export default function WhatsOnDetailView({ analysis, onBack }: WhatsOnDetailVie
   useEffect(() => {
     invoke<boolean>("is_gold_analysis", { analysisId: analysis.id })
       .then(setIsGold)
-      .catch(console.error);
+      .catch(err => logger.error("Failed to check gold analysis status", { error: String(err) }));
   }, [analysis.id]);
 
   // Cleanup timeout on unmount
@@ -226,7 +227,7 @@ ${analysis.root_cause}
       fullDataLength: analysis.full_data?.length ?? 0,
       fullDataPreview: analysis.full_data?.substring(0, 500),
     };
-    console.log("WhatsOnDetailView: Enhanced data not available", diagnosticInfo);
+    logger.debug("WhatsOnDetailView: Enhanced data not available", diagnosticInfo);
 
     return (
       <div className="space-y-6">
@@ -449,10 +450,7 @@ ${analysis.root_cause}
               query={`${analysis.error_type || ""} ${enhancedData.rootCause.affectedMethod || ""} ${analysis.stack_trace?.slice(0, 200) || ""}`}
               component={analysis.component}
               severity={analysis.severity?.toLowerCase()}
-              onCitationClick={(id) => {
-                // Could navigate to cited analysis or show preview
-                console.log("Citation clicked:", id);
-              }}
+              onCitationClick={() => {}}
               defaultCollapsed={false}
             />
 

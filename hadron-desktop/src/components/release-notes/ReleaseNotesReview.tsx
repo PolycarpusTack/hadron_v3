@@ -16,6 +16,7 @@ import {
   updateStatus,
   updateChecklist,
 } from "../../services/release-notes";
+import logger from "../../services/logger";
 import type { ReleaseNotesDraft, ReleaseNotesChecklistItem, ReleaseNotesStatus } from "../../types";
 
 interface Props {
@@ -87,7 +88,7 @@ export default function ReleaseNotesReview({ draftId }: Props) {
       try {
         await updateChecklist(draftId, JSON.stringify(updated));
       } catch (err) {
-        console.error("Failed to save checklist", err);
+        logger.error("Failed to save checklist", { error: String(err) });
       }
     },
     [checklist, draftId],

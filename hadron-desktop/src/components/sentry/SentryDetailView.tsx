@@ -7,6 +7,7 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
 import { format } from "date-fns";
+import logger from "../../services/logger";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -177,7 +178,7 @@ export default function SentryDetailView({
   useEffect(() => {
     invoke<boolean>("is_gold_analysis", { analysisId: analysis.id })
       .then(setIsGold)
-      .catch(console.error);
+      .catch(err => logger.error("Failed to check gold analysis status", { error: String(err) }));
   }, [analysis.id]);
 
   useEffect(() => {
@@ -563,7 +564,7 @@ ${analysis.suggested_fixes}
               query={`${analysis.error_type || ""} ${analysis.component || ""} ${analysis.stack_trace?.slice(0, 200) || ""}`}
               component={analysis.component}
               severity={analysis.severity?.toLowerCase()}
-              onCitationClick={(id) => console.log("Citation clicked:", id)}
+              onCitationClick={() => {}}
               defaultCollapsed={false}
             />
 

@@ -44,20 +44,20 @@ const docSections: DocSection[] = [
 const DOCS: Record<DocType, string> = {
   "getting-started": `# Getting Started with Hadron
 
-Welcome to Hadron - your AI-powered Smalltalk crash log analyzer! This tutorial will walk you through everything you need to know to become productive with Hadron.
+Welcome to Hadron — your AI-powered support assistant for WHATS'ON crash analysis, JIRA integration, Sentry monitoring, and release notes generation.
 
 ---
 
 ## What You'll Learn
 
 By the end of this tutorial, you'll be able to:
-- Set up Hadron with your API key
+- Set up Hadron with your AI provider
 - Analyze your first crash log
-- Understand analysis results
-- Use the History feature
+- Use Ask Hadron (the AI chatbot)
+- Browse Sentry issues and generate release notes
 - Export and share reports
 
-**Estimated time: 15 minutes**
+**Estimated time: 10 minutes**
 
 ---
 
@@ -65,20 +65,25 @@ By the end of this tutorial, you'll be able to:
 
 ### Step 1.1: Launch Hadron
 
-When you first open Hadron, you'll see the main interface with a drop zone for crash files.
+When you first open Hadron, a splash screen appears, then the main interface with the Crash Analyzer panel.
 
-### Step 1.2: Configure Your API Key
-
-Before analyzing crashes, you need to set up an AI provider:
+### Step 1.2: Configure Your AI Provider
 
 1. **Click the Settings icon** (gear) in the top right corner, or press \`Ctrl+,\`
-2. **Enter your API key:**
-   - For OpenAI: Get yours at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-   - For Anthropic: Get yours at [console.anthropic.com](https://console.anthropic.com/settings/keys)
-   - For llama.cpp (local/free): No key needed, just start llama-server
+2. **Select a provider** and enter your API key:
+
+| Provider | Key Source | Cost |
+|----------|-----------|------|
+| **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Per-token |
+| **Anthropic** | [console.anthropic.com](https://console.anthropic.com) | Per-token |
+| **Z.ai** | [z.ai](https://z.ai) | Flat-rate |
+| **llama.cpp** | No key needed | Free (local) |
+
 3. **Click "Save Settings"**
 
-> **Checkpoint:** You should see a green "API Key Set" indicator in the footer.
+> **Tip:** For llama.cpp, start the server first: \`llama-server -m model.gguf --host 127.0.0.1 --port 8080\`
+
+> **Checkpoint:** You should see the provider status in the footer bar.
 
 ---
 
@@ -86,50 +91,58 @@ Before analyzing crashes, you need to set up an AI provider:
 
 ### Step 2.1: Load a Crash Log
 
-Use one of the two inputs in the Crash Analyzer panel:
-
 **Option A: Choose File**
-1. Click **Choose File**
-2. Navigate to your crash log
-3. Select one or more files and click **Open**
+1. Click **Choose File** and select one or more crash log files
 
 **Option B: Paste Log Text**
-1. Click **Paste Log Text**
-2. Paste the crash log content
-3. Click **Analyze Pasted Log**
+1. Click **Paste Log Text**, paste the content, and click **Analyze**
 
 ### Step 2.2: Choose Analysis Type
-
-Pick the analysis type before starting:
 
 | Quick Analysis | Comprehensive (WHATS'ON) |
 |----------------|--------------------------|
 | Fast (5-10s) | Full scan (30-60s) |
-| Crash focus | Full context |
-| Root cause + fix | Test scenarios |
-
-**For your first analysis, try "Quick Analysis"** - it's faster and focuses on the crash and fix.
+| Crash focus | 10-part structured report |
+| Root cause + fix | Impact, test scenarios, reproduction steps |
 
 ### Step 2.3: Understanding Results
 
-When analysis completes, you'll see:
-- **Summary**: One-paragraph explanation of what crashed and why
-- **Root Cause**: The underlying technical reason for the crash
-- **Suggested Fix**: Code changes or steps to resolve the issue
+Results include:
+- **Summary** — What crashed and why
+- **Root Cause** — Technical explanation
+- **Suggested Fix** — Code changes or steps to resolve
+- **Severity** — Critical, High, Medium, or Low
+- **Component** — Which part of the application was affected
+
+From results, you can: **Export** (Markdown/HTML/JSON), **Create JIRA Ticket**, **Add Tags**, or **Re-analyze**.
 
 ---
 
-## Module 3: Using History
+## Module 3: Ask Hadron (AI Chatbot)
 
-Press \`Ctrl+H\` or click the **History** tab to see past analyses.
+Click the **Ask Hadron** tab in the sidebar to open the AI assistant.
 
-- **Search**: Type keywords like "null" or "database"
-- **Filter by Severity**: Show only Critical or High issues
-- **Filter by Date**: Focus on recent crashes
+- Type questions like "What are the most common crashes this week?"
+- The agent has access to **15 tools**: search analyses, search JIRA, search the knowledge base, find similar crashes, get trends, and more
+- Watch the **tool activity** panel to see what the agent is doing
+- **Rate responses** with thumbs up/down to improve future results
 
 ---
 
-## Module 4: Keyboard Shortcuts
+## Module 4: Integrations
+
+### JIRA
+Configure in Settings > JIRA Integration. Once connected, you can create tickets directly from crash analyses and the chatbot can search/create JIRA issues.
+
+### Sentry
+Configure in Settings > Sentry Integration. The **Sentry Analyzer** tab lets you browse production errors, view event details, and run AI analysis on Sentry issues. Detects patterns: Deadlocks, N+1 Queries, Memory Leaks, Unhandled Promises.
+
+### Release Notes
+The **Release Notes** tab generates AI-powered release notes from JIRA fix versions. Lifecycle: Draft -> In Review -> Approved -> Published.
+
+---
+
+## Module 5: Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
@@ -144,19 +157,16 @@ Press \`Ctrl+H\` or click the **History** tab to see past analyses.
 ## Getting Help
 
 - Check the **Help & Troubleshooting** guide for common issues
-- Press \`Ctrl+Y\` to open the Console for debugging
-- Report issues at [GitHub Issues](https://github.com/hadron-team/hadron-desktop/issues)
-
-Happy crash hunting!
+- Press \`Ctrl+Y\` to open the Console Viewer for debugging
 `,
 
   help: `# Hadron Help & Troubleshooting Guide
 
-This guide helps you solve common problems when using Hadron.
+Quick solutions to common problems in Hadron 4.0.
 
 ---
 
-## Quick Reference: Keyboard Shortcuts
+## Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
@@ -168,145 +178,145 @@ This guide helps you solve common problems when using Hadron.
 
 ---
 
-## Issue 1: "All AI providers failed" Error
+## "All AI providers failed"
 
-### Symptoms
-- Error message: "All AI providers failed"
-- Analysis button spins then shows error
+**Cause:** Missing or invalid API key, or provider is unreachable.
 
-### Solution Steps
-
-**Step 1: Check API Key**
 1. Press \`Ctrl+,\` to open Settings
-2. Look at the "API Key" field
-3. If empty, the key needs to be entered
-
-**Step 2: Re-enter API Key**
-1. Delete the current API key field content
-2. Paste your API key from your provider dashboard:
+2. Re-enter your API key from your provider's dashboard:
    - OpenAI: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-   - Anthropic: [console.anthropic.com](https://console.anthropic.com/settings/keys)
-3. Click "Save Settings"
+   - Anthropic: [console.anthropic.com](https://console.anthropic.com)
+3. Select a valid model (e.g., \`gpt-4o\`, \`claude-sonnet-4-5-20250929\`)
+4. Save and retry
 
-**Step 3: Select Valid Model**
-1. In Settings, check the "Model" dropdown
-2. Select a valid model (e.g., \`gpt-4o\`, \`claude-3-sonnet\`)
-3. Save and retry
+For **llama.cpp**: ensure \`llama-server\` is running on port 8080.
 
 ---
 
-## Issue 2: Comprehensive (WHATS'ON) Analysis Shows Empty Data
+## Comprehensive (WHATS'ON) Analysis Shows Empty Data
 
-### Symptoms
-- Analysis completes but shows fallback/empty view
-- Content is missing
-
-### Solution Steps
-
-1. **Wait for full completion** - ensure progress bar reaches 100%
-2. **Check Console** (\`Ctrl+Y\`) for specific errors
-3. **Retry analysis** - AI responses can vary
+1. Wait for the progress bar to reach 100%
+2. Check Console (\`Ctrl+Y\`) for specific errors
+3. Retry — AI responses can vary between calls
+4. Try a different provider or model
 
 ---
 
-## Issue 3: "Python script not found in bundle"
+## "Python script not found in bundle"
 
-### Symptoms
-- Translation feature doesn't work
-- Error about missing Python script
-
-### Solution
-- **Core features still work** - Parsing and Quick Analysis work without Python
-- **Reinstall** if needed for Translation/RAG features
+Core features (parsing, AI analysis, JIRA, Sentry) work without Python. Python is only needed for Translation and RAG features. Reinstall if you need those features.
 
 ---
 
-## Issue 4: Application Doesn't Start
+## Application Doesn't Start
 
-### Solution Steps
-
-1. **Check System Requirements**
-   - Windows 10/11 (64-bit)
-   - macOS 10.15+
-   - 4GB RAM minimum
-
-2. **Reset Configuration**
-   - Close Hadron
-   - Delete config folder:
-     - Windows: \`%APPDATA%/com.hadron.desktop/\`
-     - macOS: \`~/Library/Application Support/com.hadron.desktop/\`
-   - Restart Hadron
+1. **Check requirements:** Windows 10/11, macOS 10.15+, 4GB RAM
+2. **Reset configuration:**
+   - Windows: Delete \`%APPDATA%/com.hadron.desktop/\`
+   - macOS: Delete \`~/Library/Application Support/com.hadron.desktop/\`
+   - Linux: Delete \`~/.local/share/com.hadron.desktop/\`
+3. Restart Hadron
 
 ---
 
-## Issue 5: History Not Loading
-
-### Solution Steps
+## History Not Loading
 
 1. Go to Settings > Database Administration
-2. Click "Verify Database"
-3. If errors found, click "Repair Database"
+2. Click **Verify Database**
+3. If errors found, click **Repair Database**
 
 ---
 
-## Issue 6: JIRA Integration Not Working
+## JIRA Integration Not Working
 
-### Solution Steps
-
-1. **Verify JIRA Settings** in Settings > JIRA Integration:
-   - **URL**: Include \`https://\` (e.g., \`https://yourcompany.atlassian.net\`)
+1. Verify Settings > JIRA Integration:
+   - **URL**: Must include \`https://\` (e.g., \`https://yourcompany.atlassian.net\`)
    - **Email**: Your Atlassian account email
-   - **API Token**: Generate at [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens)
-
-2. **Test Connection** button should show "Connection successful"
-
----
-
-## Issue 7: Slow Performance
-
-### Solution Steps
-
-1. **Reduce History Size** - Use "Cleanup Old Records" in Settings
-2. **Use Quick Analysis** for initial triage (crash-focused)
-3. **Close other applications** if memory is low
+   - **API Token**: From [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens)
+2. Click **Test Connection** — should show "Connected successfully"
 
 ---
 
-## Getting More Help
+## Sentry Integration Not Working
 
-### Console Viewer
-Press \`Ctrl+Y\` to see detailed logs including:
+1. Verify Settings > Sentry Integration:
+   - **Base URL**: \`https://sentry.io\` or your self-hosted instance
+   - **Auth Token**: Must have \`project:read\` and \`event:read\` scopes
+   - **Organization** and **Project** slugs must match exactly
+2. Click **Test Connection**
+
+---
+
+## Ask Hadron Not Responding
+
+1. Ensure an AI provider is configured and working (test with a crash analysis first)
+2. Check Console (\`Ctrl+Y\`) for error details
+3. The agent runs up to 8 tool-calling iterations — complex queries take longer
+4. If stuck, start a **New Chat** and rephrase the question
+
+---
+
+## Slow Performance
+
+1. **Reduce History Size** — Settings > Cleanup Old Records
+2. **Use Quick Analysis** for initial triage
+3. Large crash logs (>1MB) are automatically truncated
+
+---
+
+## Console Viewer
+
+Press \`Ctrl+Y\` to see detailed logs:
 - API requests and responses
-- Parsing progress
-- Error details
+- Parsing progress and errors
+- AI token usage and cost estimates
+- Tool execution details (Ask Hadron)
 
-### Report a Bug
-File issues at: [GitHub Issues](https://github.com/hadron-team/hadron-desktop/issues)
+---
 
-Include:
-- Hadron version (shown in footer)
-- Operating system
-- Steps to reproduce
-- Console logs if available
+## Database & Log Locations
+
+| Data | Windows | macOS | Linux |
+|------|---------|-------|-------|
+| Database | \`%APPDATA%/com.hadron.desktop/analysis.db\` | \`~/Library/Application Support/com.hadron.desktop/analysis.db\` | \`~/.local/share/com.hadron.desktop/analysis.db\` |
+| Logs | \`%APPDATA%/com.hadron.desktop/logs/\` | \`~/Library/Logs/com.hadron.desktop/\` | \`~/.local/share/com.hadron.desktop/logs/\` |
+
+---
+
+## Export Formats
+
+| Format | Use Case |
+|--------|----------|
+| **Markdown** | Documentation, wikis, GitHub issues |
+| **HTML** | Browser viewing, email sharing |
+| **JSON** | Integrations, automation |
+
+---
+
+## Report a Bug
+
+Include: Hadron version (shown in footer), OS, steps to reproduce, and Console logs.
 `,
 
   developer: `# Hadron Developer Guide
 
 ## What is Hadron?
 
-Hadron is a **Smalltalk crash log analyzer** - a detective that reads cryptic crash reports and tells you what went wrong in plain English.
+Hadron is an **AI-powered support assistant** for the WHATS'ON broadcast management system. It analyzes crash logs, connects to JIRA and Sentry, provides an agentic AI chatbot, and generates release notes.
 
 ---
 
-## Architecture Overview
+## Architecture
 
-Hadron uses a **hybrid architecture** with three main layers:
+Hadron uses a **hybrid architecture** with three layers:
 
-| Layer | Technology | Job |
-|-------|------------|-----|
-| **Frontend** | React + TypeScript | Shows the UI, handles user interactions |
-| **Backend** | Rust + Tauri | Heavy lifting - parsing, AI calls, database |
-| **Scripts** | Python | Specialized AI tasks (translation, RAG) |
+| Layer | Technology | Role |
+|-------|------------|------|
+| **Frontend** | React 18 + TypeScript | UI (61 components), state management, services |
+| **Backend** | Rust + Tauri 2 | Parsing, AI calls, database, integrations |
+| **Scripts** | Python 3.10+ | Translation, RAG, training (optional) |
+
+Communication: Frontend <-> Backend via **Tauri IPC** (\`invoke()\`).
 
 ---
 
@@ -314,92 +324,89 @@ Hadron uses a **hybrid architecture** with three main layers:
 
 \`\`\`
 hadron-desktop/
-├── src/                    # Frontend (React)
-│   ├── components/         # UI components (50+ files)
-│   ├── hooks/              # React hooks for state management
-│   ├── services/           # API calls, caching, integrations
-│   ├── utils/              # Helper functions
-│   ├── types/              # TypeScript type definitions
-│   └── App.tsx             # Main application component
-│
-├── src-tauri/              # Backend (Rust)
-│   ├── src/
-│   │   ├── main.rs         # Application entry point
-│   │   ├── commands.rs     # Tauri command handlers
-│   │   ├── ai_service.rs   # AI provider integration
-│   │   ├── database.rs     # SQLite operations
-│   │   ├── parser/         # Crash log parsing engine
-│   │   └── patterns/       # Pattern matching system
-│   └── data/patterns/      # TOML pattern definitions
-│
-├── python/                 # Python scripts
-│   ├── translate.py        # AI translation service
-│   └── rag/                # RAG retrieval system
-│
-└── docs/                   # Documentation
+src/                        # Frontend (React + TypeScript)
+  components/               # 61 UI components
+  hooks/                    # React hooks
+  services/                 # API wrappers, cache, circuit breaker
+  types/                    # TypeScript type definitions
+  App.tsx                   # Main orchestrator
+
+src-tauri/src/              # Backend (Rust)
+  main.rs                   # Entry point, command registration
+  commands.rs               # Tauri commands (analysis, export, DB)
+  chat_commands.rs          # Ask Hadron agentic loop
+  chat_tools.rs             # 15 tool definitions + executors
+  ai_service.rs             # Multi-provider AI (OpenAI, Anthropic, Z.ai, llama.cpp)
+  database.rs               # SQLite CRUD (15+ tables)
+  migrations.rs             # 10 schema migrations
+  sentry_service.rs         # Sentry API + pattern detection
+  jira_service.rs           # JIRA REST API v3
+  release_notes_service.rs  # Release notes generation
+  parser/                   # Crash log parsing engine
+  patterns/                 # Pattern matching (TOML-driven)
+  data/patterns/            # 4 TOML pattern files
+
+python/                     # Optional Python modules
+  api/                      # FastAPI server
+  rag/                      # Chroma + embeddings
+  offline/                  # llama.cpp integration
+  training/                 # QLoRA fine-tuning
 \`\`\`
 
 ---
 
-## Key Modules
-
-### Frontend Components (React)
-
-| Component | Purpose |
-|-----------|---------|
-| \`App.tsx\` | Main orchestrator - global state, routing |
-| \`FileDropZone.tsx\` | Drag-and-drop file upload |
-| \`AnalysisResults.tsx\` | Displays Quick Analysis results |
-| \`WhatsOnDetailView.tsx\` | Displays Comprehensive (WHATS'ON) analysis |
-| \`HistoryView.tsx\` | Shows past analyses with filtering |
-| \`SettingsPanel.tsx\` | API key configuration |
-
-### Backend Modules (Rust)
+## Key Backend Modules
 
 | Module | Purpose |
 |--------|---------|
-| \`commands.rs\` | All Tauri commands (frontend entry points) |
-| \`ai_service.rs\` | Multi-provider AI integration |
-| \`database.rs\` | SQLite CRUD operations |
-| \`parser/*.rs\` | Crash log parsing engine |
-| \`patterns/*.rs\` | Known error pattern matching |
+| \`ai_service.rs\` | 4 AI providers with ProviderConfig abstraction (AuthStyle, ResponseStyle, CostCalculator) |
+| \`chat_commands.rs\` | Agentic tool-calling loop (max 8 iterations per message) |
+| \`chat_tools.rs\` | 15 tools: search_analyses, search_kb, search_jira, create_jira_ticket, find_similar_crashes, etc. |
+| \`database.rs\` | SQLite with FTS5 (BM25 ranking), 10 migrations, 15+ tables |
+| \`sentry_service.rs\` | Sentry issue fetching, event details, pattern detection (Deadlock, N+1, Memory Leak, Unhandled Promise) |
+| \`jira_service.rs\` | JIRA search, ticket creation, fix version listing |
+| \`release_notes_service.rs\` | AI-generated release notes with draft/review/approve/publish lifecycle |
+| \`parser/\` | Extracts header, exception, stack trace, memory, database, context from crash logs |
+| \`patterns/\` | TOML-driven pattern matching (null_errors, collection_errors, database_errors, whatson_specific) |
+
+---
+
+## Key Frontend Services
+
+| Service | Purpose |
+|---------|---------|
+| \`api.ts\` | Tauri invoke wrappers for all backend commands |
+| \`chat.ts\` | Ask Hadron chat session management |
+| \`jira.ts\` | JIRA integration helpers |
+| \`circuit-breaker.ts\` | Resilience: auto-failover after 3 consecutive failures |
+| \`cache.ts\` | In-memory caching |
 
 ---
 
 ## Development Setup
 
-### Prerequisites
-
-- Node.js 18+
-- Rust 1.70+
-- Python 3.10+ (optional, for translation/RAG)
-
-### Quick Start
+**Prerequisites:** Node.js 18+, Rust stable, Python 3.10+ (optional)
 
 \`\`\`bash
-# 1. Install frontend dependencies
-npm install
-
-# 2. Install Python dependencies (optional)
-pip install -r python/requirements.txt
-
-# 3. Run in development mode
-npm run tauri dev
+npm install                        # Frontend deps
+pip install -r python/requirements.txt  # Optional Python deps
+npm run tauri dev                  # Dev mode with hot reload
 \`\`\`
 
-### Build for Production
+**Build:** \`npm run tauri build\`
 
+**Test:**
 \`\`\`bash
-npm run tauri build
+npm run test          # Vitest unit tests
+npm run test:e2e      # Playwright E2E tests
+cd src-tauri && cargo test  # Rust tests
 \`\`\`
 
 ---
 
-## Adding New Features
+## Adding a New Tauri Command
 
-### Adding a New Tauri Command
-
-1. **Define in Rust** (\`src-tauri/src/commands.rs\`):
+1. Define in Rust:
 \`\`\`rust
 #[tauri::command]
 pub async fn my_command(input: String) -> Result<String, String> {
@@ -407,44 +414,31 @@ pub async fn my_command(input: String) -> Result<String, String> {
 }
 \`\`\`
 
-2. **Register in main.rs**
-3. **Call from Frontend** (\`src/services/api.ts\`)
-
-### Adding a React Component
-
-1. Create in \`src/components/\`
-2. Import and use in parent component
+2. Register in \`main.rs\` invoke handler
+3. Call from frontend: \`invoke<string>('my_command', { input })\`
 
 ---
 
-## Testing
+## Adding a Chat Tool (Ask Hadron)
 
-\`\`\`bash
-# Frontend tests
-npm run test
-
-# E2E tests
-npm run test:e2e
-
-# Rust tests
-cd src-tauri && cargo test
-\`\`\`
+1. Add tool definition to \`get_tool_definitions()\` in \`chat_tools.rs\`
+2. Add executor match arm in \`execute_tool()\`
+3. Add tool label in \`AskHadronView.tsx\` for the activity indicator
 
 ---
 
 ## Code Style
 
-- **Rust**: Follow \`rustfmt\`, use \`cargo clippy\`
-- **TypeScript**: Use explicit types, avoid \`any\`
-- **React**: Functional components with hooks
+- **Rust**: \`rustfmt\` + \`cargo clippy\`
+- **TypeScript**: Explicit types, avoid \`any\`, functional components with hooks
 - **Comments**: Document "why", not "what"
 
 ---
 
 ## Further Reading
 
-- [Tauri Documentation](https://tauri.app/v2/guides/)
-- [React Documentation](https://react.dev/)
+- [Tauri v2 Docs](https://tauri.app/v2/guides/)
+- [React Docs](https://react.dev/)
 - [Rust Book](https://doc.rust-lang.org/book/)
 `,
 };
