@@ -470,8 +470,8 @@ IMPORTANT INSTRUCTIONS:
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 dark:from-gray-900 dark:to-gray-800 bg-gray-50 text-gray-900 dark:text-white p-8 transition-colors duration-200">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gray-50 dark:bg-gradient-to-br dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-white transition-colors duration-200">
+      <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
         <AppHeader
           onOpenDashboard={actions.openDashboard}

@@ -33,8 +33,6 @@ export default defineConfig(async () => ({
           vendor: ["react", "react-dom"],
           // UI chunk: icons and UI components
           ui: ["lucide-react"],
-          // Syntax highlighter is large, separate it
-          highlighter: ["react-syntax-highlighter"],
           // Date utilities
           "date-utils": ["date-fns"],
         },
