@@ -1,8 +1,8 @@
-# Hadron Desktop - AI-Powered Smalltalk Crash Analyzer
+# Hadron - AI Support Assistant
 
 <div align="center">
 
-**Intelligent crash analysis** | **Multiple AI providers** | **Full-text search** | **Production-ready**
+**Crash analysis** | **Agentic AI chatbot** | **JIRA & Sentry integration** | **Knowledge base** | **Release notes generation**
 
 [Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Download](#download)
 
@@ -12,39 +12,73 @@
 
 ## Overview
 
-Hadron Desktop uses AI to analyze Smalltalk crash logs and provide:
-- **Root cause identification** - Understand what went wrong
-- **Fix suggestions** - Actionable steps to resolve issues
-- **Knowledge base** - Search and reference past analyses
-- **Faster debugging** - AI explains complex stack traces instantly
+Hadron is an AI-powered support assistant for the WHATS'ON broadcast management system. It combines crash log analysis, an agentic chatbot, Sentry error monitoring, JIRA integration, and a knowledge base into a single desktop application that helps support engineers debug issues faster.
+
+- **Crash Analysis** — Drop a crash log and get AI-identified root causes, fix suggestions, and severity ratings
+- **Ask Hadron** — Agentic chatbot with 15 tools that searches analyses, knowledge base docs, JIRA tickets, and trend data to answer questions
+- **Sentry Integration** — Browse, search, and AI-analyze production errors from Sentry with pattern detection (deadlocks, N+1 queries, memory leaks)
+- **JIRA Integration** — Correlate crashes to existing tickets, search issues, and create new tickets directly from the app
+- **Knowledge Base** — Search WHATS'ON documentation and release notes via OpenSearch
+- **Release Notes Generator** — AI-generated release notes from JIRA fix versions with editorial review workflow
+- **Intelligence Platform** — Crash signatures, trend analytics, component health dashboards, and feedback-driven learning
 
 ---
 
 ## Features
 
-### Core Features
+### Analysis Engines
 
-- **Multi-provider AI**: OpenAI, Anthropic Claude, Z.ai, Ollama (offline)
-- **Analysis Modes**: Complete (comprehensive) or Specialized (targeted) analysis
-- **Multiple API Keys**: Store API keys for all providers simultaneously
-- **Drag & drop**: Simply drop crash log files to analyze
-- **Full-text search**: SQLite with FTS5 and BM25 ranking
-- **Dark mode**: Eye-friendly interface for long debugging sessions
-- **Export**: Save analyses to Markdown or PDF
+- **Crash Analyzer** — Drag & drop Smalltalk crash logs for AI analysis with root cause identification, fix suggestions, and severity classification
+- **Code Analyzer** — Analyze source code files for issues and patterns
+- **JIRA Analyzer** — Pull and analyze JIRA tickets with AI insights
+- **Sentry Analyzer** — Browse Sentry issues with AI-powered pattern detection (deadlocks, N+1 queries, memory leaks, unhandled promises)
+- **Performance Analyzer** — Analyze performance-related logs and metrics
+
+### Ask Hadron — Agentic Chatbot
+
+An AI assistant with a tool-calling agent loop and 15 integrated tools:
+
+- `search_analyses` — Multi-query search with Reciprocal Rank Fusion (RRF)
+- `search_kb` — Knowledge base documentation search via OpenSearch
+- `search_jira` / `create_jira_ticket` — JIRA search and ticket creation
+- `find_similar_crashes` / `compare_crashes` — Crash similarity and comparison
+- `get_crash_signature` / `get_top_signatures` — Signature-based crash grouping
+- `get_trend_data` / `get_error_patterns` / `get_statistics` — Analytics and trends
+- `correlate_crash_to_jira` / `get_crash_timeline` — Cross-referencing and history
+- `get_component_health` / `get_analysis_detail` — Component health and drill-down
+
+Features: context-aware suggestions, conversation query rewriting, true SSE streaming, feedback-boosted retrieval, SQLite-persisted sessions.
+
+### Release Notes Generator
+
+- AI-generated release notes from JIRA fix versions
+- Draft/review/approve/publish lifecycle
+- Side-by-side editor with style guide
+- Export to Markdown
+
+### Intelligence Platform
+
+- **Crash Signatures** — Automatic signature grouping with top-N dashboards
+- **Trend Analytics** — Severity trends, error patterns over time
+- **Component Health** — Per-component crash frequency and status
+- **Feedback Loop** — Accept/reject/rate analyses; feedback boosts future search results
+- **Gold Analyses** — Curated expert analyses for RAG retrieval
 
 ### Production Features
 
-- **Auto-updater**: Automatic update checks and one-click installation
+- **Multi-provider AI**: OpenAI, Anthropic Claude, Z.ai, llama.cpp (local/offline)
 - **Encrypted storage**: API keys secured with OS-level encryption (Keychain/Credential Manager)
 - **Circuit breaker**: Automatic failover to backup AI providers
 - **Structured logging**: JSON + human-readable logs with automatic rotation
+- **Auto-updater**: Automatic update checks and one-click installation
+- **Full-text search**: SQLite with FTS5 and BM25 ranking
+- **Export**: Save analyses to Markdown or PDF
 
 ### Status
 
-- **Version**: 3.9.0
+- **Version**: 4.0.1
 - **Platform**: Windows, macOS, Linux
-- **Security**: 0 production vulnerabilities
-- **Test Coverage**: Core features validated
+- **Architecture**: Tauri 2 (Rust) + React/TypeScript
 
 ---
 
@@ -53,29 +87,31 @@ Hadron Desktop uses AI to analyze Smalltalk crash logs and provide:
 ### 1. Download
 
 Get the installer for your platform:
-- **Windows**: `hadron-desktop_3.9.0_x64_en-US.msi`
-- **macOS**: `hadron-desktop_3.9.0_x64.dmg` (Intel) or `_aarch64.dmg` (Apple Silicon)
-- **Linux**: `hadron-desktop_3.9.0_amd64.deb` or `.AppImage`
-
-📥 **Download**: [GitHub Releases](https://github.com/PolycarpusTack/hadron_v3/releases)
+- **Windows**: `hadron-desktop_4.0.1_x64_en-US.msi`
+- **macOS**: `hadron-desktop_4.0.1_x64.dmg` (Intel) or `_aarch64.dmg` (Apple Silicon)
+- **Linux**: `hadron-desktop_4.0.1_amd64.deb` or `.AppImage`
 
 ### 2. Install
 
 **Windows**: Run `.msi` installer
 **macOS**: Open `.dmg` and drag to Applications
-**Linux**: `sudo dpkg -i hadron-desktop_3.9.0_amd64.deb`
+**Linux**: `sudo dpkg -i hadron-desktop_4.0.1_amd64.deb`
 
 ### 3. Configure
 
-1. Launch Hadron Desktop
-2. Click **Settings** (⚙️ icon)
-3. Select AI provider (OpenAI/Anthropic/Z.ai)
-4. Enter your API key
-5. Click **Save Settings**
+1. Launch Hadron
+2. Click **Settings** (gear icon)
+3. Select AI provider (OpenAI / Anthropic / Z.ai / llama.cpp)
+4. Enter your API key (not needed for llama.cpp)
+5. Optionally configure JIRA, Sentry, and OpenSearch connections
+6. Click **Save Settings**
 
-### 4. Analyze
+### 4. Use
 
-**Drag & drop** a crash log file onto the window. Done!
+- **Analyze a crash**: Drag & drop a crash log file onto the window
+- **Ask a question**: Switch to the Ask Hadron tab and chat with the AI assistant
+- **Browse Sentry**: Connect your Sentry org and browse/analyze production errors
+- **Generate release notes**: Select a JIRA fix version and generate AI-written release notes
 
 ---
 
@@ -84,31 +120,31 @@ Get the installer for your platform:
 | Provider | Cost/Analysis | Context | Best For |
 |----------|---------------|---------|----------|
 | **OpenAI GPT-5.1** | $0.01-$0.03 | 128K tokens | Latest model, best capabilities |
-| **Anthropic Claude Sonnet 4.5** | $0.003-$0.015 | 200K tokens | Latest Sonnet, best reasoning |
+| **Anthropic Claude Sonnet 4.5** | $0.003-$0.015 | 200K tokens | Best reasoning, large context |
 | **Z.ai GLM-4.6** | $0 ($3/month) | 200K tokens | Daily use, unlimited |
+| **llama.cpp** | Free (local) | Model-dependent | Offline use, no API key needed |
 
 **Get API keys**:
 - OpenAI: https://platform.openai.com/api-keys
 - Anthropic: https://console.anthropic.com
 - Z.ai: https://z.ai
-
-**Detailed comparison**: [MULTI-PROVIDER-SUPPORT.md](MULTI-PROVIDER-SUPPORT.md)
+- llama.cpp: Run `llama-server -m model.gguf --host 127.0.0.1 --port 8080`
 
 ---
 
 ## Documentation
 
 ### For Users
-- [Complete User Guide](docs/user/USER-GUIDE.md) - Installation, features, tips & tricks
-- [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
-- [Features](FEATURES.md) - Full feature list
-- [Changelog](CHANGELOG.md) - Release history
+- [Complete User Guide](docs/user/USER-GUIDE.md) — Installation, features, tips & tricks
+- [Troubleshooting](TROUBLESHOOTING.md) — Common issues and solutions
+- [Features](FEATURES.md) — Full feature list
+- [Changelog](CHANGELOG.md) — Release history
 
 ### For Developers
-- [Auto-Updater Setup](docs/developer/AUTO-UPDATER-SETUP.md) - Configure updates
-- [GitHub Release Guide](docs/developer/GITHUB-RELEASE-GUIDE.md) - Publishing releases
-- [Code Signing](docs/developer/PRODUCTION-SIGNING-SETUP.md) - Sign installers
-- [Developer Guide](docs/DEVELOPER-GUIDE.md) - Development setup and architecture
+- [Developer Guide](docs/DEVELOPER-GUIDE.md) — Development setup and architecture
+- [Auto-Updater Setup](docs/developer/AUTO-UPDATER-SETUP.md) — Configure updates
+- [GitHub Release Guide](docs/developer/GITHUB-RELEASE-GUIDE.md) — Publishing releases
+- [Code Signing](docs/developer/PRODUCTION-SIGNING-SETUP.md) — Sign installers
 
 ---
 
@@ -124,8 +160,8 @@ Get the installer for your platform:
 
 ```bash
 # Clone repository
-git clone https://github.com/hadron-team/hadron-desktop.git
-cd hadron-desktop
+git clone https://github.com/PolycarpusTack/hadron_v3.git
+cd hadron_v3/hadron-desktop
 
 # Install dependencies
 npm install
@@ -147,66 +183,23 @@ npm run tauri build
 # Linux: src-tauri/target/release/bundle/deb/
 ```
 
-### Test
-
-```bash
-# Frontend tests
-npm test
-
-# Rust tests
-cd src-tauri && cargo test
-
-# E2E tests (coming in v1.1)
-npm run test:e2e
-```
-
 ---
 
 ## Technology Stack
 
 - **Frontend**: React 18 + TypeScript + Tailwind CSS
 - **Backend**: Tauri 2 (Rust)
-- **Analysis Engine**: Python 3.10+ with OpenAI/Anthropic SDK
-- **Database**: SQLite with FTS5 (full-text search)
+- **AI Providers**: OpenAI, Anthropic, Z.ai, llama.cpp (local)
+- **Database**: SQLite with FTS5 full-text search
+- **Knowledge Base**: OpenSearch (optional)
+- **Integrations**: JIRA REST API, Sentry API
 - **Build Tool**: Vite
-
----
-
-## Roadmap
-
-See [CONSOLIDATED-ROADMAP.md](CONSOLIDATED-ROADMAP.md) and [FURTHER_ROADMAP.md](FURTHER_ROADMAP.md) for the complete development roadmap including:
-
-- RAG-powered knowledge base integration
-- Advanced pattern detection
-- Team collaboration features
-- JIRA/Keeper integrations
-
----
-
-## Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-**See [DOCUMENTATION.md](DOCUMENTATION.md) for documentation guidelines**
-
----
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/hadron-team/hadron-desktop/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/hadron-team/hadron-desktop/discussions)
-- **Email**: support@hadron.dev (planned)
 
 ---
 
 ## License
 
-**Proprietary** - MediaGeniX / Hadron Project
+**Proprietary** — MediaGeniX / Hadron Project
 
 Copyright © 2025 MediaGeniX. All rights reserved.
 
@@ -214,13 +207,7 @@ Copyright © 2025 MediaGeniX. All rights reserved.
 
 ## Acknowledgments
 
-Built with:
-- [Tauri](https://tauri.app) - Desktop framework
-- [React](https://react.dev) - Frontend UI
-- [OpenAI](https://openai.com) - AI analysis
-- [Anthropic](https://anthropic.com) - Claude AI
-- [Z.ai](https://z.ai) - GLM models
-- [SQLite](https://sqlite.org) - Database
+Built with [Tauri](https://tauri.app), [React](https://react.dev), [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Z.ai](https://z.ai), [llama.cpp](https://github.com/ggerganov/llama.cpp), and [SQLite](https://sqlite.org).
 
 ---
 
