@@ -20,6 +20,7 @@ mod parser;
 mod patterns;
 mod python_runner;
 mod rag_commands;
+mod retrieval;
 mod signature;
 // Token-safe analysis modules
 mod chunker;
@@ -47,6 +48,9 @@ fn main() {
     let pattern_engine = patterns::create_pattern_engine(None);
     let pattern_engine_state = PatternEngineState(RwLock::new(pattern_engine));
 
+    // Initialize embedding cache for retrieval pipeline
+    let embedding_cache = retrieval::cache::EmbeddingCache::new();
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -68,6 +72,7 @@ fn main() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(db)
         .manage(pattern_engine_state)
+        .manage(embedding_cache)
         .invoke_handler(tauri::generate_handler![
             analyze_crash_log,
             analyze_jira_ticket,
@@ -154,6 +159,7 @@ fn main() {
             list_jira_projects,
             create_jira_ticket,
             search_jira_issues,
+            post_jira_comment,
             // JIRA Ticket Linking (Phase 3)
             link_jira_to_analysis,
             unlink_jira_from_analysis,
@@ -242,11 +248,28 @@ fn main() {
             // Ask Hadron Chat
             chat_commands::chat_send,
             chat_commands::chat_submit_feedback,
+            chat_commands::chat_delete_feedback,
             chat_commands::chat_save_session,
             chat_commands::chat_list_sessions,
             chat_commands::chat_get_messages,
             chat_commands::chat_delete_session,
             chat_commands::chat_rename_session,
+            chat_commands::chat_star_session,
+            chat_commands::chat_tag_session,
+            chat_commands::chat_update_session_metadata,
+            // Retrieval Evaluation
+            chat_commands::run_retrieval_eval,
+            // Gold Answers (Ask Hadron 2.0)
+            commands::gold_answers::save_gold_answer,
+            commands::gold_answers::list_gold_answers,
+            commands::gold_answers::search_gold_answers_cmd,
+            commands::gold_answers::delete_gold_answer_cmd,
+            commands::gold_answers::export_gold_answers_jsonl,
+            // Session Summaries (Ask Hadron 2.0)
+            commands::summaries::generate_session_summary,
+            commands::summaries::save_session_summary,
+            commands::summaries::get_session_summary,
+            commands::summaries::export_summaries_bundle,
             // Release Notes Generator
             commands::release_notes::generate_release_notes,
             commands::release_notes::preview_release_notes_tickets,

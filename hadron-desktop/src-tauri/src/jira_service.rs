@@ -523,6 +523,41 @@ pub struct JiraCommentAuthor {
     pub display_name: String,
 }
 
+/// Post a comment to a JIRA issue
+pub async fn post_jira_comment(
+    base_url: &str,
+    email: &str,
+    api_token: &str,
+    issue_key: &str,
+    comment_body: &str,
+) -> Result<(), String> {
+    let base_url = base_url.trim_end_matches('/');
+    let auth_header = create_auth_header(email, api_token);
+    let url = format!("{}/rest/api/2/issue/{}/comment", base_url, issue_key);
+
+    let body = serde_json::json!({
+        "body": comment_body
+    });
+
+    let response = HTTP_CLIENT
+        .post(&url)
+        .header("Authorization", &auth_header)
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("JIRA request failed: {}", e))?;
+
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        Err(format!("JIRA comment failed ({}): {}", status, text))
+    }
+}
+
 /// Search JIRA issues using JQL
 pub async fn search_jira_issues(
     base_url: String,
