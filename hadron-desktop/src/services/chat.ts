@@ -7,8 +7,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getApiKey } from "./secure-storage";
 import { getOpenSearchConfig, getOpenSearchPassword } from "./opensearch";
-import { getStoredModel, getStoredProvider } from "./api";
+import { getStoredModel, getStoredProvider, getStoredAuxiliaryModel } from "./api";
 import { getJiraConfig } from "./jira";
+import { getKeeperSecretForProvider } from "./keeper";
 import logger from "./logger";
 
 // ============================================================================
@@ -37,18 +38,43 @@ export interface ChatSession {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  isStarred?: boolean;
+  tags?: string;
+  customer?: string;
+  wonVersion?: string;
+  hasSummary?: boolean;      // derived client-side, not from DB
+  hasGoldAnswers?: boolean;  // derived client-side, not from DB
 }
 
 export interface ChatStreamEvent {
   token: string;
   done: boolean;
   error: string | null;
+  request_id?: string;
 }
 
 export interface ChatToolUseEvent {
   tool_name: string;
   tool_args: Record<string, unknown>;
   iteration: number;
+  request_id?: string;
+}
+
+export interface ChatDiagnosticsEvent {
+  tools_used: string[];
+  total_tool_calls: number;
+  retrieval_latency_ms: number;
+  evidence_sufficient: boolean;
+  evidence_confidence: number;
+  evidence_reason: string;
+  rewritten_query: string | null;
+  request_id?: string;
+}
+
+export interface ChatFinalContentEvent {
+  content: string;
+  references: Array<{ index: number; url: string; title: string }>;
+  request_id?: string;
 }
 
 export interface ChatResponse {
@@ -69,14 +95,27 @@ export async function sendChatMessage(
     wonVersion?: string;
     customer?: string;
     analysisId?: number | null;
+    requestId?: string;
+    // Retrieval filters (PR1)
+    dateFrom?: string;
+    dateTo?: string;
+    analysisTypes?: string[];
   } = {}
 ): Promise<ChatResponse> {
   const provider = getStoredProvider();
   const model = getStoredModel();
-  const apiKey = await getApiKey(provider);
+  const auxiliaryModel = getStoredAuxiliaryModel();
 
-  if (!apiKey) {
-    throw new Error("No API key configured. Please set your API key in Settings.");
+  // Check if Keeper has a secret mapped for this provider
+  const keeperSecretUid = await getKeeperSecretForProvider(provider);
+
+  // Only fetch manual key if Keeper is not handling this provider
+  let apiKey = "";
+  if (!keeperSecretUid) {
+    apiKey = (await getApiKey(provider)) || "";
+    if (!apiKey && provider !== "llamacpp") {
+      throw new Error("No API key configured. Please set your API key in Settings or map a Keeper secret.");
+    }
   }
 
   // Build OpenSearch config if KB is enabled
@@ -130,6 +169,7 @@ export async function sendChatMessage(
     request: {
       messages: backendMessages,
       api_key: apiKey,
+      keeper_secret_uid: keeperSecretUid || null,
       model,
       provider,
       use_rag: options.useRag ?? true,
@@ -142,9 +182,23 @@ export async function sendChatMessage(
       jira_email: jiraEmail,
       jira_api_token: jiraApiToken,
       jira_project_key: jiraProjectKey,
+      auxiliary_model: auxiliaryModel,
       analysis_id: options.analysisId ?? null,
+      request_id: options.requestId ?? null,
+      date_from: options.dateFrom ?? null,
+      date_to: options.dateTo ?? null,
+      analysis_types: options.analysisTypes ?? null,
     },
   });
+}
+
+// ============================================================================
+// Chat Cancellation
+// ============================================================================
+
+export async function cancelChat(requestId: string): Promise<void> {
+  const { emit } = await import("@tauri-apps/api/event");
+  await emit("chat-cancel", { request_id: requestId });
 }
 
 // ============================================================================
@@ -152,28 +206,64 @@ export async function sendChatMessage(
 // ============================================================================
 
 export async function subscribeToChatStream(
-  callback: (event: ChatStreamEvent) => void
+  callback: (event: ChatStreamEvent) => void,
+  requestId?: string
 ): Promise<() => void> {
   const { listen } = await import("@tauri-apps/api/event");
   return listen<ChatStreamEvent>("chat-stream", (event) => {
+    if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
     callback(event.payload);
   });
 }
 
 export async function subscribeToChatContext(
-  callback: (sources: ChatSources) => void
+  callback: (sources: ChatSources) => void,
+  requestId?: string
 ): Promise<() => void> {
   const { listen } = await import("@tauri-apps/api/event");
-  return listen<ChatSources>("chat-context", (event) => {
+  return listen<ChatSources & { request_id?: string }>("chat-context", (event) => {
+    if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
     callback(event.payload);
   });
 }
 
 export async function subscribeToChatToolUse(
-  callback: (event: ChatToolUseEvent) => void
+  callback: (event: ChatToolUseEvent) => void,
+  requestId?: string
 ): Promise<() => void> {
   const { listen } = await import("@tauri-apps/api/event");
   return listen<ChatToolUseEvent>("chat-tool-use", (event) => {
+    if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
+    callback(event.payload);
+  });
+}
+
+export async function subscribeToChatDiagnostics(
+  callback: (event: ChatDiagnosticsEvent) => void,
+  requestId?: string
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<ChatDiagnosticsEvent & { request_id?: string }>(
+    "chat-diagnostics",
+    (event) => {
+      if (
+        requestId &&
+        event.payload.request_id &&
+        event.payload.request_id !== requestId
+      )
+        return;
+      callback(event.payload);
+    }
+  );
+}
+
+export async function subscribeToChatFinalContent(
+  callback: (event: ChatFinalContentEvent) => void,
+  requestId?: string
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<ChatFinalContentEvent>("chat-final-content", (event) => {
+    if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
     callback(event.payload);
   });
 }
@@ -189,21 +279,34 @@ export interface ChatFeedback {
   messageId: string;
   rating: "positive" | "negative";
   comment?: string;
+  reason?: string;
   timestamp: number;
 }
+
+export const FEEDBACK_REASONS = [
+  { value: "wrong_answer", label: "Wrong answer" },
+  { value: "irrelevant_sources", label: "Irrelevant sources" },
+  { value: "missing_info", label: "Missing information" },
+  { value: "hallucinated", label: "Hallucinated / made up" },
+  { value: "too_vague", label: "Too vague" },
+  { value: "other", label: "Other" },
+] as const;
+
+export type FeedbackReason = (typeof FEEDBACK_REASONS)[number]["value"];
 
 export function submitChatFeedback(
   sessionId: string,
   messageId: string,
   rating: "positive" | "negative",
-  comment?: string
+  comment?: string,
+  reason?: string
 ): void {
   try {
     // Store locally for immediate UI state
     const stored = localStorage.getItem(FEEDBACK_KEY);
     const feedback: ChatFeedback[] = stored ? JSON.parse(stored) : [];
     const idx = feedback.findIndex((f) => f.messageId === messageId);
-    const entry: ChatFeedback = { sessionId, messageId, rating, comment, timestamp: Date.now() };
+    const entry: ChatFeedback = { sessionId, messageId, rating, comment, reason, timestamp: Date.now() };
     if (idx >= 0) {
       feedback[idx] = entry;
     } else {
@@ -218,6 +321,7 @@ export function submitChatFeedback(
         message_id: messageId,
         rating,
         comment: comment || null,
+        reason: reason || null,
         tools_used: null,
         query: null,
       },
@@ -228,6 +332,32 @@ export function submitChatFeedback(
     logger.info("Chat feedback submitted", { messageId, rating });
   } catch (e) {
     logger.warn("Failed to save chat feedback", { error: String(e) });
+  }
+}
+
+export function removeChatFeedback(sessionId: string, messageId: string): void {
+  try {
+    // Remove from localStorage
+    const stored = localStorage.getItem(FEEDBACK_KEY);
+    if (stored) {
+      const feedback: ChatFeedback[] = JSON.parse(stored);
+      const filtered = feedback.filter((f) => f.messageId !== messageId);
+      localStorage.setItem(FEEDBACK_KEY, JSON.stringify(filtered));
+    }
+
+    // Also delete from SQLite backend (fire-and-forget)
+    invoke("chat_delete_feedback", {
+      request: {
+        session_id: sessionId,
+        message_id: messageId,
+      },
+    }).catch((e) => {
+      logger.warn("Backend feedback deletion failed", { error: String(e) });
+    });
+
+    logger.info("Chat feedback removed", { messageId });
+  } catch (e) {
+    logger.warn("Failed to remove chat feedback", { error: String(e) });
   }
 }
 
@@ -296,25 +426,21 @@ export async function getChatSessionMessages(sessionId: string): Promise<ChatMes
 }
 
 export async function saveChatSession(session: ChatSession): Promise<void> {
-  try {
-    await invoke("chat_save_session", {
-      request: {
-        id: session.id,
-        title: session.title,
-        created_at: session.createdAt,
-        updated_at: session.updatedAt,
-        messages: session.messages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          sources_json: m.sources ? JSON.stringify(m.sources) : null,
-          timestamp: m.timestamp,
-        })),
-      },
-    });
-  } catch (e) {
-    logger.warn("Failed to save chat session to DB", { error: String(e) });
-  }
+  await invoke("chat_save_session", {
+    request: {
+      id: session.id,
+      title: session.title,
+      created_at: session.createdAt,
+      updated_at: session.updatedAt,
+      messages: session.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        sources_json: m.sources ? JSON.stringify(m.sources) : null,
+        timestamp: m.timestamp,
+      })),
+    },
+  });
 }
 
 export async function deleteChatSession(sessionId: string): Promise<void> {
@@ -331,10 +457,48 @@ export function generateSessionTitle(firstMessage: string): string {
   return cleaned.substring(0, 37) + "...";
 }
 
+export function createRequestId(): string {
+  return `req-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+}
+
 export function createSessionId(): string {
   return `chat-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 }
 
 export function createMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+}
+
+// ============================================================================
+// Session Metadata (Ask Hadron 2.0)
+// ============================================================================
+
+export async function starChatSession(sessionId: string, starred: boolean): Promise<void> {
+  await invoke("chat_star_session", { sessionId, starred });
+}
+
+export async function tagChatSession(sessionId: string, tags: string): Promise<void> {
+  await invoke("chat_tag_session", { sessionId, tags });
+}
+
+export async function updateSessionMetadata(
+  sessionId: string,
+  customer?: string,
+  wonVersion?: string
+): Promise<void> {
+  await invoke("chat_update_session_metadata", { sessionId, customer, wonVersion });
+}
+
+// ============================================================================
+// JIRA Comment Integration
+// ============================================================================
+
+export async function postJiraComment(
+  baseUrl: string,
+  email: string,
+  apiToken: string,
+  issueKey: string,
+  commentBody: string
+): Promise<void> {
+  await invoke("post_jira_comment", { baseUrl, email, apiToken, issueKey, commentBody });
 }
