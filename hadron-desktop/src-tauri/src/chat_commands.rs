@@ -52,6 +52,8 @@ pub struct ChatRequest {
     pub date_to: Option<String>,
     #[allow(dead_code)]
     pub analysis_types: Option<Vec<String>>,
+    /// Verbosity control: "concise" or "detailed". None = default behavior.
+    pub verbosity: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,6 +90,11 @@ pub struct ChatDiagnosticsEvent {
     pub invalid_citation_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    // Phase 7: enriched diagnostics
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tool_traces: Vec<ToolTraceEvent>,
+    pub total_tokens: i32,
+    pub total_cost: f64,
 }
 
 /// Emitted via "chat-tool-use" when the agent calls a tool (for UI indicators)
@@ -98,6 +105,15 @@ pub struct ChatToolUseEvent {
     pub iteration: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+}
+
+/// Per-tool trace for the diagnostics panel
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolTraceEvent {
+    pub name: String,
+    pub args: serde_json::Value,
+    pub result_preview: String,  // first 200 chars of result content
+    pub duration_ms: u64,
 }
 
 /// Emitted via "chat-final-content" with post-processed citations after streaming completes
@@ -520,6 +536,17 @@ pub async fn chat_send(
     // Append citation format instructions (PR7)
     system_prompt.push_str(crate::retrieval::citation::CITATION_INSTRUCTIONS);
 
+    // Verbosity control (Ask Hadron 2.0)
+    match request.verbosity.as_deref() {
+        Some("concise") => {
+            system_prompt.push_str("\n\nIMPORTANT: Be brief and concise. Answer in 2-3 sentences maximum unless the user explicitly asks for more detail.");
+        }
+        Some("detailed") => {
+            system_prompt.push_str("\n\nProvide a thorough, detailed response. Include all relevant details, examples, source citations, and explain the reasoning.");
+        }
+        _ => {} // Default behavior
+    }
+
     // If an analysis is selected, load it and prepend as context
     if let Some(analysis_id) = request.analysis_id {
         let db_clone = Arc::clone(&db);
@@ -593,6 +620,7 @@ pub async fn chat_send(
     let mut total_tool_calls = 0usize;
     let mut all_tool_results: Vec<crate::chat_tools::ToolResult> = Vec::new();
     let mut all_tool_names: Vec<String> = Vec::new();
+    let mut all_tool_traces: Vec<ToolTraceEvent> = Vec::new();
     let mut context_summary = ChatContextSummary {
         rag_results: 0,
         kb_results: 0,
@@ -692,6 +720,9 @@ pub async fn chat_send(
                 },
                 invalid_citation_count: None, // Set after synthesis
                 request_id: request_id.clone(),
+                tool_traces: all_tool_traces.clone(),
+                total_tokens: 0, // Updated after synthesis
+                total_cost: 0.0,
             });
 
             // Build base system prompt with evidence assessment
@@ -938,14 +969,36 @@ pub async fn chat_send(
             }
         }
 
-        // Execute all tool calls in parallel
+        // Execute all tool calls in parallel with timing
         let tool_futures: Vec<_> = tool_calls
             .iter()
-            .map(|tc| execute_tool(tc, &tool_ctx))
+            .map(|tc| {
+                let ctx = &tool_ctx;
+                async move {
+                    let start = std::time::Instant::now();
+                    let result = execute_tool(tc, ctx).await;
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    (result, duration_ms)
+                }
+            })
             .collect();
-        let results: Vec<_> = futures::future::join_all(tool_futures).await;
-        for (tc, result) in tool_calls.iter().zip(results.iter()) {
-            all_tool_results.push(result.clone());
+        let timed_results: Vec<_> = futures::future::join_all(tool_futures).await;
+        let mut iteration_results: Vec<crate::chat_tools::ToolResult> = Vec::new();
+        for (tc, (result, duration_ms)) in tool_calls.iter().zip(timed_results.into_iter()) {
+            // Build trace
+            let preview = if result.content.len() > 200 {
+                format!("{}...", &result.content[..200])
+            } else {
+                result.content.clone()
+            };
+            all_tool_traces.push(ToolTraceEvent {
+                name: tc.name.clone(),
+                args: tc.arguments.clone(),
+                result_preview: preview,
+                duration_ms,
+            });
+            iteration_results.push(result.clone());
+            all_tool_results.push(result);
             all_tool_names.push(tc.name.clone());
             total_tool_calls += 1;
         }
@@ -955,7 +1008,7 @@ pub async fn chat_send(
         agent_messages.push(assistant_msg);
 
         // Append tool results to the conversation
-        let result_msgs = build_tool_result_messages(&results, &request.provider);
+        let result_msgs = build_tool_result_messages(&iteration_results, &request.provider);
         agent_messages.extend(result_msgs);
     }
 
@@ -978,6 +1031,32 @@ pub async fn chat_send(
     } else {
         system_prompt.clone()
     };
+
+    // Emit diagnostics for max-iterations path
+    let unique_tools_b: Vec<String> = {
+        let mut t = all_tool_names.clone();
+        t.sort();
+        t.dedup();
+        t
+    };
+    let _ = app.emit("chat-diagnostics", ChatDiagnosticsEvent {
+        tools_used: unique_tools_b,
+        total_tool_calls,
+        retrieval_latency_ms: chat_start.elapsed().as_millis() as u64,
+        evidence_sufficient: evidence.sufficient,
+        evidence_confidence: evidence.confidence,
+        evidence_reason: evidence.reason.clone(),
+        rewritten_query: if rewritten_query != query {
+            Some(rewritten_query.clone())
+        } else {
+            None
+        },
+        invalid_citation_count: None,
+        request_id: request_id.clone(),
+        tool_traces: all_tool_traces,
+        total_tokens: 0,
+        total_cost: 0.0,
+    });
 
     // Check if dual synthesis is needed (customer RN data present)
     let customer_name_b = request.customer.as_deref().unwrap_or("");
