@@ -616,6 +616,12 @@ pub async fn chat_send(
         }
     }
 
+    // Save clean conversation messages for synthesis calls. The agent loop will
+    // append tool_use/tool_result artifacts to agent_messages which confuse the
+    // synthesis LLM (especially for OpenAI where role:"tool" messages get dropped).
+    // Synthesis uses the reference chatbot pattern: [system+docs, history, query].
+    let synthesis_messages = agent_messages.clone();
+
     // --- Agent loop: LLM → tool calls → execute → loop ---
     let mut total_tool_calls = 0usize;
     let mut all_tool_results: Vec<crate::chat_tools::ToolResult> = Vec::new();
@@ -752,6 +758,7 @@ pub async fn chat_send(
                     );
 
                 // BASE synthesis call
+                log::info!("Dual synthesis: base_xml={} chars, customer_xml={} chars", base_xml.len(), customer_xml.len());
                 let mut base_prompt = base_system_prompt.clone();
                 if !base_xml.is_empty() {
                     base_prompt.push_str(&base_xml);
@@ -759,8 +766,11 @@ pub async fn chat_send(
                     base_prompt.push_str(BASE_SYNTHESIS_ADDENDUM);
                 }
 
+                // Use clean conversation history (not agent_messages with tool-call
+                // artifacts) — retrieved context is in the system prompt XML,
+                // matching the reference chatbot pattern: [system+docs, history, query].
                 let base_body = build_streaming_request(
-                    &agent_messages,
+                    &synthesis_messages,
                     &base_prompt,
                     &request.provider,
                     &request.model,
@@ -798,7 +808,7 @@ pub async fn chat_send(
                 let customer_prompt =
                     build_customer_synthesis_prompt(customer_name, &customer_xml);
                 let customer_body = build_streaming_request(
-                    &agent_messages,
+                    &synthesis_messages,
                     &customer_prompt,
                     &request.provider,
                     &request.model,
@@ -836,13 +846,16 @@ pub async fn chat_send(
                     &all_tool_names,
                 );
                 if !source_xml.is_empty() {
+                    log::info!("Synthesis: injecting {} chars of XML sources into system prompt", source_xml.len());
                     final_system_prompt.push_str(&source_xml);
                     final_system_prompt
                         .push_str(crate::retrieval::citation::ANSWER_GENERATION_RULES);
+                } else {
+                    log::warn!("Synthesis: no XML sources to inject — all tool results were empty or errors");
                 }
 
                 let stream_body = build_streaming_request(
-                    &agent_messages,
+                    &synthesis_messages,
                     &final_system_prompt,
                     &request.provider,
                     &request.model,
@@ -1084,8 +1097,10 @@ pub async fn chat_send(
             base_prompt.push_str(BASE_SYNTHESIS_ADDENDUM);
         }
 
+        // Use clean conversation history — retrieved context is in the system
+        // prompt XML, matching the reference chatbot pattern.
         let base_body = build_streaming_request(
-            &agent_messages,
+            &synthesis_messages,
             &base_prompt,
             &request.provider,
             &request.model,
@@ -1123,7 +1138,7 @@ pub async fn chat_send(
         let customer_prompt =
             build_customer_synthesis_prompt(customer_name_b, &customer_xml);
         let customer_body = build_streaming_request(
-            &agent_messages,
+            &synthesis_messages,
             &customer_prompt,
             &request.provider,
             &request.model,
@@ -1161,13 +1176,18 @@ pub async fn chat_send(
             &all_tool_names,
         );
         if !source_xml.is_empty() {
+            log::info!("Synthesis (max-iter): injecting {} chars of XML sources into system prompt", source_xml.len());
             final_system_prompt.push_str(&source_xml);
             final_system_prompt
                 .push_str(crate::retrieval::citation::ANSWER_GENERATION_RULES);
+        } else {
+            log::warn!("Synthesis (max-iter): no XML sources to inject — all tool results were empty or errors");
         }
 
+        // Use clean conversation history — retrieved context is in the system
+        // prompt XML, matching the reference chatbot pattern.
         let stream_body = build_streaming_request(
-            &agent_messages,
+            &synthesis_messages,
             &final_system_prompt,
             &request.provider,
             &request.model,
@@ -1185,19 +1205,20 @@ pub async fn chat_send(
         match stream_result {
             Ok(resp) => (resp.content, resp.tokens_used, resp.cost),
             Err(e) => {
-                // Fallback: non-streaming
+                // Fallback: non-streaming — use enriched system prompt with XML
+                // sources (not base system_prompt which lacks tool results).
                 log::warn!("Streaming failed, falling back: {}", e);
                 let final_body = match request.provider.as_str() {
                     "anthropic" => build_chat_request_anthropic(
                         &request.messages,
-                        &system_prompt,
+                        &final_system_prompt,
                         &request.model,
                         4000,
                         false,
                     ),
                     _ => build_chat_request_openai(
                         &request.messages,
-                        &system_prompt,
+                        &final_system_prompt,
                         &request.model,
                         4000,
                         false,
@@ -1467,17 +1488,24 @@ pub async fn chat_update_session_metadata(
     .map_err(|e| e.to_string())
 }
 
-/// Build a streaming request body from JSON agent messages (no tools).
-/// Filters out tool-related messages that providers don't accept in plain chat.
+/// Build a streaming request body for the synthesis LLM call.
+///
+/// Callers should pass clean conversation messages (e.g. `request.messages`)
+/// rather than `agent_messages` which contain tool_use/tool_result artifacts.
+/// Retrieved context should be injected via the system prompt as XML sources,
+/// following the reference chatbot pattern: `[system+docs, history, query]`.
+///
+/// This function still filters out any tool-role messages as a safety net.
 fn build_streaming_request(
-    agent_messages: &[serde_json::Value],
+    messages: &[serde_json::Value],
     system_prompt: &str,
     provider: &str,
     model: &str,
     temperature: f64,
 ) -> serde_json::Value {
-    // Filter to user/assistant messages only (strip tool_use and tool results)
-    let clean_messages: Vec<serde_json::Value> = agent_messages
+    // Filter to user/assistant messages only, stripping any tool artifacts.
+    // With clean request.messages this is mostly a no-op safety net.
+    let clean_messages: Vec<serde_json::Value> = messages
         .iter()
         .filter(|m| {
             let role = m["role"].as_str().unwrap_or("");
@@ -1488,27 +1516,29 @@ fn build_streaming_request(
             if m["role"].as_str() == Some("assistant") {
                 if let Some(content) = m["content"].as_str() {
                     json!({"role": "assistant", "content": content})
-                } else {
-                    // If content is array (Anthropic tool_use blocks), extract text
-                    if let Some(blocks) = m["content"].as_array() {
-                        let text: String = blocks
-                            .iter()
-                            .filter(|b| b["type"].as_str() == Some("text"))
-                            .filter_map(|b| b["text"].as_str())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        if text.is_empty() {
-                            json!({"role": "assistant", "content": "I used tools to gather information. Let me summarize my findings."})
-                        } else {
-                            json!({"role": "assistant", "content": text})
-                        }
-                    } else {
+                } else if let Some(blocks) = m["content"].as_array() {
+                    let text: String = blocks
+                        .iter()
+                        .filter(|b| b["type"].as_str() == Some("text"))
+                        .filter_map(|b| b["text"].as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if text.is_empty() {
                         json!({"role": "assistant", "content": ""})
+                    } else {
+                        json!({"role": "assistant", "content": text})
                     }
+                } else {
+                    json!({"role": "assistant", "content": ""})
                 }
             } else {
                 m.clone()
             }
+        })
+        .filter(|m| {
+            // Drop empty assistant messages that would confuse the LLM
+            !(m["role"].as_str() == Some("assistant")
+                && m["content"].as_str().map_or(true, |c| c.is_empty()))
         })
         .collect();
 
