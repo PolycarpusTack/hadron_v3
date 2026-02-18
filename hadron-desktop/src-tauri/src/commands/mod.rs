@@ -6,4 +6,6 @@
 // Re-export everything from the legacy commands module
 pub use crate::commands_legacy::*;
 
+pub mod gold_answers;
 pub mod release_notes;
+pub mod summaries;

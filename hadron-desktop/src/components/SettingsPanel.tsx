@@ -1,10 +1,15 @@
 import { useState, useEffect, Suspense, lazy, useRef, useCallback } from "react";
-import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, Download, RefreshCw, Check, AlertCircle, Clipboard, Info, Cpu, Link, Palette, Wrench } from "lucide-react";
+import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, Download, RefreshCw, Check, AlertCircle, Clipboard, Info, Cpu, Link, Palette, Wrench, ChevronDown, ChevronRight, Shield } from "lucide-react";
 import { getCircuitState } from "../services/circuit-breaker";
 import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage";
 import { checkForUpdates } from "../services/updater";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI, autoTagAnalyses } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
+import { getKeeperConfig, type KeeperConfig } from "../services/keeper";
+import { listGoldAnswers, exportGoldAnswersJsonl } from "../services/gold-answers";
+import { exportSummariesBundle } from "../services/summaries";
+import { save as tauriSave } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import logger from '../services/logger';
 
 // Lazy load heavy components since most users won't use them
@@ -32,6 +37,7 @@ interface Settings {
   };
   model: string;
   customModel: string;
+  auxiliaryModel: string;
   piiRedactionEnabled: boolean;
   activeProviders: Record<string, boolean>;
 }
@@ -80,6 +86,15 @@ export default function SettingsPanel({
   const [diagnosticsMessage, setDiagnosticsMessage] = useState<string | null>(null);
   const [autoTagMessage, setAutoTagMessage] = useState<string | null>(null);
   const [isAutoTagging, setIsAutoTagging] = useState(false);
+  const [keeperConfig, setKeeperConfig] = useState<KeeperConfig | null>(null);
+  const [showManualKeys, setShowManualKeys] = useState(true);
+
+  // Ask Hadron Data state (Task 24)
+  const [goldCount, setGoldCount] = useState<number | null>(null);
+  const [summaryExportMsg, setSummaryExportMsg] = useState<string | null>(null);
+  const [goldExportMsg, setGoldExportMsg] = useState<string | null>(null);
+  const [isExportingGold, setIsExportingGold] = useState(false);
+  const [isExportingSummaries, setIsExportingSummaries] = useState(false);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
@@ -100,6 +115,7 @@ export default function SettingsPanel({
     },
     model: "gpt-4o",
     customModel: "",
+    auxiliaryModel: "",
     piiRedactionEnabled: false,
     activeProviders: AI_PROVIDERS.reduce((acc, p) => ({ ...acc, [p.value]: p.defaultActive }), {}),
   });
@@ -196,6 +212,31 @@ export default function SettingsPanel({
     }
   }, [isOpen]);
 
+  // Load gold answer count for Ask Hadron Data section (Task 24)
+  useEffect(() => {
+    if (isOpen && activeTab === "advanced") {
+      listGoldAnswers(1000, 0).then((golds) => {
+        setGoldCount(golds.length);
+      }).catch(() => setGoldCount(null));
+    }
+  }, [isOpen, activeTab]);
+
+  // Load Keeper config to determine if manual keys section should be collapsed
+  useEffect(() => {
+    if (isOpen) {
+      getKeeperConfig().then((config) => {
+        setKeeperConfig(config);
+        // Auto-collapse manual keys when Keeper is active for current provider
+        const isActive = config.enabled && !!config.secretMappings[settings.provider as keyof typeof config.secretMappings];
+        if (isActive) {
+          setShowManualKeys(false);
+        }
+      }).catch(() => {
+        // Keeper not available, keep manual keys expanded
+      });
+    }
+  }, [isOpen, settings.provider]);
+
   async function loadSettings() {
     const provider = localStorage.getItem("ai_provider") || "openai";
 
@@ -211,6 +252,7 @@ export default function SettingsPanel({
       "gpt-4o";
     const model = localStorage.getItem("ai_model") || defaultModel;
     const customModel = localStorage.getItem("ai_custom_model") || "";
+    const auxiliaryModel = localStorage.getItem("ai_auxiliary_model") || "";
     const piiRedactionEnabled = localStorage.getItem("pii_redaction_enabled") === "true";
 
     // Load active providers
@@ -233,6 +275,7 @@ export default function SettingsPanel({
       },
       model,
       customModel,
+      auxiliaryModel,
       piiRedactionEnabled,
       activeProviders,
     });
@@ -269,6 +312,7 @@ export default function SettingsPanel({
       ...settings,
       provider: newProvider,
       model: savedModel || defaultModel,
+      auxiliaryModel: "", // Reset when switching providers
     });
   };
 
@@ -312,6 +356,13 @@ export default function SettingsPanel({
       localStorage.setItem("ai_model", modelToSave);
       localStorage.setItem(`ai_model:${settings.provider}`, modelToSave);
       localStorage.setItem("ai_custom_model", settings.customModel);
+
+      // Save auxiliary model
+      if (settings.auxiliaryModel) {
+        localStorage.setItem("ai_auxiliary_model", settings.auxiliaryModel);
+      } else {
+        localStorage.removeItem("ai_auxiliary_model");
+      }
 
       // Save PII redaction setting
       localStorage.setItem("pii_redaction_enabled", String(settings.piiRedactionEnabled));
@@ -464,6 +515,7 @@ export default function SettingsPanel({
   if (!isOpen) return null;
 
   const currentModels = cachedModels[settings.provider] || [];
+  const isKeeperActiveForProvider = keeperConfig?.enabled && !!keeperConfig.secretMappings[settings.provider as keyof typeof keeperConfig.secretMappings];
 
   // Render API Key input for a provider
   const renderApiKeyInput = (provider: "openai" | "anthropic" | "zai", label: string, placeholder: string) => {
@@ -596,16 +648,58 @@ export default function SettingsPanel({
                 )}
               </div>
 
-              {/* API Key - Only for cloud providers */}
-              {settings.provider !== "llamacpp" && (
-                <div className="space-y-4">
-                  {settings.provider === "openai" && renderApiKeyInput("openai", "OpenAI API Key", "sk-...")}
-                  {settings.provider === "anthropic" && renderApiKeyInput("anthropic", "Anthropic API Key", "sk-ant-...")}
-                  {settings.provider === "zai" && renderApiKeyInput("zai", "Z.ai API Key", "Enter your Z.ai key")}
+              {/* Keeper Secrets Manager */}
+              <Suspense fallback={
+                <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-500/30">
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="w-5 h-5 text-purple-400 animate-spin" />
+                    <span className="text-gray-400">Loading Keeper settings...</span>
+                  </div>
+                </div>
+              }>
+                <KeeperSettings onConfigChange={() => {
+                  onSettingsChange?.();
+                  // Refresh keeper config state so the UI updates
+                  getKeeperConfig().then((config) => {
+                    setKeeperConfig(config);
+                    const isActive = config.enabled && !!config.secretMappings[settings.provider as keyof typeof config.secretMappings];
+                    if (isActive) setShowManualKeys(false);
+                    else setShowManualKeys(true);
+                  }).catch(() => {});
+                }} />
+              </Suspense>
 
-                  <p className="text-xs text-gray-500">
-                    Keys are encrypted using your OS keychain/credential manager
-                  </p>
+              {/* Manual API Key - Only for cloud providers */}
+              {settings.provider !== "llamacpp" && (
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setShowManualKeys(!showManualKeys)}
+                    className="flex items-center gap-2 w-full text-left group"
+                  >
+                    {showManualKeys
+                      ? <ChevronDown className="w-4 h-4 text-gray-400" />
+                      : <ChevronRight className="w-4 h-4 text-gray-400" />
+                    }
+                    <span className="text-sm font-semibold">Manual API Key</span>
+                    {isKeeperActiveForProvider && (
+                      <span className="ml-auto flex items-center gap-1.5 text-xs text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-full px-2.5 py-0.5">
+                        <Shield className="w-3 h-3" />
+                        Using Keeper
+                      </span>
+                    )}
+                  </button>
+
+                  {showManualKeys && (
+                    <div className="space-y-4 pl-6">
+                      {settings.provider === "openai" && renderApiKeyInput("openai", "OpenAI API Key", "sk-...")}
+                      {settings.provider === "anthropic" && renderApiKeyInput("anthropic", "Anthropic API Key", "sk-ant-...")}
+                      {settings.provider === "zai" && renderApiKeyInput("zai", "Z.ai API Key", "Enter your Z.ai key")}
+
+                      <p className="text-xs text-gray-500">
+                        Keys are encrypted using your OS keychain/credential manager
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -615,7 +709,7 @@ export default function SettingsPanel({
                   <label className="text-sm font-semibold">Model</label>
                   <button
                     onClick={handleRefreshModels}
-                    disabled={isRefreshingModels || (settings.provider !== 'llamacpp' && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys])}
+                    disabled={isRefreshingModels || (settings.provider !== 'llamacpp' && !isKeeperActiveForProvider && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys])}
                     className="text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed rounded-lg flex items-center gap-1.5 transition"
                   >
                     <RefreshCw className={`w-3 h-3 ${isRefreshingModels ? 'animate-spin' : ''}`} />
@@ -659,10 +753,45 @@ export default function SettingsPanel({
                 )}
               </div>
 
+              {/* Lightweight Model (Cost Optimization) */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">Lightweight Model (Optional)</label>
+                <p className="text-xs text-gray-400">
+                  Use a cheaper model for internal calls (query planning, search expansion, tool decisions).
+                  The main model is still used for final answer synthesis.
+                </p>
+                <select
+                  value={settings.auxiliaryModel}
+                  onChange={(e) => setSettings({ ...settings, auxiliaryModel: e.target.value })}
+                  className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Same as main model (no savings)</option>
+                  {settings.provider === "openai" && (
+                    <>
+                      <option value="gpt-4o-mini">GPT-4o Mini (recommended)</option>
+                      <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+                    </>
+                  )}
+                  {settings.provider === "anthropic" && (
+                    <>
+                      <option value="claude-haiku-4-5-20251001">Claude 4.5 Haiku (recommended)</option>
+                    </>
+                  )}
+                  {settings.provider === "zai" && (
+                    <>
+                      <option value="glm-4-flash">GLM-4 Flash (recommended)</option>
+                    </>
+                  )}
+                  {settings.provider === "llamacpp" && (
+                    <option value="default">Default (local - no cost)</option>
+                  )}
+                </select>
+              </div>
+
               {/* Test Connection */}
               <button
                 onClick={handleTestConnection}
-                disabled={isTestingConnection || (settings.provider !== 'llamacpp' && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys]) || (settings.provider !== 'llamacpp' && !isOnline)}
+                disabled={isTestingConnection || (settings.provider !== 'llamacpp' && !isKeeperActiveForProvider && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys]) || (settings.provider !== 'llamacpp' && !isOnline)}
                 className="w-full px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2"
               >
                 {isTestingConnection ? (
@@ -702,17 +831,6 @@ export default function SettingsPanel({
                 </div>
               }>
                 <JiraSettings onConfigChange={onSettingsChange} />
-              </Suspense>
-
-              <Suspense fallback={
-                <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-500/30">
-                  <div className="flex items-center gap-3">
-                    <RefreshCw className="w-5 h-5 text-purple-400 animate-spin" />
-                    <span className="text-gray-400">Loading Keeper settings...</span>
-                  </div>
-                </div>
-              }>
-                <KeeperSettings onConfigChange={onSettingsChange} />
               </Suspense>
 
               <Suspense fallback={
@@ -955,6 +1073,110 @@ export default function SettingsPanel({
                     <DatabaseAdminSection onRefresh={onSettingsChange} />
                   </div>
                 </Suspense>
+              </div>
+
+              {/* Ask Hadron Data (Task 24) */}
+              <div className="space-y-3">
+                <label className="block text-sm font-semibold">Ask Hadron Data</label>
+
+                {/* Gold Answers */}
+                <div className="bg-gray-900/50 rounded-lg border border-gray-700 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-300">Gold Answers</p>
+                      <p className="text-xs text-gray-500">
+                        Curated Q&A pairs for RAG training
+                        {goldCount !== null && (
+                          <span className="ml-1 text-amber-400">({goldCount} saved)</span>
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setIsExportingGold(true);
+                        setGoldExportMsg(null);
+                        try {
+                          const jsonl = await exportGoldAnswersJsonl({});
+                          const filePath = await tauriSave({
+                            defaultPath: `gold-answers-${new Date().toISOString().split("T")[0]}.jsonl`,
+                            filters: [{ name: "JSONL", extensions: ["jsonl"] }],
+                          });
+                          if (filePath) {
+                            await writeTextFile(filePath, jsonl);
+                            setGoldExportMsg(`Exported to ${filePath}`);
+                          }
+                        } catch (e) {
+                          setGoldExportMsg(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
+                        } finally {
+                          setIsExportingGold(false);
+                          safeTimeout(() => setGoldExportMsg(null), 5000);
+                        }
+                      }}
+                      disabled={isExportingGold || goldCount === 0}
+                      className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 disabled:bg-gray-700 disabled:cursor-not-allowed text-amber-400 disabled:text-gray-500 rounded-lg transition text-xs flex items-center gap-1.5"
+                    >
+                      {isExportingGold ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Download className="w-3 h-3" />
+                      )}
+                      Export as JSONL
+                    </button>
+                  </div>
+                  {goldExportMsg && (
+                    <p className={`text-xs ${goldExportMsg.includes("failed") ? "text-red-400" : "text-green-400"}`}>
+                      {goldExportMsg}
+                    </p>
+                  )}
+                </div>
+
+                {/* Session Summaries */}
+                <div className="bg-gray-900/50 rounded-lg border border-gray-700 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-300">Session Summaries</p>
+                      <p className="text-xs text-gray-500">
+                        AI-generated session summaries for RAG indexing
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setIsExportingSummaries(true);
+                        setSummaryExportMsg(null);
+                        try {
+                          const bundle = await exportSummariesBundle({});
+                          const filePath = await tauriSave({
+                            defaultPath: `summaries-rag-${new Date().toISOString().split("T")[0]}.jsonl`,
+                            filters: [{ name: "JSONL", extensions: ["jsonl"] }],
+                          });
+                          if (filePath) {
+                            await writeTextFile(filePath, bundle);
+                            setSummaryExportMsg(`Exported to ${filePath}`);
+                          }
+                        } catch (e) {
+                          setSummaryExportMsg(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
+                        } finally {
+                          setIsExportingSummaries(false);
+                          safeTimeout(() => setSummaryExportMsg(null), 5000);
+                        }
+                      }}
+                      disabled={isExportingSummaries}
+                      className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 disabled:bg-gray-700 disabled:cursor-not-allowed text-blue-400 disabled:text-gray-500 rounded-lg transition text-xs flex items-center gap-1.5"
+                    >
+                      {isExportingSummaries ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Download className="w-3 h-3" />
+                      )}
+                      Export for RAG
+                    </button>
+                  </div>
+                  {summaryExportMsg && (
+                    <p className={`text-xs ${summaryExportMsg.includes("failed") ? "text-red-400" : "text-green-400"}`}>
+                      {summaryExportMsg}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           )}

@@ -5,13 +5,12 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ai_service::{call_provider_quick, ChatMessage};
-use crate::database::{Analysis, Database};
+use crate::database::Database;
 use crate::jira_service;
 use crate::rag_commands::{kb_query_internal, OpenSearchConfig};
+use crate::retrieval::{hybrid_analysis, RetrievalOptions};
 
 // ============================================================================
 // Types
@@ -80,6 +79,19 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                         "type": "string",
                         "enum": ["critical", "high", "medium", "low"],
                         "description": "Optional severity filter"
+                    },
+                    "date_from": {
+                        "type": "string",
+                        "description": "Optional inclusive start date filter (ISO-8601, e.g., '2025-01-01')"
+                    },
+                    "date_to": {
+                        "type": "string",
+                        "description": "Optional inclusive end date filter (ISO-8601, e.g., '2025-06-30')"
+                    },
+                    "analysis_types": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional filter by error type names (e.g., ['NilReceiver', 'Deadlock'])"
                     }
                 },
                 "required": ["query"]
@@ -94,6 +106,11 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                     "query": {
                         "type": "string",
                         "description": "Search query for KB docs (e.g., 'scheduling engine conflicts', 'PSI namespace')"
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Max results to return (default 8)",
+                        "default": 8
                     }
                 },
                 "required": ["query"]
@@ -289,6 +306,20 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
+            name: "search_gold_answers".to_string(),
+            description: "Search verified gold answers from previous support investigations. These are human-verified, trustworthy Q&A pairs. Check here first before searching other sources.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to find relevant verified answers"
+                    }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDefinition {
             name: "create_jira_ticket".to_string(),
             description: "Create a new JIRA ticket. Use when the user asks to file a bug or create a ticket from a crash analysis.".to_string(),
             parameters: json!({
@@ -345,6 +376,7 @@ pub async fn execute_tool(
         "get_crash_timeline" => execute_get_crash_timeline(&tool_call.arguments, ctx).await,
         "compare_crashes" => execute_compare_crashes(&tool_call.arguments, ctx).await,
         "get_component_health" => execute_get_component_health(&tool_call.arguments, ctx).await,
+        "search_gold_answers" => execute_search_gold_answers(&tool_call.arguments, ctx).await,
         "search_jira" => execute_search_jira(&tool_call.arguments, ctx).await,
         "create_jira_ticket" => execute_create_jira_ticket(&tool_call.arguments, ctx).await,
         _ => Err(format!("Unknown tool: {}", tool_call.name)),
@@ -377,90 +409,40 @@ async fn execute_search_analyses(
         .ok_or("Missing 'query' parameter")?
         .to_string();
     let severity = args["severity"].as_str().map(|s| s.to_string());
+    let date_from = args["date_from"].as_str().map(|s| s.to_string());
+    let date_to = args["date_to"].as_str().map(|s| s.to_string());
+    let analysis_types: Option<Vec<String>> = args["analysis_types"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
 
-    // Generate query variants for multi-query retrieval (Phase 1.2)
-    let variants = generate_query_variants(&query, &ctx.provider, &ctx.api_key, &ctx.model).await;
-
-    // Run original + variant queries in parallel
-    let mut handles = Vec::new();
-
-    // Original query
-    {
-        let db = Arc::clone(&ctx.db);
-        let q = query.clone();
-        let sev = severity.clone();
-        handles.push(tokio::task::spawn_blocking(move || {
-            db.search_analyses(&q, sev.as_deref())
-        }));
-    }
-
-    // Variant queries
-    for variant in &variants {
-        let db = Arc::clone(&ctx.db);
-        let q = variant.clone();
-        let sev = severity.clone();
-        handles.push(tokio::task::spawn_blocking(move || {
-            db.search_analyses(&q, sev.as_deref())
-        }));
-    }
-
-    // Collect results
-    let mut result_lists = Vec::new();
-    for handle in handles {
-        match handle.await {
-            Ok(Ok(results)) => result_lists.push(results),
-            Ok(Err(e)) => log::warn!("Search variant failed: {}", e),
-            Err(e) => log::warn!("Search task error: {}", e),
-        }
-    }
-
-    // Merge with RRF if we have multiple result sets
-    let mut results = if result_lists.len() > 1 {
-        reciprocal_rank_fusion(result_lists)
-    } else {
-        result_lists.into_iter().next().unwrap_or_default()
+    let options = RetrievalOptions {
+        query: query.clone(),
+        top_k: 10,
+        severity,
+        date_from,
+        date_to,
+        analysis_types,
+        ..Default::default()
     };
+
+    let results = hybrid_analysis::search(
+        &ctx.db,
+        &options,
+        &ctx.provider,
+        &ctx.api_key,
+        &ctx.model,
+    )
+    .await;
 
     if results.is_empty() {
         return Ok("No analyses found matching the query.".to_string());
     }
 
-    // Apply feedback-based boosting: re-rank results using accept/reject signals
-    let ids: Vec<i64> = results.iter().map(|a| a.id).collect();
-    let db_clone = Arc::clone(&ctx.db);
-    if let Ok(feedback_scores) = tokio::task::spawn_blocking(move || {
-        db_clone.get_feedback_scores_for_analyses(&ids)
-    })
-    .await
-    .unwrap_or_else(|_| Ok(HashMap::new()))
-    {
-        if !feedback_scores.is_empty() {
-            // Assign each result an ordinal score, then apply multiplier, then re-sort
-            let n = results.len() as f64;
-            let mut scored: Vec<(Analysis, f64)> = results
-                .into_iter()
-                .enumerate()
-                .map(|(i, a)| {
-                    let base = n - i as f64; // higher = better rank
-                    let mult = feedback_scores.get(&a.id).copied().unwrap_or(1.0);
-                    (a, base * mult)
-                })
-                .collect();
-            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            results = scored.into_iter().map(|(a, _)| a).collect();
-        }
-    }
-
-    let variant_note = if !variants.is_empty() {
-        format!(" (searched with {} query variants)", variants.len() + 1)
-    } else {
-        String::new()
-    };
-
-    let mut output = format!("Found {} analyses{}:\n\n", results.len().min(10), variant_note);
+    let mut output = format!("Found {} analyses:\n\n", results.len().min(10));
     for analysis in results.iter().take(10) {
         output.push_str(&format!(
-            "**Analysis #{}** — {} ({})\n- Error: {}\n- Root Cause: {}\n- Component: {}\n- Date: {}\n\n",
+            "**[Analysis #{}](hadron://analysis/{})** — {} ({})\n- Error: {}\n- Root Cause: {}\n- Component: {}\n- Date: {}\n\n",
+            analysis.id,
             analysis.id,
             analysis.filename,
             analysis.severity,
@@ -481,6 +463,7 @@ async fn execute_search_kb(
     let query = args["query"]
         .as_str()
         .ok_or("Missing 'query' parameter")?;
+    let top_k = args["top_k"].as_u64().unwrap_or(8) as usize;
 
     let result = kb_query_internal(
         query,
@@ -488,34 +471,127 @@ async fn execute_search_kb(
         ctx.opensearch_config.clone(),
         ctx.won_version.clone(),
         ctx.customer.clone(),
-        5,
+        top_k,
         &ctx.api_key,
     )
     .await
     .map_err(|e| format!("KB search error: {}", e))?;
 
-    let total = result.kb_results.len() + result.release_note_results.len();
+    let total = result.kb_results.len()
+        + result.base_rn_results.len()
+        + result.customer_rn_results.len();
     if total == 0 {
         return Ok("No Knowledge Base documents found matching the query.".to_string());
     }
 
-    let mut output = format!("Found {} KB documents:\n\n", total);
-    for item in &result.kb_results {
-        output.push_str(&format!(
-            "**{}** (v{}, {})\n{}\n\n",
-            item.page_title,
-            item.won_version,
-            item.source_type,
-            truncate(&item.text, 300),
-        ));
+    let mut output = format!("Found {} documents ({} KB docs, {} base release notes, {} customer release notes):\n\n",
+        total, result.kb_results.len(), result.base_rn_results.len(), result.customer_rn_results.len());
+
+    // Format KB documentation results with XML-style tags for structured extraction
+    if !result.kb_results.is_empty() {
+        output.push_str("### BASE Documentation\n\n");
+        for item in &result.kb_results {
+            output.push_str("<documentation>\n");
+            if item.link.is_empty() {
+                output.push_str(&format!("  <url></url>\n"));
+            } else {
+                output.push_str(&format!("  <url>{}</url>\n", item.link));
+            }
+            output.push_str("  <source>Knowledge Base</source>\n");
+            output.push_str(&format!("  <won_version>{}</won_version>\n", item.won_version));
+            output.push_str(&format!(
+                "  <page_title>{}</page_title>\n",
+                item.page_title
+            ));
+            output.push_str(&format!(
+                "  <extract>{}</extract>\n",
+                truncate(&item.text, 1200)
+            ));
+            output.push_str("</documentation>\n\n");
+        }
     }
-    for item in &result.release_note_results {
+
+    // Format base release notes
+    if !result.base_rn_results.is_empty() {
+        output.push_str("### BASE Release Notes\n\n");
+        for item in &result.base_rn_results {
+            output.push_str("<documentation>\n");
+            if item.link.is_empty() {
+                output.push_str(&format!("  <url></url>\n"));
+            } else {
+                output.push_str(&format!("  <url>{}</url>\n", item.link));
+            }
+            output.push_str("  <source>Base Release Notes</source>\n");
+            output.push_str(&format!("  <won_version>{}</won_version>\n", item.won_version));
+            output.push_str(&format!(
+                "  <page_title>{}</page_title>\n",
+                item.page_title
+            ));
+            output.push_str(&format!(
+                "  <extract>{}</extract>\n",
+                truncate(&item.text, 1200)
+            ));
+            output.push_str("</documentation>\n\n");
+        }
+    }
+
+    // Format customer-specific release notes
+    if !result.customer_rn_results.is_empty() {
         output.push_str(&format!(
-            "**Release Note: {}** (v{})\n{}\n\n",
-            item.page_title,
-            item.won_version,
-            truncate(&item.text, 300),
+            "### Customer-Specific Release Notes ({})\n\n",
+            result.customer_rn_results.first().map(|r| r.customer.as_str()).unwrap_or("unknown")
         ));
+        for item in &result.customer_rn_results {
+            output.push_str("<documentation>\n");
+            if item.link.is_empty() {
+                output.push_str(&format!("  <url></url>\n"));
+            } else {
+                output.push_str(&format!("  <url>{}</url>\n", item.link));
+            }
+            output.push_str("  <source>Customer Release Notes</source>\n");
+            output.push_str(&format!("  <won_version>{}</won_version>\n", item.won_version));
+            output.push_str(&format!("  <customer>{}</customer>\n", item.customer));
+            output.push_str(&format!(
+                "  <page_title>{}</page_title>\n",
+                item.page_title
+            ));
+            output.push_str(&format!(
+                "  <extract>{}</extract>\n",
+                truncate(&item.text, 1200)
+            ));
+            output.push_str("</documentation>\n\n");
+        }
+    }
+
+    // Fallback: if the new separated fields are empty but legacy release_note_results
+    // has data (e.g., from Python fallback), format those too
+    if result.base_rn_results.is_empty()
+        && result.customer_rn_results.is_empty()
+        && !result.release_note_results.is_empty()
+    {
+        output.push_str("### Release Notes\n\n");
+        for item in &result.release_note_results {
+            output.push_str("<documentation>\n");
+            if item.link.is_empty() {
+                output.push_str(&format!("  <url></url>\n"));
+            } else {
+                output.push_str(&format!("  <url>{}</url>\n", item.link));
+            }
+            output.push_str(&format!("  <source>{}</source>\n", item.source_type));
+            output.push_str(&format!("  <won_version>{}</won_version>\n", item.won_version));
+            if !item.customer.is_empty() {
+                output.push_str(&format!("  <customer>{}</customer>\n", item.customer));
+            }
+            output.push_str(&format!(
+                "  <page_title>{}</page_title>\n",
+                item.page_title
+            ));
+            output.push_str(&format!(
+                "  <extract>{}</extract>\n",
+                truncate(&item.text, 1200)
+            ));
+            output.push_str("</documentation>\n\n");
+        }
     }
 
     Ok(output)
@@ -538,7 +614,7 @@ async fn execute_get_analysis_detail(
     let fixes: Vec<String> = serde_json::from_str(&analysis.suggested_fixes).unwrap_or_default();
 
     Ok(format!(
-        "**Analysis #{}**: {}\n\n\
+        "**[Analysis #{}](hadron://analysis/{})**: {}\n\n\
          - **Error Type**: {}\n\
          - **Error Message**: {}\n\
          - **Severity**: {}\n\
@@ -549,6 +625,7 @@ async fn execute_get_analysis_detail(
          - **Date**: {}\n\
          - **Model**: {} ({})\n\
          - **Type**: {}",
+        analysis.id,
         analysis.id,
         analysis.filename,
         analysis.error_type,
@@ -1099,6 +1176,46 @@ async fn execute_get_component_health(
 }
 
 // ============================================================================
+// Gold Answer Tool Handlers (Ask Hadron 2.0)
+// ============================================================================
+
+async fn execute_search_gold_answers(
+    args: &serde_json::Value,
+    ctx: &ToolContext,
+) -> Result<String, String> {
+    let query = args["query"].as_str().ok_or("Missing 'query'")?;
+    let results = ctx
+        .db
+        .search_gold_answers(query, 5)
+        .map_err(|e| e.to_string())?;
+
+    if results.is_empty() {
+        return Ok("No verified gold answers found for this query.".to_string());
+    }
+
+    let mut output = format!("Found {} verified gold answer(s):\n\n", results.len());
+    for ga in &results {
+        output.push_str(&format!(
+            "**[Gold Answer #{}]** ({})\n- **Q:** {}\n- **A:** {}\n- Tags: {}\n\n",
+            ga.id,
+            ga.created_at,
+            if ga.question.len() > 200 {
+                format!("{}...", &ga.question[..200])
+            } else {
+                ga.question.clone()
+            },
+            if ga.answer.len() > 500 {
+                format!("{}...", &ga.answer[..500])
+            } else {
+                ga.answer.clone()
+            },
+            ga.tags.as_deref().unwrap_or("none"),
+        ));
+    }
+    Ok(output)
+}
+
+// ============================================================================
 // JIRA Tool Handlers (Sprint 2)
 // ============================================================================
 
@@ -1158,7 +1275,9 @@ async fn execute_search_jira(
             .unwrap_or("-");
 
         output.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} |\n",
+            "| [{}]({}/browse/{}) | {} | {} | {} | {} | {} |\n",
+            issue.key,
+            jira.base_url.trim_end_matches('/'),
             issue.key,
             truncate(&issue.fields.summary, 60),
             issue.fields.status.name,
@@ -1231,69 +1350,6 @@ async fn execute_create_jira_ticket(
     } else {
         Err(result.error.unwrap_or_else(|| "Unknown error creating JIRA ticket".to_string()))
     }
-}
-
-// ============================================================================
-// Multi-Query Retrieval with RRF (Phase 1.2)
-// ============================================================================
-
-const VARIANT_SYSTEM_PROMPT: &str = r#"Generate 2 alternative search queries for finding relevant crash analyses and documentation. Be diverse in phrasing — use synonyms, rephrase, and vary specificity. Output ONLY a JSON array of 2 strings, nothing else. Example: ["query one", "query two"]"#;
-
-/// Generate search query variants using a quick LLM call
-async fn generate_query_variants(
-    query: &str,
-    provider: &str,
-    api_key: &str,
-    model: &str,
-) -> Vec<String> {
-    let messages = vec![ChatMessage {
-        role: "user".to_string(),
-        content: format!("Generate 2 search query variants for: \"{}\"", query),
-    }];
-
-    match call_provider_quick(provider, &messages, VARIANT_SYSTEM_PROMPT, api_key, model, 200).await {
-        Ok(response) => {
-            let response = response.trim();
-            // Try to parse as JSON array
-            if let Ok(variants) = serde_json::from_str::<Vec<String>>(response) {
-                log::info!("Generated {} query variants for: \"{}\"", variants.len(), &query[..query.len().min(50)]);
-                return variants;
-            }
-            // Fallback: try to extract quoted strings
-            log::warn!("Failed to parse query variants as JSON, using original query only");
-            Vec::new()
-        }
-        Err(e) => {
-            log::warn!("Query variant generation failed: {}", e);
-            Vec::new()
-        }
-    }
-}
-
-/// Merge search results from multiple queries using Reciprocal Rank Fusion.
-/// k=60 is the standard RRF constant.
-fn reciprocal_rank_fusion(result_lists: Vec<Vec<Analysis>>) -> Vec<Analysis> {
-    const K: f64 = 60.0;
-
-    let mut scores: HashMap<i64, f64> = HashMap::new();
-    let mut analysis_map: HashMap<i64, Analysis> = HashMap::new();
-
-    for results in &result_lists {
-        for (rank, analysis) in results.iter().enumerate() {
-            let rrf_score = 1.0 / (K + rank as f64 + 1.0);
-            *scores.entry(analysis.id).or_insert(0.0) += rrf_score;
-            analysis_map.entry(analysis.id).or_insert_with(|| analysis.clone());
-        }
-    }
-
-    // Sort by RRF score descending
-    let mut scored: Vec<(i64, f64)> = scores.into_iter().collect();
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-    scored
-        .into_iter()
-        .filter_map(|(id, _)| analysis_map.remove(&id))
-        .collect()
 }
 
 // ============================================================================

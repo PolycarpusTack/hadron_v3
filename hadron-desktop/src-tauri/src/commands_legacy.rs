@@ -1034,10 +1034,12 @@ pub async fn analyze_crash_log(
 
     // Resolve API key - prefer Keeper if configured
     // SECURITY: Wrap in Zeroizing to ensure key is cleared from memory after use
+    // NOTE: Keeper SDK uses reqwest::blocking internally, so it must run off the
+    // tokio runtime to avoid "Cannot drop a runtime" panics.
     let api_key: Zeroizing<String> = if let Some(ref keeper_uid) = request.keeper_secret_uid {
         log::info!("Fetching API key from Keeper for analysis");
-        // keeper_service already returns Zeroizing<String>
-        keeper_service::get_api_key_from_keeper(keeper_uid)
+        let uid = keeper_uid.clone();
+        run_keeper_off_runtime(move || keeper_service::get_api_key_from_keeper(&uid)).await?
             .map_err(|e| format!("Failed to get API key from Keeper: {}", e))?
     } else {
         Zeroizing::new(request.api_key.clone())
@@ -1544,9 +1546,12 @@ pub async fn analyze_jira_ticket(
     );
 
     // Resolve API key - prefer Keeper if configured
+    // NOTE: Keeper SDK uses reqwest::blocking internally, so it must run off the
+    // tokio runtime to avoid "Cannot drop a runtime" panics.
     let api_key: Zeroizing<String> = if let Some(ref keeper_uid) = request.keeper_secret_uid {
         log::info!("Fetching API key from Keeper for JIRA ticket analysis");
-        keeper_service::get_api_key_from_keeper(keeper_uid)
+        let uid = keeper_uid.clone();
+        run_keeper_off_runtime(move || keeper_service::get_api_key_from_keeper(&uid)).await?
             .map_err(|e| format!("Failed to get API key from Keeper: {}", e))?
     } else {
         Zeroizing::new(request.api_key.clone())
@@ -3219,15 +3224,34 @@ pub async fn save_pasted_log(content: String) -> Result<String, String> {
 // Keeper Secrets Manager Commands
 // ============================================================================
 
+/// Run a closure on a dedicated OS thread outside the tokio runtime.
+/// The Keeper SDK uses `reqwest::blocking` which creates its own tokio runtime,
+/// conflicting with Tauri's runtime if called from `spawn_blocking`.
+async fn run_keeper_off_runtime<F, T>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let result = f();
+        let _ = tx.send(result);
+    });
+    rx.await.map_err(|_| "Keeper task was cancelled".to_string())
+}
+
 /// Initialize Keeper with a one-time access token
 /// This binds the token to this device and enables secure API key retrieval
 #[tauri::command]
-pub async fn initialize_keeper(token: String) -> Result<keeper_service::KeeperInitResult, String> {
+pub async fn initialize_keeper(
+    token: String,
+    hostname: Option<String>,
+) -> Result<keeper_service::KeeperInitResult, String> {
     log::info!("Initializing Keeper connection");
-    // Keeper SDK may perform blocking I/O - run in blocking thread pool
-    tauri::async_runtime::spawn_blocking(move || keeper_service::initialize_keeper(&token))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
+    run_keeper_off_runtime(move || {
+        keeper_service::initialize_keeper(&token, hostname.as_deref())
+    })
+    .await?
 }
 
 /// List available secrets from Keeper (metadata only, not values)
@@ -3235,37 +3259,28 @@ pub async fn initialize_keeper(token: String) -> Result<keeper_service::KeeperIn
 #[tauri::command]
 pub async fn list_keeper_secrets() -> Result<keeper_service::KeeperSecretsListResult, String> {
     log::debug!("Listing Keeper secrets");
-    // Keeper SDK may perform blocking I/O - run in blocking thread pool
-    tauri::async_runtime::spawn_blocking(keeper_service::list_keeper_secrets)
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
+    run_keeper_off_runtime(keeper_service::list_keeper_secrets).await?
 }
 
 /// Get Keeper connection status
 #[tauri::command]
 pub async fn get_keeper_status() -> Result<keeper_service::KeeperStatus, String> {
     log::debug!("Getting Keeper status");
-    Ok(keeper_service::get_keeper_status())
+    run_keeper_off_runtime(|| Ok(keeper_service::get_keeper_status())).await?
 }
 
 /// Clear Keeper configuration (disconnect)
 #[tauri::command]
 pub async fn clear_keeper_config() -> Result<(), String> {
     log::info!("Clearing Keeper configuration");
-    // Keeper SDK may perform blocking I/O - run in blocking thread pool
-    tauri::async_runtime::spawn_blocking(keeper_service::clear_keeper_config)
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
+    keeper_service::clear_keeper_config()
 }
 
 /// Test Keeper connection by attempting to list secrets
 #[tauri::command]
 pub async fn test_keeper_connection() -> Result<keeper_service::KeeperSecretsListResult, String> {
     log::info!("Testing Keeper connection");
-    // Keeper SDK may perform blocking I/O - run in blocking thread pool
-    tauri::async_runtime::spawn_blocking(keeper_service::list_keeper_secrets)
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
+    run_keeper_off_runtime(keeper_service::list_keeper_secrets).await?
 }
 
 // ============================================================================
@@ -3322,6 +3337,19 @@ pub async fn search_jira_issues(
     log::info!("Searching JIRA issues with JQL");
     jira_service::search_jira_issues(base_url, email, api_token, jql, max_results, include_comments)
         .await
+}
+
+/// Post a comment to a JIRA issue
+#[tauri::command]
+pub async fn post_jira_comment(
+    base_url: String,
+    email: String,
+    api_token: String,
+    issue_key: String,
+    comment_body: String,
+) -> Result<(), String> {
+    log::info!("Posting comment to JIRA issue {}", issue_key);
+    jira_service::post_jira_comment(&base_url, &email, &api_token, &issue_key, &comment_body).await
 }
 
 // ============================================================================
@@ -3868,7 +3896,10 @@ pub fn generate_report(
     // Determine format
     let format = match request.format.to_lowercase().as_str() {
         "html" => ExportFormat::Html,
+        "html_interactive" => ExportFormat::HtmlInteractive,
         "json" => ExportFormat::Json,
+        "txt" | "text" => ExportFormat::Txt,
+        "xlsx" | "excel" => ExportFormat::Xlsx,
         _ => ExportFormat::Markdown,
     };
 
@@ -3878,8 +3909,11 @@ pub fn generate_report(
     // Determine file extension
     let extension = match format {
         ExportFormat::Html => "html",
+        ExportFormat::HtmlInteractive => "html",
         ExportFormat::Json => "json",
         ExportFormat::Markdown => "md",
+        ExportFormat::Txt => "txt",
+        ExportFormat::Xlsx => "xlsx",
     };
 
     // Create suggested filename
@@ -3914,10 +3948,28 @@ pub fn get_export_formats() -> Vec<serde_json::Value> {
             "description": "Styled web page, can be opened in any browser"
         }),
         serde_json::json!({
+            "id": "html_interactive",
+            "name": "Interactive HTML",
+            "extension": "html",
+            "description": "Interactive report with tabbed navigation"
+        }),
+        serde_json::json!({
             "id": "json",
             "name": "JSON",
             "extension": "json",
             "description": "Structured data, ideal for integrations"
+        }),
+        serde_json::json!({
+            "id": "txt",
+            "name": "Plain Text",
+            "extension": "txt",
+            "description": "Simple text format, no formatting"
+        }),
+        serde_json::json!({
+            "id": "xlsx",
+            "name": "Excel (XLSX)",
+            "extension": "xlsx",
+            "description": "Multi-sheet spreadsheet with tabbed sections"
         }),
     ]
 }
@@ -4306,8 +4358,11 @@ pub fn generate_report_multi(
         .iter()
         .filter_map(|f| match f.to_lowercase().as_str() {
             "html" => Some(ExportFormat::Html),
+            "html_interactive" => Some(ExportFormat::HtmlInteractive),
             "json" => Some(ExportFormat::Json),
             "markdown" | "md" => Some(ExportFormat::Markdown),
+            "txt" | "text" => Some(ExportFormat::Txt),
+            "xlsx" | "excel" => Some(ExportFormat::Xlsx),
             _ => None,
         })
         .collect();
@@ -4327,8 +4382,11 @@ pub fn generate_report_multi(
         .map(|(format, content)| {
             let (extension, format_str) = match format {
                 ExportFormat::Html => ("html", "html"),
+                ExportFormat::HtmlInteractive => ("html", "html_interactive"),
                 ExportFormat::Json => ("json", "json"),
                 ExportFormat::Markdown => ("md", "markdown"),
+                ExportFormat::Txt => ("txt", "txt"),
+                ExportFormat::Xlsx => ("xlsx", "xlsx"),
             };
 
             ExportResponse {

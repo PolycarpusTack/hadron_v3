@@ -389,6 +389,95 @@ impl Database {
         })
     }
 
+    /// Full-text search with weighted BM25 and optional date/type/severity filters.
+    ///
+    /// BM25 column weights: error_type=10, error_message=5, root_cause=8,
+    /// suggested_fixes=3, component=7, stack_trace=2.
+    pub fn search_analyses_filtered(
+        &self,
+        query: &str,
+        severity: Option<&str>,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        analysis_types: Option<&[String]>,
+        limit: usize,
+    ) -> Result<Vec<Analysis>> {
+        let conn = self.lock_conn();
+
+        // Build a query with optional filters.
+        // We use weighted BM25 for ranking: bm25(table, w1..w6)
+        // Columns: error_type=10, error_message=5, root_cause=8,
+        //          suggested_fixes=3, component=7, stack_trace=2
+        let mut sql = String::from(
+            "SELECT a.id, a.filename, a.file_size_kb, a.error_type, a.error_message, a.severity, a.component, a.stack_trace,
+                    a.root_cause, a.suggested_fixes, a.confidence, a.analyzed_at, a.ai_model, a.ai_provider,
+                    a.tokens_used, a.cost, a.was_truncated, a.full_data, a.is_favorite, a.last_viewed_at,
+                    a.view_count, a.analysis_duration_ms, a.analysis_type,
+                    bm25(analyses_fts, 10.0, 5.0, 8.0, 3.0, 7.0, 2.0) as rank
+             FROM analyses a
+             JOIN analyses_fts ON a.id = analyses_fts.rowid
+             WHERE analyses_fts MATCH ?1
+             AND a.deleted_at IS NULL",
+        );
+
+        // Append optional filters as static SQL conditions
+        if severity.is_some() {
+            sql.push_str(" AND a.severity = ?2");
+        }
+        if date_from.is_some() {
+            sql.push_str(&format!(
+                " AND a.analyzed_at >= ?{}",
+                if severity.is_some() { 3 } else { 2 }
+            ));
+        }
+        if date_to.is_some() {
+            let idx = 2 + severity.is_some() as usize + date_from.is_some() as usize;
+            sql.push_str(&format!(" AND a.analyzed_at <= ?{}", idx));
+        }
+
+        sql.push_str(" ORDER BY rank LIMIT ?");
+        let limit_idx =
+            2 + severity.is_some() as usize + date_from.is_some() as usize + date_to.is_some() as usize;
+        sql.push_str(&limit_idx.to_string());
+
+        let mut stmt = conn.prepare(&sql)?;
+
+        // Build dynamic parameter list
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        params_vec.push(Box::new(query.to_string()));
+        if let Some(sev) = severity {
+            params_vec.push(Box::new(sev.to_string()));
+        }
+        if let Some(df) = date_from {
+            params_vec.push(Box::new(df.to_string()));
+        }
+        if let Some(dt) = date_to {
+            params_vec.push(Box::new(dt.to_string()));
+        }
+        params_vec.push(Box::new(limit as i64));
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut analyses: Vec<Analysis> = stmt
+            .query_map(param_refs.as_slice(), Self::map_row_to_analysis)?
+            .collect::<Result<Vec<_>>>()?;
+
+        // Post-filter by analysis_types (error_type) if specified.
+        // Done in Rust because FTS5 MATCH doesn't support enum-style filtering.
+        if let Some(types) = analysis_types {
+            if !types.is_empty() {
+                let types_lower: Vec<String> = types.iter().map(|t| t.to_lowercase()).collect();
+                analyses.retain(|a| {
+                    let et = a.error_type.to_lowercase();
+                    types_lower.iter().any(|t| et.contains(t))
+                });
+            }
+        }
+
+        Ok(analyses)
+    }
+
     // Toggle favorite status
     pub fn toggle_favorite(&self, id: i64) -> Result<bool> {
         let conn = self.lock_conn();
@@ -2747,16 +2836,28 @@ impl Database {
         tools_used: Option<&str>,
         sources_cited: Option<&str>,
         query: Option<&str>,
+        reason: Option<&str>,
     ) -> Result<()> {
         let conn = self.lock_conn();
         conn.execute(
-            "INSERT INTO chat_feedback (session_id, message_id, rating, comment, tools_used, sources_cited, query)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO chat_feedback (session_id, message_id, rating, comment, tools_used, sources_cited, query, reason)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(session_id, message_id) DO UPDATE SET
                 rating = excluded.rating,
                 comment = excluded.comment,
+                reason = excluded.reason,
                 created_at = datetime('now')",
-            rusqlite::params![session_id, message_id, rating, comment, tools_used, sources_cited, query],
+            rusqlite::params![session_id, message_id, rating, comment, tools_used, sources_cited, query, reason],
+        )?;
+        Ok(())
+    }
+
+    /// Delete chat feedback for a specific message (unrate)
+    pub fn delete_chat_feedback(&self, session_id: &str, message_id: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "DELETE FROM chat_feedback WHERE session_id = ?1 AND message_id = ?2",
+            rusqlite::params![session_id, message_id],
         )?;
         Ok(())
     }
@@ -2766,7 +2867,7 @@ impl Database {
     pub fn get_positive_feedback(&self, limit: usize) -> Result<Vec<ChatFeedbackEntry>> {
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, message_id, rating, comment, tools_used, sources_cited, query, created_at
+            "SELECT id, session_id, message_id, rating, comment, tools_used, sources_cited, query, reason, created_at
              FROM chat_feedback WHERE rating = 'positive' ORDER BY created_at DESC LIMIT ?1",
         )?;
         let entries = stmt
@@ -2780,7 +2881,8 @@ impl Database {
                     tools_used: row.get(5)?,
                     sources_cited: row.get(6)?,
                     query: row.get(7)?,
-                    created_at: row.get(8)?,
+                    reason: row.get(8)?,
+                    created_at: row.get(9)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -2912,7 +3014,8 @@ impl Database {
     pub fn get_chat_sessions(&self) -> Result<Vec<ChatSessionRecord>> {
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, created_at, updated_at FROM chat_sessions ORDER BY updated_at DESC LIMIT 50",
+            "SELECT id, title, created_at, updated_at, is_starred, tags, customer, won_version
+             FROM chat_sessions ORDER BY updated_at DESC LIMIT 50",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(ChatSessionRecord {
@@ -2920,6 +3023,10 @@ impl Database {
                 title: row.get(1)?,
                 created_at: row.get(2)?,
                 updated_at: row.get(3)?,
+                is_starred: row.get(4)?,
+                tags: row.get(5)?,
+                customer: row.get(6)?,
+                won_version: row.get(7)?,
             })
         })?;
         rows.collect()
@@ -2970,6 +3077,10 @@ pub struct ChatSessionRecord {
     pub title: String,
     pub created_at: i64,
     pub updated_at: i64,
+    pub is_starred: bool,
+    pub tags: Option<String>,
+    pub customer: Option<String>,
+    pub won_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3021,7 +3132,49 @@ pub struct ChatFeedbackEntry {
     pub tools_used: Option<String>,
     pub sources_cited: Option<String>,
     pub query: Option<String>,
+    pub reason: Option<String>,
     pub created_at: String,
+}
+
+// ============================================================================
+// Gold Answers Types
+// ============================================================================
+
+/// A curated gold-standard Q&A pair saved from chat sessions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoldAnswer {
+    pub id: i64,
+    pub question: String,
+    pub answer: String,
+    pub session_id: String,
+    pub message_id: String,
+    pub won_version: Option<String>,
+    pub customer: Option<String>,
+    pub tags: Option<String>,
+    pub verified_by: Option<String>,
+    pub tool_results_json: Option<String>,
+    pub created_at: String,
+}
+
+// ============================================================================
+// Session Summary Types
+// ============================================================================
+
+/// AI-generated summary of a chat session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSummary {
+    pub id: i64,
+    pub session_id: String,
+    pub summary_markdown: String,
+    pub topic: Option<String>,
+    pub won_version: Option<String>,
+    pub customer: Option<String>,
+    pub is_indexed: bool,
+    pub is_exported: bool,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 // ============================================================================
@@ -3240,6 +3393,17 @@ impl Database {
         Ok(())
     }
 
+    /// Update content without marking as manual edit (for AI-driven appends/updates)
+    pub fn update_release_notes_content_auto(&self, id: i64, content: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE release_notes SET markdown_content = ?1,
+                    updated_at = datetime('now') WHERE id = ?2 AND deleted_at IS NULL",
+            params![content, id],
+        )?;
+        Ok(())
+    }
+
     pub fn update_release_notes_status(
         &self,
         id: i64,
@@ -3279,6 +3443,352 @@ impl Database {
             "UPDATE release_notes SET deleted_at = datetime('now')
              WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
+        )?;
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Ask Hadron 2.0 CRUD (Gold Answers, Session Summaries, Chat Session Extensions)
+// ============================================================================
+
+impl Database {
+    // ========================================================================
+    // Gold Answers CRUD
+    // ========================================================================
+
+    pub fn save_gold_answer(
+        &self,
+        question: &str,
+        answer: &str,
+        session_id: &str,
+        message_id: &str,
+        won_version: Option<&str>,
+        customer: Option<&str>,
+        tags: Option<&str>,
+        verified_by: Option<&str>,
+        tool_results_json: Option<&str>,
+    ) -> Result<i64> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "INSERT INTO gold_answers (question, answer, session_id, message_id, won_version, customer, tags, verified_by, tool_results_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![question, answer, session_id, message_id, won_version, customer, tags, verified_by, tool_results_json],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn list_gold_answers(
+        &self,
+        limit: i64,
+        offset: i64,
+        customer_filter: Option<&str>,
+        tag_filter: Option<&str>,
+    ) -> Result<Vec<GoldAnswer>> {
+        let conn = self.lock_conn();
+
+        let mut sql = String::from(
+            "SELECT id, question, answer, session_id, message_id, won_version, customer, tags, verified_by, tool_results_json, created_at
+             FROM gold_answers WHERE 1=1",
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(customer) = customer_filter {
+            sql.push_str(&format!(" AND customer LIKE ?{}", param_values.len() + 1));
+            param_values.push(Box::new(format!("%{}%", customer)));
+        }
+        if let Some(tag) = tag_filter {
+            sql.push_str(&format!(" AND tags LIKE ?{}", param_values.len() + 1));
+            param_values.push(Box::new(format!("%{}%", tag)));
+        }
+
+        sql.push_str(&format!(
+            " ORDER BY created_at DESC LIMIT ?{} OFFSET ?{}",
+            param_values.len() + 1,
+            param_values.len() + 2
+        ));
+        param_values.push(Box::new(limit));
+        param_values.push(Box::new(offset));
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_ref.as_slice(), |row| {
+            Ok(GoldAnswer {
+                id: row.get(0)?,
+                question: row.get(1)?,
+                answer: row.get(2)?,
+                session_id: row.get(3)?,
+                message_id: row.get(4)?,
+                won_version: row.get(5)?,
+                customer: row.get(6)?,
+                tags: row.get(7)?,
+                verified_by: row.get(8)?,
+                tool_results_json: row.get(9)?,
+                created_at: row.get(10)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn search_gold_answers(&self, query: &str, limit: i64) -> Result<Vec<GoldAnswer>> {
+        let conn = self.lock_conn();
+        let pattern = format!("%{}%", query);
+        let mut stmt = conn.prepare(
+            "SELECT id, question, answer, session_id, message_id, won_version, customer, tags, verified_by, tool_results_json, created_at
+             FROM gold_answers
+             WHERE question LIKE ?1 OR answer LIKE ?1
+             ORDER BY created_at DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![pattern, limit], |row| {
+            Ok(GoldAnswer {
+                id: row.get(0)?,
+                question: row.get(1)?,
+                answer: row.get(2)?,
+                session_id: row.get(3)?,
+                message_id: row.get(4)?,
+                won_version: row.get(5)?,
+                customer: row.get(6)?,
+                tags: row.get(7)?,
+                verified_by: row.get(8)?,
+                tool_results_json: row.get(9)?,
+                created_at: row.get(10)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn delete_gold_answer(&self, id: i64) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute("DELETE FROM gold_answers WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn count_gold_answers(&self) -> Result<i64> {
+        let conn = self.lock_conn();
+        conn.query_row("SELECT COUNT(*) FROM gold_answers", [], |row| row.get(0))
+    }
+
+    pub fn get_gold_answers_for_export(
+        &self,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        customer: Option<&str>,
+        tags: Option<&str>,
+    ) -> Result<Vec<GoldAnswer>> {
+        let conn = self.lock_conn();
+
+        let mut sql = String::from(
+            "SELECT id, question, answer, session_id, message_id, won_version, customer, tags, verified_by, tool_results_json, created_at
+             FROM gold_answers WHERE 1=1",
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(from) = date_from {
+            sql.push_str(&format!(" AND created_at >= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(from.to_string()));
+        }
+        if let Some(to) = date_to {
+            sql.push_str(&format!(" AND created_at <= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(to.to_string()));
+        }
+        if let Some(c) = customer {
+            sql.push_str(&format!(" AND customer LIKE ?{}", param_values.len() + 1));
+            param_values.push(Box::new(format!("%{}%", c)));
+        }
+        if let Some(t) = tags {
+            sql.push_str(&format!(" AND tags LIKE ?{}", param_values.len() + 1));
+            param_values.push(Box::new(format!("%{}%", t)));
+        }
+
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_ref.as_slice(), |row| {
+            Ok(GoldAnswer {
+                id: row.get(0)?,
+                question: row.get(1)?,
+                answer: row.get(2)?,
+                session_id: row.get(3)?,
+                message_id: row.get(4)?,
+                won_version: row.get(5)?,
+                customer: row.get(6)?,
+                tags: row.get(7)?,
+                verified_by: row.get(8)?,
+                tool_results_json: row.get(9)?,
+                created_at: row.get(10)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    // ========================================================================
+    // Session Summaries CRUD
+    // ========================================================================
+
+    pub fn save_session_summary(
+        &self,
+        session_id: &str,
+        summary_markdown: &str,
+        topic: Option<&str>,
+        won_version: Option<&str>,
+        customer: Option<&str>,
+    ) -> Result<i64> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "INSERT INTO session_summaries (session_id, summary_markdown, topic, won_version, customer)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(session_id) DO UPDATE SET
+                summary_markdown = excluded.summary_markdown,
+                topic = excluded.topic,
+                won_version = excluded.won_version,
+                customer = excluded.customer,
+                updated_at = datetime('now')",
+            params![session_id, summary_markdown, topic, won_version, customer],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn get_session_summary(&self, session_id: &str) -> Result<Option<SessionSummary>> {
+        let conn = self.lock_conn();
+        conn.query_row(
+            "SELECT id, session_id, summary_markdown, topic, won_version, customer, is_indexed, is_exported, created_at, updated_at
+             FROM session_summaries WHERE session_id = ?1",
+            params![session_id],
+            |row| {
+                Ok(SessionSummary {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    summary_markdown: row.get(2)?,
+                    topic: row.get(3)?,
+                    won_version: row.get(4)?,
+                    customer: row.get(5)?,
+                    is_indexed: row.get(6)?,
+                    is_exported: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
+                })
+            },
+        )
+        .optional()
+    }
+
+    pub fn update_session_summary(
+        &self,
+        session_id: &str,
+        summary_markdown: &str,
+        topic: &str,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE session_summaries SET summary_markdown = ?1, topic = ?2, updated_at = datetime('now')
+             WHERE session_id = ?3",
+            params![summary_markdown, topic, session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_summary_exported(&self, session_id: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE session_summaries SET is_exported = 1, updated_at = datetime('now')
+             WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_summaries_for_export(
+        &self,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        customer: Option<&str>,
+        unexported_only: bool,
+    ) -> Result<Vec<SessionSummary>> {
+        let conn = self.lock_conn();
+
+        let mut sql = String::from(
+            "SELECT id, session_id, summary_markdown, topic, won_version, customer, is_indexed, is_exported, created_at, updated_at
+             FROM session_summaries WHERE 1=1",
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if unexported_only {
+            sql.push_str(" AND is_exported = 0");
+        }
+        if let Some(from) = date_from {
+            sql.push_str(&format!(" AND created_at >= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(from.to_string()));
+        }
+        if let Some(to) = date_to {
+            sql.push_str(&format!(" AND created_at <= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(to.to_string()));
+        }
+        if let Some(c) = customer {
+            sql.push_str(&format!(" AND customer LIKE ?{}", param_values.len() + 1));
+            param_values.push(Box::new(format!("%{}%", c)));
+        }
+
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_ref.as_slice(), |row| {
+            Ok(SessionSummary {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                summary_markdown: row.get(2)?,
+                topic: row.get(3)?,
+                won_version: row.get(4)?,
+                customer: row.get(5)?,
+                is_indexed: row.get(6)?,
+                is_exported: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    // ========================================================================
+    // Chat Session Extensions (star, tag, metadata)
+    // ========================================================================
+
+    pub fn star_chat_session(&self, session_id: &str, starred: bool) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE chat_sessions SET is_starred = ?1, updated_at = ?2 WHERE id = ?3",
+            params![starred, chrono::Utc::now().timestamp_millis(), session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn tag_chat_session(&self, session_id: &str, tags: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE chat_sessions SET tags = ?1, updated_at = ?2 WHERE id = ?3",
+            params![tags, chrono::Utc::now().timestamp_millis(), session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_chat_session_metadata(
+        &self,
+        session_id: &str,
+        customer: Option<&str>,
+        won_version: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE chat_sessions SET customer = ?1, won_version = ?2, updated_at = ?3 WHERE id = ?4",
+            params![customer, won_version, chrono::Utc::now().timestamp_millis(), session_id],
         )?;
         Ok(())
     }
