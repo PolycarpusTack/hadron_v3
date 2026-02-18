@@ -6,7 +6,7 @@
 use rusqlite::{Connection, Result};
 
 /// Current schema version. Increment when adding new migrations.
-pub const CURRENT_SCHEMA_VERSION: i32 = 10;
+pub const CURRENT_SCHEMA_VERSION: i32 = 12;
 
 /// Migration function type
 type MigrationFn = fn(&Connection) -> Result<()>;
@@ -69,6 +69,16 @@ const MIGRATIONS: &[Migration] = &[
         version: 10,
         name: "release_notes",
         up: migration_010_release_notes,
+    },
+    Migration {
+        version: 11,
+        name: "feedback_reason",
+        up: migration_011_feedback_reason,
+    },
+    Migration {
+        version: 12,
+        name: "ask_hadron_2",
+        up: migration_012_ask_hadron_2,
     },
 ];
 
@@ -958,6 +968,100 @@ fn migration_010_release_notes(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Migration 11: Add reason column to chat_feedback
+/// Structured negative feedback with reason taxonomy
+fn migration_011_feedback_reason(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "ALTER TABLE chat_feedback ADD COLUMN reason TEXT",
+        [],
+    )?;
+    Ok(())
+}
+
+/// Migration 12: Ask Hadron 2.0 Foundation
+/// Adds gold_answers, session_summaries tables, and extends chat_sessions
+fn migration_012_ask_hadron_2(conn: &Connection) -> Result<()> {
+    // ========================================================================
+    // Gold Answers Table
+    // ========================================================================
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS gold_answers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            won_version TEXT,
+            customer TEXT,
+            tags TEXT,
+            verified_by TEXT,
+            tool_results_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gold_answers_tags ON gold_answers(tags)",
+        [],
+    )?;
+
+    // ========================================================================
+    // Session Summaries Table
+    // ========================================================================
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS session_summaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL UNIQUE,
+            summary_markdown TEXT NOT NULL,
+            topic TEXT,
+            won_version TEXT,
+            customer TEXT,
+            is_indexed INTEGER NOT NULL DEFAULT 0,
+            is_exported INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        [],
+    )?;
+
+    // ========================================================================
+    // Extend chat_sessions with metadata columns
+    // ========================================================================
+    let columns = [
+        ("is_starred", "INTEGER NOT NULL DEFAULT 0"),
+        ("tags", "TEXT"),
+        ("customer", "TEXT"),
+        ("won_version", "TEXT"),
+    ];
+
+    for (col_name, col_def) in &columns {
+        let has_col: bool = conn
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM pragma_table_info('chat_sessions') WHERE name='{}'",
+                    col_name
+                ),
+                [],
+                |row| row.get::<_, i32>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+
+        if !has_col {
+            conn.execute(
+                &format!(
+                    "ALTER TABLE chat_sessions ADD COLUMN {} {}",
+                    col_name, col_def
+                ),
+                [],
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -991,11 +1095,11 @@ mod tests {
         let version = get_current_version(&conn).unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
-        // Verify only 10 migration records exist
+        // Verify only 12 migration records exist
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 10);
+        assert_eq!(count, 12);
     }
 
     #[test]
