@@ -100,6 +100,8 @@ export async function sendChatMessage(
     dateFrom?: string;
     dateTo?: string;
     analysisTypes?: string[];
+    // Verbosity control (Phase 5)
+    verbosity?: "concise" | "detailed" | null;
   } = {}
 ): Promise<ChatResponse> {
   const provider = getStoredProvider();

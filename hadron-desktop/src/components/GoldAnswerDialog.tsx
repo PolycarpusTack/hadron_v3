@@ -17,6 +17,7 @@ import { saveGoldAnswer, listGoldAnswers, type SaveGoldAnswerParams } from "../s
 interface GoldAnswerDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onSaved?: () => void;
   question: string;
   answer: string;
   sessionId: string;
@@ -32,6 +33,7 @@ interface GoldAnswerDialogProps {
 export default function GoldAnswerDialog({
   isOpen,
   onClose,
+  onSaved,
   question,
   answer,
   sessionId,
@@ -148,6 +150,7 @@ export default function GoldAnswerDialog({
         verifiedBy: verifiedBy.trim() || undefined,
       };
       await saveGoldAnswer(params);
+      onSaved?.();
       onClose();
     } catch (e) {
       setError(String(e));
