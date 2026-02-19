@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-shell";
+import Button from "./ui/Button";
 import {
   Settings,
   Check,
@@ -306,15 +307,16 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
                 Projects cached: {projects.length}
                 {projectsUpdatedAt ? ` • Updated ${new Date(projectsUpdatedAt).toLocaleString()}` : ""}
               </span>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="xs"
                 onClick={handleRefreshProjects}
                 disabled={projectsLoading}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-600 hover:border-gray-500 text-gray-300 hover:text-white transition disabled:opacity-50"
+                loading={projectsLoading}
+                icon={projectsLoading ? undefined : <RefreshCw />}
               >
-                <RefreshCw className={`w-3 h-3 ${projectsLoading ? "animate-spin" : ""}`} />
                 Refresh
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -367,12 +369,12 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
                 </button>
               </div>
               {hasToken && (
-                <button
+                <Button
+                  variant="ghost-danger"
                   onClick={handleClearToken}
-                  className="px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition text-sm"
                 >
                   Clear
-                </button>
+                </Button>
               )}
             </div>
             <p className="text-xs text-gray-500 mt-1">
@@ -452,23 +454,15 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
           </div>
 
           {/* Test Connection */}
-          <button
+          <Button
             onClick={handleTestConnection}
             disabled={isTesting || !config.baseUrl || !config.projectKey || !config.email || (!apiToken && !hasToken)}
-            className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2 text-sm"
+            fullWidth
+            loading={isTesting}
+            icon={isTesting ? undefined : <Settings />}
           >
-            {isTesting ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Testing Connection...
-              </>
-            ) : (
-              <>
-                <Settings className="w-4 h-4" />
-                Test Connection
-              </>
-            )}
-          </button>
+            {isTesting ? "Testing Connection..." : "Test Connection"}
+          </Button>
 
           {testResult && (
             <div
@@ -490,23 +484,16 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
           )}
 
           {/* Save Button */}
-          <button
+          <Button
+            variant="success"
             onClick={handleSave}
             disabled={isSaving}
-            className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2 text-sm font-semibold"
+            fullWidth
+            loading={isSaving}
+            icon={isSaving ? undefined : <Check />}
           >
-            {isSaving ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Check className="w-4 h-4" />
-                Save JIRA Settings
-              </>
-            )}
-          </button>
+            {isSaving ? "Saving..." : "Save JIRA Settings"}
+          </Button>
 
           {saveMessage && (
             <div

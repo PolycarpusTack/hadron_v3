@@ -1,4 +1,5 @@
 import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge, Link2, ExternalLink, Shield } from "lucide-react";
+import Button from "./ui/Button";
 import { useState, useEffect, useRef } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import { format } from "date-fns";
@@ -127,66 +128,61 @@ ${analysis.suggested_fixes}
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 px-4 py-2 hover:bg-gray-700 rounded-lg transition"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          Back to History
-        </button>
+        <nav className="flex items-center gap-1.5 text-sm">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white transition"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            History
+          </button>
+          <span className="text-gray-600">/</span>
+          <span className="text-gray-400 truncate max-w-xs">{analysis.filename}</span>
+        </nav>
 
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            variant="secondary"
             onClick={handleCopyToClipboard}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+            icon={copied ? <Check className="text-green-400" /> : <Copy />}
           >
-            {copied ? (
-              <>
-                <Check className="w-4 h-4 text-green-400" />
-                Copied!
-              </>
-            ) : (
-              <>
-                <Copy className="w-4 h-4" />
-                Copy Report
-              </>
-            )}
-          </button>
-          <button
+            {copied ? "Copied!" : "Copy Report"}
+          </Button>
+          <Button
+            variant="secondary"
             onClick={handleExportMarkdown}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+            icon={<Download />}
             title="Quick export to Markdown"
           >
-            <Download className="w-4 h-4" />
             Quick Export
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             onClick={() => setShowExportDialog(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+            icon={<Settings2 />}
             title="Advanced export options"
           >
-            <Settings2 className="w-4 h-4" />
             Export Options
-          </button>
+          </Button>
           {jiraEnabled && (
-            <button
+            <Button
+              variant="success"
               onClick={() => setShowJiraModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition"
+              icon={<Ticket />}
               title="Create JIRA ticket from this analysis"
             >
-              <Ticket className="w-4 h-4" />
               Create JIRA Ticket
-            </button>
+            </Button>
           )}
           {sentryData?.permalink && (
-            <button
+            <Button
+              variant="warning"
               onClick={() => open(sentryData.permalink!)}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg transition"
+              icon={<ExternalLink />}
               title="View this issue in Sentry"
             >
-              <ExternalLink className="w-4 h-4" />
               View in Sentry
-            </button>
+            </Button>
           )}
         </div>
       </div>

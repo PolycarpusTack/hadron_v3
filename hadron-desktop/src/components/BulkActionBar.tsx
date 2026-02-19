@@ -4,6 +4,7 @@
 
 import { memo, useState, useCallback } from "react";
 import { Trash2, Star, Tag, X, Check, Download } from "lucide-react";
+import Button from "./ui/Button";
 import type { Tag as TagType } from "../types";
 import { TagBadge } from "./TagBadge";
 
@@ -99,45 +100,41 @@ export const BulkActionBar = memo(function BulkActionBar({
         {/* Actions */}
         <div className="flex items-center gap-1">
           {/* Favorite */}
-          <button
+          <Button
+            variant="ghost"
             onClick={() => onFavorite(true)}
             disabled={isProcessing}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg
-                     text-gray-300 hover:bg-gray-700 hover:text-yellow-400
-                     transition-colors disabled:opacity-50"
+            icon={<Star />}
+            className="hover:text-yellow-400"
             title="Add to favorites"
           >
-            <Star className="w-4 h-4" />
-            <span className="text-sm">Favorite</span>
-          </button>
+            Favorite
+          </Button>
 
           {/* Unfavorite */}
-          <button
+          <Button
+            variant="ghost"
             onClick={() => onFavorite(false)}
             disabled={isProcessing}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg
-                     text-gray-300 hover:bg-gray-700
-                     transition-colors disabled:opacity-50"
+            icon={<Star />}
             title="Remove from favorites"
           >
-            <Star className="w-4 h-4" />
-            <span className="text-sm">Unfavorite</span>
-          </button>
+            Unfavorite
+          </Button>
 
           {/* Add Tag (only for analyses) */}
           {canTag && (
             <div className="relative">
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => openTagMenu("add")}
                 disabled={isProcessing}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg
-                         text-gray-300 hover:bg-gray-700 hover:text-green-400
-                         transition-colors disabled:opacity-50"
+                icon={<Tag />}
+                className="hover:text-green-400"
                 title="Add tag"
               >
-                <Tag className="w-4 h-4" />
-                <span className="text-sm">Add Tag</span>
-              </button>
+                Add Tag
+              </Button>
 
               {/* Tag Menu */}
               {showTagMenu && tagMenuMode === "add" && (
@@ -173,17 +170,15 @@ export const BulkActionBar = memo(function BulkActionBar({
           {/* Remove Tag (only for analyses) */}
           {canTag && (
             <div className="relative">
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => openTagMenu("remove")}
                 disabled={isProcessing}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg
-                         text-gray-300 hover:bg-gray-700
-                         transition-colors disabled:opacity-50"
+                icon={<Tag />}
                 title="Remove tag"
               >
-                <Tag className="w-4 h-4" />
-                <span className="text-sm">Remove Tag</span>
-              </button>
+                Remove Tag
+              </Button>
 
               {/* Tag Menu */}
               {showTagMenu && tagMenuMode === "remove" && (
@@ -218,50 +213,46 @@ export const BulkActionBar = memo(function BulkActionBar({
 
           {/* Export */}
           {onExport && (
-            <button
+            <Button
+              variant="ghost"
               onClick={onExport}
               disabled={isProcessing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg
-                       text-gray-300 hover:bg-gray-700 hover:text-blue-400
-                       transition-colors disabled:opacity-50"
+              icon={<Download />}
+              className="hover:text-blue-400"
               title="Export to CSV (Ctrl+E)"
             >
-              <Download className="w-4 h-4" />
-              <span className="text-sm">Export</span>
-            </button>
+              Export
+            </Button>
           )}
 
           {/* Separator */}
           <div className="w-px h-8 bg-gray-700 mx-1" />
 
           {/* Delete */}
-          <button
+          <Button
+            variant="ghost-danger"
             onClick={onDelete}
             disabled={isProcessing}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg
-                     text-gray-300 hover:bg-red-600/20 hover:text-red-400
-                     transition-colors disabled:opacity-50"
+            icon={<Trash2 />}
             title="Delete selected (Delete key)"
           >
-            <Trash2 className="w-4 h-4" />
-            <span className="text-sm">Delete</span>
-          </button>
+            Delete
+          </Button>
 
           {/* Separator */}
           <div className="w-px h-8 bg-gray-700 mx-1" />
 
           {/* Clear Selection */}
-          <button
+          <Button
+            variant="ghost"
             onClick={onClearSelection}
             disabled={isProcessing}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg
-                     text-gray-400 hover:bg-gray-700 hover:text-white
-                     transition-colors disabled:opacity-50"
+            icon={<X />}
+            className="hover:text-white"
             title="Clear selection"
           >
-            <X className="w-4 h-4" />
-            <span className="text-sm">Cancel</span>
-          </button>
+            Cancel
+          </Button>
         </div>
 
         {/* Processing indicator */}

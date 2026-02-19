@@ -9,7 +9,6 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   X,
-  Loader2,
   Sparkles,
   Save,
   Copy,
@@ -33,6 +32,7 @@ import { getApiKey } from "../services/secure-storage";
 import { getJiraConfig } from "../services/jira";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
+import Button from "./ui/Button";
 
 // ============================================================================
 // Types
@@ -317,23 +317,22 @@ export default function SummaryPanel({
               }}
               autoFocus
             />
-            <button
+            <Button
               onClick={handlePostToJira}
-              disabled={jiraPosting || !jiraIssueKey.trim()}
-              className="px-3 py-1.5 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 transition disabled:opacity-50"
+              disabled={!jiraIssueKey.trim()}
+              loading={jiraPosting}
+              variant="primary"
+              size="sm"
             >
-              {jiraPosting ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                "Post"
-              )}
-            </button>
-            <button
+              Post
+            </Button>
+            <Button
               onClick={() => setShowJiraPrompt(false)}
-              className="px-2 py-1.5 rounded text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition"
+              variant="ghost"
+              size="sm"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         )}
 
@@ -356,76 +355,76 @@ export default function SummaryPanel({
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-gray-700 flex-shrink-0">
           {/* Left: Generate */}
-          <button
+          <Button
             onClick={handleGenerate}
             disabled={isGenerating}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500 transition disabled:opacity-50"
+            loading={isGenerating}
+            icon={<Sparkles className="w-3.5 h-3.5" />}
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-500"
           >
-            {isGenerating ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="w-3.5 h-3.5" />
-            )}
             Generate Summary
-          </button>
+          </Button>
 
           {/* Right: Export + Save */}
           <div className="flex items-center gap-2">
-            <button
+            <Button
               onClick={handleCopyPlainText}
               disabled={!markdown}
               title="Copy Plain Text"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition disabled:opacity-30"
+              variant="ghost"
+              size="xs"
+              icon={copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              className="disabled:opacity-30"
             >
-              {copied ? (
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
               Copy
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => handleExportFile("txt")}
               disabled={!markdown}
               title="Export .txt"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition disabled:opacity-30"
+              variant="ghost"
+              size="xs"
+              icon={<FileText className="w-3.5 h-3.5" />}
+              className="disabled:opacity-30"
             >
-              <FileText className="w-3.5 h-3.5" />
               .txt
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => handleExportFile("md")}
               disabled={!markdown}
               title="Export .md"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition disabled:opacity-30"
+              variant="ghost"
+              size="xs"
+              icon={<FileDown className="w-3.5 h-3.5" />}
+              className="disabled:opacity-30"
             >
-              <FileDown className="w-3.5 h-3.5" />
               .md
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => setShowJiraPrompt(true)}
               disabled={!markdown}
               title="Post to JIRA"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition disabled:opacity-30"
+              variant="ghost"
+              size="xs"
+              icon={<ExternalLink className="w-3.5 h-3.5" />}
+              className="disabled:opacity-30"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
               JIRA
-            </button>
+            </Button>
 
             <div className="w-px h-5 bg-gray-700 mx-1" />
 
-            <button
+            <Button
               onClick={handleSave}
-              disabled={isSaving || !markdown.trim()}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500 transition disabled:opacity-50"
+              disabled={!markdown.trim()}
+              loading={isSaving}
+              icon={<Save className="w-3.5 h-3.5" />}
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-500"
             >
-              {isSaving ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Save className="w-3.5 h-3.5" />
-              )}
               Save
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { Upload, FileText, Loader2, ClipboardPaste, X, Clock, AlertTriangle, AlertCircle, Info, Wrench } from "lucide-react";
+import Button from "./ui/Button";
+import Modal from "./ui/Modal";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import logger from "../services/logger";
@@ -195,22 +197,26 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
                   Click the button below to browse
                 </p>
                 <div className="flex gap-3">
-                  <button
+                  <Button
                     onClick={handleSelectFile}
                     disabled={isAnalyzing}
-                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors flex items-center gap-2"
+                    variant="primary"
+                    size="lg"
+                    icon={<Upload />}
+                    className="font-semibold"
                   >
-                    <Upload className="w-4 h-4" />
                     Choose File
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={() => setShowPasteModal(true)}
                     disabled={isAnalyzing}
-                    className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors flex items-center gap-2"
+                    variant="accent"
+                    size="lg"
+                    icon={<ClipboardPaste />}
+                    className="font-semibold"
                   >
-                    <ClipboardPaste className="w-4 h-4" />
                     Paste Log Text
-                  </button>
+                  </Button>
                 </div>
                 <p className="text-gray-500 text-sm mt-4">
                   Supports .txt and .log files up to 5MB or paste log content directly
@@ -346,9 +352,9 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
               <span className="ml-2 text-gray-400 text-sm">Loading recent analyses...</span>
             </div>
           ) : recentAnalyses.length === 0 ? (
-            <div className="text-center p-4 text-gray-500">
-              <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">No analyses yet. Upload a crash log to get started.</p>
+            <div className="text-center p-8 bg-gray-800/50 rounded-lg border border-gray-700">
+              <FileText className="w-10 h-10 text-gray-500 mx-auto mb-3" />
+              <p className="text-sm text-gray-400">No analyses yet. Upload a crash log to get started.</p>
             </div>
           ) : (
             recentAnalyses.map((analysis) => (
@@ -377,9 +383,8 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
       </div>
 
       {/* Paste Log Modal */}
-      {showPasteModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="paste-modal-title">
-          <div className="bg-gray-800 rounded-lg shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+      <Modal isOpen={showPasteModal} onClose={() => { setShowPasteModal(false); setPastedContent(""); }}>
+          <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-700">
               <div className="flex items-center gap-3">
@@ -418,27 +423,30 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
 
             {/* Footer */}
             <div className="flex justify-end gap-3 p-6 border-t border-gray-700">
-              <button
+              <Button
                 onClick={() => {
                   setShowPasteModal(false);
                   setPastedContent("");
                 }}
-                className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition"
+                variant="secondary"
+                size="lg"
+                className="font-semibold"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handlePasteLog}
                 disabled={!pastedContent.trim() || isAnalyzing}
-                className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition flex items-center gap-2"
+                variant="accent"
+                size="lg"
+                icon={<ClipboardPaste />}
+                className="font-semibold"
               >
-                <ClipboardPaste className="w-4 h-4" />
                 Analyze Pasted Log
-              </button>
+              </Button>
             </div>
           </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

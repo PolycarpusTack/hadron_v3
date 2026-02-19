@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { ArrowRight, Check, X } from 'lucide-react';
+import Button from './ui/Button';
 import { GoldAnalysis } from '../types';
 import logger from '../services/logger';
 
@@ -256,65 +258,41 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
 
                   <div className="flex gap-3 mt-5 pt-4 border-t border-gray-700">
                     {viewMode === "rejected" ? (
-                      <button
+                      <Button
                         onClick={() => handleReopen(analysis.id)}
                         disabled={processing === analysis.id}
-                        className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                        variant="primary"
+                        size="lg"
+                        loading={processing === analysis.id}
+                        icon={<ArrowRight />}
+                        className="flex-1 justify-center font-medium"
                       >
-                        {processing === analysis.id ? (
-                          <span className="flex items-center gap-2">
-                            <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                            Processing...
-                          </span>
-                        ) : (
-                          <>
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16M12 4l8 8-8 8" />
-                            </svg>
-                            Reopen for Review
-                          </>
-                        )}
-                      </button>
+                        {processing === analysis.id ? "Processing..." : "Reopen for Review"}
+                      </Button>
                     ) : (
                       <>
-                        <button
+                        <Button
                           onClick={() => handleVerify(analysis.id)}
                           disabled={processing === analysis.id}
-                          className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                          variant="success"
+                          size="lg"
+                          loading={processing === analysis.id}
+                          icon={<Check />}
+                          className="flex-1 justify-center font-medium"
                         >
-                          {processing === analysis.id ? (
-                            <span className="flex items-center gap-2">
-                              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                              Processing...
-                            </span>
-                          ) : (
-                            <>
-                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                              Verify
-                            </>
-                          )}
-                        </button>
-                        <button
+                          {processing === analysis.id ? "Processing..." : "Verify"}
+                        </Button>
+                        <Button
                           onClick={() => handleReject(analysis.id)}
                           disabled={processing === analysis.id}
-                          className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                          variant="danger"
+                          size="lg"
+                          loading={processing === analysis.id}
+                          icon={<X />}
+                          className="flex-1 justify-center font-medium"
                         >
-                          {processing === analysis.id ? (
-                            <span className="flex items-center gap-2">
-                              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                              Processing...
-                            </span>
-                          ) : (
-                            <>
-                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                              Reject
-                            </>
-                          )}
-                        </button>
+                          {processing === analysis.id ? "Processing..." : "Reject"}
+                        </Button>
                       </>
                     )}
                   </div>
@@ -331,13 +309,15 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
               <span>{pending.length} pending {pending.length === 1 ? 'review' : 'reviews'}</span>
             )}
           </div>
-          <button
+          <Button
             onClick={() => loadPendingGoldAnalyses(viewMode)}
             disabled={loading}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
+            variant="secondary"
+            loading={loading}
+            className="font-medium"
           >
             {loading ? 'Refreshing...' : 'Refresh'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

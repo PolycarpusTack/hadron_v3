@@ -20,6 +20,7 @@ import {
   ChevronDown, ChevronRight, Pause, Play, Clock, BarChart3,
   AlertCircle, Info, Bug, AlertTriangle
 } from "lucide-react";
+import { BottomSheetModal } from "./ui/Modal";
 import logger, { LogEntry, LogLevel, LogCategory } from "../services/logger";
 
 interface ConsoleViewerProps {
@@ -256,17 +257,11 @@ export default function ConsoleViewer({ isOpen, onClose }: ConsoleViewerProps) {
     return () => clearInterval(interval);
   }, [showRelativeTime]);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (Escape handled by BottomSheetModal)
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Escape to close
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-
       // Ctrl+F to focus search
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
         e.preventDefault();
@@ -291,7 +286,7 @@ export default function ConsoleViewer({ isOpen, onClose }: ConsoleViewerProps) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   // Handle scroll to detect if user scrolled up
   const handleScroll = () => {
@@ -378,10 +373,8 @@ export default function ConsoleViewer({ isOpen, onClose }: ConsoleViewerProps) {
   // Get stats
   const stats = logger.getStats();
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end justify-center">
+    <BottomSheetModal isOpen={isOpen} onClose={onClose}>
       <div className="bg-gray-900 w-full h-[70vh] rounded-t-xl shadow-2xl flex flex-col border-t border-gray-700">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800/50">
@@ -581,6 +574,6 @@ export default function ConsoleViewer({ isOpen, onClose }: ConsoleViewerProps) {
           </span>
         </div>
       </div>
-    </div>
+    </BottomSheetModal>
   );
 }

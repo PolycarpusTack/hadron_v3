@@ -10,6 +10,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import logger from "../services/logger";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
+import Button from "./ui/Button";
 
 // Types for performance trace analysis (snake_case to match Rust backend)
 interface PerformanceHeader {
@@ -322,14 +323,16 @@ function FileUpload({
         <p className="text-sm text-gray-400 mb-6">
           Click the button below to browse
         </p>
-        <button
+        <Button
           onClick={handleSelectFile}
           disabled={isAnalyzing}
-          className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors font-semibold"
+          variant="primary"
+          size="lg"
+          icon={<FileText size={18} />}
+          className="font-semibold"
         >
-          <FileText size={18} />
-          <span>Choose File</span>
-        </button>
+          Choose File
+        </Button>
         <p className="text-gray-500 text-sm mt-4">
           Supports .log and .txt files - batch upload supported
         </p>
@@ -732,23 +735,16 @@ export default function PerformanceAnalyzerView() {
 
               {files.length > 0 && (
                 <div className="flex justify-center">
-                  <button
+                  <Button
                     onClick={handleAnalyze}
                     disabled={isAnalyzing}
-                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors font-medium"
+                    loading={isAnalyzing}
+                    variant="primary"
+                    size="lg"
+                    icon={<Play size={20} />}
                   >
-                    {isAnalyzing ? (
-                      <>
-                        <Loader2 size={20} className="animate-spin" />
-                        <span>Analyzing...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Play size={20} />
-                        <span>Analyze {files.length} File{files.length > 1 ? 's' : ''}</span>
-                      </>
-                    )}
-                  </button>
+                    {isAnalyzing ? "Analyzing..." : `Analyze ${files.length} File${files.length > 1 ? 's' : ''}`}
+                  </Button>
                 </div>
               )}
 
@@ -803,13 +799,13 @@ export default function PerformanceAnalyzerView() {
                 <p className="text-sm text-gray-400">{analysisResults.length} trace{analysisResults.length !== 1 ? 's' : ''} analyzed</p>
               </div>
             </div>
-            <button
+            <Button
               onClick={handleReset}
-              className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+              variant="ghost"
+              icon={<RefreshCw size={18} />}
             >
-              <RefreshCw size={18} />
-              <span>New Analysis</span>
-            </button>
+              New Analysis
+            </Button>
           </div>
 
           {/* Tabs for multiple files */}
@@ -838,13 +834,14 @@ export default function PerformanceAnalyzerView() {
 
           {/* Export options */}
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
-            <button
+            <Button
               onClick={() => handleExport('json')}
-              className="flex items-center gap-2 px-4 py-2 text-gray-300 border border-gray-600 rounded-lg hover:bg-gray-700/50 transition-colors"
+              variant="ghost"
+              icon={<Download size={18} />}
+              className="border border-gray-600"
             >
-              <Download size={18} />
-              <span>Export JSON</span>
-            </button>
+              Export JSON
+            </Button>
           </div>
         </div>
       )}

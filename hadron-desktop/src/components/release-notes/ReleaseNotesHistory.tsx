@@ -18,6 +18,7 @@ import {
 } from "../../services/release-notes";
 import type { ReleaseNotesSummary } from "../../types";
 import logger from "../../services/logger";
+import Button from "../ui/Button";
 
 interface Props {
   onOpenDraft: (id: number) => void;
@@ -105,14 +106,15 @@ export default function ReleaseNotesHistory({ onOpenDraft }: Props) {
             <option value="archived">Archived</option>
           </select>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={loadDrafts}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-md transition-colors"
+          loading={loading}
+          icon={<RefreshCw />}
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
-        </button>
+        </Button>
       </div>
 
       {/* List */}
@@ -171,7 +173,8 @@ export default function ReleaseNotesHistory({ onOpenDraft }: Props) {
                 </div>
 
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-3">
-                  <span
+                  <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       onOpenDraft(draft.id);
@@ -180,8 +183,9 @@ export default function ReleaseNotesHistory({ onOpenDraft }: Props) {
                     title="Open"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
-                  </span>
-                  <span
+                  </button>
+                  <button
+                    type="button"
                     onClick={(e) => handleDelete(draft.id, e)}
                     className="p-1.5 text-gray-500 hover:text-red-400 rounded-md hover:bg-gray-700"
                     title="Delete"
@@ -191,7 +195,7 @@ export default function ReleaseNotesHistory({ onOpenDraft }: Props) {
                     ) : (
                       <Trash2 className="w-3.5 h-3.5" />
                     )}
-                  </span>
+                  </button>
                 </div>
               </div>
             </button>

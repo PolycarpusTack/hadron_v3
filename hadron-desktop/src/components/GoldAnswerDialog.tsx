@@ -7,7 +7,9 @@
  */
 
 import { useState, useEffect, useRef } from "react";
-import { Star, X, Loader2, Tag } from "lucide-react";
+import { Star, X, Tag } from "lucide-react";
+import Button from "./ui/Button";
+import Modal from "./ui/Modal";
 import { saveGoldAnswer, listGoldAnswers, type SaveGoldAnswerParams } from "../services/gold-answers";
 
 // ============================================================================
@@ -51,7 +53,7 @@ export default function GoldAnswerDialog({
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const tagInputRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  // dialogRef no longer needed — backdrop click handled by Modal
 
   // Load existing tags for autocomplete on mount
   useEffect(() => {
@@ -99,33 +101,7 @@ export default function GoldAnswerDialog({
     setTagSuggestions(matches.slice(0, 6));
   }, [tags, existingTags]);
 
-  // Close on Escape
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // Click outside to close
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    // Delay to avoid closing immediately on open
-    const timer = setTimeout(() => {
-      window.addEventListener("mousedown", handleClickOutside);
-    }, 100);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isOpen, onClose]);
+  // Escape and click-outside handled by Modal component
 
   function applySuggestion(tag: string) {
     const parts = tags.split(",");
@@ -159,18 +135,15 @@ export default function GoldAnswerDialog({
     }
   }
 
-  if (!isOpen) return null;
-
   const truncatedQuestion =
     question.length > 100 ? question.slice(0, 100) + "..." : question;
   const truncatedAnswer =
     answer.length > 200 ? answer.slice(0, 200) + "..." : answer;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-lg">
       <div
-        ref={dialogRef}
-        className="w-full max-w-lg rounded-lg bg-gray-800 border border-gray-700 shadow-xl"
+        className="w-full rounded-lg bg-gray-800 border border-gray-700 shadow-xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-700">
@@ -269,27 +242,27 @@ export default function GoldAnswerDialog({
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-gray-700">
-          <button
+          <Button
             onClick={onClose}
             disabled={saving}
-            className="px-3.5 py-1.5 rounded text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition disabled:opacity-50"
+            variant="ghost"
+            size="sm"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded text-sm font-medium bg-amber-600 text-white hover:bg-amber-500 transition disabled:opacity-50"
+            variant="warning"
+            size="sm"
+            loading={saving}
+            icon={<Star />}
+            className="font-medium"
           >
-            {saving ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Star className="w-3.5 h-3.5" />
-            )}
             Save as Gold
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

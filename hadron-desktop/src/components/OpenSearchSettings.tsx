@@ -8,12 +8,12 @@ import {
   BookOpen,
   Check,
   AlertCircle,
-  RefreshCw,
   Eye,
   EyeOff,
   FolderOpen,
   Download,
 } from "lucide-react";
+import Button from "./ui/Button";
 import {
   getOpenSearchConfig,
   saveOpenSearchConfig,
@@ -284,18 +284,16 @@ export default function OpenSearchSettings({ onConfigChange }: OpenSearchSetting
                   Use SSL
                 </label>
 
-                <button
+                <Button
                   onClick={handleTestConnection}
-                  disabled={isTesting || !config.host}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-teal-600/30 border border-teal-500/50 rounded hover:bg-teal-600/50 disabled:opacity-50 transition"
+                  disabled={!config.host}
+                  loading={isTesting}
+                  size="sm"
+                  icon={<Check />}
+                  className="bg-teal-600/30 border border-teal-500/50 hover:bg-teal-600/50"
                 >
-                  {isTesting ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Check className="w-3.5 h-3.5" />
-                  )}
                   Test Connection
-                </button>
+                </Button>
               </div>
 
               {testResult && (
@@ -370,18 +368,16 @@ export default function OpenSearchSettings({ onConfigChange }: OpenSearchSetting
                   placeholder="Version (e.g. 2024r8)"
                   className="w-40 bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-teal-500"
                 />
-                <button
+                <Button
                   onClick={handleImport}
-                  disabled={isImporting || !config.localKbPath || !importVersion}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-teal-600/30 border border-teal-500/50 rounded hover:bg-teal-600/50 disabled:opacity-50 transition"
+                  disabled={!config.localKbPath || !importVersion}
+                  loading={isImporting}
+                  size="sm"
+                  icon={<Download />}
+                  className="bg-teal-600/30 border border-teal-500/50 hover:bg-teal-600/50"
                 >
-                  {isImporting ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5" />
-                  )}
                   Import
-                </button>
+                </Button>
               </div>
 
               {importResult && (
@@ -426,18 +422,14 @@ export default function OpenSearchSettings({ onConfigChange }: OpenSearchSetting
 
           {/* Save Button */}
           <div className="flex items-center gap-3">
-            <button
+            <Button
               onClick={handleSave}
-              disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm bg-teal-600 rounded hover:bg-teal-500 disabled:opacity-50 transition font-medium"
+              loading={isSaving}
+              icon={<Check />}
+              className="bg-teal-600 hover:bg-teal-500 font-medium"
             >
-              {isSaving ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Check className="w-4 h-4" />
-              )}
               Save
-            </button>
+            </Button>
             {saveMessage && (
               <span className="text-xs text-teal-400">{saveMessage}</span>
             )}

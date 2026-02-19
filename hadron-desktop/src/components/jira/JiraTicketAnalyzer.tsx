@@ -21,6 +21,7 @@ import {
   FileText,
   CheckCircle2,
 } from "lucide-react";
+import Button from "../ui/Button";
 import JiraImportService, { type NormalizedIssue } from "../../services/jira-import";
 import { analyzeJiraTicket, getAnalysisById, getStoredApiKey } from "../../services/api";
 import { getStoredModel, getStoredProvider } from "../../services/api";
@@ -150,18 +151,16 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
             disabled={fetching || analyzing}
           />
         </div>
-        <button
+        <Button
           onClick={handleFetch}
-          disabled={fetching || analyzing || !input.trim()}
-          className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition text-sm font-medium flex items-center gap-2"
+          disabled={analyzing || !input.trim()}
+          loading={fetching}
+          size="lg"
+          icon={<Search />}
+          className="bg-sky-600 hover:bg-sky-700 disabled:bg-gray-600"
         >
-          {fetching ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Search className="w-4 h-4" />
-          )}
           {fetching ? "Fetching..." : "Fetch"}
-        </button>
+        </Button>
       </div>
 
       {/* Error */}
@@ -205,13 +204,15 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
                   {issue.summary}
                 </h3>
               </div>
-              <button
+              <Button
                 onClick={() => open(issue.url)}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded transition flex-shrink-0"
+                variant="secondary"
+                size="sm"
+                icon={<ExternalLink />}
+                className="flex-shrink-0"
               >
-                <ExternalLink className="w-3 h-3" />
                 Open in JIRA
-              </button>
+              </Button>
             </div>
 
             {/* Metadata Row */}
@@ -302,29 +303,21 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
 
           {/* Action Bar */}
           <div className="px-5 py-4 flex items-center justify-between">
-            <button
+            <Button
               onClick={handleReset}
-              className="text-sm text-gray-400 hover:text-gray-300 transition"
+              variant="ghost"
             >
               Clear & start over
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleAnalyze}
-              disabled={analyzing}
-              className="flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:bg-sky-600/50 disabled:cursor-not-allowed rounded-lg transition text-sm font-semibold"
+              loading={analyzing}
+              size="lg"
+              icon={<Zap />}
+              className="bg-sky-600 hover:bg-sky-700 font-semibold px-5"
             >
-              {analyzing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4" />
-                  Analyze with AI
-                </>
-              )}
-            </button>
+              {analyzing ? "Analyzing..." : "Analyze with AI"}
+            </Button>
           </div>
         </div>
       )}

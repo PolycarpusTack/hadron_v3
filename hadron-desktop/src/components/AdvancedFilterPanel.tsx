@@ -4,6 +4,7 @@
 
 import { useState, useRef, useEffect, memo } from "react";
 import type { HistoryFilters, Tag } from "../types";
+import Button from "./ui/Button";
 import { DateRangePicker } from "./DateRangePicker";
 import { TagBadge } from "./TagBadge";
 
@@ -396,19 +397,21 @@ export const AdvancedFilterPanel = memo(function AdvancedFilterPanel({
 
       {/* Footer */}
       <div className="flex items-center justify-between px-4 py-3 border-t border-gray-700 bg-gray-800/80">
-        <button
+        <Button
           onClick={onReset}
-          className="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors"
+          variant="ghost"
+          size="sm"
         >
           Reset All
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={onClose}
-          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm
-                   font-medium rounded-lg transition-colors"
+          variant="primary"
+          size="sm"
+          className="hover:bg-blue-500"
         >
           Apply
-        </button>
+        </Button>
       </div>
     </div>
   );

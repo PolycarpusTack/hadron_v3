@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { X, Activity, Database, ChevronDown, ChevronRight } from "lucide-react";
+import Modal from "./ui/Modal";
 import type { Analysis, DatabaseStatistics } from "../services/api";
 import { getAnalysesForDashboard, getDatabaseStatistics } from "../services/api";
 import { aggregateByField, countLast7Days, findSimilarAnalyses, formatDate } from "../utils/dashboard";
@@ -75,11 +76,9 @@ export default function DashboardPanel({ isOpen, onClose, onOpenAnalysis }: Dash
     [selectedBase, analyses]
   );
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-800 rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+    <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-4xl">
+      <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div className="flex items-center gap-3">
@@ -332,6 +331,6 @@ export default function DashboardPanel({ isOpen, onClose, onOpenAnalysis }: Dash
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

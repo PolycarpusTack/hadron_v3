@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, BookOpen, Code, HelpCircle, GraduationCap, ChevronRight, ExternalLink } from "lucide-react";
+import Modal from "./ui/Modal";
+import Button from "./ui/Button";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -458,8 +460,6 @@ export default function DocumentationViewer({
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const handleSelectDoc = (docId: DocType) => {
     setSelectedDoc(docId);
     setShowSelector(false);
@@ -470,8 +470,8 @@ export default function DocumentationViewer({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+    <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-4xl">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
@@ -482,12 +482,9 @@ export default function DocumentationViewer({
           </div>
           <div className="flex items-center gap-2">
             {!showSelector && (
-              <button
-                onClick={handleBack}
-                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
-              >
+              <Button variant="ghost" size="sm" onClick={handleBack}>
                 Back to Menu
-              </button>
+              </Button>
             )}
             <button
               onClick={onClose}
@@ -609,6 +606,6 @@ export default function DocumentationViewer({
           </p>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -26,6 +26,7 @@ import type {
 } from "../types";
 import logger from "../services/logger";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
+import Button from "./ui/Button";
 
 // ============================================================================
 // Props Interface
@@ -968,32 +969,24 @@ export default function CodeAnalyzerView({
             </div>
 
             <div className="flex gap-3">
-              <button
+              <Button
                 onClick={handleAnalyze}
                 disabled={!input.trim() || isAnalyzing}
-                className="flex items-center gap-2 px-6 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition"
+                loading={isAnalyzing}
+                icon={<FileCode className="w-4 h-4" />}
+                className="bg-violet-600 hover:bg-violet-700"
               >
-                {isAnalyzing ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <FileCode className="w-4 h-4" />
-                    Analyze Code
-                  </>
-                )}
-              </button>
+                {isAnalyzing ? "Analyzing..." : "Analyze Code"}
+              </Button>
 
-              <button
+              <Button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isAnalyzing}
-                className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition flex items-center gap-2 text-gray-200"
+                variant="secondary"
+                icon={<Upload className="w-4 h-4" />}
               >
-                <Upload className="w-4 h-4" />
                 Browse
-              </button>
+              </Button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1002,13 +995,13 @@ export default function CodeAnalyzerView({
                 accept=".sql,.tsx,.jsx,.ts,.js,.st,.py,.rs,.go,.java,.xml,.html,.css,.json,.yaml,.yml,.md,.rb,.txt"
               />
 
-              <button
+              <Button
                 onClick={handleClear}
                 disabled={isAnalyzing}
-                className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition text-gray-200"
+                variant="secondary"
               >
                 Clear
-              </button>
+              </Button>
             </div>
           </div>
         </AnalyzerEntryPanel>
@@ -1047,13 +1040,13 @@ export default function CodeAnalyzerView({
                 {codeInput?.language}
               </span>
             </div>
-            <button
+            <Button
               onClick={handleClear}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+              variant="ghost"
+              icon={<Trash2 className="w-4 h-4" />}
             >
-              <Trash2 className="w-4 h-4" />
               New Analysis
-            </button>
+            </Button>
           </div>
 
           {/* Tabs */}

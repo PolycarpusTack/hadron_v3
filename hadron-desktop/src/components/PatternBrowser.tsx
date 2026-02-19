@@ -16,6 +16,7 @@ import {
   X,
   RefreshCw,
 } from "lucide-react";
+import Button from "./ui/Button";
 import type { PatternSummary } from "../types";
 import {
   listPatterns,
@@ -444,12 +445,14 @@ export default function PatternBrowser({ onPatternSelect }: PatternBrowserProps)
                       </span>
                     </div>
                     {onPatternSelect && (
-                      <button
+                      <Button
+                        variant="primary"
+                        size="sm"
                         onClick={() => onPatternSelect(pattern)}
-                        className="mt-2 px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+                        className="mt-2"
                       >
                         View Details
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>

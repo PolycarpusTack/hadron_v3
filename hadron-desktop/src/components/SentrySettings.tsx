@@ -13,6 +13,7 @@ import {
   EyeOff,
   ExternalLink,
 } from "lucide-react";
+import Button from "./ui/Button";
 import {
   getSentryConfig,
   saveSentryConfig,
@@ -302,12 +303,13 @@ export default function SentrySettings({ onConfigChange }: SentrySettingsProps) 
                 </button>
               </div>
               {hasToken && (
-                <button
+                <Button
                   onClick={handleClearToken}
-                  className="px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition text-sm"
+                  variant="ghost-danger"
+                  size="sm"
                 >
                   Clear
-                </button>
+                </Button>
               )}
             </div>
             <p className="text-xs text-gray-500 mt-1">
@@ -362,25 +364,18 @@ export default function SentrySettings({ onConfigChange }: SentrySettingsProps) 
           </div>
 
           {/* Test Connection */}
-          <button
+          <Button
             onClick={handleTestConnection}
             disabled={
               isTesting || !config.baseUrl || !config.organization || (!authToken && !hasToken)
             }
-            className="w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2 text-sm"
+            variant="warning"
+            fullWidth
+            loading={isTesting}
+            icon={<Shield />}
           >
-            {isTesting ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Testing Connection...
-              </>
-            ) : (
-              <>
-                <Shield className="w-4 h-4" />
-                Test Connection
-              </>
-            )}
-          </button>
+            {isTesting ? "Testing Connection..." : "Test Connection"}
+          </Button>
 
           {testResult && (
             <div
@@ -402,23 +397,17 @@ export default function SentrySettings({ onConfigChange }: SentrySettingsProps) 
           )}
 
           {/* Save Button */}
-          <button
+          <Button
             onClick={handleSave}
             disabled={isSaving}
-            className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2 text-sm font-semibold"
+            variant="success"
+            fullWidth
+            loading={isSaving}
+            icon={<Check />}
+            className="font-semibold"
           >
-            {isSaving ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Check className="w-4 h-4" />
-                Save Sentry Settings
-              </>
-            )}
-          </button>
+            {isSaving ? "Saving..." : "Save Sentry Settings"}
+          </Button>
 
           {saveMessage && (
             <div

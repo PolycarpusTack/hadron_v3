@@ -94,6 +94,7 @@ export function AnalysisProgressBar({ isAnalyzing }: AnalysisProgressBarProps) {
             Step {current_step} of {total_steps}
           </span>
         )}
+        <span className="progress-percent">{Math.round(percent)}%</span>
       </div>
 
       <div className="progress-track">

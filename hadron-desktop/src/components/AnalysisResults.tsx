@@ -1,4 +1,5 @@
 import { Download, RotateCcw, Wrench, Clock, DollarSign } from "lucide-react";
+import Button from "./ui/Button";
 import type { AnalysisResult } from "../types/index";
 import CollapsibleSection from "./CollapsibleSection";
 import MultiPartAnalysisViewer from "./MultiPartAnalysisViewer";
@@ -40,13 +41,13 @@ export default function AnalysisResults({ result, onNewAnalysis }: AnalysisResul
           <h2 className="text-2xl font-bold mb-1">Analysis Results</h2>
           <p className="text-gray-400">{result.filename}</p>
         </div>
-        <button
+        <Button
+          variant="primary"
           onClick={onNewAnalysis}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+          icon={<RotateCcw />}
         >
-          <RotateCcw className="w-4 h-4" />
           New Analysis
-        </button>
+        </Button>
       </div>
 
       {/* Summary Cards */}
@@ -127,13 +128,12 @@ export default function AnalysisResults({ result, onNewAnalysis }: AnalysisResul
 
       {/* Actions */}
       <div className="flex gap-3 pt-4 border-t border-gray-700">
-        <button className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition">
-          <Download className="w-4 h-4" />
+        <Button variant="secondary" icon={<Download />}>
           Export
-        </button>
-        <button className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition">
+        </Button>
+        <Button variant="secondary">
           View Stack Trace
-        </button>
+        </Button>
       </div>
     </div>
   );

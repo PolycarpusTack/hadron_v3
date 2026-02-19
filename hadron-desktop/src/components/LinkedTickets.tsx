@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-shell";
+import Button from "./ui/Button";
 import {
   JiraLink,
   linkJiraToAnalysis,
@@ -537,13 +538,12 @@ function LinkTicketModal({
                   placeholder="Search by key or summary..."
                   className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:border-blue-500"
                 />
-                <button
+                <Button
                   onClick={handleSearch}
                   disabled={searching || !searchQuery.trim()}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
                 >
                   {searching ? "..." : "Search"}
-                </button>
+                </Button>
               </div>
 
               {/* Search Results */}
@@ -638,13 +638,14 @@ function LinkTicketModal({
                   />
                 </div>
 
-                <button
+                <Button
                   onClick={handleLinkManual}
                   disabled={linking || !manualKey.trim()}
-                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
+                  fullWidth
+                  loading={linking}
                 >
                   {linking ? "Linking..." : "Link Ticket"}
-                </button>
+                </Button>
               </div>
             </>
           )}

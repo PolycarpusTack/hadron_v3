@@ -12,7 +12,12 @@ import {
   Wrench,
   Check,
   Loader2,
+  FileSpreadsheet,
+  LayoutDashboard,
+  AlignLeft,
 } from "lucide-react";
+import Button from "./ui/Button";
+import Modal from "./ui/Modal";
 import type { Analysis } from "../services/api";
 import type { ReportAudience, ExportResponse } from "../types";
 import { previewReport, generateReportMulti } from "../services/api";
@@ -30,6 +35,8 @@ interface FormatOption {
   icon: JSX.Element;
   extension: string;
   description: string;
+  /** If true, content is base64-encoded binary */
+  isBinary?: boolean;
 }
 
 interface AudienceOption {
@@ -38,6 +45,9 @@ interface AudienceOption {
   icon: JSX.Element;
   description: string;
 }
+
+/** Formats that support live preview (text-based formats only) */
+const PREVIEWABLE_FORMATS = new Set(["markdown", "html", "html_interactive", "json", "txt"]);
 
 const FORMAT_OPTIONS: FormatOption[] = [
   {
@@ -55,11 +65,33 @@ const FORMAT_OPTIONS: FormatOption[] = [
     description: "Self-contained HTML with styling, ready to share",
   },
   {
+    id: "html_interactive",
+    name: "Interactive HTML",
+    icon: <LayoutDashboard className="w-4 h-4" />,
+    extension: "html",
+    description: "Interactive page with tabbed navigation per section",
+  },
+  {
     id: "json",
     name: "JSON",
     icon: <FileJson className="w-4 h-4" />,
     extension: "json",
     description: "Structured data format for integration with other tools",
+  },
+  {
+    id: "txt",
+    name: "Plain Text",
+    icon: <AlignLeft className="w-4 h-4" />,
+    extension: "txt",
+    description: "Simple text format without formatting",
+  },
+  {
+    id: "xlsx",
+    name: "Excel (XLSX)",
+    icon: <FileSpreadsheet className="w-4 h-4" />,
+    extension: "xlsx",
+    description: "Multi-sheet spreadsheet with tabbed sections",
+    isBinary: true,
   },
 ];
 
@@ -122,10 +154,8 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
   const [crashContent, setCrashContent] = useState<string>("");
 
   // Load crash content when dialog opens
-  // Since we don't have file_path, we use the analysis data directly
   useEffect(() => {
     if (isOpen) {
-      // Construct content from analysis data for export
       const content = [
         `Error Type: ${analysis.error_type}`,
         `Severity: ${analysis.severity}`,
@@ -150,6 +180,8 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
 
   const loadPreview = useCallback(async () => {
     if (!crashContent) return;
+    // Only preview text-based formats
+    if (!PREVIEWABLE_FORMATS.has(previewFormat)) return;
 
     setIsLoadingPreview(true);
     try {
@@ -171,7 +203,6 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
   const toggleFormat = (formatId: string) => {
     setSelectedFormats((prev) => {
       if (prev.includes(formatId)) {
-        // Don't allow deselecting the last format
         if (prev.length === 1) return prev;
         return prev.filter((f) => f !== formatId);
       }
@@ -205,7 +236,6 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
         footer_text: footerText || undefined,
       });
 
-      // Download each file
       for (const result of results) {
         downloadFile(result);
       }
@@ -223,35 +253,53 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
   };
 
   const downloadFile = (result: ExportResponse) => {
-    const mimeTypes: Record<string, string> = {
-      html: "text/html",
-      json: "application/json",
-      markdown: "text/markdown",
-    };
+    const formatDef = FORMAT_OPTIONS.find((f) => f.id === result.format);
 
-    const blob = new Blob([result.content], {
-      type: mimeTypes[result.format] || "text/plain",
-    });
+    if (formatDef?.isBinary) {
+      // Binary content is base64-encoded — decode to bytes
+      const binaryString = atob(result.content);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      triggerDownload(blob, result.suggested_filename);
+    } else {
+      const mimeTypes: Record<string, string> = {
+        html: "text/html",
+        html_interactive: "text/html",
+        json: "application/json",
+        markdown: "text/markdown",
+        txt: "text/plain",
+      };
+      const blob = new Blob([result.content], {
+        type: mimeTypes[result.format] || "text/plain",
+      });
+      triggerDownload(blob, result.suggested_filename);
+    }
+  };
+
+  const triggerDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = result.suggested_filename;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  if (!isOpen) return null;
+  // Get previewable formats from the selected set
+  const previewableSelected = FORMAT_OPTIONS.filter(
+    (f) => selectedFormats.includes(f.id) && PREVIEWABLE_FORMATS.has(f.id)
+  );
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="export-dialog-title"
-    >
-      <div className="bg-gray-800 rounded-lg shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-5xl">
+      <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div className="flex items-center gap-3">
@@ -400,8 +448,8 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
                 <Eye className="w-4 h-4 text-gray-400" />
                 <span className="text-sm font-medium">Preview</span>
               </div>
-              <div className="flex gap-2">
-                {FORMAT_OPTIONS.filter((f) => selectedFormats.includes(f.id)).map((format) => (
+              <div className="flex gap-2 flex-wrap">
+                {previewableSelected.map((format) => (
                   <button
                     key={format.id}
                     onClick={() => setPreviewFormat(format.id)}
@@ -422,6 +470,14 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
               {isLoadingPreview ? (
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+                </div>
+              ) : !PREVIEWABLE_FORMATS.has(previewFormat) ? (
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  <div className="text-center">
+                    <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p>Preview not available for binary formats.</p>
+                    <p className="text-xs mt-1">The file will be generated on export.</p>
+                  </div>
                 </div>
               ) : (
                 <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
@@ -453,32 +509,25 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
                 {exportMessage}
               </span>
             )}
-            <button
+            <Button
+              variant="secondary"
               onClick={onClose}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={handleExport}
               disabled={isExporting || selectedFormats.length === 0}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition flex items-center gap-2"
+              loading={isExporting}
+              icon={<Download />}
+              className="font-semibold"
             >
-              {isExporting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Exporting...
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  Export {selectedFormats.length > 1 ? "All" : ""}
-                </>
-              )}
-            </button>
+              {isExporting ? "Exporting..." : `Export ${selectedFormats.length > 1 ? "All" : ""}`}
+            </Button>
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

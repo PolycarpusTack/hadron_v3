@@ -21,6 +21,7 @@ import {
   Info,
   X,
 } from "lucide-react";
+import Button from "./ui/Button";
 import {
   getKeeperStatus,
   initializeKeeper,
@@ -48,6 +49,7 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
   });
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
+  const [region, setRegion] = useState("auto");
   const [isLoading, setIsLoading] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
   const [message, setMessage] = useState<{
@@ -56,35 +58,63 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
   } | null>(null);
 
   // Load initial state
+  // NOTE: React 18 StrictMode double-mounts components in dev, which causes
+  // two concurrent Keeper SDK calls that race on the config file. The
+  // `cancelled` flag ensures stale mounts don't update state or show errors.
   useEffect(() => {
-    loadKeeperState();
+    let cancelled = false;
+
+    async function load() {
+      setIsLoading(true);
+      try {
+        const [keeperStatus, keeperConfig] = await Promise.all([
+          getKeeperStatus(),
+          getKeeperConfig(),
+        ]);
+
+        if (cancelled) return;
+
+        setStatus(keeperStatus);
+        setConfig(keeperConfig);
+
+        if (keeperStatus.connected) {
+          try {
+            const secretsResult = await listKeeperSecrets();
+            if (!cancelled) {
+              setSecrets(secretsResult.secrets);
+            }
+          } catch (error) {
+            // Non-fatal: status/config loaded OK, just secrets list failed
+            logger.warn("Failed to list Keeper secrets", { error });
+          }
+        }
+      } catch (error) {
+        if (cancelled) return;
+        logger.error("Failed to load Keeper state", { error });
+        setMessage({
+          type: "error",
+          text: "Failed to load Keeper configuration",
+        });
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
   }, []);
 
-  async function loadKeeperState() {
-    setIsLoading(true);
-    try {
-      const [keeperStatus, keeperConfig] = await Promise.all([
-        getKeeperStatus(),
-        getKeeperConfig(),
-      ]);
-
-      setStatus(keeperStatus);
-      setConfig(keeperConfig);
-
-      if (keeperStatus.connected) {
-        const secretsResult = await listKeeperSecrets();
-        setSecrets(secretsResult.secrets);
-      }
-    } catch (error) {
-      logger.error("Failed to load Keeper state", { error });
-      setMessage({
-        type: "error",
-        text: "Failed to load Keeper configuration",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }
+  // Map region codes to Keeper server hostnames
+  const regionHostnames: Record<string, string> = {
+    US: "keepersecurity.com",
+    EU: "keepersecurity.eu",
+    AU: "keepersecurity.com.au",
+    GOV: "govcloud.keepersecurity.us",
+    JP: "keepersecurity.jp",
+    CA: "keepersecurity.ca",
+  };
 
   async function handleConnect() {
     if (!token.trim()) {
@@ -96,7 +126,10 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
     setMessage(null);
 
     try {
-      const result = await initializeKeeper(token.trim());
+      // Determine hostname: if region is "auto", the token should contain
+      // a region prefix (e.g., "US:TOKEN"). Otherwise, pass the hostname.
+      const hostname = region !== "auto" ? regionHostnames[region] : undefined;
+      const result = await initializeKeeper(token.trim(), hostname);
 
       if (result.success) {
         setToken(""); // Clear token after successful connection
@@ -218,6 +251,7 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
   }
 
   const isConnected = status?.connected ?? false;
+  const isConfigured = status?.configured ?? false;
 
   return (
     <div className="space-y-4 p-4 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-lg border border-purple-500/30">
@@ -235,7 +269,7 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
           </div>
         </div>
 
-        {isConnected && (
+        {(isConnected || isConfigured) && (
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
               <input
@@ -255,6 +289,8 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
         className={`p-3 rounded-lg ${
           isConnected
             ? "bg-green-500/10 border border-green-500/20"
+            : isConfigured
+            ? "bg-yellow-500/10 border border-yellow-500/20"
             : "bg-gray-900/50 border border-gray-700"
         }`}
       >
@@ -262,35 +298,95 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
           <div className="flex items-center gap-2">
             <div
               className={`w-2 h-2 rounded-full ${
-                isConnected ? "bg-green-400" : "bg-gray-500"
+                isConnected ? "bg-green-400" : isConfigured ? "bg-yellow-400" : "bg-gray-500"
               }`}
             />
             <span
               className={`text-sm ${
-                isConnected ? "text-green-400" : "text-gray-400"
+                isConnected ? "text-green-400" : isConfigured ? "text-yellow-400" : "text-gray-400"
               }`}
             >
               {isConnected
                 ? `Connected (${status?.secrets_count ?? 0} secrets available)`
+                : isConfigured
+                ? `Connection error: ${status?.message || "Could not reach Keeper"}`
                 : "Not connected"}
             </span>
           </div>
 
-          {isConnected && (
-            <button
-              onClick={handleDisconnect}
-              className="text-xs text-red-400 hover:text-red-300 transition"
-            >
+          {(isConnected || isConfigured) && (
+            <Button variant="ghost-danger" size="xs" onClick={handleDisconnect}>
               Disconnect
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
-      {/* Connect Form (when not connected) */}
-      {!isConnected && (
+      {/* Configured but temporarily unreachable — show retry, NOT the connect form */}
+      {isConfigured && !isConnected && (
+        <div className="flex items-start gap-2 p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
+          <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm text-yellow-300">
+              Keeper is configured but the connection check failed. This may be a
+              temporary network issue.
+            </p>
+            <button
+              onClick={() => {
+                setIsLoading(true);
+                setMessage(null);
+                // Retry — inline the load logic
+                (async () => {
+                  try {
+                    const [keeperStatus] = await Promise.all([
+                      getKeeperStatus(),
+                      getKeeperConfig().then(c => setConfig(c)),
+                    ]);
+                    setStatus(keeperStatus);
+                    if (keeperStatus.connected) {
+                      try {
+                        const secretsResult = await listKeeperSecrets();
+                        setSecrets(secretsResult.secrets);
+                      } catch { /* non-fatal */ }
+                    }
+                  } catch (error) {
+                    setMessage({ type: "error", text: "Retry failed — check your network connection" });
+                  } finally {
+                    setIsLoading(false);
+                  }
+                })();
+              }}
+              className="mt-2 text-xs px-3 py-1.5 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 rounded-lg transition inline-flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Retry Connection
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Connect Form (only when NOT configured — no existing config to lose) */}
+      {!isConfigured && (
         <div className="space-y-3">
           <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-2">
+              Server Region
+            </label>
+            <select
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              disabled={isConnecting}
+              className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-purple-500 disabled:opacity-50 mb-3"
+            >
+              <option value="auto">Auto-detect from token</option>
+              <option value="US">US (keepersecurity.com)</option>
+              <option value="EU">EU (keepersecurity.eu)</option>
+              <option value="AU">AU (keepersecurity.com.au)</option>
+              <option value="GOV">US GOV (govcloud.keepersecurity.us)</option>
+              <option value="JP">JP (keepersecurity.jp)</option>
+              <option value="CA">CA (keepersecurity.ca)</option>
+            </select>
+
             <label className="block text-xs font-semibold text-gray-400 mb-2">
               One-Time Access Token
             </label>
@@ -301,7 +397,7 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleConnect()}
-                  placeholder="Paste your Keeper one-time token"
+                  placeholder={region === "auto" ? "Paste token with region prefix (e.g. US:xxxx)" : "Paste your Keeper one-time token"}
                   disabled={isConnecting}
                   className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 pr-12 focus:outline-none focus:border-purple-500 disabled:opacity-50"
                 />
@@ -317,18 +413,16 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
                   )}
                 </button>
               </div>
-              <button
+              <Button
+                variant="accent"
+                size="lg"
                 onClick={handleConnect}
-                disabled={isConnecting || !token.trim()}
-                className="px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center gap-2"
+                disabled={!token.trim()}
+                loading={isConnecting}
+                icon={<Key />}
               >
-                {isConnecting ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Key className="w-4 h-4" />
-                )}
                 {isConnecting ? "Connecting..." : "Connect"}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -342,10 +436,14 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
               </p>
               <ol className="list-decimal list-inside space-y-1 ml-1">
                 <li>Open the Keeper Web Vault</li>
-                <li>Go to Settings → Secrets Manager → Applications</li>
+                <li>Go to Settings &rarr; Secrets Manager &rarr; Applications</li>
                 <li>Select your application or create a new one</li>
                 <li>Click "Add Device" to generate a new token</li>
               </ol>
+              <p className="mt-2 mb-1">
+                Tokens may include a region prefix (e.g., <code className="text-purple-300">US:xxxx</code>).
+                If yours doesn't, select your region above.
+              </p>
               <a
                 href="https://docs.keeper.io/en/keeperpam/secrets-manager/about/one-time-token"
                 target="_blank"
@@ -360,8 +458,8 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
         </div>
       )}
 
-      {/* Secret Mappings (when connected and enabled) */}
-      {isConnected && config.enabled && (
+      {/* Secret Mappings (when connected/configured and enabled) */}
+      {(isConnected || isConfigured) && config.enabled && (
         <div className="space-y-3">
           <label className="block text-xs font-semibold text-gray-400">
             Map Secrets to AI Providers
@@ -412,8 +510,8 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
         </div>
       )}
 
-      {/* Connected but disabled message */}
-      {isConnected && !config.enabled && (
+      {/* Connected/configured but disabled message */}
+      {(isConnected || isConfigured) && !config.enabled && (
         <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-yellow-400" />

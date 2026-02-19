@@ -1,4 +1,5 @@
 import { Settings, Activity, HelpCircle } from "lucide-react";
+import Button from "./ui/Button";
 
 interface AppHeaderProps {
   onOpenDashboard: () => void;
@@ -25,29 +26,29 @@ export default function AppHeader({ onOpenDashboard, onOpenSettings, onOpenDocs 
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <button
+        <Button
+          variant="accent"
           onClick={onOpenDocs}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition"
           title="Help & Documentation"
+          icon={<HelpCircle />}
         >
-          <HelpCircle className="w-5 h-5" />
           Help
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="primary"
           onClick={onOpenDashboard}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
           title="View Analytics Dashboard"
+          icon={<Activity />}
         >
-          <Activity className="w-5 h-5" />
           Dashboard
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
           onClick={onOpenSettings}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg transition"
+          icon={<Settings />}
         >
-          <Settings className="w-5 h-5" />
           Settings
-        </button>
+        </Button>
       </div>
     </header>
   );

@@ -21,7 +21,13 @@ export default function BatchProgressDisplay({
       {batchProgress && (
         <div className="mb-4 bg-gray-800/60 border border-gray-700 rounded-lg p-4 text-sm">
           <div className="font-semibold text-gray-100">
-            Batch analysis: {batchProgress.processed} / {batchProgress.total} completed
+            Batch analysis: {batchProgress.processed} / {batchProgress.total} ({Math.round((batchProgress.processed / batchProgress.total) * 100)}%) completed
+          </div>
+          <div className="mt-2 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 rounded-full transition-all duration-300"
+              style={{ width: `${Math.round((batchProgress.processed / batchProgress.total) * 100)}%` }}
+            />
           </div>
           {batchProgress.currentFile && (
             <div className="text-xs text-gray-400 truncate mt-1">

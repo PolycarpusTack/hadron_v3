@@ -31,6 +31,7 @@ import { isJiraEnabled } from "../services/jira";
 import { analyzeJiraTicket, getAnalysisById, getStoredApiKey } from "../services/api";
 import logger from "../services/logger";
 import type { Analysis } from "../services/api";
+import Button from "./ui/Button";
 
 interface JiraImportPanelProps {
   onClose?: () => void;
@@ -314,12 +315,13 @@ export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false
             Please configure JIRA integration in Settings to import issues.
           </p>
           {onClose && (
-            <button
+            <Button
               onClick={onClose}
-              className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+              variant="secondary"
+              size="lg"
             >
               Close
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -361,18 +363,13 @@ export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false
               <Sparkles className="w-4 h-4 text-purple-400" />
               <span className="text-sm">Export for RAG</span>
             </button>
-            <button
+            <Button
               onClick={handleSync}
-              disabled={syncing}
-              className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
+              loading={syncing}
+              icon={<RefreshCw />}
             >
-              {syncing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-              <span className="text-sm">{syncing ? "Syncing..." : "Sync"}</span>
-            </button>
+              {syncing ? "Syncing..." : "Sync"}
+            </Button>
             {onClose && (
               <button
                 onClick={onClose}
@@ -417,17 +414,13 @@ export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false
                 className="w-full bg-gray-800 border border-gray-600 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-blue-500"
               />
             </div>
-            <button
+            <Button
               onClick={() => setShowFilters(!showFilters)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition ${
-                showFilters
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-700 hover:bg-gray-600 text-gray-300"
-              }`}
+              variant={showFilters ? "primary" : "secondary"}
+              icon={<Filter />}
             >
-              <Filter className="w-4 h-4" />
-              <span className="text-sm">Filters</span>
-            </button>
+              Filters
+            </Button>
           </div>
 
           {showFilters && (
@@ -479,18 +472,15 @@ export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false
                 disabled={manualImporting}
               />
             </div>
-            <button
+            <Button
               onClick={handleManualImport}
-              disabled={manualImporting || !manualImportInput.trim()}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition text-sm font-medium"
+              disabled={!manualImportInput.trim()}
+              loading={manualImporting}
+              variant="success"
+              icon={<Plus />}
             >
-              {manualImporting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Plus className="w-4 h-4" />
-              )}
               {manualImporting ? "Importing..." : "Import"}
-            </button>
+            </Button>
           </div>
 
           {/* Manual Import Result */}
@@ -590,12 +580,12 @@ export default function JiraImportPanel({ onClose, onLinkIssue, embedded = false
             Showing {filteredIssues.length} of {issues.length} issues
           </span>
           {onClose && (
-            <button
+            <Button
               onClick={onClose}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+              variant="secondary"
             >
               Close
-            </button>
+            </Button>
           )}
         </div>
     </div>
@@ -742,16 +732,17 @@ function IssueCard({ issue, expanded, onToggleExpand, onLink, onAnalyze, analyzi
 
           {/* Actions */}
           <div className="flex gap-2 pt-2">
-            <button
+            <Button
               onClick={(e) => {
                 e.stopPropagation();
                 open(issue.url);
               }}
-              className="flex items-center gap-1 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm transition"
+              variant="secondary"
+              size="sm"
+              icon={<ExternalLink />}
             >
-              <ExternalLink className="w-3 h-3" />
               Open in JIRA
-            </button>
+            </Button>
             {onLink && (
               <button
                 onClick={e => {
@@ -765,26 +756,17 @@ function IssueCard({ issue, expanded, onToggleExpand, onLink, onAnalyze, analyzi
               </button>
             )}
             {onAnalyze && (
-              <button
+              <Button
                 onClick={e => {
                   e.stopPropagation();
                   onAnalyze();
                 }}
-                disabled={analyzing}
-                className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 disabled:cursor-not-allowed rounded text-sm text-white transition"
+                loading={analyzing}
+                size="sm"
+                icon={<Zap />}
               >
-                {analyzing ? (
-                  <>
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-3 h-3" />
-                    Analyze
-                  </>
-                )}
-              </button>
+                {analyzing ? "Analyzing..." : "Analyze"}
+              </Button>
             )}
           </div>
         </div>

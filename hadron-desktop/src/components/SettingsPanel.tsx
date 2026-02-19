@@ -1,5 +1,5 @@
 import { useState, useEffect, Suspense, lazy, useRef, useCallback } from "react";
-import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, Download, RefreshCw, Check, AlertCircle, Clipboard, Info, Cpu, Link, Palette, Wrench, ChevronDown, ChevronRight, Shield } from "lucide-react";
+import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, Download, RefreshCw, Check, AlertCircle, Clipboard, Info, Cpu, Link, Palette, Wrench, ChevronDown, ChevronRight, Shield, Code, MessageCircle } from "lucide-react";
 import { getCircuitState } from "../services/circuit-breaker";
 import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage";
 import { checkForUpdates } from "../services/updater";
@@ -11,6 +11,10 @@ import { exportSummariesBundle } from "../services/summaries";
 import { save as tauriSave } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import logger from '../services/logger';
+import { AI_PROVIDERS, getDefaultModelForProvider } from '../constants/providers';
+import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey, getBooleanSetting, setBooleanSetting } from '../utils/config';
+import Button from "./ui/Button";
+import Modal from "./ui/Modal";
 
 // Lazy load heavy components since most users won't use them
 const KeeperSettings = lazy(() => import("./KeeperSettings"));
@@ -51,18 +55,12 @@ interface ModelOption {
 
 type SettingsTab = "ai" | "integrations" | "appearance" | "advanced";
 
-const AI_PROVIDERS = [
-  { value: "openai", label: "OpenAI", defaultActive: true },
-  { value: "anthropic", label: "Anthropic", defaultActive: true },
-  { value: "zai", label: "Z.ai (GLM/Qwen)", defaultActive: true },
-  { value: "llamacpp", label: "llama.cpp (Local)", defaultActive: true },
-  { value: "vllm", label: "vLLM", defaultActive: false },
-];
+// AI_PROVIDERS imported from constants/providers.ts
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "ai", label: "AI Config", icon: <Cpu className="w-4 h-4" /> },
   { id: "integrations", label: "Integrations", icon: <Link className="w-4 h-4" /> },
-  { id: "appearance", label: "Appearance", icon: <Palette className="w-4 h-4" /> },
+  { id: "appearance", label: "Preferences", icon: <Palette className="w-4 h-4" /> },
   { id: "advanced", label: "Advanced", icon: <Wrench className="w-4 h-4" /> },
 ];
 
@@ -113,7 +111,7 @@ export default function SettingsPanel({
       anthropic: "",
       zai: "",
     },
-    model: "gpt-4o",
+    model: getDefaultModelForProvider("openai"),
     customModel: "",
     auxiliaryModel: "",
     piiRedactionEnabled: false,
@@ -238,25 +236,20 @@ export default function SettingsPanel({
   }, [isOpen, settings.provider]);
 
   async function loadSettings() {
-    const provider = localStorage.getItem("ai_provider") || "openai";
+    const provider = localStorage.getItem(STORAGE_KEYS.AI_PROVIDER) || "openai";
 
     // Load ALL API keys
     const openaiKey = await getApiKey("openai") || "";
     const anthropicKey = await getApiKey("anthropic") || "";
     const zaiKey = await getApiKey("zai") || "";
 
-    const defaultModel =
-      provider === "zai" ? "glm-4" :
-      provider === "anthropic" ? "claude-sonnet-4-20250514" :
-      provider === "llamacpp" ? "default" :
-      "gpt-4o";
-    const model = localStorage.getItem("ai_model") || defaultModel;
-    const customModel = localStorage.getItem("ai_custom_model") || "";
-    const auxiliaryModel = localStorage.getItem("ai_auxiliary_model") || "";
-    const piiRedactionEnabled = localStorage.getItem("pii_redaction_enabled") === "true";
+    const model = localStorage.getItem(STORAGE_KEYS.AI_MODEL) || getDefaultModelForProvider(provider);
+    const customModel = localStorage.getItem(STORAGE_KEYS.AI_CUSTOM_MODEL) || "";
+    const auxiliaryModel = localStorage.getItem(STORAGE_KEYS.AI_AUXILIARY_MODEL) || "";
+    const piiRedactionEnabled = localStorage.getItem(STORAGE_KEYS.PII_REDACTION_ENABLED) === "true";
 
     // Load active providers
-    const savedActiveProviders = localStorage.getItem("active_providers");
+    const savedActiveProviders = localStorage.getItem(STORAGE_KEYS.ACTIVE_PROVIDERS);
     let activeProviders = AI_PROVIDERS.reduce((acc, p) => ({ ...acc, [p.value]: p.defaultActive }), {});
     if (savedActiveProviders) {
       try {
@@ -281,7 +274,7 @@ export default function SettingsPanel({
     });
 
     // Load cached models for current provider
-    const cacheKey = `models_cache:${provider}`;
+    const cacheKey = providerModelsCacheKey(provider);
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
       try {
@@ -300,13 +293,9 @@ export default function SettingsPanel({
   }
 
   const handleProviderChange = (newProvider: string) => {
-    const defaultModel =
-      newProvider === "zai" ? "glm-4" :
-      newProvider === "anthropic" ? "claude-sonnet-4-20250514" :
-      newProvider === "llamacpp" ? "default" :
-      "gpt-4o";
+    const defaultModel = getDefaultModelForProvider(newProvider);
 
-    const savedModel = localStorage.getItem(`ai_model:${newProvider}`);
+    const savedModel = localStorage.getItem(providerModelKey(newProvider));
 
     setSettings({
       ...settings,
@@ -349,26 +338,26 @@ export default function SettingsPanel({
       }
 
       // Save provider and other settings to localStorage (non-sensitive)
-      localStorage.setItem("ai_provider", settings.provider);
+      localStorage.setItem(STORAGE_KEYS.AI_PROVIDER, settings.provider);
 
       // Save the actual model (custom if selected, otherwise the dropdown value)
       const modelToSave = settings.model === "custom" ? settings.customModel : settings.model;
-      localStorage.setItem("ai_model", modelToSave);
-      localStorage.setItem(`ai_model:${settings.provider}`, modelToSave);
-      localStorage.setItem("ai_custom_model", settings.customModel);
+      localStorage.setItem(STORAGE_KEYS.AI_MODEL, modelToSave);
+      localStorage.setItem(providerModelKey(settings.provider), modelToSave);
+      localStorage.setItem(STORAGE_KEYS.AI_CUSTOM_MODEL, settings.customModel);
 
       // Save auxiliary model
       if (settings.auxiliaryModel) {
-        localStorage.setItem("ai_auxiliary_model", settings.auxiliaryModel);
+        localStorage.setItem(STORAGE_KEYS.AI_AUXILIARY_MODEL, settings.auxiliaryModel);
       } else {
         localStorage.removeItem("ai_auxiliary_model");
       }
 
       // Save PII redaction setting
-      localStorage.setItem("pii_redaction_enabled", String(settings.piiRedactionEnabled));
+      localStorage.setItem(STORAGE_KEYS.PII_REDACTION_ENABLED, String(settings.piiRedactionEnabled));
 
       // Save active providers
-      localStorage.setItem("active_providers", JSON.stringify(settings.activeProviders));
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_PROVIDERS, JSON.stringify(settings.activeProviders));
 
       // Save ALL API keys to encrypted storage
       if (settings.apiKeys.openai) {
@@ -452,7 +441,7 @@ export default function SettingsPanel({
         models: models,
         timestamp: Date.now()
       };
-      localStorage.setItem(`models_cache:${settings.provider}`, JSON.stringify(cacheData));
+      localStorage.setItem(providerModelsCacheKey(settings.provider), JSON.stringify(cacheData));
 
       setCachedModels(prev => ({
         ...prev,
@@ -512,8 +501,6 @@ export default function SettingsPanel({
     }
   };
 
-  if (!isOpen) return null;
-
   const currentModels = cachedModels[settings.provider] || [];
   const isKeeperActiveForProvider = keeperConfig?.enabled && !!keeperConfig.secretMappings[settings.provider as keyof typeof keeperConfig.secretMappings];
 
@@ -561,7 +548,7 @@ export default function SettingsPanel({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <Modal isOpen={isOpen} onClose={onClose}>
       <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
@@ -707,14 +694,16 @@ export default function SettingsPanel({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-semibold">Model</label>
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={handleRefreshModels}
                     disabled={isRefreshingModels || (settings.provider !== 'llamacpp' && !isKeeperActiveForProvider && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys])}
-                    className="text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed rounded-lg flex items-center gap-1.5 transition"
+                    loading={isRefreshingModels}
+                    icon={<RefreshCw />}
                   >
-                    <RefreshCw className={`w-3 h-3 ${isRefreshingModels ? 'animate-spin' : ''}`} />
                     Refresh Models
-                  </button>
+                  </Button>
                 </div>
                 <select
                   value={settings.model}
@@ -789,23 +778,17 @@ export default function SettingsPanel({
               </div>
 
               {/* Test Connection */}
-              <button
+              <Button
+                variant="success"
+                size="lg"
+                fullWidth
                 onClick={handleTestConnection}
                 disabled={isTestingConnection || (settings.provider !== 'llamacpp' && !isKeeperActiveForProvider && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys]) || (settings.provider !== 'llamacpp' && !isOnline)}
-                className="w-full px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2"
+                loading={isTestingConnection}
+                icon={<Activity />}
               >
-                {isTestingConnection ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Testing...
-                  </>
-                ) : (
-                  <>
-                    <Activity className="w-4 h-4" />
-                    Test Connection
-                  </>
-                )}
-              </button>
+                {isTestingConnection ? "Testing..." : "Test Connection"}
+              </Button>
 
               {connectionTestResult && (
                 <div className={`p-3 rounded-lg text-sm ${
@@ -857,9 +840,9 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* Appearance Tab */}
+          {/* Preferences Tab */}
           {activeTab === "appearance" && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {/* Theme Toggle */}
               <div className="flex items-center justify-between p-4 bg-gray-900/50 rounded-lg border border-gray-700">
                 <div>
@@ -890,12 +873,109 @@ export default function SettingsPanel({
                     Automatically redact email addresses, IP addresses, and API keys from crash logs
                   </p>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={settings.piiRedactionEnabled}
-                  onChange={(e) => setSettings({ ...settings, piiRedactionEnabled: e.target.checked })}
-                  className="w-5 h-5 rounded accent-blue-500"
-                />
+                <button
+                  onClick={() => {
+                    setSettings({ ...settings, piiRedactionEnabled: !settings.piiRedactionEnabled });
+                  }}
+                  className={`relative w-14 h-8 rounded-full transition-colors ${
+                    settings.piiRedactionEnabled ? "bg-blue-600" : "bg-gray-600"
+                  }`}
+                >
+                  <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-transform flex items-center justify-center ${
+                    settings.piiRedactionEnabled ? "translate-x-7" : "translate-x-1"
+                  }`}>
+                    <Shield className={`w-4 h-4 ${settings.piiRedactionEnabled ? "text-blue-600" : "text-gray-400"}`} />
+                  </div>
+                </button>
+              </div>
+
+              {/* Visible Tabs */}
+              <div className="space-y-3">
+                <label className="block text-sm font-semibold">Visible Tabs</label>
+                <p className="text-xs text-gray-400">
+                  Toggle optional tabs in the navigation bar. Crash Analyzer and History are always visible.
+                </p>
+
+                {/* Code Analyzer toggle */}
+                <div className="flex items-center justify-between p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <span className="p-1.5 rounded-md bg-violet-500/10">
+                      <Code className="w-4 h-4 text-violet-400" />
+                    </span>
+                    <div>
+                      <label className="block text-sm font-semibold mb-0.5">Code Analyzer</label>
+                      <p className="text-xs text-gray-400">AI-powered code review and security scanning</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true);
+                      setBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, next);
+                      onSettingsChange?.();
+                    }}
+                    className={`relative w-14 h-8 rounded-full transition-colors ${
+                      getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true) ? "bg-violet-600" : "bg-gray-600"
+                    }`}
+                  >
+                    <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-transform ${
+                      getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true) ? "translate-x-7" : "translate-x-1"
+                    }`} />
+                  </button>
+                </div>
+
+                {/* Performance Analyzer toggle */}
+                <div className="flex items-center justify-between p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <span className="p-1.5 rounded-md bg-cyan-500/10">
+                      <Cpu className="w-4 h-4 text-cyan-400" />
+                    </span>
+                    <div>
+                      <label className="block text-sm font-semibold mb-0.5">Performance Analyzer</label>
+                      <p className="text-xs text-gray-400">Analyze performance traces and bottlenecks</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true);
+                      setBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, next);
+                      onSettingsChange?.();
+                    }}
+                    className={`relative w-14 h-8 rounded-full transition-colors ${
+                      getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true) ? "bg-cyan-600" : "bg-gray-600"
+                    }`}
+                  >
+                    <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-transform ${
+                      getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true) ? "translate-x-7" : "translate-x-1"
+                    }`} />
+                  </button>
+                </div>
+
+                {/* Ask Hadron toggle */}
+                <div className="flex items-center justify-between p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <span className="p-1.5 rounded-md bg-emerald-500/10">
+                      <MessageCircle className="w-4 h-4 text-emerald-400" />
+                    </span>
+                    <div>
+                      <label className="block text-sm font-semibold mb-0.5">Ask Hadron</label>
+                      <p className="text-xs text-gray-400">AI chat assistant with knowledge retrieval</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true);
+                      setBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, next);
+                      onSettingsChange?.();
+                    }}
+                    className={`relative w-14 h-8 rounded-full transition-colors ${
+                      getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true) ? "bg-emerald-600" : "bg-gray-600"
+                    }`}
+                  >
+                    <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-transform ${
+                      getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true) ? "translate-x-7" : "translate-x-1"
+                    }`} />
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -953,23 +1033,17 @@ export default function SettingsPanel({
               {/* Updates */}
               <div className="space-y-3">
                 <label className="block text-sm font-semibold">Updates</label>
-                <button
+                <Button
+                  variant="primary"
+                  size="lg"
+                  fullWidth
                   onClick={handleCheckForUpdates}
                   disabled={isCheckingUpdate || !isOnline}
-                  className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2"
+                  loading={isCheckingUpdate}
+                  icon={<Download />}
                 >
-                  {isCheckingUpdate ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Checking...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      Check for Updates
-                    </>
-                  )}
-                </button>
+                  {isCheckingUpdate ? "Checking..." : "Check for Updates"}
+                </Button>
                 {updateMessage && (
                   <div className={`p-3 rounded-lg text-sm ${
                     updateMessage.includes("up to date")
@@ -986,13 +1060,15 @@ export default function SettingsPanel({
               {/* Diagnostics */}
               <div className="space-y-3">
                 <label className="block text-sm font-semibold">Diagnostics</label>
-                <button
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  fullWidth
                   onClick={handleExportDiagnostics}
-                  className="w-full px-4 py-2.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition flex items-center justify-center gap-2"
+                  icon={<Clipboard />}
                 >
-                  <Clipboard className="w-4 h-4" />
                   Export Diagnostics to Clipboard
-                </button>
+                </Button>
                 <p className="text-xs text-gray-500">
                   Copies system info for troubleshooting (API keys excluded)
                 </p>
@@ -1010,23 +1086,17 @@ export default function SettingsPanel({
               {/* Auto-Tagging */}
               <div className="space-y-3">
                 <label className="block text-sm font-semibold">Auto-Tagging</label>
-                <button
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  fullWidth
                   onClick={handleAutoTagHistory}
                   disabled={isAutoTagging}
-                  className="w-full px-4 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2"
+                  loading={isAutoTagging}
+                  icon={<Check />}
                 >
-                  {isAutoTagging ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Tagging...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      Auto-tag History
-                    </>
-                  )}
-                </button>
+                  {isAutoTagging ? "Tagging..." : "Auto-tag History"}
+                </Button>
                 <p className="text-xs text-gray-500">
                   Applies deterministic tags to analyses without tags (severity, type, patterns).
                 </p>
@@ -1091,7 +1161,8 @@ export default function SettingsPanel({
                         )}
                       </p>
                     </div>
-                    <button
+                    <Button
+                      size="sm"
                       onClick={async () => {
                         setIsExportingGold(true);
                         setGoldExportMsg(null);
@@ -1113,15 +1184,12 @@ export default function SettingsPanel({
                         }
                       }}
                       disabled={isExportingGold || goldCount === 0}
-                      className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 disabled:bg-gray-700 disabled:cursor-not-allowed text-amber-400 disabled:text-gray-500 rounded-lg transition text-xs flex items-center gap-1.5"
+                      loading={isExportingGold}
+                      icon={<Download />}
+                      className="bg-amber-600/20 hover:bg-amber-600/30 text-amber-400"
                     >
-                      {isExportingGold ? (
-                        <RefreshCw className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <Download className="w-3 h-3" />
-                      )}
                       Export as JSONL
-                    </button>
+                    </Button>
                   </div>
                   {goldExportMsg && (
                     <p className={`text-xs ${goldExportMsg.includes("failed") ? "text-red-400" : "text-green-400"}`}>
@@ -1139,7 +1207,8 @@ export default function SettingsPanel({
                         AI-generated session summaries for RAG indexing
                       </p>
                     </div>
-                    <button
+                    <Button
+                      size="sm"
                       onClick={async () => {
                         setIsExportingSummaries(true);
                         setSummaryExportMsg(null);
@@ -1161,15 +1230,12 @@ export default function SettingsPanel({
                         }
                       }}
                       disabled={isExportingSummaries}
-                      className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 disabled:bg-gray-700 disabled:cursor-not-allowed text-blue-400 disabled:text-gray-500 rounded-lg transition text-xs flex items-center gap-1.5"
+                      loading={isExportingSummaries}
+                      icon={<Download />}
+                      className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400"
                     >
-                      {isExportingSummaries ? (
-                        <RefreshCw className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <Download className="w-3 h-3" />
-                      )}
                       Export for RAG
-                    </button>
+                    </Button>
                   </div>
                   {summaryExportMsg && (
                     <p className={`text-xs ${summaryExportMsg.includes("failed") ? "text-red-400" : "text-green-400"}`}>
@@ -1184,29 +1250,24 @@ export default function SettingsPanel({
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-700 flex gap-3">
-          <button
+          <Button
+            variant="primary"
+            size="lg"
             onClick={handleSaveSettings}
             disabled={isSaving}
-            className="flex-1 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center justify-center gap-2 font-medium"
+            loading={isSaving}
+            icon={<Save />}
+            className="flex-1 justify-center font-medium"
           >
-            {isSaving ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                Save Settings
-              </>
-            )}
-          </button>
-          <button
+            {isSaving ? "Saving..." : "Save Settings"}
+          </Button>
+          <Button
+            variant="secondary"
+            size="lg"
             onClick={onClose}
-            className="px-6 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
           >
             Cancel
-          </button>
+          </Button>
         </div>
 
         {/* Save Message Toast */}
@@ -1220,6 +1281,6 @@ export default function SettingsPanel({
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

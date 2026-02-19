@@ -10,6 +10,7 @@
 
 import { Component, ReactNode } from "react";
 import { AlertTriangle, RefreshCw, Bug, ChevronDown, ChevronUp } from "lucide-react";
+import Button from "./ui/Button";
 import logger from "../services/logger";
 
 // ============================================================================
@@ -117,19 +118,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
               {/* Action buttons */}
               <div className="flex gap-3 mb-4">
-                <button
+                <Button
+                  variant="secondary"
                   onClick={this.handleRetry}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition text-sm"
+                  icon={<RefreshCw />}
                 >
-                  <RefreshCw className="w-4 h-4" />
                   Try Again
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
                   onClick={this.handleReload}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition text-sm"
                 >
                   Reload App
-                </button>
+                </Button>
               </div>
 
               {/* Error details (collapsible) */}
@@ -219,13 +220,14 @@ export function AppErrorBoundary({ children }: { children: ReactNode }) {
               The application encountered an unexpected error and cannot continue.
               Please reload to try again.
             </p>
-            <button
+            <Button
+              variant="primary"
+              size="lg"
               onClick={() => window.location.reload()}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-medium"
+              icon={<RefreshCw />}
             >
-              <RefreshCw className="w-5 h-5" />
               Reload Application
-            </button>
+            </Button>
           </div>
         </div>
       }

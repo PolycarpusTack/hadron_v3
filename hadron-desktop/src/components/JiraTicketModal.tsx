@@ -16,6 +16,8 @@ import {
   FileText,
   AlertTriangle,
 } from "lucide-react";
+import Button from "./ui/Button";
+import Modal from "./ui/Modal";
 import type { Analysis } from "../services/api";
 import {
   createJiraTicket,
@@ -163,11 +165,9 @@ export default function JiraTicketModal({
   const hasProjectList = projects.length > 0;
   const isUnknownProject = hasProjectList && normalizedProjectKey.length > 0 && !knownProjectKeys.includes(normalizedProjectKey);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-2xl">
+      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <div className="flex items-center gap-3">
@@ -211,13 +211,15 @@ export default function JiraTicketModal({
                   Your JIRA ticket has been created successfully.
                 </p>
               </div>
-              <button
+              <Button
                 onClick={() => open(success.ticketUrl)}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition font-semibold"
+                variant="primary"
+                size="lg"
+                icon={<ExternalLink />}
+                className="font-semibold px-6 py-3"
               >
-                <ExternalLink className="w-5 h-5" />
                 Open {success.ticketKey}
-              </button>
+              </Button>
             </div>
           ) : error && !config ? (
             // Configuration error state
@@ -229,12 +231,14 @@ export default function JiraTicketModal({
                 <h3 className="text-xl font-bold text-yellow-400">JIRA Not Configured</h3>
                 <p className="text-gray-400 mt-2">{error}</p>
               </div>
-              <button
+              <Button
                 onClick={onClose}
-                className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+                variant="secondary"
+                size="lg"
+                className="px-6"
               >
                 Close
-              </button>
+              </Button>
             </div>
           ) : (
             // Form
@@ -373,44 +377,40 @@ export default function JiraTicketModal({
                 Add a summary to enable ticket creation.
               </p>
             )}
-            <button
+            <Button
               onClick={onClose}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+              variant="secondary"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleCreateTicket}
-              disabled={isCreating || !summary.trim() || !normalizedProjectKey}
-              className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition font-semibold"
+              disabled={!summary.trim() || !normalizedProjectKey}
+              loading={isCreating}
+              variant="primary"
+              size="lg"
+              icon={<Send />}
+              className="font-semibold px-6 disabled:bg-gray-600"
             >
-              {isCreating ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  Create Ticket
-                </>
-              )}
-            </button>
+              {isCreating ? "Creating..." : "Create Ticket"}
+            </Button>
           </div>
         )}
 
         {/* Close button for success state */}
         {success && (
           <div className="p-4 border-t border-gray-700 flex justify-end">
-            <button
+            <Button
               onClick={onClose}
-              className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+              variant="secondary"
+              size="lg"
+              className="px-6"
             >
               Close
-            </button>
+            </Button>
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

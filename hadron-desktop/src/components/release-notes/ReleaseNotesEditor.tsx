@@ -15,6 +15,7 @@ import {
   Code,
   Globe,
 } from "lucide-react";
+import Button from "../ui/Button";
 import {
   getReleaseNotes,
   updateContent,
@@ -42,6 +43,16 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
   // Load draft
   useEffect(() => {
     loadDraft();
+  }, [draftId]);
+
+  // Clean up autosave timer on unmount or draftId change
+  useEffect(() => {
+    return () => {
+      if (autosaveTimer.current) {
+        clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = null;
+      }
+    };
   }, [draftId]);
 
   const loadDraft = async () => {
@@ -208,37 +219,36 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
 
         {/* Export & Save */}
         <div className="flex items-center gap-1.5">
-          <button
-            onClick={handleManualSave}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-md transition-colors"
-          >
-            <Save className="w-3.5 h-3.5" />
+          <Button variant="secondary" size="sm" onClick={handleManualSave} icon={<Save />}>
             Save
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => handleExport("markdown")}
             title="Export as Markdown"
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-md transition-colors"
+            icon={<FileText />}
           >
-            <FileText className="w-3.5 h-3.5" />
             MD
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => handleExport("confluence")}
             title="Export as Confluence Wiki Markup"
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-md transition-colors"
+            icon={<Code />}
           >
-            <Code className="w-3.5 h-3.5" />
             Wiki
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => handleExport("html")}
             title="Export as HTML"
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-md transition-colors"
+            icon={<Globe />}
           >
-            <Globe className="w-3.5 h-3.5" />
             HTML
-          </button>
+          </Button>
         </div>
       </div>
 

@@ -33,6 +33,7 @@ import { SmartList } from "./VirtualizedList";
 import { useToast } from "./Toast";
 import { AdvancedFilterPanel } from "./AdvancedFilterPanel";
 import { BulkActionBar, SelectionType } from "./BulkActionBar";
+import Button from "./ui/Button";
 
 // localStorage key for filter persistence
 const FILTER_STORAGE_KEY = "hadron_history_filters";
@@ -739,18 +740,14 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
             <p className="text-sm text-gray-400">Browse and manage your analysis history</p>
           </div>
         </div>
-        <button
+        <Button
           onClick={toggleSelectionMode}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg transition ${
-            selectionMode
-              ? "bg-blue-600 text-white"
-              : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
-          }`}
+          variant={selectionMode ? "primary" : "secondary"}
+          icon={<CheckSquare />}
           title={selectionMode ? "Exit selection mode" : "Enter selection mode"}
         >
-          <CheckSquare className="w-4 h-4" />
-          <span className="text-sm">{selectionMode ? "Cancel Selection" : "Select"}</span>
-        </button>
+          {selectionMode ? "Cancel Selection" : "Select"}
+        </Button>
       </div>
 
       {/* Analytics Dashboard */}
@@ -818,20 +815,19 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <button
+              <Button
                 onClick={handleAutoTag}
-                disabled={autoTagging}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition text-sm"
+                loading={autoTagging}
               >
                 {autoTagging ? "Tagging..." : "Auto-tag History"}
-              </button>
+              </Button>
               {availableTags.length > 0 && (
-                <button
+                <Button
                   onClick={handleShowTaggedOnly}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition text-sm"
+                  variant="secondary"
                 >
                   Show Tagged Only
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -1048,9 +1044,9 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
       {/* Results */}
       {analyses.length === 0 && translations.length === 0 ? (
-        <div className="text-center p-12 bg-gray-800/50 rounded-lg border border-gray-700">
-          <History className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-400">
+        <div className="text-center p-8 bg-gray-800/50 rounded-lg border border-gray-700">
+          <History className="w-10 h-10 text-gray-500 mx-auto mb-3" />
+          <p className="text-sm text-gray-400">
             {filters.search || activeFilterCount > 0
               ? "No items match your filters"
               : currentTab === "favorites"
@@ -1058,12 +1054,9 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
               : "No history yet. Start by analyzing a crash log or translating technical content!"}
           </p>
           {activeFilterCount > 0 && (
-            <button
-              onClick={resetFilters}
-              className="mt-4 px-4 py-2 text-sm text-blue-400 hover:text-blue-300 transition"
-            >
+            <Button onClick={resetFilters} variant="ghost" size="sm" className="mt-4">
               Clear all filters
-            </button>
+            </Button>
           )}
         </div>
       ) : (

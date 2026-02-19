@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
+import Button from "./ui/Button";
 
 interface StackFrame {
   index: number;
@@ -127,34 +128,28 @@ export default function StackTraceViewer({ stackTrace, title = "Stack Trace" }: 
         </div>
 
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={expandAll}
-            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition"
           >
             Expand All
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={collapseAll}
-            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition"
           >
             Collapse All
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={copyAll}
-            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition flex items-center gap-2"
+            icon={copiedIndex === -1 ? <Check className="text-green-400" /> : <Copy />}
           >
-            {copiedIndex === -1 ? (
-              <>
-                <Check className="w-4 h-4 text-green-400" />
-                Copied!
-              </>
-            ) : (
-              <>
-                <Copy className="w-4 h-4" />
-                Copy All
-              </>
-            )}
-          </button>
+            {copiedIndex === -1 ? "Copied!" : "Copy All"}
+          </Button>
         </div>
       </div>
 
