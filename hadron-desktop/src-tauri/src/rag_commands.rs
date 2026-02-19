@@ -130,7 +130,14 @@ pub struct KBResultItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KBContext {
     pub kb_results: Vec<KBResultItem>,
+    /// Combined release note results (base + customer) for backward compat
     pub release_note_results: Vec<KBResultItem>,
+    /// Base release note results only (general WON implementation)
+    #[serde(default)]
+    pub base_rn_results: Vec<KBResultItem>,
+    /// Customer-specific release note results
+    #[serde(default)]
+    pub customer_rn_results: Vec<KBResultItem>,
     pub retrieval_time_ms: Option<i64>,
     pub source_mode: String,
 }
@@ -140,6 +147,8 @@ impl Default for KBContext {
         Self {
             kb_results: Vec::new(),
             release_note_results: Vec::new(),
+            base_rn_results: Vec::new(),
+            customer_rn_results: Vec::new(),
             retrieval_time_ms: None,
             source_mode: "remote".to_string(),
         }
@@ -622,6 +631,7 @@ pub async fn rag_build_context_internal(
 /// Query KB/Release Notes for domain knowledge (internal use)
 ///
 /// Called by commands_legacy.rs to retrieve domain knowledge for analysis enrichment.
+/// Routes: `mode == "remote"` uses native Rust HTTP calls, `mode == "local"` uses Python subprocess.
 pub async fn kb_query_internal(
     query: &str,
     mode: &str,
@@ -639,6 +649,24 @@ pub async fn kb_query_internal(
         ));
     }
 
+    // Native Rust path for remote mode (no Python subprocess needed)
+    if mode == "remote" {
+        if let Some(ref config) = opensearch_config {
+            return crate::retrieval::hybrid_kb::query_kb_native(
+                config,
+                query,
+                won_version.as_deref(),
+                customer.as_deref(),
+                top_k,
+                api_key,
+            )
+            .await;
+        }
+        // Fall through to Python path if no config
+        log::warn!("Remote mode requested but no OpenSearch config; falling back to Python");
+    }
+
+    // Python subprocess fallback (local ChromaDB mode or missing config)
     let mut input = serde_json::json!({
         "query": query,
         "mode": mode,

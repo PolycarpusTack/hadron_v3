@@ -18,10 +18,12 @@ import ApiKeyWarning from "./components/ApiKeyWarning";
 import BatchProgressDisplay from "./components/BatchProgressDisplay";
 import AppHeader from "./components/AppHeader";
 import AppFooter from "./components/AppFooter";
-import { analyzeCrashLog, translateTechnicalContent, getStoredModel, getStoredProvider, getAnalysisById, saveExternalAnalysis, type AnalysisMode } from "./services/api";
+import { analyzeCrashLog, getStoredModel, getStoredProvider, getAnalysisById, type AnalysisMode } from "./services/api";
+import { analyzeCode } from "./services/code-analysis";
 import { isJiraEnabled } from "./services/jira";
 import { isSentryEnabled } from "./services/sentry";
 import { checkAndUpdate } from "./services/updater";
+import { STORAGE_KEYS, getBooleanSetting } from "./utils/config";
 import { getApiKey, migrateFromLocalStorage } from "./services/secure-storage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAppState } from "./hooks/useAppState";
@@ -54,6 +56,9 @@ function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [jiraEnabled, setJiraEnabled] = useState(false);
   const [sentryEnabled, setSentryEnabled] = useState(false);
+  const [showCodeAnalyzer, setShowCodeAnalyzer] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true));
+  const [showPerformanceAnalyzer, setShowPerformanceAnalyzer] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true));
+  const [showAskHadron, setShowAskHadron] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true));
 
   // Destructure for cleaner code
   const {
@@ -86,7 +91,7 @@ function App() {
       const storedKey = await getApiKey(provider);
 
       // Load theme (non-sensitive, keep in localStorage for now)
-      const storedTheme = localStorage.getItem("theme");
+      const storedTheme = localStorage.getItem(STORAGE_KEYS.THEME);
       const isDark = storedTheme === "dark" || storedTheme === null;
 
       // Initialize state
@@ -101,7 +106,7 @@ function App() {
 
       // Optional: auto-check for updates on startup
       try {
-        const autoCheck = localStorage.getItem("auto_check_updates") === "true";
+        const autoCheck = localStorage.getItem(STORAGE_KEYS.AUTO_CHECK_UPDATES) === "true";
         if (autoCheck) {
           checkAndUpdate().catch((e) => console.warn("Auto update check failed", e));
         }
@@ -122,10 +127,10 @@ function App() {
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
+      localStorage.setItem(STORAGE_KEYS.THEME, "dark");
     } else {
       document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
+      localStorage.setItem(STORAGE_KEYS.THEME, "light");
     }
   }, [darkMode]);
 
@@ -269,158 +274,9 @@ function App() {
   // Handle code analysis
   const handleCodeAnalysis = async (code: string, filename: string, language: string) => {
     actions.startCodeAnalysis();
-
     try {
-      if (!apiKey) {
-        throw new Error("Please set your API key in Settings");
-      }
-
-      const model = getStoredModel();
-      const provider = getStoredProvider();
-
-      logger.info('Starting code analysis', { filename, language, model, provider });
-
-      // Full code analysis prompt
-      const analysisPrompt = `You are an expert code reviewer. Analyze this ${language} code and return a comprehensive JSON response.
-
-FILENAME: ${filename}
-LANGUAGE: ${language}
-
-CODE:
-${code}
-
-Return a JSON object with this EXACT structure:
-{
-  "summary": "2-3 sentence description of what this code does and its purpose",
-  "issues": [
-    {
-      "id": 1,
-      "severity": "critical|high|medium|low",
-      "category": "security|performance|error|best-practice",
-      "line": <line number>,
-      "title": "Short issue title",
-      "description": "What's wrong and why it matters",
-      "technical": "Technical details and evidence from the code",
-      "fix": "Suggested fix with code example",
-      "complexity": "Low|Medium|High",
-      "impact": "Real-world impact if not fixed"
-    }
-  ],
-  "walkthrough": [
-    {
-      "lines": "1-10",
-      "title": "Section name (e.g., 'Imports', 'Main Function', 'Error Handling')",
-      "code": "the actual code snippet for these lines",
-      "whatItDoes": "Clear explanation of what this code does",
-      "whyItMatters": "Why this section is important",
-      "evidence": "Specific code tokens/patterns that support the explanation",
-      "dependencies": [{"name": "dependency name", "type": "import|variable|function|table", "note": "brief note"}],
-      "impact": "What happens if this code is changed or removed",
-      "testability": "How to test this section",
-      "eli5": "Simple analogy a beginner would understand",
-      "quality": "Code quality observations for this section"
-    }
-  ],
-  "optimizedCode": "Improved version of the full code with issues fixed, or null if no improvements needed",
-  "qualityScores": {
-    "overall": <0-100>,
-    "security": <0-100>,
-    "performance": <0-100>,
-    "maintainability": <0-100>,
-    "bestPractices": <0-100>
-  },
-  "glossary": [
-    {"term": "Technical term used", "definition": "Clear definition"}
-  ]
-}
-
-IMPORTANT INSTRUCTIONS:
-1. Find ALL issues - security vulnerabilities, performance problems, bugs, and best practice violations
-2. Create walkthrough sections for logical code blocks (imports, functions, classes, etc.)
-3. Be specific with line numbers and code references
-4. Provide actionable fixes with actual code
-5. Return ONLY valid JSON, no markdown or additional text`;
-
-      const response = await translateTechnicalContent(analysisPrompt, apiKey, model, provider);
-
-      // Parse the JSON response
-      let result;
-      try {
-        // Extract JSON from response
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          // Ensure all required fields exist with defaults
-          result = {
-            summary: parsed.summary || "Analysis complete.",
-            issues: (parsed.issues || []).map((issue: Record<string, unknown>, idx: number) => ({
-              ...issue,
-              id: issue.id || idx + 1,
-              severity: issue.severity || "medium",
-              category: issue.category || "best-practice",
-              line: issue.line || 1,
-              impact: issue.impact || "Review recommended"
-            })),
-            walkthrough: parsed.walkthrough || [],
-            optimizedCode: parsed.optimizedCode || null,
-            qualityScores: parsed.qualityScores || {
-              overall: 50, security: 50, performance: 50, maintainability: 50, bestPractices: 50
-            },
-            glossary: parsed.glossary || []
-          };
-        } else {
-          throw new Error("No JSON found in response");
-        }
-      } catch (parseError) {
-        logger.error('Failed to parse code analysis response', { error: parseError });
-        // Show error to user instead of silently falling back to demo data
-        const errorMessage = parseError instanceof Error ? parseError.message : 'Unknown parsing error';
-        throw new Error(`Failed to parse AI response: ${errorMessage}. The AI may have returned malformed JSON. Please try again.`);
-      }
-
+      const result = await analyzeCode(code, filename, language);
       actions.codeAnalysisSuccess(result);
-
-      const severityRank: Record<string, number> = {
-        critical: 4,
-        high: 3,
-        medium: 2,
-        low: 1,
-      };
-      const issueSeverities = result.issues.map((issue: { severity?: string }) =>
-        (issue.severity || "medium").toLowerCase()
-      );
-      const topSeverity = issueSeverities.reduce((current: string, next: string) => {
-        return (severityRank[next] || 0) > (severityRank[current] || 0) ? next : current;
-      }, "medium");
-
-      try {
-        await saveExternalAnalysis({
-          filename,
-          file_size_kb: code.length / 1024,
-          summary: result.summary,
-          severity: topSeverity,
-          analysis_type: "code",
-          suggested_fixes: result.issues
-            .map((issue: { title?: string; fix?: string }) =>
-              [issue.title, issue.fix].filter(Boolean).join(": ")
-            )
-            .filter((fix: string) => fix.trim().length > 0),
-          ai_model: model,
-          ai_provider: provider,
-          full_data: {
-            ...result,
-            language,
-          },
-          component: language,
-          error_type: "CodeReview",
-        });
-      } catch (saveError) {
-        logger.warn("Failed to save code analysis to history", {
-          filename,
-          error: saveError instanceof Error ? saveError.message : String(saveError),
-        });
-      }
-
       return result;
     } catch (err) {
       const friendlyError = getUserFriendlyErrorMessage(err);
@@ -449,6 +305,17 @@ IMPORTANT INSTRUCTIONS:
     if (!jiraStatus && currentView === "release_notes") {
       actions.setView("analyze");
     }
+    // Re-read feature flags
+    const codeFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true);
+    const perfFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true);
+    const chatFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true);
+    setShowCodeAnalyzer(codeFlag);
+    setShowPerformanceAnalyzer(perfFlag);
+    setShowAskHadron(chatFlag);
+    // Redirect if active view was disabled
+    if (!codeFlag && currentView === "translate") actions.setView("analyze");
+    if (!perfFlag && currentView === "performance") actions.setView("analyze");
+    if (!chatFlag && currentView === "chat") actions.setView("analyze");
   };
 
   // Handle opening analysis from dashboard
@@ -480,7 +347,7 @@ IMPORTANT INSTRUCTIONS:
         />
 
         {/* Navigation Tabs */}
-        <Navigation currentView={currentView} onViewChange={actions.setView} showJiraAnalyzer={jiraEnabled} showSentryAnalyzer={sentryEnabled} showReleaseNotes={jiraEnabled} />
+        <Navigation currentView={currentView} onViewChange={actions.setView} showJiraAnalyzer={jiraEnabled} showSentryAnalyzer={sentryEnabled} showReleaseNotes={jiraEnabled} showCodeAnalyzer={showCodeAnalyzer} showPerformanceAnalyzer={showPerformanceAnalyzer} showAskHadron={showAskHadron} />
 
         {/* API Key Warning */}
         <ApiKeyWarning hasApiKey={!!apiKey} />
@@ -588,7 +455,17 @@ IMPORTANT INSTRUCTIONS:
             <ViewErrorBoundary name="Ask Hadron">
               <Suspense fallback={<LazyLoadFallback />}>
                 <div id="chat-panel" role="tabpanel">
-                  <AskHadronView selectedAnalysisId={selectedAnalysis?.id ?? null} />
+                  <AskHadronView
+                    selectedAnalysisId={selectedAnalysis?.id ?? null}
+                    onNavigateToAnalysis={async (id) => {
+                      try {
+                        const analysis = await getAnalysisById(id);
+                        actions.viewAnalysis(analysis);
+                      } catch (err) {
+                        logger.error("Failed to navigate to analysis", { id, error: err instanceof Error ? err.message : String(err) });
+                      }
+                    }}
+                  />
                 </div>
               </Suspense>
             </ViewErrorBoundary>

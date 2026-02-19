@@ -7,9 +7,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { analyzeWithResilience } from "./circuit-breaker";
 import { getApiKey, storeApiKey as storeApiKeySecure } from "./secure-storage";
-import { getBooleanSetting } from "../utils/config";
+import { getBooleanSetting, STORAGE_KEYS } from "../utils/config";
 import { apiCache, CacheKeys, CacheTTL } from "./cache";
 import logger from "./logger";
+import { getDefaultModelForProvider } from "../constants/providers";
 import type { AnalysisNote, TrendDataPoint, ErrorPatternCount, GoldAnalysis } from "../types";
 
 export interface AnalysisRequest {
@@ -394,7 +395,7 @@ export async function getAnalysesFiltered(
  * Get AI provider from local storage
  */
 export function getStoredProvider(): string {
-  return localStorage.getItem("ai_provider") || "openai";
+  return localStorage.getItem(STORAGE_KEYS.AI_PROVIDER) || "openai";
 }
 
 /**
@@ -421,19 +422,33 @@ export async function saveApiKey(apiKey: string, provider?: string): Promise<voi
  */
 export function getStoredModel(): string {
   const provider = getStoredProvider();
-  const defaultModel =
-    provider === "zai" ? "glm-4" :
-    provider === "anthropic" ? "claude-sonnet-4-20250514" :
-    provider === "llamacpp" ? "default" :
-    "gpt-4o";
-  return localStorage.getItem("ai_model") || defaultModel;
+  return localStorage.getItem(STORAGE_KEYS.AI_MODEL) || getDefaultModelForProvider(provider);
 }
 
 /**
  * Save selected AI model to local storage
  */
 export function saveModel(model: string): void {
-  localStorage.setItem("ai_model", model);
+  localStorage.setItem(STORAGE_KEYS.AI_MODEL, model);
+}
+
+/**
+ * Get auxiliary (lightweight) model for internal LLM calls.
+ * Returns null if not configured (falls back to main model).
+ */
+export function getStoredAuxiliaryModel(): string | null {
+  return localStorage.getItem(STORAGE_KEYS.AI_AUXILIARY_MODEL) || null;
+}
+
+/**
+ * Save auxiliary model to local storage
+ */
+export function saveAuxiliaryModel(model: string): void {
+  if (model) {
+    localStorage.setItem(STORAGE_KEYS.AI_AUXILIARY_MODEL, model);
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.AI_AUXILIARY_MODEL);
+  }
 }
 
 /**

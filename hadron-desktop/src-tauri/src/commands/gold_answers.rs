@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::database::{Database, GoldAnswer};
+use crate::error::CommandResult;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -32,8 +33,8 @@ pub struct ExportGoldRequest {
 pub async fn save_gold_answer(
     db: tauri::State<'_, Arc<Database>>,
     request: SaveGoldAnswerRequest,
-) -> Result<i64, String> {
-    db.save_gold_answer(
+) -> CommandResult<i64> {
+    Ok(db.save_gold_answer(
         &request.question,
         &request.answer,
         &request.session_id,
@@ -43,8 +44,7 @@ pub async fn save_gold_answer(
         request.tags.as_deref(),
         request.verified_by.as_deref(),
         request.tool_results_json.as_deref(),
-    )
-    .map_err(|e| e.to_string())
+    )?)
 }
 
 #[tauri::command]
@@ -54,14 +54,13 @@ pub async fn list_gold_answers(
     offset: Option<i64>,
     customer: Option<String>,
     tag: Option<String>,
-) -> Result<Vec<GoldAnswer>, String> {
-    db.list_gold_answers(
+) -> CommandResult<Vec<GoldAnswer>> {
+    Ok(db.list_gold_answers(
         limit.unwrap_or(50),
         offset.unwrap_or(0),
         customer.as_deref(),
         tag.as_deref(),
-    )
-    .map_err(|e| e.to_string())
+    )?)
 }
 
 #[tauri::command]
@@ -69,32 +68,29 @@ pub async fn search_gold_answers_cmd(
     db: tauri::State<'_, Arc<Database>>,
     query: String,
     limit: Option<i64>,
-) -> Result<Vec<GoldAnswer>, String> {
-    db.search_gold_answers(&query, limit.unwrap_or(10))
-        .map_err(|e| e.to_string())
+) -> CommandResult<Vec<GoldAnswer>> {
+    Ok(db.search_gold_answers(&query, limit.unwrap_or(10))?)
 }
 
 #[tauri::command]
 pub async fn delete_gold_answer_cmd(
     db: tauri::State<'_, Arc<Database>>,
     id: i64,
-) -> Result<(), String> {
-    db.delete_gold_answer(id).map_err(|e| e.to_string())
+) -> CommandResult<()> {
+    Ok(db.delete_gold_answer(id)?)
 }
 
 #[tauri::command]
 pub async fn export_gold_answers_jsonl(
     db: tauri::State<'_, Arc<Database>>,
     request: ExportGoldRequest,
-) -> Result<String, String> {
-    let answers = db
-        .get_gold_answers_for_export(
-            request.date_from.as_deref(),
-            request.date_to.as_deref(),
-            request.customer.as_deref(),
-            request.tags.as_deref(),
-        )
-        .map_err(|e| e.to_string())?;
+) -> CommandResult<String> {
+    let answers = db.get_gold_answers_for_export(
+        request.date_from.as_deref(),
+        request.date_to.as_deref(),
+        request.customer.as_deref(),
+        request.tags.as_deref(),
+    )?;
 
     // Build JSONL in OpenAI chat format
     let mut jsonl = String::new();

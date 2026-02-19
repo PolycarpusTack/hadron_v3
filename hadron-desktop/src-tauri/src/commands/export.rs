@@ -112,7 +112,10 @@ pub fn generate_report(
     // Determine format
     let format = match request.format.to_lowercase().as_str() {
         "html" => ExportFormat::Html,
+        "html_interactive" => ExportFormat::HtmlInteractive,
         "json" => ExportFormat::Json,
+        "txt" | "text" => ExportFormat::Txt,
+        "xlsx" | "excel" => ExportFormat::Xlsx,
         _ => ExportFormat::Markdown,
     };
 
@@ -122,8 +125,11 @@ pub fn generate_report(
     // Determine file extension
     let extension = match format {
         ExportFormat::Html => "html",
+        ExportFormat::HtmlInteractive => "html",
         ExportFormat::Json => "json",
         ExportFormat::Markdown => "md",
+        ExportFormat::Txt => "txt",
+        ExportFormat::Xlsx => "xlsx",
     };
 
     // Create suggested filename
@@ -347,7 +353,10 @@ pub fn generate_report_multi(
     // Determine format
     let format = match request.format.to_lowercase().as_str() {
         "html" => ExportFormat::Html,
+        "html_interactive" => ExportFormat::HtmlInteractive,
         "json" => ExportFormat::Json,
+        "txt" | "text" => ExportFormat::Txt,
+        "xlsx" | "excel" => ExportFormat::Xlsx,
         _ => ExportFormat::Markdown,
     };
 
@@ -357,8 +366,11 @@ pub fn generate_report_multi(
     // Determine file extension
     let extension = match format {
         ExportFormat::Html => "html",
+        ExportFormat::HtmlInteractive => "html",
         ExportFormat::Json => "json",
         ExportFormat::Markdown => "md",
+        ExportFormat::Txt => "txt",
+        ExportFormat::Xlsx => "xlsx",
     };
 
     let suggested_filename = format!("combined_report_{}.{}", request.files.len(), extension);

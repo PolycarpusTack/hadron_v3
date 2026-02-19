@@ -10,6 +10,8 @@ import { invoke } from '@tauri-apps/api/core';
 import logger from './logger';
 import type { AnalysisResponse } from './api';
 import { getApiKey } from './secure-storage';
+import { getDefaultModelForProvider } from '../constants/providers';
+import { STORAGE_KEYS } from '../utils/config';
 import { getBooleanSetting } from '../utils/config';
 import { apiCache, CacheKeys } from './cache';
 import { getKeeperSecretForProvider } from './keeper';
@@ -180,7 +182,7 @@ async function callAIProvider(request: AnalysisRequest): Promise<AnalysisRespons
  * Get active providers from localStorage
  */
 function getActiveProviders(): string[] {
-  const savedActiveProviders = localStorage.getItem("active_providers");
+  const savedActiveProviders = localStorage.getItem(STORAGE_KEYS.ACTIVE_PROVIDERS);
   if (savedActiveProviders) {
     try {
       const activeProviders = JSON.parse(savedActiveProviders);
@@ -213,10 +215,7 @@ function defaultModelForProvider(provider: string, currentModel: string): string
     return currentModel;
   }
   // Otherwise choose sensible defaults
-  if (p === 'anthropic') return 'claude-sonnet-4-20250514';
-  if (p === 'zai') return 'glm-4';
-  if (p === 'llamacpp') return 'default';
-  return 'gpt-4o';
+  return getDefaultModelForProvider(p);
 }
 
 /**
@@ -340,7 +339,7 @@ export async function analyzeWithResilience(
       return result;
 
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : (typeof error === 'string' ? error : 'Unknown error');
 
       // Record failure
       recordFailure(provider);

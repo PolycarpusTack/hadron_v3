@@ -1,17 +1,15 @@
 //! Basic CRUD operations for analyses and translations
 
 use crate::database::{Analysis, Translation};
+use crate::error::CommandResult;
 use super::common::DbState;
 use std::sync::Arc;
 
 /// Get all analyses from history (with default pagination)
 #[tauri::command]
-pub async fn get_all_analyses(db: DbState<'_>) -> Result<Vec<Analysis>, String> {
+pub async fn get_all_analyses(db: DbState<'_>) -> CommandResult<Vec<Analysis>> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_all_analyses())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.get_all_analyses()).await??)
 }
 
 /// Get analyses with pagination
@@ -22,52 +20,37 @@ pub async fn get_analyses_paginated(
     limit: Option<i64>,
     offset: Option<i64>,
     db: DbState<'_>,
-) -> Result<Vec<Analysis>, String> {
+) -> CommandResult<Vec<Analysis>> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_analyses_paginated(limit, offset))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.get_analyses_paginated(limit, offset)).await??)
 }
 
 /// Get total count of analyses (for pagination UI)
 #[tauri::command]
-pub async fn get_analyses_count(db: DbState<'_>) -> Result<i64, String> {
+pub async fn get_analyses_count(db: DbState<'_>) -> CommandResult<i64> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_analyses_count())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.get_analyses_count()).await??)
 }
 
 /// Get a specific analysis by ID
 #[tauri::command]
-pub async fn get_analysis_by_id(id: i64, db: DbState<'_>) -> Result<Analysis, String> {
+pub async fn get_analysis_by_id(id: i64, db: DbState<'_>) -> CommandResult<Analysis> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_analysis_by_id(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.get_analysis_by_id(id)).await??)
 }
 
 /// Delete an analysis
 #[tauri::command]
-pub async fn delete_analysis(id: i64, db: DbState<'_>) -> Result<(), String> {
+pub async fn delete_analysis(id: i64, db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.delete_analysis(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.delete_analysis(id)).await??)
 }
 
 /// Export analysis to Markdown
 #[tauri::command]
-pub async fn export_analysis(id: i64, db: DbState<'_>) -> Result<String, String> {
+pub async fn export_analysis(id: i64, db: DbState<'_>) -> CommandResult<String> {
     let db = Arc::clone(&db);
-    let analysis = tauri::async_runtime::spawn_blocking(move || db.get_analysis_by_id(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
+    let analysis = tauri::async_runtime::spawn_blocking(move || db.get_analysis_by_id(id)).await??;
 
     let fixes: Vec<String> = serde_json::from_str(&analysis.suggested_fixes).unwrap_or_else(|e| {
         log::warn!(
@@ -106,121 +89,85 @@ pub async fn export_analysis(id: i64, db: DbState<'_>) -> Result<String, String>
 
 /// Toggle favorite status for an analysis
 #[tauri::command]
-pub async fn toggle_favorite(id: i64, db: DbState<'_>) -> Result<bool, String> {
+pub async fn toggle_favorite(id: i64, db: DbState<'_>) -> CommandResult<bool> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.toggle_favorite(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.toggle_favorite(id)).await??)
 }
 
 /// Get all favorite analyses
 #[tauri::command]
-pub async fn get_favorites(db: DbState<'_>) -> Result<Vec<Analysis>, String> {
+pub async fn get_favorites(db: DbState<'_>) -> CommandResult<Vec<Analysis>> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_favorites())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.get_favorites()).await??)
 }
 
 /// Get recently viewed analyses
 #[tauri::command]
-pub async fn get_recent(limit: Option<i64>, db: DbState<'_>) -> Result<Vec<Analysis>, String> {
+pub async fn get_recent(limit: Option<i64>, db: DbState<'_>) -> CommandResult<Vec<Analysis>> {
     let db = Arc::clone(&db);
     let limit = limit.unwrap_or(10);
-    tauri::async_runtime::spawn_blocking(move || db.get_recent(limit))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.get_recent(limit)).await??)
 }
 
 /// Get database statistics
 #[tauri::command]
-pub async fn get_database_statistics(db: DbState<'_>) -> Result<serde_json::Value, String> {
+pub async fn get_database_statistics(db: DbState<'_>) -> CommandResult<serde_json::Value> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_statistics())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.get_statistics()).await??)
 }
 
 /// Optimize FTS5 index
 #[tauri::command]
-pub async fn optimize_fts_index(db: DbState<'_>) -> Result<(), String> {
+pub async fn optimize_fts_index(db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.optimize_fts())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.optimize_fts()).await??)
 }
 
 /// Run database integrity check
 #[tauri::command]
-pub async fn check_database_integrity(db: DbState<'_>) -> Result<bool, String> {
+pub async fn check_database_integrity(db: DbState<'_>) -> CommandResult<bool> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.integrity_check())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.integrity_check()).await??)
 }
 
 /// Compact database (VACUUM)
 #[tauri::command]
-pub async fn compact_database(db: DbState<'_>) -> Result<(), String> {
+pub async fn compact_database(db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.compact())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.compact()).await??)
 }
 
 /// Checkpoint WAL file
 #[tauri::command]
-pub async fn checkpoint_wal(db: DbState<'_>) -> Result<(), String> {
+pub async fn checkpoint_wal(db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.checkpoint_wal())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.checkpoint_wal()).await??)
 }
 
 /// Get all translations
 #[tauri::command]
-pub async fn get_all_translations(db: DbState<'_>) -> Result<Vec<Translation>, String> {
+pub async fn get_all_translations(db: DbState<'_>) -> CommandResult<Vec<Translation>> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_all_translations())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.get_all_translations()).await??)
 }
 
 /// Get translation by ID
 #[tauri::command]
-pub async fn get_translation_by_id(id: i64, db: DbState<'_>) -> Result<Translation, String> {
+pub async fn get_translation_by_id(id: i64, db: DbState<'_>) -> CommandResult<Translation> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_translation_by_id(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.get_translation_by_id(id)).await??)
 }
 
 /// Delete a translation
 #[tauri::command]
-pub async fn delete_translation(id: i64, db: DbState<'_>) -> Result<(), String> {
+pub async fn delete_translation(id: i64, db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.delete_translation(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.delete_translation(id)).await??)
 }
 
 /// Toggle favorite status for a translation
 #[tauri::command]
-pub async fn toggle_translation_favorite(id: i64, db: DbState<'_>) -> Result<bool, String> {
+pub async fn toggle_translation_favorite(id: i64, db: DbState<'_>) -> CommandResult<bool> {
     let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.toggle_translation_favorite(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
+    Ok(tauri::async_runtime::spawn_blocking(move || db.toggle_translation_favorite(id)).await??)
 }

@@ -131,6 +131,8 @@ pub struct ProgressEvent {
     pub phase: ReleaseNotesPhase,
     pub progress: f64,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 // ============================================================================
@@ -142,6 +144,7 @@ pub fn emit_progress(app: &AppHandle, phase: ReleaseNotesPhase, progress: f64, m
         phase,
         progress,
         message: message.to_string(),
+        request_id: None,
     };
     let _ = app.emit("release-notes-progress", &event);
 }
@@ -419,7 +422,7 @@ pub async fn generate_release_notes_markdown(
     let system_prompt = build_generation_system_prompt(config);
     let user_prompt = build_generation_user_prompt(tickets, config);
 
-    let request_body = build_ai_request(provider, &system_prompt, &user_prompt, model, 8000);
+    let request_body = build_ai_request_freeform(provider, &system_prompt, &user_prompt, model, 8000);
     let response = ai_service::call_provider_raw_json(provider, request_body, api_key).await?;
 
     let (content, tokens, cost) = extract_ai_response(provider, &response);
@@ -787,6 +790,29 @@ pub async fn run_full_pipeline(
     db: &Database,
     app: &AppHandle,
 ) -> Result<ReleaseNotesResult, String> {
+    let result = run_full_pipeline_inner(
+        config, base_url, email, api_token, api_key, model, provider, db, app,
+    )
+    .await;
+
+    if let Err(ref e) = result {
+        emit_progress(app, ReleaseNotesPhase::Failed, 0.0, e);
+    }
+
+    result
+}
+
+async fn run_full_pipeline_inner(
+    config: ReleaseNotesConfig,
+    base_url: &str,
+    email: &str,
+    api_token: &str,
+    api_key: &str,
+    model: &str,
+    provider: &str,
+    db: &Database,
+    app: &AppHandle,
+) -> Result<ReleaseNotesResult, String> {
     let start = Instant::now();
     let mut total_tokens = 0i32;
     let mut total_cost = 0.0f64;
@@ -931,6 +957,27 @@ fn build_ai_request(
     model: &str,
     max_tokens: u32,
 ) -> serde_json::Value {
+    build_ai_request_inner(provider, system_prompt, user_prompt, model, max_tokens, true)
+}
+
+fn build_ai_request_freeform(
+    provider: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    model: &str,
+    max_tokens: u32,
+) -> serde_json::Value {
+    build_ai_request_inner(provider, system_prompt, user_prompt, model, max_tokens, false)
+}
+
+fn build_ai_request_inner(
+    provider: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    model: &str,
+    max_tokens: u32,
+    json_mode: bool,
+) -> serde_json::Value {
     match provider {
         "anthropic" => json!({
             "model": model,
@@ -949,9 +996,11 @@ fn build_ai_request(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                "temperature": 0.1,
-                "response_format": {"type": "json_object"}
+                "temperature": 0.1
             });
+            if json_mode {
+                body["response_format"] = json!({"type": "json_object"});
+            }
             if is_gpt5 {
                 body["max_completion_tokens"] = json!(max_tokens);
             } else {

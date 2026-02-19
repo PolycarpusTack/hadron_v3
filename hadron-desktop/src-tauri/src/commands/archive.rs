@@ -1,62 +1,43 @@
 //! Archive system commands
 
 use crate::database::Analysis;
-use super::bulk_ops::BulkOperationResult;
+use crate::error::CommandResult;
+use crate::commands_legacy::BulkOperationResult;
 use super::common::DbState;
 use std::sync::Arc;
 
 /// Archive an analysis (soft delete)
 #[tauri::command]
-pub async fn archive_analysis(id: i64, db: DbState<'_>) -> Result<(), String> {
+pub async fn archive_analysis(id: i64, db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.archive_analysis(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
+    tauri::async_runtime::spawn_blocking(move || db.archive_analysis(id)).await??;
     log::info!("Archived analysis id={}", id);
     Ok(())
 }
 
 /// Restore an archived analysis
 #[tauri::command]
-pub async fn restore_analysis(id: i64, db: DbState<'_>) -> Result<(), String> {
+pub async fn restore_analysis(id: i64, db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.restore_analysis(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
+    tauri::async_runtime::spawn_blocking(move || db.restore_analysis(id)).await??;
     log::info!("Restored analysis id={}", id);
     Ok(())
 }
 
 /// Get all archived analyses
 #[tauri::command]
-pub async fn get_archived_analyses(db: DbState<'_>) -> Result<Vec<Analysis>, String> {
+pub async fn get_archived_analyses(db: DbState<'_>) -> CommandResult<Vec<Analysis>> {
     let db = Arc::clone(&db);
-
-    let analyses = tauri::async_runtime::spawn_blocking(move || db.get_archived_analyses())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
+    let analyses = tauri::async_runtime::spawn_blocking(move || db.get_archived_analyses()).await??;
     log::info!("Retrieved {} archived analyses", analyses.len());
     Ok(analyses)
 }
 
 /// Permanently delete an analysis
 #[tauri::command]
-pub async fn permanently_delete_analysis(id: i64, db: DbState<'_>) -> Result<(), String> {
+pub async fn permanently_delete_analysis(id: i64, db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.permanently_delete_analysis(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
+    tauri::async_runtime::spawn_blocking(move || db.permanently_delete_analysis(id)).await??;
     log::info!("Permanently deleted analysis id={}", id);
     Ok(())
 }
@@ -66,15 +47,10 @@ pub async fn permanently_delete_analysis(id: i64, db: DbState<'_>) -> Result<(),
 pub async fn bulk_archive_analyses(
     ids: Vec<i64>,
     db: DbState<'_>,
-) -> Result<BulkOperationResult, String> {
+) -> CommandResult<BulkOperationResult> {
     let total = ids.len();
     let db = Arc::clone(&db);
-
-    let archived = tauri::async_runtime::spawn_blocking(move || db.bulk_archive_analyses(&ids))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
+    let archived = tauri::async_runtime::spawn_blocking(move || db.bulk_archive_analyses(&ids)).await??;
     log::info!("Bulk archived {} of {} analyses", archived, total);
     Ok(BulkOperationResult {
         success_count: archived,
@@ -84,28 +60,18 @@ pub async fn bulk_archive_analyses(
 
 /// Archive a translation (soft delete)
 #[tauri::command]
-pub async fn archive_translation(id: i64, db: DbState<'_>) -> Result<(), String> {
+pub async fn archive_translation(id: i64, db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.archive_translation(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
+    tauri::async_runtime::spawn_blocking(move || db.archive_translation(id)).await??;
     log::info!("Archived translation id={}", id);
     Ok(())
 }
 
 /// Restore an archived translation
 #[tauri::command]
-pub async fn restore_translation(id: i64, db: DbState<'_>) -> Result<(), String> {
+pub async fn restore_translation(id: i64, db: DbState<'_>) -> CommandResult<()> {
     let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.restore_translation(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
+    tauri::async_runtime::spawn_blocking(move || db.restore_translation(id)).await??;
     log::info!("Restored translation id={}", id);
     Ok(())
 }

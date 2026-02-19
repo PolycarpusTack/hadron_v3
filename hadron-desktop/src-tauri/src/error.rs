@@ -4,9 +4,16 @@
 //! Errors are categorized by domain and converted to user-friendly strings
 //! at the IPC boundary.
 
+use serde::Serialize;
 use thiserror::Error;
 
-/// Unified error type for all Hadron operations
+/// Result alias for Tauri commands using `HadronError`.
+pub type CommandResult<T> = Result<T, HadronError>;
+
+/// Unified error type for all Hadron operations.
+///
+/// Implements `Serialize` (via `to_ipc_string()`) so it can be returned
+/// directly from `#[tauri::command]` functions.
 #[derive(Debug, Error)]
 pub enum HadronError {
     // === Database Errors ===
@@ -165,6 +172,29 @@ impl From<reqwest::Error> for HadronError {
         } else {
             Self::Http(err.to_string())
         }
+    }
+}
+
+impl From<tokio::task::JoinError> for HadronError {
+    fn from(err: tokio::task::JoinError) -> Self {
+        Self::Internal(format!("Task join error: {}", err))
+    }
+}
+
+impl From<tauri::Error> for HadronError {
+    fn from(err: tauri::Error) -> Self {
+        Self::Internal(format!("Tauri runtime error: {}", err))
+    }
+}
+
+/// Tauri requires command error types to implement `Serialize`.
+/// We serialize using `to_ipc_string()` which sanitizes sensitive details.
+impl Serialize for HadronError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        serializer.serialize_str(&self.to_ipc_string())
     }
 }
 

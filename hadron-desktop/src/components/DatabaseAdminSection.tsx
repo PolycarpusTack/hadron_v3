@@ -12,20 +12,14 @@ import {
   Loader2,
   Award,
   Download,
-  FlaskConical,
-  Network,
-  Headphones,
 } from "lucide-react";
 import { getDatabaseInfo, exportGoldJsonl, countGoldForExport } from "../services/api";
 import logger from "../services/logger";
-import ABTestingDashboard from "./ABTestingDashboard";
 import type { DatabaseInfo } from "../types";
 import { formatDistanceToNow } from "date-fns";
 
 // Lazy load heavy components
 const GoldReviewQueue = lazy(() => import("./GoldReviewQueue"));
-const KnowledgeGraph = lazy(() => import("./KnowledgeGraph"));
-const CustomerPortal = lazy(() => import("./CustomerPortal"));
 
 interface DatabaseAdminSectionProps {
   onRefresh?: () => void;
@@ -47,9 +41,7 @@ export default function DatabaseAdminSection({ onRefresh }: DatabaseAdminSection
   const [goldCount, setGoldCount] = useState<number>(0);
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [showABTestingDashboard, setShowABTestingDashboard] = useState(false);
-  const [showKnowledgeGraph, setShowKnowledgeGraph] = useState(false);
-  const [showCustomerPortal, setShowCustomerPortal] = useState(false);
+
 
   useEffect(() => {
     loadDatabaseInfo();
@@ -326,57 +318,6 @@ export default function DatabaseAdminSection({ onRefresh }: DatabaseAdminSection
             </div>
           )}
 
-          {/* A/B Testing Dashboard Button */}
-          <button
-            onClick={() => setShowABTestingDashboard(true)}
-            className="w-full px-4 py-3 bg-gradient-to-r from-purple-600/20 to-pink-600/20 hover:from-purple-600/30 hover:to-pink-600/30 border border-purple-500/30 rounded-lg transition-all flex items-center justify-between group"
-          >
-            <div className="flex items-center gap-3">
-              <FlaskConical className="w-5 h-5 text-purple-400" />
-              <div className="text-left">
-                <p className="font-medium text-white">A/B Testing Dashboard</p>
-                <p className="text-xs text-gray-400">Compare RAG vs baseline performance</p>
-              </div>
-            </div>
-            <svg className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-
-
-          {/* Knowledge Graph Button */}
-          <button
-            onClick={() => setShowKnowledgeGraph(true)}
-            className="w-full px-4 py-3 bg-gradient-to-r from-green-600/20 to-teal-600/20 hover:from-green-600/30 hover:to-teal-600/30 border border-green-500/30 rounded-lg transition-all flex items-center justify-between group"
-          >
-            <div className="flex items-center gap-3">
-              <Network className="w-5 h-5 text-green-400" />
-              <div className="text-left">
-                <p className="font-medium text-white">Knowledge Graph</p>
-                <p className="text-xs text-gray-400">Visualize relationships between crashes and tickets</p>
-              </div>
-            </div>
-            <svg className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-
-          {/* Customer Portal Button */}
-          <button
-            onClick={() => setShowCustomerPortal(true)}
-            className="w-full px-4 py-3 bg-gradient-to-r from-orange-600/20 to-amber-600/20 hover:from-orange-600/30 hover:to-amber-600/30 border border-orange-500/30 rounded-lg transition-all flex items-center justify-between group"
-          >
-            <div className="flex items-center gap-3">
-              <Headphones className="w-5 h-5 text-orange-400" />
-              <div className="text-left">
-                <p className="font-medium text-white">Self-Service Portal</p>
-                <p className="text-xs text-gray-400">Customer issue resolution with AI suggestions</p>
-              </div>
-            </div>
-            <svg className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
         </div>
       </div>
 
@@ -394,79 +335,6 @@ export default function DatabaseAdminSection({ onRefresh }: DatabaseAdminSection
         </Suspense>
       )}
 
-      {/* A/B Testing Dashboard Modal */}
-      {showABTestingDashboard && (
-        <ABTestingDashboard onClose={() => setShowABTestingDashboard(false)} />
-      )}
-
-
-      {/* Knowledge Graph Modal */}
-      {showKnowledgeGraph && (
-        <Suspense fallback={
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="flex items-center gap-3 bg-gray-900 p-6 rounded-lg">
-              <Loader2 className="w-6 h-6 text-green-400 animate-spin" />
-              <span className="text-gray-400">Loading Knowledge Graph...</span>
-            </div>
-          </div>
-        }>
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-gray-900 rounded-xl border border-gray-700 w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between p-4 border-b border-gray-700">
-                <div className="flex items-center gap-3">
-                  <Network className="w-5 h-5 text-green-400" />
-                  <h2 className="text-lg font-semibold text-white">Knowledge Graph</h2>
-                </div>
-                <button
-                  onClick={() => setShowKnowledgeGraph(false)}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <KnowledgeGraph />
-              </div>
-            </div>
-          </div>
-        </Suspense>
-      )}
-
-      {/* Customer Portal Modal */}
-      {showCustomerPortal && (
-        <Suspense fallback={
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="flex items-center gap-3 bg-gray-900 p-6 rounded-lg">
-              <Loader2 className="w-6 h-6 text-orange-400 animate-spin" />
-              <span className="text-gray-400">Loading Self-Service Portal...</span>
-            </div>
-          </div>
-        }>
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-gray-900 rounded-xl border border-gray-700 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between p-4 border-b border-gray-700">
-                <div className="flex items-center gap-3">
-                  <Headphones className="w-5 h-5 text-orange-400" />
-                  <h2 className="text-lg font-semibold text-white">Self-Service Portal</h2>
-                </div>
-                <button
-                  onClick={() => setShowCustomerPortal(false)}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="flex-1 overflow-auto p-4">
-                <CustomerPortal onClose={() => setShowCustomerPortal(false)} />
-              </div>
-            </div>
-          </div>
-        </Suspense>
-      )}
     </div>
   );
 }

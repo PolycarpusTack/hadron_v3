@@ -5,7 +5,10 @@ pub mod sanitizer;
 pub use report::{ReportAudience, ReportConfig, ReportData, ReportSections};
 pub use sanitizer::{has_sensitive_content, sanitize_for_customer, simplify_technical_terms};
 
-use generators::{generate_html, generate_json, generate_markdown};
+use generators::{
+    generate_html, generate_html_interactive, generate_json, generate_markdown, generate_txt,
+    generate_xlsx,
+};
 
 /// Export format options
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -13,7 +16,10 @@ use generators::{generate_html, generate_json, generate_markdown};
 pub enum ExportFormat {
     Markdown,
     Html,
+    HtmlInteractive,
     Json,
+    Txt,
+    Xlsx,
 }
 
 /// Export a report to the specified format
@@ -21,7 +27,10 @@ pub fn export_report(data: &ReportData, format: ExportFormat) -> String {
     match format {
         ExportFormat::Markdown => generate_markdown(data),
         ExportFormat::Html => generate_html(data),
+        ExportFormat::HtmlInteractive => generate_html_interactive(data),
         ExportFormat::Json => generate_json(data),
+        ExportFormat::Txt => generate_txt(data),
+        ExportFormat::Xlsx => generate_xlsx(data),
     }
 }
 

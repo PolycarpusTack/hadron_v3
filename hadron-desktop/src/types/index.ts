@@ -995,20 +995,7 @@ export interface RetrievalResult {
   totalFound: number;
 }
 
-export interface RAGContext {
-  similarAnalyses: SimilarCase[];
-  goldMatches: GoldAnalysis[];
-  confidenceBoost: number;
-}
-
-export interface SimilarCase {
-  analysisId: number;
-  similarityScore: number;
-  rootCause: string;
-  suggestedFixes: string[];
-  isGold: boolean;
-  citationId: string;
-}
+// RAGContext and SimilarCase are defined in services/rag.ts (snake_case, matches backend)
 
 // ============================================================================
 // Sentry Integration Types

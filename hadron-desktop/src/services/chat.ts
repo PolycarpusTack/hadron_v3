@@ -11,6 +11,7 @@ import { getStoredModel, getStoredProvider, getStoredAuxiliaryModel } from "./ap
 import { getJiraConfig } from "./jira";
 import { getKeeperSecretForProvider } from "./keeper";
 import logger from "./logger";
+import { STORAGE_KEYS } from "../utils/config";
 
 // ============================================================================
 // Types
@@ -274,7 +275,7 @@ export async function subscribeToChatFinalContent(
 // Response Feedback
 // ============================================================================
 
-const FEEDBACK_KEY = "hadron_chat_feedback";
+const FEEDBACK_KEY = STORAGE_KEYS.CHAT_FEEDBACK;
 
 export interface ChatFeedback {
   sessionId: string;

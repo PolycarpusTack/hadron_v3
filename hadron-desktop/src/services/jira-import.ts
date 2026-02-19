@@ -1026,7 +1026,9 @@ export function getCachedIssues(): NormalizedIssue[] {
   // Trigger async load in background
   getCachedIssuesAsync().then(issues => {
     cachedIssuesSync = issues;
-  }).catch(() => {});
+  }).catch(e => {
+    logger.warn("Failed to load cached issues", { error: String(e) });
+  });
 
   return cachedIssuesSync || [];
 }
@@ -1048,7 +1050,9 @@ export function getSyncState(): SyncState | null {
   // Trigger async load in background
   getSyncStateAsync().then(state => {
     cachedSyncStateSync = state;
-  }).catch(() => {});
+  }).catch(e => {
+    logger.warn("Failed to load sync state", { error: String(e) });
+  });
 
   return cachedSyncStateSync;
 }

@@ -1,7 +1,7 @@
 use crate::ai_service;
 use crate::ai_service::translate_llamacpp;
 use crate::database::{
-    Analysis, AnalysisNote, Database, ErrorPatternCount, Tag, Translation, TrendDataPoint,
+    Analysis, Database, ErrorPatternCount, Tag, Translation, TrendDataPoint,
 };
 use crate::jira_service;
 use crate::keeper_service;
@@ -18,63 +18,26 @@ use crate::signature;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 use tokio::fs as async_fs;
 use zeroize::Zeroizing;
 
 // ============================================================================
-// Analysis Progress Events
+// Shared types and helpers (canonical definitions in commands::common)
 // ============================================================================
 
-/// Progress update for analysis operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnalysisProgress {
-    /// Current phase of analysis
-    pub phase: AnalysisPhase,
-    /// Progress within current phase (0-100)
-    pub progress: u8,
-    /// Human-readable status message
-    pub message: String,
-    /// Current step number (e.g., chunk 3 of 10)
-    pub current_step: Option<usize>,
-    /// Total steps in current phase
-    pub total_steps: Option<usize>,
-}
-
-/// Phases of the analysis process
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AnalysisPhase {
-    /// Reading and validating file
-    Reading,
-    /// Estimating tokens and selecting strategy
-    Planning,
-    /// Extracting key evidence (for extraction mode)
-    Extracting,
-    /// Chunking content (for deep scan)
-    Chunking,
-    /// Analyzing chunks (map phase of deep scan)
-    Analyzing,
-    /// Synthesizing results (reduce phase of deep scan)
-    Synthesizing,
-    /// Saving to database
-    Saving,
-    /// Analysis complete
-    Complete,
-    /// Analysis failed
-    Failed,
-}
-
-/// Helper to emit progress events
-fn emit_progress(app: &AppHandle, progress: AnalysisProgress) {
-    if let Err(e) = app.emit("analysis-progress", &progress) {
-        log::warn!("Failed to emit progress event: {}", e);
-    }
-}
+pub use crate::commands::common::{
+    AnalysisPhase, AnalysisProgress, AutoTagSummary, DbState,
+    MAX_CRASH_LOG_SIZE_BYTES, MAX_PERFORMANCE_TRACE_SIZE_BYTES,
+    MAX_TRANSLATION_CONTENT_SIZE, MAX_PASTED_LOG_SIZE,
+    emit_progress, normalize_severity, redact_pii_basic, validate_file_path,
+    detect_pii_types,
+};
 
 // ============================================================================
 // Automated Tagging (Deterministic)
@@ -268,29 +231,7 @@ fn apply_auto_tags(db: &Database, analysis: &Analysis) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Debug, Serialize)]
-pub struct AutoTagSummary {
-    pub scanned: i64,
-    pub tagged: i64,
-    pub skipped: i64,
-    pub failed: i64,
-}
-
-/// Type alias for Arc-wrapped database state
-pub type DbState<'a> = State<'a, Arc<Database>>;
-
-/// Maximum file size for crash log analysis (5 MB)
-/// Prevents memory exhaustion from maliciously large files
-const MAX_CRASH_LOG_SIZE_BYTES: u64 = 5 * 1024 * 1024;
-
-/// Maximum content size for translation (1 MB)
-const MAX_TRANSLATION_CONTENT_SIZE: usize = 1024 * 1024;
-
-/// Maximum content size for pasted logs (5 MB)
-const MAX_PASTED_LOG_SIZE: usize = 5 * 1024 * 1024;
-
-/// Maximum file size for performance trace analysis (10 MB)
-const MAX_PERFORMANCE_TRACE_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+// AutoTagSummary, DbState, MAX_* constants imported from commands::common above
 
 // ============================================================================
 // RAG Auto-Indexing Helper
@@ -347,163 +288,8 @@ async fn auto_index_analysis(analysis: &Analysis, api_key: &str) {
     }
 }
 
-// ============================================================================
-// Security: Path Validation Helper
-// ============================================================================
-
-/// Validate and canonicalize a file path for safe access
-/// Returns the canonical path if valid, or an error message
-async fn validate_file_path(raw_path: &str, max_size: u64) -> Result<std::path::PathBuf, String> {
-    // SECURITY: Check raw input path BEFORE canonicalize to reject early
-    if raw_path.contains("..") {
-        log::warn!("Path traversal attempt detected: {}", raw_path);
-        return Err("Invalid file path: path traversal not allowed".to_string());
-    }
-
-    let file_path = std::path::Path::new(raw_path);
-    let canonical_path = async_fs::canonicalize(file_path).await.map_err(|e| {
-        log::error!("Failed to canonicalize path '{}': {}", raw_path, e);
-        "Invalid file path: file not found or inaccessible".to_string()
-    })?;
-
-    // Block access to sensitive system directories (Unix)
-    let path_str = canonical_path.to_string_lossy();
-    let blocked_prefixes_unix = [
-        "/etc", "/var", "/usr", "/bin", "/sbin", "/root", "/sys", "/proc",
-    ];
-    for prefix in &blocked_prefixes_unix {
-        if path_str.starts_with(prefix) {
-            log::warn!("Blocked access to system directory: {}", prefix);
-            return Err(format!("Access denied: cannot read files from {}", prefix));
-        }
-    }
-
-    // Block access to sensitive Windows system directories
-    let path_str_lower = path_str.to_lowercase();
-    let blocked_prefixes_windows = [
-        "c:\\windows",
-        "c:\\program files",
-        "c:\\programdata",
-        "c:/windows",
-        "c:/program files",
-        "c:/programdata",
-    ];
-    for prefix in &blocked_prefixes_windows {
-        if path_str_lower.starts_with(prefix) {
-            log::warn!("Blocked access to Windows system directory: {}", prefix);
-            return Err("Access denied: cannot read files from system directories".to_string());
-        }
-    }
-
-    // SECURITY: Validate file size before reading to prevent memory exhaustion
-    let file_metadata = async_fs::metadata(&canonical_path).await.map_err(|e| {
-        log::error!("Failed to get metadata for '{}': {}", path_str, e);
-        "Failed to access file: permission denied or file not found".to_string()
-    })?;
-
-    if file_metadata.len() > max_size {
-        return Err(format!(
-            "File too large: {} bytes exceeds maximum of {} bytes ({} MB)",
-            file_metadata.len(),
-            max_size,
-            max_size / (1024 * 1024)
-        ));
-    }
-
-    Ok(canonical_path)
-}
-
-fn normalize_severity(severity: &str) -> String {
-    match severity.to_lowercase().as_str() {
-        "critical" => "CRITICAL".to_string(),
-        "high" => "HIGH".to_string(),
-        "medium" => "MEDIUM".to_string(),
-        "low" => "LOW".to_string(),
-        "info" => "LOW".to_string(),
-        _ => "MEDIUM".to_string(),
-    }
-}
-
-// PERFORMANCE: Pre-compiled regexes for PII redaction (compiled once, reused forever)
-// This provides ~10x speedup vs compiling on every call
-static EMAIL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-        .expect("EMAIL_RE is a valid regex pattern")
-});
-static IPV4_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
-        .expect("IPV4_RE is a valid regex pattern")
-});
-static TOKEN_RE: Lazy<Regex> = Lazy::new(|| {
-    // Match API tokens like sk-xxx, sk-proj-xxx with at least 10 chars after sk-
-    Regex::new(r"\bsk-[A-Za-z0-9-]{10,}")
-        .expect("TOKEN_RE is a valid regex pattern")
-});
-static WIN_PATH_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)C:\\Users\\[^\\\s]+")
-        .expect("WIN_PATH_RE is a valid regex pattern")
-});
-static UNIX_HOME_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"/home/[^/\s]+")
-        .expect("UNIX_HOME_RE is a valid regex pattern")
-});
-
-use std::borrow::Cow;
-
-fn redact_pii_basic(text: &str) -> Cow<'_, str> {
-    // FIX #6: Optimized PII redaction using Cow to avoid allocations when no PII found.
-    // Uses pre-compiled regexes for performance.
-
-    // Fast path: check if any patterns match before allocating
-    let has_pii = EMAIL_RE.is_match(text)
-        || IPV4_RE.is_match(text)
-        || TOKEN_RE.is_match(text)
-        || WIN_PATH_RE.is_match(text)
-        || UNIX_HOME_RE.is_match(text);
-
-    // If no PII found, return borrowed reference (zero allocation)
-    if !has_pii {
-        return Cow::Borrowed(text);
-    }
-
-    // Only allocate once we know there's something to replace
-    let mut redacted = text.to_string();
-
-    // Email addresses
-    if EMAIL_RE.is_match(&redacted) {
-        redacted = EMAIL_RE
-            .replace_all(&redacted, "[REDACTED_EMAIL]")
-            .into_owned();
-    }
-
-    // IPv4 addresses
-    if IPV4_RE.is_match(&redacted) {
-        redacted = IPV4_RE.replace_all(&redacted, "[REDACTED_IP]").into_owned();
-    }
-
-    // Token-like strings (e.g., sk-... keys)
-    if TOKEN_RE.is_match(&redacted) {
-        redacted = TOKEN_RE
-            .replace_all(&redacted, "[REDACTED_TOKEN]")
-            .into_owned();
-    }
-
-    // Windows user paths: C:\Users\Name\
-    if WIN_PATH_RE.is_match(&redacted) {
-        redacted = WIN_PATH_RE
-            .replace_all(&redacted, "C:\\Users\\[REDACTED_USER]")
-            .into_owned();
-    }
-
-    // Unix home paths: /home/name/
-    if UNIX_HOME_RE.is_match(&redacted) {
-        redacted = UNIX_HOME_RE
-            .replace_all(&redacted, "/home/[REDACTED_USER]")
-            .into_owned();
-    }
-
-    Cow::Owned(redacted)
-}
+// validate_file_path, normalize_severity, redact_pii_basic, PII regexes
+// all imported from commands::common above
 
 #[cfg(test)]
 mod tests {
@@ -878,10 +664,14 @@ pub struct AnalysisResponse {
 // KB Helper Functions
 // ============================================================================
 
+/// Pre-compiled WHATS'ON version regex
+static WON_VERSION_RE: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"(\d{4})\.?[rR](\d{1,2})").expect("WON version regex"));
+
 /// Auto-detect WHATS'ON version from content (e.g. "2024r8", "2024.r8", "2024R8")
 fn detect_won_version(content: &str) -> Option<String> {
-    let re = regex::Regex::new(r"(\d{4})\.?[rR](\d{1,2})").ok()?;
-    re.captures(content)
+    WON_VERSION_RE
+        .captures(content)
         .map(|c| format!("{}r{}", &c[1], &c[2]))
 }
 
@@ -1093,29 +883,7 @@ pub async fn analyze_crash_log(
                     ctx.similar_analyses.len(),
                     ctx.gold_matches.len()
                 );
-                // Convert to ai_service::RagContext
-                Some(ai_service::RagContext {
-                    similar_cases: ctx.similar_analyses.iter().map(|c| ai_service::RagSimilarCase {
-                        citation_id: c.citation_id.clone(),
-                        similarity_score: c.similarity_score,
-                        root_cause: c.root_cause.clone(),
-                        suggested_fixes: c.suggested_fixes.clone(),
-                        is_gold: c.is_gold,
-                        component: c.component.clone(),
-                        severity: c.severity.clone(),
-                    }).collect(),
-                    gold_matches: ctx.gold_matches.iter().map(|c| ai_service::RagSimilarCase {
-                        citation_id: c.citation_id.clone(),
-                        similarity_score: c.similarity_score,
-                        root_cause: c.root_cause.clone(),
-                        suggested_fixes: c.suggested_fixes.clone(),
-                        is_gold: c.is_gold,
-                        component: c.component.clone(),
-                        severity: c.severity.clone(),
-                    }).collect(),
-                    confidence_boost: ctx.confidence_boost,
-                    retrieval_time_ms: ctx.retrieval_time_ms,
-                })
+                Some(ai_service::RagContext::from(ctx))
             }
             Err(e) => {
                 log::warn!("Failed to retrieve RAG context, continuing without: {}", e);
@@ -1584,28 +1352,7 @@ pub async fn analyze_jira_ticket(
                     ctx.similar_analyses.len(),
                     ctx.gold_matches.len()
                 );
-                Some(ai_service::RagContext {
-                    similar_cases: ctx.similar_analyses.iter().map(|c| ai_service::RagSimilarCase {
-                        citation_id: c.citation_id.clone(),
-                        similarity_score: c.similarity_score,
-                        root_cause: c.root_cause.clone(),
-                        suggested_fixes: c.suggested_fixes.clone(),
-                        is_gold: c.is_gold,
-                        component: c.component.clone(),
-                        severity: c.severity.clone(),
-                    }).collect(),
-                    gold_matches: ctx.gold_matches.iter().map(|c| ai_service::RagSimilarCase {
-                        citation_id: c.citation_id.clone(),
-                        similarity_score: c.similarity_score,
-                        root_cause: c.root_cause.clone(),
-                        suggested_fixes: c.suggested_fixes.clone(),
-                        is_gold: c.is_gold,
-                        component: c.component.clone(),
-                        severity: c.severity.clone(),
-                    }).collect(),
-                    confidence_boost: ctx.confidence_boost,
-                    retrieval_time_ms: ctx.retrieval_time_ms,
-                })
+                Some(ai_service::RagContext::from(ctx))
             }
             Err(e) => {
                 log::warn!("Failed to retrieve RAG context for JIRA ticket, continuing without: {}", e);
@@ -2080,105 +1827,6 @@ pub async fn save_external_analysis(
     Ok(id)
 }
 
-/// Get all analyses from history (with default pagination)
-#[tauri::command]
-pub async fn get_all_analyses(db: DbState<'_>) -> Result<Vec<Analysis>, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_all_analyses())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Get analyses with pagination
-/// - limit: Number of results to return (-1 for unlimited)
-/// - offset: Number of results to skip
-#[tauri::command]
-pub async fn get_analyses_paginated(
-    limit: Option<i64>,
-    offset: Option<i64>,
-    db: DbState<'_>,
-) -> Result<Vec<Analysis>, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_analyses_paginated(limit, offset))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Get total count of analyses (for pagination UI)
-#[tauri::command]
-pub async fn get_analyses_count(db: DbState<'_>) -> Result<i64, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_analyses_count())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Get a specific analysis by ID
-#[tauri::command]
-pub async fn get_analysis_by_id(id: i64, db: DbState<'_>) -> Result<Analysis, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_analysis_by_id(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Delete an analysis
-#[tauri::command]
-pub async fn delete_analysis(id: i64, db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.delete_analysis(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Export analysis to Markdown
-#[tauri::command]
-pub async fn export_analysis(id: i64, db: DbState<'_>) -> Result<String, String> {
-    let db = Arc::clone(&db);
-    let analysis = tauri::async_runtime::spawn_blocking(move || db.get_analysis_by_id(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    let fixes: Vec<String> = serde_json::from_str(&analysis.suggested_fixes).unwrap_or_else(|e| {
-        log::warn!(
-            "Failed to deserialize suggested_fixes for analysis {}: {}",
-            id,
-            e
-        );
-        vec!["(Unable to parse suggested fixes)".to_string()]
-    });
-
-    let markdown = format!(
-        "# Crash Analysis Report\n\n\
-         **File**: {}\n\
-         **Error Type**: {}\n\
-         **Severity**: {}\n\
-         **Analyzed**: {}\n\n\
-         ## Root Cause\n\n{}\n\n\
-         ## Suggested Fixes\n\n{}\n\n\
-         ---\n\
-         Generated by Hadron - AI Support Assistant\n",
-        analysis.filename,
-        analysis.error_type,
-        analysis.severity,
-        analysis.analyzed_at,
-        analysis.root_cause,
-        fixes
-            .iter()
-            .enumerate()
-            .map(|(i, fix)| format!("{}. {}", i + 1, fix))
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
-
-    Ok(markdown)
-}
 
 /// Full-text search analyses using FTS5
 #[tauri::command]
@@ -2196,126 +1844,6 @@ pub async fn search_analyses(
     .map_err(|e| format!("Search error: {}", e))
 }
 
-/// Toggle favorite status for an analysis
-#[tauri::command]
-pub async fn toggle_favorite(id: i64, db: DbState<'_>) -> Result<bool, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.toggle_favorite(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Get all favorite analyses
-#[tauri::command]
-pub async fn get_favorites(db: DbState<'_>) -> Result<Vec<Analysis>, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_favorites())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Get recently viewed analyses
-#[tauri::command]
-pub async fn get_recent(limit: Option<i64>, db: DbState<'_>) -> Result<Vec<Analysis>, String> {
-    let db = Arc::clone(&db);
-    let limit = limit.unwrap_or(10);
-    tauri::async_runtime::spawn_blocking(move || db.get_recent(limit))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Get database statistics
-#[tauri::command]
-pub async fn get_database_statistics(db: DbState<'_>) -> Result<serde_json::Value, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_statistics())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Optimize FTS5 index
-#[tauri::command]
-pub async fn optimize_fts_index(db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.optimize_fts())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Run database integrity check
-#[tauri::command]
-pub async fn check_database_integrity(db: DbState<'_>) -> Result<bool, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.integrity_check())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Compact database (VACUUM)
-#[tauri::command]
-pub async fn compact_database(db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.compact())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Checkpoint WAL file
-#[tauri::command]
-pub async fn checkpoint_wal(db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.checkpoint_wal())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Get all translations from history
-#[tauri::command]
-pub async fn get_all_translations(db: DbState<'_>) -> Result<Vec<Translation>, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_all_translations())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Get a specific translation by ID
-#[tauri::command]
-pub async fn get_translation_by_id(id: i64, db: DbState<'_>) -> Result<Translation, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.get_translation_by_id(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Delete a translation
-#[tauri::command]
-pub async fn delete_translation(id: i64, db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.delete_translation(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
-
-/// Toggle favorite status for a translation
-#[tauri::command]
-pub async fn toggle_translation_favorite(id: i64, db: DbState<'_>) -> Result<bool, String> {
-    let db = Arc::clone(&db);
-    tauri::async_runtime::spawn_blocking(move || db.toggle_translation_favorite(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))
-}
 
 // ============================================================================
 // Tag Management Commands
@@ -2772,220 +2300,6 @@ pub async fn bulk_set_favorite_translations(
     })
 }
 
-// ============================================================================
-// Archive System
-// ============================================================================
-
-/// Archive an analysis (soft delete)
-#[tauri::command]
-pub async fn archive_analysis(id: i64, db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.archive_analysis(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Archived analysis id={}", id);
-    Ok(())
-}
-
-/// Restore an archived analysis
-#[tauri::command]
-pub async fn restore_analysis(id: i64, db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.restore_analysis(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Restored analysis id={}", id);
-    Ok(())
-}
-
-/// Get all archived analyses
-#[tauri::command]
-pub async fn get_archived_analyses(db: DbState<'_>) -> Result<Vec<Analysis>, String> {
-    let db = Arc::clone(&db);
-
-    let analyses = tauri::async_runtime::spawn_blocking(move || db.get_archived_analyses())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Retrieved {} archived analyses", analyses.len());
-    Ok(analyses)
-}
-
-/// Permanently delete an analysis
-#[tauri::command]
-pub async fn permanently_delete_analysis(id: i64, db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.permanently_delete_analysis(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Permanently deleted analysis id={}", id);
-    Ok(())
-}
-
-/// Bulk archive analyses
-#[tauri::command]
-pub async fn bulk_archive_analyses(
-    ids: Vec<i64>,
-    db: DbState<'_>,
-) -> Result<BulkOperationResult, String> {
-    let total = ids.len();
-    let db = Arc::clone(&db);
-
-    let archived = tauri::async_runtime::spawn_blocking(move || db.bulk_archive_analyses(&ids))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Bulk archived {} of {} analyses", archived, total);
-    Ok(BulkOperationResult {
-        success_count: archived,
-        total_requested: total,
-    })
-}
-
-// ============================================================================
-// Notes System
-// ============================================================================
-
-/// Add a note to an analysis
-#[tauri::command]
-pub async fn add_note_to_analysis(
-    analysis_id: i64,
-    content: String,
-    db: DbState<'_>,
-) -> Result<AnalysisNote, String> {
-    let db = Arc::clone(&db);
-
-    let note = tauri::async_runtime::spawn_blocking(move || db.add_note(analysis_id, &content))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Added note id={} to analysis id={}", note.id, analysis_id);
-    Ok(note)
-}
-
-/// Update a note
-#[tauri::command]
-pub async fn update_note(
-    id: i64,
-    content: String,
-    db: DbState<'_>,
-) -> Result<AnalysisNote, String> {
-    let db = Arc::clone(&db);
-
-    let note = tauri::async_runtime::spawn_blocking(move || db.update_note(id, &content))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Updated note id={}", id);
-    Ok(note)
-}
-
-/// Delete a note
-#[tauri::command]
-pub async fn delete_note(id: i64, db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.delete_note(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Deleted note id={}", id);
-    Ok(())
-}
-
-/// Get all notes for an analysis
-#[tauri::command]
-pub async fn get_notes_for_analysis(
-    analysis_id: i64,
-    db: DbState<'_>,
-) -> Result<Vec<AnalysisNote>, String> {
-    let db = Arc::clone(&db);
-
-    let notes =
-        tauri::async_runtime::spawn_blocking(move || db.get_notes_for_analysis(analysis_id))
-            .await
-            .map_err(|e| format!("Task error: {}", e))?
-            .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!(
-        "Retrieved {} notes for analysis id={}",
-        notes.len(),
-        analysis_id
-    );
-    Ok(notes)
-}
-
-/// Get note count for an analysis
-#[tauri::command]
-pub async fn get_note_count(analysis_id: i64, db: DbState<'_>) -> Result<i32, String> {
-    let db = Arc::clone(&db);
-
-    let count = tauri::async_runtime::spawn_blocking(move || db.get_note_count(analysis_id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    Ok(count)
-}
-
-/// Check if an analysis has any notes
-#[tauri::command]
-pub async fn analysis_has_notes(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
-    let db = Arc::clone(&db);
-
-    let has_notes = tauri::async_runtime::spawn_blocking(move || db.analysis_has_notes(analysis_id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    Ok(has_notes)
-}
-
-// ============================================================================
-// Translation Archive System
-// ============================================================================
-
-/// Archive a translation (soft delete)
-#[tauri::command]
-pub async fn archive_translation(id: i64, db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.archive_translation(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Archived translation id={}", id);
-    Ok(())
-}
-
-/// Restore an archived translation
-#[tauri::command]
-pub async fn restore_translation(id: i64, db: DbState<'_>) -> Result<(), String> {
-    let db = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db.restore_translation(id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    log::info!("Restored translation id={}", id);
-    Ok(())
-}
 
 // ============================================================================
 // Similar Crash Detection & Analytics
@@ -4045,27 +3359,30 @@ pub fn check_sensitive_content(content: String) -> Result<SensitiveContentResult
     );
 
     let mut warnings = Vec::new();
-    let mut detected_types = Vec::new();
 
-    // Use regex patterns to detect specific types
-    if EMAIL_RE.is_match(&content) {
-        detected_types.push("email".to_string());
-        warnings.push("Email addresses detected in content".to_string());
-    }
-
-    if IPV4_RE.is_match(&content) {
-        detected_types.push("ip".to_string());
-        warnings.push("IP addresses detected in content".to_string());
-    }
-
-    if TOKEN_RE.is_match(&content) {
-        detected_types.push("token".to_string());
-        warnings.push("API tokens or keys detected in content".to_string());
-    }
-
-    if WIN_PATH_RE.is_match(&content) || UNIX_HOME_RE.is_match(&content) {
-        detected_types.push("path".to_string());
-        warnings.push("User directory paths detected in content".to_string());
+    // Use shared PII detection from commands::common
+    let pii_types = detect_pii_types(&content);
+    let mut detected_types: Vec<String> = Vec::new();
+    for pii_type in &pii_types {
+        match *pii_type {
+            "email" => {
+                detected_types.push("email".to_string());
+                warnings.push("Email addresses detected in content".to_string());
+            }
+            "ip" => {
+                detected_types.push("ip".to_string());
+                warnings.push("IP addresses detected in content".to_string());
+            }
+            "token" => {
+                detected_types.push("token".to_string());
+                warnings.push("API tokens or keys detected in content".to_string());
+            }
+            "path" => {
+                detected_types.push("path".to_string());
+                warnings.push("User directory paths detected in content".to_string());
+            }
+            _ => {}
+        }
     }
 
     // Also use the sanitizer's check

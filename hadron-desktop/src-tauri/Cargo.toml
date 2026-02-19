@@ -54,7 +54,6 @@ hex = "0.4"
 parking_lot = "0.12"
 
 # Parser dependencies
-lazy_static = "1.4"
 thiserror = "1.0"
 anyhow = "1.0"
 
@@ -66,3 +65,6 @@ semver = "1.0"
 # Report generation dependencies
 minijinja = "2.0"
 uuid = { version = "1.6", features = ["v4"] }
+
+# XLSX export support
+rust_xlsxwriter = "0.79"

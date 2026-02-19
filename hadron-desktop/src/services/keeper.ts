@@ -57,10 +57,22 @@ export interface KeeperConfig {
 /**
  * Initialize Keeper with a one-time access token
  * This binds the token to this device - can only be done once
+ *
+ * @param token - One-time access token, optionally prefixed with region (e.g., "US:TOKEN")
+ * @param hostname - Server hostname, required if token has no region prefix.
+ *                   Valid values: keepersecurity.com (US), keepersecurity.eu (EU),
+ *                   keepersecurity.com.au (AU), govcloud.keepersecurity.us (GOV),
+ *                   keepersecurity.jp (JP), keepersecurity.ca (CA)
  */
-export async function initializeKeeper(token: string): Promise<KeeperInitResult> {
+export async function initializeKeeper(
+  token: string,
+  hostname?: string
+): Promise<KeeperInitResult> {
   logger.info("Initializing Keeper connection");
-  return await invoke<KeeperInitResult>("initialize_keeper", { token });
+  return await invoke<KeeperInitResult>("initialize_keeper", {
+    token,
+    hostname: hostname ?? null,
+  });
 }
 
 /**

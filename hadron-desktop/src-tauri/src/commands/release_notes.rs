@@ -193,9 +193,9 @@ pub async fn append_to_release_notes(
     )
     .await?;
 
-    // Update existing draft
+    // Update existing draft (AI-driven append, not a manual edit)
     db_inner
-        .update_release_notes_content(id, &combined)
+        .update_release_notes_content_auto(id, &combined)
         .map_err(|e| format!("Database error: {}", e))?;
 
     let mut all_keys = existing_keys;

@@ -15,76 +15,75 @@ use crate::retrieval::opensearch::{
     OpenSearchClient, OpenSearchHit, KB_EMBEDDING_DIMENSIONS, KB_EMBEDDING_MODEL,
 };
 use crate::retrieval::rrf;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
 // ============================================================================
 // Customer Index Mapping (ported from index_settings.yaml)
 // ============================================================================
 
-lazy_static::lazy_static! {
-    /// Maps customer display names (case-insensitive lookup) to their OpenSearch
-    /// release notes index name. Ported from the Analyst Chatbot's index_settings.yaml.
-    static ref CUSTOMER_INDEX_MAP: HashMap<String, &'static str> = {
-        let entries: Vec<(&str, &str)> = vec![
-            ("AETN",                "aetn-release-notes"),
-            ("AEUS",                "aeus-release-notes"),
-            ("AJL",                 "ajl-release-notes"),
-            ("AJMN",                "ajmn-release-notes"),
-            ("Altice",              "altice-release-notes"),
-            ("AMCN",                "amcn-release-notes"),
-            ("BBC",                 "bbc-release-notes"),
-            ("BR",                  "br-release-notes"),
-            ("BSF",                 "bsf-release-notes"),
-            ("BSQ",                 "bsq-release-notes"),
-            ("BTS",                 "bts-release-notes"),
-            ("BX1",                 "bx1-release-notes"),
-            ("CBC",                 "cbc-release-notes"),
-            ("CURI",                "curi-release-notes"),
-            ("DAZN",                "dazn-release-notes"),
-            ("DISCO",               "disco-release-notes"),
-            ("Disney Plus",         "disney-release-notes"),
-            ("DMC",                 "dmc-release-notes"),
-            ("DPG",                 "dpg-release-notes"),
-            ("DR",                  "dr-release-notes"),
-            ("Dreamwall",           "dreamwall-release-notes"),
-            ("EMGBE",               "emgbe-release-notes"),
-            ("FOXTEL",              "foxtel-release-notes"),
-            ("France Televisions",  "france-televisions-release-notes"),
-            ("M6",                  "m6-release-notes"),
-            ("MBC",                 "mbc-release-notes"),
-            ("MEDIACORP",           "mediacorp-release-notes"),
-            ("Mediaset",            "mediaset-release-notes"),
-            ("NEP",                 "nep-release-notes"),
-            ("NPO",                 "npo-release-notes"),
-            ("NRK",                 "nrk-release-notes"),
-            ("OCS",                 "ocs-release-notes"),
-            ("Outernet",            "outernet-release-notes"),
-            ("PMH",                 "pmh-release-notes"),
-            ("RTE",                 "rte-release-notes"),
-            ("RTL Hungary",         "rtl-hungary-release-notes"),
-            ("SH",                  "sh-release-notes"),
-            ("SRF",                 "srf-release-notes"),
-            ("SWR",                 "swr-release-notes"),
-            ("SYN",                 "syn-release-notes"),
-            ("TERN",                "tern-release-notes"),
-            ("TF1",                 "tf1-release-notes"),
-            ("TVMEDIA",             "tvmedia-release-notes"),
-            ("TVUV",                "tvuv-release-notes"),
-            ("TWCLA",               "twcla-release-notes"),
-            ("UKTV",                "uktv-release-notes"),
-            ("VIRGIN",              "virgin-release-notes"),
-            ("VPRO",                "vpro-release-notes"),
-            ("VRT",                 "vrt-release-notes"),
-            ("YES",                 "yes-release-notes"),
-            ("YLE",                 "yle-release-notes"),
-        ];
-        let mut map = HashMap::new();
-        for (name, index) in entries {
-            map.insert(name.to_lowercase(), index);
-        }
-        map
-    };
-}
+/// Maps customer display names (case-insensitive lookup) to their OpenSearch
+/// release notes index name. Ported from the Analyst Chatbot's index_settings.yaml.
+static CUSTOMER_INDEX_MAP: Lazy<HashMap<String, &'static str>> = Lazy::new(|| {
+    let entries: Vec<(&str, &str)> = vec![
+        ("AETN",                "aetn-release-notes"),
+        ("AEUS",                "aeus-release-notes"),
+        ("AJL",                 "ajl-release-notes"),
+        ("AJMN",                "ajmn-release-notes"),
+        ("Altice",              "altice-release-notes"),
+        ("AMCN",                "amcn-release-notes"),
+        ("BBC",                 "bbc-release-notes"),
+        ("BR",                  "br-release-notes"),
+        ("BSF",                 "bsf-release-notes"),
+        ("BSQ",                 "bsq-release-notes"),
+        ("BTS",                 "bts-release-notes"),
+        ("BX1",                 "bx1-release-notes"),
+        ("CBC",                 "cbc-release-notes"),
+        ("CURI",                "curi-release-notes"),
+        ("DAZN",                "dazn-release-notes"),
+        ("DISCO",               "disco-release-notes"),
+        ("Disney Plus",         "disney-release-notes"),
+        ("DMC",                 "dmc-release-notes"),
+        ("DPG",                 "dpg-release-notes"),
+        ("DR",                  "dr-release-notes"),
+        ("Dreamwall",           "dreamwall-release-notes"),
+        ("EMGBE",               "emgbe-release-notes"),
+        ("FOXTEL",              "foxtel-release-notes"),
+        ("France Televisions",  "france-televisions-release-notes"),
+        ("M6",                  "m6-release-notes"),
+        ("MBC",                 "mbc-release-notes"),
+        ("MEDIACORP",           "mediacorp-release-notes"),
+        ("Mediaset",            "mediaset-release-notes"),
+        ("NEP",                 "nep-release-notes"),
+        ("NPO",                 "npo-release-notes"),
+        ("NRK",                 "nrk-release-notes"),
+        ("OCS",                 "ocs-release-notes"),
+        ("Outernet",            "outernet-release-notes"),
+        ("PMH",                 "pmh-release-notes"),
+        ("RTE",                 "rte-release-notes"),
+        ("RTL Hungary",         "rtl-hungary-release-notes"),
+        ("SH",                  "sh-release-notes"),
+        ("SRF",                 "srf-release-notes"),
+        ("SWR",                 "swr-release-notes"),
+        ("SYN",                 "syn-release-notes"),
+        ("TERN",                "tern-release-notes"),
+        ("TF1",                 "tf1-release-notes"),
+        ("TVMEDIA",             "tvmedia-release-notes"),
+        ("TVUV",                "tvuv-release-notes"),
+        ("TWCLA",               "twcla-release-notes"),
+        ("UKTV",                "uktv-release-notes"),
+        ("VIRGIN",              "virgin-release-notes"),
+        ("VPRO",                "vpro-release-notes"),
+        ("VRT",                 "vrt-release-notes"),
+        ("YES",                 "yes-release-notes"),
+        ("YLE",                 "yle-release-notes"),
+    ];
+    let mut map = HashMap::new();
+    for (name, index) in entries {
+        map.insert(name.to_lowercase(), index);
+    }
+    map
+});
 
 /// Resolve a customer name to its OpenSearch release notes index.
 ///

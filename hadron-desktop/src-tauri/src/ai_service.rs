@@ -93,6 +93,31 @@ impl DomainKnowledge {
     }
 }
 
+impl From<crate::rag_commands::SimilarCase> for RagSimilarCase {
+    fn from(c: crate::rag_commands::SimilarCase) -> Self {
+        Self {
+            citation_id: c.citation_id,
+            similarity_score: c.similarity_score,
+            root_cause: c.root_cause,
+            suggested_fixes: c.suggested_fixes,
+            is_gold: c.is_gold,
+            component: c.component,
+            severity: c.severity,
+        }
+    }
+}
+
+impl From<crate::rag_commands::RAGContext> for RagContext {
+    fn from(ctx: crate::rag_commands::RAGContext) -> Self {
+        Self {
+            similar_cases: ctx.similar_analyses.into_iter().map(RagSimilarCase::from).collect(),
+            gold_matches: ctx.gold_matches.into_iter().map(RagSimilarCase::from).collect(),
+            confidence_boost: ctx.confidence_boost,
+            retrieval_time_ms: ctx.retrieval_time_ms,
+        }
+    }
+}
+
 impl From<crate::rag_commands::KBContext> for DomainKnowledge {
     fn from(ctx: crate::rag_commands::KBContext) -> Self {
         Self {
@@ -1386,6 +1411,8 @@ pub struct ChatStreamEvent {
     pub token: String,
     pub done: bool,
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1455,6 +1482,7 @@ pub async fn call_provider_streaming(
     provider: &str,
     request_body: serde_json::Value,
     api_key: &str,
+    request_id: Option<&str>,
 ) -> Result<ChatResponse, String> {
     let (config_name, endpoint, auth_style, response_style, cost_calculator) = match provider {
         "anthropic" => (
@@ -1548,6 +1576,7 @@ pub async fn call_provider_streaming(
                             token: tok,
                             done: false,
                             error: None,
+                            request_id: request_id.map(|s| s.to_string()),
                         },
                     );
                 }
@@ -1570,6 +1599,7 @@ pub async fn call_provider_streaming(
                         token: tok,
                         done: false,
                         error: None,
+                        request_id: request_id.map(|s| s.to_string()),
                     },
                 );
             }
@@ -1583,6 +1613,7 @@ pub async fn call_provider_streaming(
             token: String::new(),
             done: true,
             error: None,
+            request_id: request_id.map(|s| s.to_string()),
         },
     );
 

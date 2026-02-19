@@ -3,6 +3,62 @@
  * Centralized helpers for reading/writing app configuration from localStorage
  */
 
+// ============================================================================
+// Storage Key Registry
+// All localStorage keys should be defined here to prevent typo bugs
+// and make it easy to audit what the app persists.
+// ============================================================================
+
+export const STORAGE_KEYS = {
+  // AI configuration
+  AI_PROVIDER: "ai_provider",
+  AI_MODEL: "ai_model",
+  AI_CUSTOM_MODEL: "ai_custom_model",
+  AI_AUXILIARY_MODEL: "ai_auxiliary_model",
+  PII_REDACTION_ENABLED: "pii_redaction_enabled",
+  ACTIVE_PROVIDERS: "active_providers",
+
+  // App preferences
+  THEME: "theme",
+  AUTO_CHECK_UPDATES: "auto_check_updates",
+  ANALYSIS_DEFAULT_TYPE: "analysis_default_type",
+  HISTORY_FILTERS: "hadron_history_filters",
+
+  // JIRA integration
+  JIRA_PROJECTS_CACHE: "jira_projects_cache",
+  JIRA_PROJECTS_CACHE_TS: "jira_projects_cache_ts",
+  JIRA_SYNC_CONFIG: "jira_sync_config",
+  JIRA_LAST_SYNC: "jira_last_sync",
+  JIRA_WATCHED_PROJECTS: "jira_watched_projects",
+  JIRA_IMPORTED_ISSUES: "hadron_jira_imported_issues",
+  JIRA_SYNC_STATE: "hadron_jira_sync_state",
+
+  // Sentry integration
+  SENTRY_PROJECTS_CACHE: "sentry_projects_cache",
+  SENTRY_PROJECTS_CACHE_TS: "sentry_projects_cache_ts",
+
+  // Feature flags
+  FEATURE_CODE_ANALYZER: "feature_code_analyzer",
+  FEATURE_PERFORMANCE_ANALYZER: "feature_performance_analyzer",
+  FEATURE_ASK_HADRON: "feature_ask_hadron",
+
+  // Chat
+  CHAT_FEEDBACK: "hadron_chat_feedback",
+
+  // Legacy (migrated to secure storage, kept for migration)
+  LEGACY_API_KEY: "ai_api_key",
+} as const;
+
+/** Get a provider-specific model cache key */
+export function providerModelKey(provider: string): string {
+  return `ai_model:${provider}`;
+}
+
+/** Get a provider-specific model list cache key */
+export function providerModelsCacheKey(provider: string): string {
+  return `models_cache:${provider}`;
+}
+
 /**
  * Get a boolean setting from localStorage
  * @param key - The localStorage key

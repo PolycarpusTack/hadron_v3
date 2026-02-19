@@ -10,6 +10,7 @@
 //! - All secret access is audited in Keeper
 
 use keeper_secrets_manager_core::{
+    cache::KSMCache,
     core::{ClientOptions, SecretsManager},
     custom_error::KSMRError,
     storage::FileKeyValueStorage,
@@ -157,6 +158,23 @@ fn get_field_as_string(
     result.ok().and_then(value_to_string)
 }
 
+/// Extract the best API-key-like value from a Keeper record,
+/// trying standard fields first then custom fields.
+fn extract_secret_value(record: &keeper_secrets_manager_core::dto::dtos::Record) -> Option<String> {
+    // Standard fields (record template built-ins)
+    get_field_as_string(record, "password", true)
+        .or_else(|| get_field_as_string(record, "secret", true))
+        .or_else(|| get_field_as_string(record, "login", true))
+        // Custom fields (user-defined)
+        .or_else(|| get_field_as_string(record, "password", false))
+        .or_else(|| get_field_as_string(record, "secret", false))
+        .or_else(|| get_field_as_string(record, "text", false))
+        .or_else(|| get_field_as_string(record, "API Key", false))
+        .or_else(|| get_field_as_string(record, "api_key", false))
+        .or_else(|| get_field_as_string(record, "apiKey", false))
+        .or_else(|| get_field_as_string(record, "pinCode", false))
+}
+
 /// Check if Keeper is configured (config file exists)
 pub fn is_keeper_configured() -> bool {
     get_keeper_config_path()
@@ -166,7 +184,14 @@ pub fn is_keeper_configured() -> bool {
 
 /// Initialize Keeper with a one-time access token
 /// This should only be called once per device
-pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, String> {
+///
+/// The token can be in the format `REGION:TOKEN` (e.g., `US:abc123...`)
+/// or just `TOKEN` if a hostname is provided separately.
+/// Valid region prefixes: US, EU, AU, GOV, JP, CA
+pub fn initialize_keeper(
+    one_time_token: &str,
+    hostname: Option<&str>,
+) -> Result<KeeperInitResult, String> {
     let config_path = get_keeper_config_path()?;
     let config_path_str = config_path.to_string_lossy().to_string();
 
@@ -174,6 +199,14 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
         "Initializing Keeper with one-time token at: {}",
         config_path_str
     );
+
+    // Remove any stale config from a previous failed attempt so the SDK
+    // uses the fresh one-time token instead of the old client key.
+    if config_path.exists() {
+        log::info!("Removing existing Keeper config before re-initialization");
+        std::fs::remove_file(&config_path)
+            .map_err(|e| format!("Failed to remove old Keeper config: {}", e))?;
+    }
 
     // Create storage for Keeper config
     let storage = FileKeyValueStorage::new_config_storage(config_path_str).map_err(|e| {
@@ -183,8 +216,17 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
         )
     })?;
 
-    // Initialize with one-time token
-    let options = ClientOptions::new_client_options_with_token(one_time_token.to_string(), storage);
+    // Build client options with optional hostname for tokens without a region prefix.
+    // If the token already contains a region prefix (e.g. "US:xxx"), the SDK will
+    // extract the hostname from it and the hostname parameter is ignored.
+    let options = ClientOptions::new(
+        one_time_token.to_string(),
+        storage,
+        log::Level::Error,
+        hostname.map(|h| h.to_string()),
+        None,
+        KSMCache::None,
+    );
 
     let mut secrets_manager = SecretsManager::new(options)
         .map_err(|e| format!("Failed to create Keeper client: {}", format_keeper_error(e)))?;
@@ -203,7 +245,7 @@ pub fn initialize_keeper(one_time_token: &str) -> Result<KeeperInitResult, Strin
             uid: s.uid.clone(),
             title: s.title.clone(),
             record_type: s.record_type.clone(),
-            password: get_field_as_string(s, "password", true),
+            password: extract_secret_value(s),
         })
         .collect();
 
@@ -260,7 +302,7 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
             uid: s.uid.clone(),
             title: s.title.clone(),
             record_type: s.record_type.clone(),
-            password: get_field_as_string(s, "password", true),
+            password: extract_secret_value(s),
         })
         .collect();
 
@@ -336,17 +378,39 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, St
         .first()
         .ok_or_else(|| format!("Secret not found: {}", secret_uid))?;
 
-    // Try to get password field (most common for API keys)
-    // Check standard password field first, then try common custom field names
-    let password = get_field_as_string(secret, "password", true)
-        .or_else(|| get_field_as_string(secret, "API Key", false))
-        .or_else(|| get_field_as_string(secret, "api_key", false))
-        .or_else(|| get_field_as_string(secret, "apiKey", false))
-        .ok_or_else(|| "No password or API key field found in secret".to_string())?;
+    // Try to get password/API key from various standard and custom field types.
+    // Keeper records store fields with a "type" key (e.g., "password", "secret", "text").
+    // The actual type depends on the record template the user chose.
+    let password = extract_secret_value(secret);
 
-    log::debug!("Retrieved API key from Keeper for secret: {}", secret.title);
+    if let Some(password) = password {
+        log::debug!("Retrieved API key from Keeper for secret: {}", secret.title);
+        return Ok(Zeroizing::new(password));
+    }
 
-    Ok(Zeroizing::new(password))
+    // Log available field types to help diagnose the mismatch
+    if let Some(fields) = secret.record_dict.get("fields").and_then(|v| v.as_array()) {
+        let types: Vec<&str> = fields.iter()
+            .filter_map(|f| f.get("type").and_then(|t| t.as_str()))
+            .collect();
+        log::warn!("Keeper secret '{}' standard field types: {:?}", secret.title, types);
+    }
+    if let Some(custom) = secret.record_dict.get("custom").and_then(|v| v.as_array()) {
+        let types: Vec<(&str, &str)> = custom.iter()
+            .filter_map(|f| {
+                let t = f.get("type").and_then(|t| t.as_str()).unwrap_or("?");
+                let label = f.get("label").and_then(|l| l.as_str()).unwrap_or("");
+                Some((t, label))
+            })
+            .collect();
+        log::warn!("Keeper secret '{}' custom field types: {:?}", secret.title, types);
+    }
+
+    Err(format!(
+        "No password or API key field found in Keeper secret '{}'. \
+         Check that your Keeper record has a password or secret field.",
+        secret.title
+    ))
 }
 
 /// Get Keeper connection status
