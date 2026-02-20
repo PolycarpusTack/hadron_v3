@@ -1,9 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import WidgetFAB from "./WidgetFAB";
 import WidgetPanel from "./WidgetPanel";
 import WidgetChat from "./WidgetChat";
 import ClipboardWatcher from "./ClipboardWatcher";
+import type { ChatMessage } from "../../services/chat";
 
 type WidgetState = "fab" | "expanded";
 
@@ -14,6 +15,11 @@ export default function WidgetApp() {
   const [widgetState, setWidgetState] = useState<WidgetState>("expanded");
   const [pendingClipboard, setPendingClipboard] = useState<string | null>(null);
   const [pendingInput, setPendingInput] = useState<string | null>(null);
+  const widgetMessagesRef = useRef<ChatMessage[]>([]);
+
+  const handleMessagesChange = useCallback((messages: ChatMessage[]) => {
+    widgetMessagesRef.current = messages;
+  }, []);
 
   const expand = useCallback(async () => {
     try {
@@ -66,12 +72,13 @@ export default function WidgetApp() {
   }
 
   return (
-    <WidgetPanel onCollapse={collapse}>
+    <WidgetPanel onCollapse={collapse} messages={widgetMessagesRef.current}>
       <WidgetChat
         initialMessage={pendingClipboard}
         onInitialMessageConsumed={() => setPendingClipboard(null)}
         initialInput={pendingInput}
         onInitialInputConsumed={() => setPendingInput(null)}
+        onMessagesChange={handleMessagesChange}
       />
     </WidgetPanel>
   );

@@ -43,7 +43,7 @@ const ReleaseNotesView = lazy(() => import("./components/ReleaseNotesView"));
 function LazyLoadFallback() {
   return (
     <div className="flex items-center justify-center p-8">
-      <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+      <Loader2 className="w-6 h-6 text-emerald-400 animate-spin" />
       <span className="ml-2 text-gray-400">Loading...</span>
     </div>
   );
@@ -134,6 +134,56 @@ function App() {
     }
   }, [darkMode]);
 
+  // Widget event listeners — handle "Open in Main" from widget window
+  useEffect(() => {
+    let cancelled = false;
+    const setupListeners = async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+
+      if (cancelled) return;
+
+      const unlistenOpenInMain = await listen<{ messages?: Array<{ role: string; content: string }> }>(
+        "widget:open-in-main",
+        () => {
+          actions.setView("chat");
+        }
+      );
+
+      const unlistenOpenAnalysis = await listen<{ analysisId: string }>(
+        "widget:open-analysis-in-main",
+        async (event) => {
+          try {
+            const analysis = await getAnalysisById(Number(event.payload.analysisId));
+            if (analysis) {
+              actions.viewAnalysis(analysis);
+            }
+          } catch (e) {
+            logger.error("Failed to open analysis from widget", { error: e });
+          }
+        }
+      );
+
+      if (cancelled) {
+        unlistenOpenInMain();
+        unlistenOpenAnalysis();
+        return;
+      }
+
+      cleanupRef.current = () => {
+        unlistenOpenInMain();
+        unlistenOpenAnalysis();
+      };
+    };
+
+    const cleanupRef = { current: () => {} };
+    setupListeners();
+
+    return () => {
+      cancelled = true;
+      cleanupRef.current();
+    };
+  }, [actions]);
+
   // Keyboard shortcuts
   useKeyboardShortcuts({
     onNewAnalysis: () => {
@@ -147,8 +197,8 @@ function App() {
         setShowDocs(false);
       } else if (showConsole) {
         setShowConsole(false);
-      } else if (showSettings) {
-        actions.closeSettings();
+      } else if (currentView === "configure") {
+        actions.setView("analyze");
       } else if (currentView === "detail") {
         actions.backToHistory();
       }
@@ -337,17 +387,34 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gradient-to-br dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-white transition-colors duration-200">
+    <div
+      className="min-h-screen transition-colors duration-200"
+      style={{
+        background: 'var(--hd-bg-base)',
+        backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(16,185,129,0.08), transparent)',
+        color: 'var(--hd-text)',
+      }}
+    >
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
         <AppHeader
-          onOpenDashboard={actions.openDashboard}
-          onOpenSettings={actions.openSettings}
-          onOpenDocs={() => setShowDocs(true)}
+          providerName={getStoredProvider()}
+          jiraConnected={jiraEnabled}
+          sentryConnected={sentryEnabled}
         />
 
         {/* Navigation Tabs */}
-        <Navigation currentView={currentView} onViewChange={actions.setView} showJiraAnalyzer={jiraEnabled} showSentryAnalyzer={sentryEnabled} showReleaseNotes={jiraEnabled} showCodeAnalyzer={showCodeAnalyzer} showPerformanceAnalyzer={showPerformanceAnalyzer} showAskHadron={showAskHadron} />
+        <Navigation
+          currentView={currentView}
+          onViewChange={actions.setView}
+          onOpenAskHadron={() => actions.setView("chat")}
+          showJiraAnalyzer={jiraEnabled}
+          showSentryAnalyzer={sentryEnabled}
+          showReleaseNotes={jiraEnabled}
+          showCodeAnalyzer={showCodeAnalyzer}
+          showPerformanceAnalyzer={showPerformanceAnalyzer}
+          showAskHadron={showAskHadron}
+        />
 
         {/* API Key Warning */}
         <ApiKeyWarning hasApiKey={!!apiKey} />
@@ -468,6 +535,20 @@ function App() {
                   />
                 </div>
               </Suspense>
+            </ViewErrorBoundary>
+          )}
+
+          {/* Configure View (Settings as inline tab) */}
+          {currentView === "configure" && (
+            <ViewErrorBoundary name="Settings">
+              <SettingsPanel
+                isOpen={true}
+                onClose={() => actions.setView("analyze")}
+                darkMode={darkMode}
+                onThemeChange={actions.setDarkMode}
+                onSettingsChange={handleSettingsChange}
+                isInline={true}
+              />
             </ViewErrorBoundary>
           )}
 

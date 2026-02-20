@@ -18,9 +18,10 @@ interface WidgetChatProps {
   onInitialMessageConsumed?: () => void;
   initialInput?: string | null;
   onInitialInputConsumed?: () => void;
+  onMessagesChange?: (messages: ChatMessage[]) => void;
 }
 
-export default function WidgetChat({ initialMessage, onInitialMessageConsumed, initialInput, onInitialInputConsumed }: WidgetChatProps) {
+export default function WidgetChat({ initialMessage, onInitialMessageConsumed, initialInput, onInitialInputConsumed, onMessagesChange }: WidgetChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -37,10 +38,11 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Keep messagesRef in sync with state
+  // Keep messagesRef in sync with state and notify parent
   useEffect(() => {
     messagesRef.current = messages;
-  }, [messages]);
+    onMessagesChange?.(messages);
+  }, [messages, onMessagesChange]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {

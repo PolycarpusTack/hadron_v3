@@ -1,17 +1,18 @@
 import { Minimize2, ExternalLink } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
+import type { ChatMessage } from "../../services/chat";
 
 interface WidgetPanelProps {
   onCollapse: () => void;
+  messages: ChatMessage[];
   children: React.ReactNode;
 }
 
-export default function WidgetPanel({ onCollapse, children }: WidgetPanelProps) {
+export default function WidgetPanel({ onCollapse, messages, children }: WidgetPanelProps) {
   const handleOpenInMain = async () => {
     try {
-      // TODO(Task 11): App.tsx will add listener to receive conversation data
-      await emit("widget:open-in-main", {});
+      await emit("widget:open-in-main", { messages });
       await invoke("focus_main_window");
     } catch {
       // Main window may not be available; silently fail
