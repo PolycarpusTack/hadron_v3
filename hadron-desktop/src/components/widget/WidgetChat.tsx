@@ -44,13 +44,13 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
     onMessagesChange?.(messages);
   }, [messages, onMessagesChange]);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages and during streaming
   useEffect(() => {
     const container = messagesEndRef.current?.parentElement;
     if (container) {
       container.scrollTop = container.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, displayContent]);
 
   // Focus input on mount
   useEffect(() => {

@@ -64,7 +64,9 @@
             "core:window:default",
             "core:event:default",
             "global-shortcut:default",
-            "clipboard-manager:default"
+            "clipboard-manager:default",
+            "dialog:default",
+            "store:default"
           ]
         }
       ]
