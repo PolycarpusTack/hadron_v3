@@ -13,6 +13,7 @@ const PANEL_SIZE = { width: 400, height: 520 };
 export default function WidgetApp() {
   const [widgetState, setWidgetState] = useState<WidgetState>("expanded");
   const [pendingClipboard, setPendingClipboard] = useState<string | null>(null);
+  const [pendingInput, setPendingInput] = useState<string | null>(null);
 
   const expand = useCallback(async () => {
     try {
@@ -34,7 +35,16 @@ export default function WidgetApp() {
 
   const handleClipboardAnalyze = useCallback(async (content: string) => {
     setPendingClipboard(content);
-    // Expand the widget so WidgetChat can consume the pending message
+    try {
+      await invoke("resize_widget", PANEL_SIZE);
+    } catch {
+      // Resize failed; still expand to avoid stuck state
+    }
+    setWidgetState("expanded");
+  }, []);
+
+  const handleTemplate = useCallback(async (template: string) => {
+    setPendingInput(template);
     try {
       await invoke("resize_widget", PANEL_SIZE);
     } catch {
@@ -46,7 +56,7 @@ export default function WidgetApp() {
   if (widgetState === "fab") {
     return (
       <div className="relative w-[60px] h-[60px] flex items-center justify-center">
-        <WidgetFAB onClick={expand} />
+        <WidgetFAB onClick={expand} onTemplate={handleTemplate} />
         <ClipboardWatcher onAnalyze={handleClipboardAnalyze} enabled />
       </div>
     );
@@ -57,6 +67,8 @@ export default function WidgetApp() {
       <WidgetChat
         initialMessage={pendingClipboard}
         onInitialMessageConsumed={() => setPendingClipboard(null)}
+        initialInput={pendingInput}
+        onInitialInputConsumed={() => setPendingInput(null)}
       />
     </WidgetPanel>
   );

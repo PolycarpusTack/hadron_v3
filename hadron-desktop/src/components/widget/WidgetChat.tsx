@@ -16,9 +16,11 @@ import WidgetDropZone from "./WidgetDropZone";
 interface WidgetChatProps {
   initialMessage?: string | null;
   onInitialMessageConsumed?: () => void;
+  initialInput?: string | null;
+  onInitialInputConsumed?: () => void;
 }
 
-export default function WidgetChat({ initialMessage, onInitialMessageConsumed }: WidgetChatProps) {
+export default function WidgetChat({ initialMessage, onInitialMessageConsumed, initialInput, onInitialInputConsumed }: WidgetChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -162,6 +164,15 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed }:
       onInitialMessageConsumed?.();
     }
   }, [initialMessage, sendText, onInitialMessageConsumed]);
+
+  // When an initialInput arrives (e.g. from quick action template), pre-fill the input
+  useEffect(() => {
+    if (initialInput) {
+      setInput(initialInput);
+      onInitialInputConsumed?.();
+      inputRef.current?.focus();
+    }
+  }, [initialInput, onInitialInputConsumed]);
 
   const handleCancel = useCallback(() => {
     if (requestIdRef.current) {
