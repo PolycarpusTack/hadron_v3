@@ -21,6 +21,9 @@ export default function WidgetChat() {
   const [displayContent, setDisplayContent] = useState("");
   const rafRef = useRef<number | null>(null);
   const requestIdRef = useRef<string | null>(null);
+  const unsubStreamRef = useRef<(() => void) | null>(null);
+  const unsubFinalRef = useRef<(() => void) | null>(null);
+  const scanningRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -35,6 +38,15 @@ export default function WidgetChat() {
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  // Cleanup listeners and rAF on unmount
+  useEffect(() => {
+    return () => {
+      unsubStreamRef.current?.();
+      unsubFinalRef.current?.();
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
   }, []);
 
   const handleSend = useCallback(async () => {
@@ -57,29 +69,31 @@ export default function WidgetChat() {
     const reqId = createRequestId();
     requestIdRef.current = reqId;
 
-    // Subscribe to streaming tokens
+    // Subscribe to streaming tokens and final content in parallel
     let accumulated = "";
-    const unsubStream = await subscribeToChatStream((event: ChatStreamEvent) => {
-      if (event.error) {
-        streamingRef.current = `Error: ${event.error}`;
-        setDisplayContent(streamingRef.current);
-        return;
-      }
-      accumulated += event.token;
-      streamingRef.current = accumulated;
-      if (!rafRef.current) {
-        rafRef.current = requestAnimationFrame(() => {
-          setDisplayContent(streamingRef.current);
-          rafRef.current = null;
-        });
-      }
-    }, reqId);
-
-    // Subscribe to final content (canonical response)
     let finalContent: string | null = null;
-    const unsubFinal = await subscribeToChatFinalContent((event) => {
-      finalContent = event.content;
-    }, reqId);
+    const [unsubStream, unsubFinal] = await Promise.all([
+      subscribeToChatStream((event: ChatStreamEvent) => {
+        if (event.error) {
+          streamingRef.current = `Error: ${event.error}`;
+          setDisplayContent(streamingRef.current);
+          return;
+        }
+        accumulated += event.token;
+        streamingRef.current = accumulated;
+        if (!rafRef.current) {
+          rafRef.current = requestAnimationFrame(() => {
+            setDisplayContent(streamingRef.current);
+            rafRef.current = null;
+          });
+        }
+      }, reqId),
+      subscribeToChatFinalContent((event) => {
+        finalContent = event.content;
+      }, reqId),
+    ]);
+    unsubStreamRef.current = unsubStream;
+    unsubFinalRef.current = unsubFinal;
 
     try {
       await sendChatMessage([...messages, userMsg], {
@@ -114,7 +128,9 @@ export default function WidgetChat() {
       }
       requestIdRef.current = null;
       unsubStream();
+      unsubStreamRef.current = null;
       unsubFinal();
+      unsubFinalRef.current = null;
     }
   }, [input, isLoading, messages]);
 
@@ -133,6 +149,7 @@ export default function WidgetChat() {
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, scanMsg]);
+    scanningRef.current = true;
     setIsLoading(true);
 
     try {
@@ -160,6 +177,7 @@ export default function WidgetChat() {
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
+      scanningRef.current = false;
       setIsLoading(false);
     }
   }, []);
@@ -232,13 +250,19 @@ export default function WidgetChat() {
             disabled={isLoading}
           />
           {isLoading ? (
-            <button
-              onClick={handleCancel}
-              className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-              title="Cancel"
-            >
-              <Square className="w-4 h-4" />
-            </button>
+            scanningRef.current ? (
+              <div className="p-2 text-emerald-400">
+                <Loader2 className="w-4 h-4 animate-spin" />
+              </div>
+            ) : (
+              <button
+                onClick={handleCancel}
+                className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                title="Cancel"
+              >
+                <Square className="w-4 h-4" />
+              </button>
+            )
           ) : (
             <button
               onClick={handleSend}
