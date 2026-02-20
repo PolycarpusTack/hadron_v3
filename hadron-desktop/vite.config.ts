@@ -26,14 +26,14 @@ export default defineConfig(async () => ({
     sourcemap: false,
     // Rollup optimizations
     rollupOptions: {
+      input: {
+        main: "index.html",
+        widget: "widget.html",
+      },
       output: {
-        // Manual chunks for better caching
         manualChunks: {
-          // Vendor chunk: React and core libraries
           vendor: ["react", "react-dom"],
-          // UI chunk: icons and UI components
           ui: ["lucide-react"],
-          // Date utilities
           "date-utils": ["date-fns"],
         },
       },
