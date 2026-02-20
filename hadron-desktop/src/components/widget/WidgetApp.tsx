@@ -30,6 +30,8 @@ export default function WidgetApp() {
     } catch {
       // Resize failed; still collapse to avoid stuck state
     }
+    setPendingClipboard(null);
+    setPendingInput(null);
     setWidgetState("fab");
   }, []);
 
@@ -44,6 +46,7 @@ export default function WidgetApp() {
   }, []);
 
   const handleTemplate = useCallback(async (template: string) => {
+    setPendingClipboard(null);
     setPendingInput(template);
     try {
       await invoke("resize_widget", PANEL_SIZE);

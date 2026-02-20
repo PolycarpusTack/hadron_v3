@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Zap, Search, FileText, Wrench, Copy } from "lucide-react";
+import { looksLikeError } from "../../utils/errorDetection";
 
 interface WidgetFABProps {
   onClick: () => void;
@@ -35,12 +36,12 @@ export default function WidgetFAB({ onClick, onTemplate }: WidgetFABProps) {
 
   const handleSelect = async (prefix: string) => {
     setShowMenu(false);
-    // Try to append clipboard content if it looks like an error
+    // Auto-append clipboard content only if it looks like an error/stack trace
     let clipContent = "";
     try {
       const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
       const text = await readText();
-      if (text && text.length > 10 && text.length < 10000) {
+      if (text && looksLikeError(text)) {
         clipContent = text;
       }
     } catch { /* ignore */ }
