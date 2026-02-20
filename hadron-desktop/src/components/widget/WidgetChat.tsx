@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import { Send, Loader2, Square } from "lucide-react";
 import {
   sendChatMessage,
@@ -15,15 +16,20 @@ export default function WidgetChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [streamingContent, setStreamingContent] = useState("");
+  const streamingRef = useRef("");
+  const [displayContent, setDisplayContent] = useState("");
+  const rafRef = useRef<number | null>(null);
   const requestIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
+    const container = messagesEndRef.current?.parentElement;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [messages]);
 
   // Focus input on mount
   useEffect(() => {
@@ -44,7 +50,8 @@ export default function WidgetChat() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsLoading(true);
-    setStreamingContent("");
+    streamingRef.current = "";
+    setDisplayContent("");
 
     const reqId = createRequestId();
     requestIdRef.current = reqId;
@@ -53,11 +60,18 @@ export default function WidgetChat() {
     let accumulated = "";
     const unsubStream = await subscribeToChatStream((event: ChatStreamEvent) => {
       if (event.error) {
-        setStreamingContent(`Error: ${event.error}`);
+        streamingRef.current = `Error: ${event.error}`;
+        setDisplayContent(streamingRef.current);
         return;
       }
       accumulated += event.token;
-      setStreamingContent(accumulated);
+      streamingRef.current = accumulated;
+      if (!rafRef.current) {
+        rafRef.current = requestAnimationFrame(() => {
+          setDisplayContent(streamingRef.current);
+          rafRef.current = null;
+        });
+      }
     }, reqId);
 
     // Subscribe to final content (canonical response)
@@ -91,7 +105,12 @@ export default function WidgetChat() {
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsLoading(false);
-      setStreamingContent("");
+      streamingRef.current = "";
+      setDisplayContent("");
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       requestIdRef.current = null;
       unsubStream();
       unsubFinal();
@@ -123,24 +142,28 @@ export default function WidgetChat() {
         )}
         {messages.map((msg) => (
           <div key={msg.id} className={msg.role === "user" ? "text-right" : ""}>
-            <div
-              className={
-                msg.role === "user"
-                  ? "inline-block bg-emerald-500/20 text-emerald-100 rounded-lg px-3 py-2 max-w-[85%] text-left"
-                  : "text-gray-300 leading-relaxed"
-              }
-            >
-              {msg.content}
-            </div>
+            {msg.role === "user" ? (
+              <div className="inline-block bg-emerald-500/20 text-emerald-100 rounded-lg px-3 py-2 max-w-[85%] text-left">
+                {msg.content}
+              </div>
+            ) : (
+              <div className="text-gray-300 leading-relaxed prose prose-sm prose-invert max-w-none
+                              [&_pre]:bg-white/5 [&_pre]:rounded-lg [&_pre]:p-2 [&_pre]:text-xs
+                              [&_code]:text-emerald-300 [&_a]:text-emerald-400">
+                <ReactMarkdown>{msg.content}</ReactMarkdown>
+              </div>
+            )}
           </div>
         ))}
-        {isLoading && streamingContent && (
-          <div className="text-gray-300 leading-relaxed">
-            {streamingContent}
+        {isLoading && displayContent && (
+          <div className="text-gray-300 leading-relaxed prose prose-sm prose-invert max-w-none
+                          [&_pre]:bg-white/5 [&_pre]:rounded-lg [&_pre]:p-2 [&_pre]:text-xs
+                          [&_code]:text-emerald-300 [&_a]:text-emerald-400">
+            <ReactMarkdown>{displayContent}</ReactMarkdown>
             <span className="inline-block w-1.5 h-4 bg-emerald-400 animate-pulse ml-0.5 align-text-bottom" />
           </div>
         )}
-        {isLoading && !streamingContent && (
+        {isLoading && !displayContent && (
           <div className="flex items-center gap-2 text-gray-500">
             <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
             <span>Thinking...</span>

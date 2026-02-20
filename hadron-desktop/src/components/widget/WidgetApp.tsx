@@ -13,12 +13,20 @@ export default function WidgetApp() {
   const [widgetState, setWidgetState] = useState<WidgetState>("expanded");
 
   const expand = useCallback(async () => {
-    await invoke("resize_widget", PANEL_SIZE);
+    try {
+      await invoke("resize_widget", PANEL_SIZE);
+    } catch {
+      // Resize failed; still expand to avoid stuck state
+    }
     setWidgetState("expanded");
   }, []);
 
   const collapse = useCallback(async () => {
-    await invoke("resize_widget", FAB_SIZE);
+    try {
+      await invoke("resize_widget", FAB_SIZE);
+    } catch {
+      // Resize failed; still collapse to avoid stuck state
+    }
     setWidgetState("fab");
   }, []);
 

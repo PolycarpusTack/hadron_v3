@@ -9,8 +9,13 @@ interface WidgetPanelProps {
 
 export default function WidgetPanel({ onCollapse, children }: WidgetPanelProps) {
   const handleOpenInMain = async () => {
-    await emit("widget:open-in-main", {});
-    await invoke("focus_main_window");
+    try {
+      // TODO(Task 11): App.tsx will add listener to receive conversation data
+      await emit("widget:open-in-main", {});
+      await invoke("focus_main_window");
+    } catch {
+      // Main window may not be available; silently fail
+    }
   };
 
   return (
