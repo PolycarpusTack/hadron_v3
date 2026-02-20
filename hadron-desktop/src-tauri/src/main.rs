@@ -70,6 +70,8 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(db)
         .manage(pattern_engine_state)
         .manage(embedding_cache)
