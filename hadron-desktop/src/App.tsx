@@ -137,23 +137,32 @@ function App() {
   // Widget event listeners — handle "Open in Main" from widget window
   useEffect(() => {
     let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+
     const setupListeners = async () => {
       const { listen } = await import("@tauri-apps/api/event");
-
       if (cancelled) return;
 
       const unlistenOpenInMain = await listen<{ messages?: Array<{ role: string; content: string }> }>(
         "widget:open-in-main",
-        () => {
+        (_event) => {
+          // TODO: pass _event.payload.messages to AskHadronView for conversation carry-over
           actions.setView("chat");
         }
       );
+      unlisteners.push(unlistenOpenInMain);
+      if (cancelled) { unlistenOpenInMain(); return; }
 
       const unlistenOpenAnalysis = await listen<{ analysisId: string }>(
         "widget:open-analysis-in-main",
         async (event) => {
           try {
-            const analysis = await getAnalysisById(Number(event.payload.analysisId));
+            const id = Number(event.payload.analysisId);
+            if (!id || isNaN(id)) {
+              logger.warn("widget:open-analysis-in-main received invalid analysisId", { payload: event.payload });
+              return;
+            }
+            const analysis = await getAnalysisById(id);
             if (analysis) {
               actions.viewAnalysis(analysis);
             }
@@ -162,25 +171,15 @@ function App() {
           }
         }
       );
-
-      if (cancelled) {
-        unlistenOpenInMain();
-        unlistenOpenAnalysis();
-        return;
-      }
-
-      cleanupRef.current = () => {
-        unlistenOpenInMain();
-        unlistenOpenAnalysis();
-      };
+      unlisteners.push(unlistenOpenAnalysis);
+      if (cancelled) { unlistenOpenAnalysis(); return; }
     };
 
-    const cleanupRef = { current: () => {} };
     setupListeners();
 
     return () => {
       cancelled = true;
-      cleanupRef.current();
+      unlisteners.forEach((u) => u());
     };
   }, [actions]);
 

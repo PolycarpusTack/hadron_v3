@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import WidgetFAB from "./WidgetFAB";
 import WidgetPanel from "./WidgetPanel";
 import WidgetChat from "./WidgetChat";
@@ -19,6 +20,15 @@ export default function WidgetApp() {
 
   const handleMessagesChange = useCallback((messages: ChatMessage[]) => {
     widgetMessagesRef.current = messages;
+  }, []);
+
+  const handleOpenInMain = useCallback(async () => {
+    try {
+      await emit("widget:open-in-main", { messages: widgetMessagesRef.current });
+      await invoke("focus_main_window");
+    } catch {
+      // Main window may not be available; silently fail
+    }
   }, []);
 
   const expand = useCallback(async () => {
@@ -72,7 +82,7 @@ export default function WidgetApp() {
   }
 
   return (
-    <WidgetPanel onCollapse={collapse} messages={widgetMessagesRef.current}>
+    <WidgetPanel onCollapse={collapse} onOpenInMain={handleOpenInMain}>
       <WidgetChat
         initialMessage={pendingClipboard}
         onInitialMessageConsumed={() => setPendingClipboard(null)}

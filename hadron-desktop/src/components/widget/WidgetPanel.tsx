@@ -1,24 +1,12 @@
 import { Minimize2, ExternalLink } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
-import type { ChatMessage } from "../../services/chat";
 
 interface WidgetPanelProps {
   onCollapse: () => void;
-  messages: ChatMessage[];
+  onOpenInMain: () => void;
   children: React.ReactNode;
 }
 
-export default function WidgetPanel({ onCollapse, messages, children }: WidgetPanelProps) {
-  const handleOpenInMain = async () => {
-    try {
-      await emit("widget:open-in-main", { messages });
-      await invoke("focus_main_window");
-    } catch {
-      // Main window may not be available; silently fail
-    }
-  };
-
+export default function WidgetPanel({ onCollapse, onOpenInMain, children }: WidgetPanelProps) {
   return (
     <div className="w-[400px] h-[520px] rounded-xl overflow-hidden flex flex-col
                     border border-white/[0.08] shadow-2xl"
@@ -29,7 +17,7 @@ export default function WidgetPanel({ onCollapse, messages, children }: WidgetPa
         <span className="text-emerald-400 text-sm font-semibold">&#9889; Hadron Quick</span>
         <div className="flex items-center gap-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
           <button
-            onClick={handleOpenInMain}
+            onClick={onOpenInMain}
             className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
             title="Open in main app"
           >
