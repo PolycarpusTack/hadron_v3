@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import WidgetFAB from "./WidgetFAB";
 import WidgetPanel from "./WidgetPanel";
+import WidgetChat from "./WidgetChat";
 
 type WidgetState = "fab" | "expanded";
 
@@ -31,9 +32,7 @@ export default function WidgetApp() {
 
   return (
     <WidgetPanel onCollapse={collapse}>
-      <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-        Chat will be added in the next task
-      </div>
+      <WidgetChat />
     </WidgetPanel>
   );
 }

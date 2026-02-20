@@ -1,0 +1,191 @@
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Send, Loader2, Square } from "lucide-react";
+import {
+  sendChatMessage,
+  cancelChat,
+  subscribeToChatStream,
+  subscribeToChatFinalContent,
+  createRequestId,
+  createMessageId,
+  type ChatMessage,
+  type ChatStreamEvent,
+} from "../../services/chat";
+
+export default function WidgetChat() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
+  const requestIdRef = useRef<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, streamingContent]);
+
+  // Focus input on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const handleSend = useCallback(async () => {
+    const text = input.trim();
+    if (!text || isLoading) return;
+
+    const userMsg: ChatMessage = {
+      id: createMessageId(),
+      role: "user",
+      content: text,
+      timestamp: Date.now(),
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setIsLoading(true);
+    setStreamingContent("");
+
+    const reqId = createRequestId();
+    requestIdRef.current = reqId;
+
+    // Subscribe to streaming tokens
+    let accumulated = "";
+    const unsubStream = await subscribeToChatStream((event: ChatStreamEvent) => {
+      if (event.error) {
+        setStreamingContent(`Error: ${event.error}`);
+        return;
+      }
+      accumulated += event.token;
+      setStreamingContent(accumulated);
+    }, reqId);
+
+    // Subscribe to final content (canonical response)
+    let finalContent: string | null = null;
+    const unsubFinal = await subscribeToChatFinalContent((event) => {
+      finalContent = event.content;
+    }, reqId);
+
+    try {
+      await sendChatMessage([...messages, userMsg], {
+        useRag: true,
+        useKb: false,
+        requestId: reqId,
+        verbosity: "concise",
+      });
+
+      const assistantMsg: ChatMessage = {
+        id: createMessageId(),
+        role: "assistant",
+        content: finalContent || accumulated,
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (e) {
+      const errorMsg: ChatMessage = {
+        id: createMessageId(),
+        role: "assistant",
+        content: `Sorry, something went wrong: ${String(e)}`,
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setIsLoading(false);
+      setStreamingContent("");
+      requestIdRef.current = null;
+      unsubStream();
+      unsubFinal();
+    }
+  }, [input, isLoading, messages]);
+
+  const handleCancel = useCallback(() => {
+    if (requestIdRef.current) {
+      cancelChat(requestIdRef.current);
+    }
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  return (
+    <>
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-sm">
+        {messages.length === 0 && !isLoading && (
+          <div className="text-gray-500 text-center mt-8">
+            <p className="text-emerald-400/70 font-medium mb-1">Ask anything</p>
+            <p className="text-xs text-gray-600">Quick questions get quick answers</p>
+          </div>
+        )}
+        {messages.map((msg) => (
+          <div key={msg.id} className={msg.role === "user" ? "text-right" : ""}>
+            <div
+              className={
+                msg.role === "user"
+                  ? "inline-block bg-emerald-500/20 text-emerald-100 rounded-lg px-3 py-2 max-w-[85%] text-left"
+                  : "text-gray-300 leading-relaxed"
+              }
+            >
+              {msg.content}
+            </div>
+          </div>
+        ))}
+        {isLoading && streamingContent && (
+          <div className="text-gray-300 leading-relaxed">
+            {streamingContent}
+            <span className="inline-block w-1.5 h-4 bg-emerald-400 animate-pulse ml-0.5 align-text-bottom" />
+          </div>
+        )}
+        {isLoading && !streamingContent && (
+          <div className="flex items-center gap-2 text-gray-500">
+            <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+            <span>Thinking...</span>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      <div className="px-4 py-3 border-t border-white/[0.08]">
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask something..."
+            rows={1}
+            className="flex-1 bg-white/[0.06] border border-white/[0.1] rounded-lg px-3 py-2
+                       text-sm text-gray-200 placeholder-gray-500 resize-none
+                       focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30
+                       transition-colors"
+            disabled={isLoading}
+          />
+          {isLoading ? (
+            <button
+              onClick={handleCancel}
+              className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+              title="Cancel"
+            >
+              <Square className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30
+                         disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Send"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
