@@ -27,6 +27,7 @@ mod chunker;
 mod deep_scan;
 mod evidence_extractor;
 mod token_budget;
+mod widget_commands;
 
 use commands::*;
 use database::Database;
@@ -284,7 +285,13 @@ fn main() {
             commands::release_notes::update_release_notes_checklist,
             commands::release_notes::append_to_release_notes,
             commands::release_notes::export_release_notes,
-            commands::release_notes::delete_release_notes
+            commands::release_notes::delete_release_notes,
+            // Widget
+            widget_commands::toggle_widget,
+            widget_commands::show_widget,
+            widget_commands::hide_widget,
+            widget_commands::resize_widget,
+            widget_commands::focus_main_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
