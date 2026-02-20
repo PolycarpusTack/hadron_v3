@@ -1,6 +1,6 @@
 {
   "name": "hadron-desktop",
-  "version": "4.0.1",
+  "version": "4.1.0",
   "description": "Hadron - AI Support Assistant",
   "type": "module",
   "scripts": {
