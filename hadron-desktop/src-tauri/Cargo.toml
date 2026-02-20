@@ -21,6 +21,8 @@ tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-window-state = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rusqlite = { version = "0.30", features = ["bundled"] }
@@ -68,3 +70,7 @@ uuid = { version = "1.6", features = ["v4"] }
 
 # XLSX export support
 rust_xlsxwriter = "0.79"
+
+[profile.dev]
+# Keep debug builds lightweight to avoid rustc OOM on Windows while iterating.
+debug = 0
