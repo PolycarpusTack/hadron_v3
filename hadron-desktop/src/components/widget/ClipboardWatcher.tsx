@@ -20,11 +20,15 @@ function looksLikeError(text: string): boolean {
   return ERROR_PATTERNS.some((p) => p.test(text));
 }
 
+const DISMISS_COOLDOWN_MS = 60_000;
+const MAX_DISMISSED_ENTRIES = 100;
+
 export default function ClipboardWatcher({ onAnalyze, enabled }: ClipboardWatcherProps) {
   const [detected, setDetected] = useState<string | null>(null);
   const lastClipRef = useRef("");
-  const dismissedRef = useRef<Set<string>>(new Set());
+  const dismissedRef = useRef<Map<string, number>>(new Map());
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const mountedRef = useRef(true);
 
   const checkClipboard = useCallback(async () => {
     if (!enabled) return;
@@ -34,11 +38,13 @@ export default function ClipboardWatcher({ onAnalyze, enabled }: ClipboardWatche
       if (!text || text === lastClipRef.current) return;
       lastClipRef.current = text;
 
-      // Skip if recently dismissed
+      // Skip if dismissed within cooldown period
       const hash = text.slice(0, 200);
-      if (dismissedRef.current.has(hash)) return;
+      const dismissedAt = dismissedRef.current.get(hash);
+      if (dismissedAt && Date.now() - dismissedAt < DISMISS_COOLDOWN_MS) return;
+      if (dismissedAt) dismissedRef.current.delete(hash);
 
-      if (looksLikeError(text)) {
+      if (looksLikeError(text) && mountedRef.current) {
         setDetected(text);
         // Auto-dismiss after 10 seconds
         clearTimeout(timerRef.current);
@@ -55,16 +61,23 @@ export default function ClipboardWatcher({ onAnalyze, enabled }: ClipboardWatche
     return () => clearInterval(interval);
   }, [enabled, checkClipboard]);
 
-  // Cleanup timer on unmount
+  // Cleanup timer and mounted flag on unmount
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
 
   const handleDismiss = () => {
     if (detected) {
-      dismissedRef.current.add(detected.slice(0, 200));
+      const hash = detected.slice(0, 200);
+      dismissedRef.current.set(hash, Date.now());
+      // Evict oldest entries when exceeding max size
+      if (dismissedRef.current.size > MAX_DISMISSED_ENTRIES) {
+        const [oldest] = dismissedRef.current.keys();
+        dismissedRef.current.delete(oldest);
+      }
     }
     setDetected(null);
   };

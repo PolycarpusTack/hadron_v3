@@ -22,6 +22,8 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed }:
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const isLoadingRef = useRef(false);
   const streamingRef = useRef("");
   const [displayContent, setDisplayContent] = useState("");
   const rafRef = useRef<number | null>(null);
@@ -29,8 +31,14 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed }:
   const unsubStreamRef = useRef<(() => void) | null>(null);
   const unsubFinalRef = useRef<(() => void) | null>(null);
   const scanningRef = useRef(false);
+  const initialMessageHandledRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Keep messagesRef in sync with state
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -55,7 +63,10 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed }:
   }, []);
 
   const sendText = useCallback(async (text: string) => {
-    if (!text || isLoading) return;
+    if (!text || isLoadingRef.current) return;
+
+    isLoadingRef.current = true;
+    setIsLoading(true);
 
     const userMsg: ChatMessage = {
       id: createMessageId(),
@@ -66,7 +77,6 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed }:
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    setIsLoading(true);
     streamingRef.current = "";
     setDisplayContent("");
 
@@ -100,7 +110,7 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed }:
     unsubFinalRef.current = unsubFinal;
 
     try {
-      await sendChatMessage([...messages, userMsg], {
+      await sendChatMessage([...messagesRef.current, userMsg], {
         useRag: true,
         useKb: false,
         requestId: reqId,
@@ -123,6 +133,7 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed }:
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
+      isLoadingRef.current = false;
       setIsLoading(false);
       streamingRef.current = "";
       setDisplayContent("");
@@ -136,7 +147,7 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed }:
       unsubFinal();
       unsubFinalRef.current = null;
     }
-  }, [isLoading, messages]);
+  }, []);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -145,13 +156,12 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed }:
 
   // When an initialMessage arrives (e.g. from clipboard watcher), auto-send it
   useEffect(() => {
-    if (initialMessage) {
+    if (initialMessage && initialMessage !== initialMessageHandledRef.current) {
+      initialMessageHandledRef.current = initialMessage;
       sendText(initialMessage);
       onInitialMessageConsumed?.();
     }
-    // Only fire when initialMessage changes, not on every render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialMessage]);
+  }, [initialMessage, sendText, onInitialMessageConsumed]);
 
   const handleCancel = useCallback(() => {
     if (requestIdRef.current) {
