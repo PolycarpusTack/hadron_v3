@@ -11,6 +11,7 @@ import {
   type ChatMessage,
   type ChatStreamEvent,
 } from "../../services/chat";
+import WidgetDropZone from "./WidgetDropZone";
 
 export default function WidgetChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -123,6 +124,46 @@ export default function WidgetChat() {
     }
   }, []);
 
+  const handleQuickScan = useCallback(async (filePath: string) => {
+    const fileName = filePath.split(/[\\/]/).pop() || "file";
+    const scanMsg: ChatMessage = {
+      id: createMessageId(),
+      role: "user",
+      content: `Quick scanning: ${fileName}`,
+      timestamp: Date.now(),
+    };
+    setMessages((prev) => [...prev, scanMsg]);
+    setIsLoading(true);
+
+    try {
+      const { analyzeCrashLog, getStoredModel, getStoredProvider } = await import("../../services/api");
+      const { getApiKey } = await import("../../services/secure-storage");
+      const provider = getStoredProvider();
+      const model = getStoredModel();
+      const apiKey = await getApiKey(provider) || "";
+
+      const result = await analyzeCrashLog(filePath, apiKey, model, provider, "quick", "quick", false);
+
+      const resultMsg: ChatMessage = {
+        id: createMessageId(),
+        role: "assistant",
+        content: result.analysis || "Analysis complete — no summary available.",
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, resultMsg]);
+    } catch (e) {
+      const errorMsg: ChatMessage = {
+        id: createMessageId(),
+        role: "assistant",
+        content: `Quick scan failed: ${String(e)}`,
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -171,6 +212,8 @@ export default function WidgetChat() {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      <WidgetDropZone onFileSelected={handleQuickScan} disabled={isLoading} />
 
       {/* Input */}
       <div className="px-4 py-3 border-t border-white/[0.08]">
