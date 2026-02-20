@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import WidgetFAB from "./WidgetFAB";
 import WidgetPanel from "./WidgetPanel";
 import WidgetChat from "./WidgetChat";
+import ClipboardWatcher from "./ClipboardWatcher";
 
 type WidgetState = "fab" | "expanded";
 
@@ -11,6 +12,7 @@ const PANEL_SIZE = { width: 400, height: 520 };
 
 export default function WidgetApp() {
   const [widgetState, setWidgetState] = useState<WidgetState>("expanded");
+  const [pendingClipboard, setPendingClipboard] = useState<string | null>(null);
 
   const expand = useCallback(async () => {
     try {
@@ -30,17 +32,32 @@ export default function WidgetApp() {
     setWidgetState("fab");
   }, []);
 
+  const handleClipboardAnalyze = useCallback(async (content: string) => {
+    setPendingClipboard(content);
+    // Expand the widget so WidgetChat can consume the pending message
+    try {
+      await invoke("resize_widget", PANEL_SIZE);
+    } catch {
+      // Resize failed; still expand to avoid stuck state
+    }
+    setWidgetState("expanded");
+  }, []);
+
   if (widgetState === "fab") {
     return (
-      <div className="w-[60px] h-[60px] flex items-center justify-center">
+      <div className="relative w-[60px] h-[60px] flex items-center justify-center">
         <WidgetFAB onClick={expand} />
+        <ClipboardWatcher onAnalyze={handleClipboardAnalyze} enabled />
       </div>
     );
   }
 
   return (
     <WidgetPanel onCollapse={collapse}>
-      <WidgetChat />
+      <WidgetChat
+        initialMessage={pendingClipboard}
+        onInitialMessageConsumed={() => setPendingClipboard(null)}
+      />
     </WidgetPanel>
   );
 }

@@ -13,7 +13,12 @@ import {
 } from "../../services/chat";
 import WidgetDropZone from "./WidgetDropZone";
 
-export default function WidgetChat() {
+interface WidgetChatProps {
+  initialMessage?: string | null;
+  onInitialMessageConsumed?: () => void;
+}
+
+export default function WidgetChat({ initialMessage, onInitialMessageConsumed }: WidgetChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -49,8 +54,7 @@ export default function WidgetChat() {
     };
   }, []);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
+  const sendText = useCallback(async (text: string) => {
     if (!text || isLoading) return;
 
     const userMsg: ChatMessage = {
@@ -132,7 +136,22 @@ export default function WidgetChat() {
       unsubFinal();
       unsubFinalRef.current = null;
     }
-  }, [input, isLoading, messages]);
+  }, [isLoading, messages]);
+
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    if (text) sendText(text);
+  }, [input, sendText]);
+
+  // When an initialMessage arrives (e.g. from clipboard watcher), auto-send it
+  useEffect(() => {
+    if (initialMessage) {
+      sendText(initialMessage);
+      onInitialMessageConsumed?.();
+    }
+    // Only fire when initialMessage changes, not on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessage]);
 
   const handleCancel = useCallback(() => {
     if (requestIdRef.current) {
