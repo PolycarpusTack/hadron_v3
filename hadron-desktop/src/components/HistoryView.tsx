@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { History, Search, AlertCircle, SlidersHorizontal, X, CheckSquare } from "lucide-react";
+import TabBar from "./ui/TabBar";
 import {
   getAllAnalyses,
   deleteAnalysis,
@@ -752,53 +753,25 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
       {statistics && <AnalyticsDashboard statistics={statistics} />}
 
       {/* Tabs */}
-      <div className="border-b border-gray-700">
-        <nav className="flex gap-1 overflow-x-auto pb-px">
-          <button
-            onClick={() => setCurrentTab("all")}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-              currentTab === "all"
-                ? "border-amber-500 text-amber-400"
-                : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
-            }`}
-          >
-            All ({analyses.length + translations.length})
-          </button>
-          <button
-            onClick={() => setCurrentTab("analyses")}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-              currentTab === "analyses"
-                ? "border-amber-500 text-amber-400"
-                : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
-            }`}
-          >
-            Crash Analyses ({analyses.length})
-          </button>
-          <button
-            onClick={() => setCurrentTab("translations")}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-              currentTab === "translations"
-                ? "border-amber-500 text-amber-400"
-                : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
-            }`}
-          >
-            Translations ({translations.length})
-          </button>
-          <button
-            onClick={() => setCurrentTab("favorites")}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-              currentTab === "favorites"
-                ? "border-yellow-500 text-yellow-400"
-                : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
-            }`}
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-            </svg>
-            Favorites ({statistics?.favorite_count || 0})
-          </button>
-        </nav>
-      </div>
+      <TabBar
+        tabs={[
+          { id: "all" as const, label: "All", count: analyses.length + translations.length },
+          { id: "analyses" as const, label: "Crash Analyses", count: analyses.length },
+          { id: "translations" as const, label: "Translations", count: translations.length },
+          {
+            id: "favorites" as const,
+            label: "Favorites",
+            count: statistics?.favorite_count || 0,
+            icon: (
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+              </svg>
+            ),
+          },
+        ]}
+        activeTab={currentTab}
+        onTabChange={setCurrentTab}
+      />
 
       {/* Search and Filters */}
       <div className="space-y-3">
