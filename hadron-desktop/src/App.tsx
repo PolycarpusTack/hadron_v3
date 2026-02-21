@@ -35,7 +35,6 @@ const AnalysisDetailView = lazy(() => import("./components/AnalysisDetailView"))
 const WhatsOnDetailView = lazy(() => import("./components/WhatsOnDetailView"));
 const QuickAnalysisDetailView = lazy(() => import("./components/QuickAnalysisDetailView"));
 const SentryDetailView = lazy(() => import("./components/sentry/SentryDetailView"));
-const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
 const AskHadronView = lazy(() => import("./components/AskHadronView"));
 const ReleaseNotesView = lazy(() => import("./components/ReleaseNotesView"));
 
@@ -63,7 +62,6 @@ function App() {
   // Destructure for cleaner code
   const {
     currentView,
-    showDashboard,
     darkMode,
     apiKey,
     analyzing,
@@ -366,14 +364,6 @@ function App() {
     if (!chatFlag && currentView === "chat") actions.setView("analyze");
   };
 
-  // Handle opening analysis from dashboard
-  const handleOpenFromDashboard = (analysis: typeof selectedAnalysis) => {
-    if (analysis) {
-      actions.viewAnalysis(analysis);
-      actions.closeDashboard();
-    }
-  };
-
   // Splashscreen on app start - only show for minimum time, don't block on initialization
   if (showSplash) {
     return (
@@ -584,19 +574,6 @@ function App() {
         {/* Footer */}
         <AppFooter hasApiKey={!!apiKey} />
       </div>
-
-      {/* Dashboard Panel - lazy loaded */}
-      {showDashboard && (
-        <ViewErrorBoundary name="Dashboard">
-          <Suspense fallback={<LazyLoadFallback />}>
-            <DashboardPanel
-              isOpen={showDashboard}
-              onClose={actions.closeDashboard}
-              onOpenAnalysis={handleOpenFromDashboard}
-            />
-          </Suspense>
-        </ViewErrorBoundary>
-      )}
 
       {/* Console Viewer - toggle with Ctrl+Y */}
       <ConsoleViewer

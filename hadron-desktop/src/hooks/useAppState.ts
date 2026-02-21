@@ -43,9 +43,6 @@ export interface AppState {
   // Navigation
   currentView: View;
 
-  // UI Panels
-  showDashboard: boolean;
-
   // Theme
   darkMode: boolean;
 
@@ -94,10 +91,6 @@ export type AppAction =
   | { type: 'SET_VIEW'; payload: View }
   | { type: 'VIEW_ANALYSIS'; payload: Analysis }
   | { type: 'BACK_TO_HISTORY' }
-
-  // UI Panels
-  | { type: 'OPEN_DASHBOARD' }
-  | { type: 'CLOSE_DASHBOARD' }
 
   // Theme
   | { type: 'SET_DARK_MODE'; payload: boolean }
@@ -150,7 +143,6 @@ export type AppAction =
 export const initialState: AppState = {
   isInitializing: true,
   currentView: 'analyze',
-  showDashboard: false,
   darkMode: true,
   apiKey: '',
   analyzing: false,
@@ -212,13 +204,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         selectedAnalysis: null,
         currentView: 'history',
       };
-
-    // UI Panels
-    case 'OPEN_DASHBOARD':
-      return { ...state, showDashboard: true };
-
-    case 'CLOSE_DASHBOARD':
-      return { ...state, showDashboard: false };
 
     // Theme
     case 'SET_DARK_MODE':
@@ -448,10 +433,6 @@ export function useAppState() {
       () => dispatch({ type: 'BACK_TO_HISTORY' }),
       []
     ),
-
-    // UI Panels
-    openDashboard: useCallback(() => dispatch({ type: 'OPEN_DASHBOARD' }), []),
-    closeDashboard: useCallback(() => dispatch({ type: 'CLOSE_DASHBOARD' }), []),
 
     // Theme
     setDarkMode: useCallback(
