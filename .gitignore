@@ -147,3 +147,8 @@ RELEASE-v1.1.0.md
 # Stray HTML mockups
 # ----------------------------------------------
 hadron-desktop/WHATS_ON_Crash_Analyzer_Enhanced*.html
+
+# ----------------------------------------------
+# Git Worktrees
+# ----------------------------------------------
+.worktrees/
