@@ -12,6 +12,7 @@ pub use crate::commands_legacy::*;
 pub mod archive;
 pub mod crud;
 pub mod notes;
+pub mod performance;
 
 // New feature modules
 pub mod gold_answers;

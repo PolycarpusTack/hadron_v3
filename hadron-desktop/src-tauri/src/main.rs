@@ -224,8 +224,8 @@ fn main() {
             generate_report_multi,
             // Database Admin
             get_database_info,
-            // Performance Trace Analysis
-            analyze_performance_trace,
+            // Performance Trace Analysis (migrated to commands::performance)
+            commands::performance::analyze_performance_trace,
             get_file_stats,
             // Intelligence Platform (Phase 1-2)
             submit_analysis_feedback,
