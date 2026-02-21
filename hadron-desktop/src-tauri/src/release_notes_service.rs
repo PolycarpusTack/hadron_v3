@@ -113,6 +113,48 @@ pub struct AiInsights {
     pub breaking_changes: Vec<String>,
 }
 
+// ============================================================================
+// Style Compliance
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComplianceReport {
+    pub terminology_violations: Vec<TerminologyViolation>,
+    pub structure_violations: Vec<StructureViolation>,
+    pub screenshot_suggestions: Vec<ScreenshotSuggestion>,
+    pub score: f64,
+    pub tokens_used: i32,
+    pub cost: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminologyViolation {
+    pub line_context: String,
+    pub violation: String,
+    pub suggested_fix: String,
+    pub rule_reference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructureViolation {
+    pub section: String,
+    pub violation: String,
+    pub suggested_fix: String,
+    pub rule_reference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotSuggestion {
+    pub ticket_key: String,
+    pub description: String,
+    pub placement_hint: String,
+    pub inline_placeholder: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReleaseNotesPhase {
@@ -626,6 +668,49 @@ pub fn compute_ai_insights(
         ticket_coverage: coverage,
         breaking_changes,
     }
+}
+
+// ============================================================================
+// Style Compliance Check
+// ============================================================================
+
+pub async fn check_compliance(
+    markdown: &str,
+    api_key: &str,
+    model: &str,
+    provider: &str,
+) -> Result<ComplianceReport, String> {
+    let system_prompt = r#"You are a WHATS'ON release notes style auditor. You enforce the company's release notes style guide with precision.
+
+Given a draft and the full style guide, analyze the draft and return a JSON object with exactly these fields:
+
+1. "terminologyViolations" — array of objects with: lineContext, violation, suggestedFix, ruleReference. Check wrong UI terms against Section 1 terminology table, abbreviations, "customers" vs "users", incorrect capitalization, passive voice, quotes around UI text instead of bold, etc.
+
+2. "structureViolations" — array of objects with: section, violation, suggestedFix, ruleReference. Check: features missing Introduction/Detail/Conclusion structure, fixes not starting with "Previously,...", missing ticket references in brackets, titles with colons or quotes, content not ending with "This issue has been fixed in this version." for fixes, etc.
+
+3. "screenshotSuggestions" — array of objects with: ticketKey, description, placementHint, inlinePlaceholder. Identify places where a screenshot would help readers understand a UI change, new dialog, new column, new button, layout change, etc. The inlinePlaceholder should be formatted as [SCREENSHOT: brief description of what to capture].
+
+4. "score" — number 0-100 reflecting overall style guide compliance. 100 = perfect compliance. Deduct points per violation: terminology -3, structure -5, missing screenshots don't affect score.
+
+Be thorough but concise. For each violation, provide just enough context to identify and fix it. Return ONLY valid JSON. No markdown fences."#;
+
+    let user_prompt = format!(
+        "## Style Guide:\n\n{}\n\n---\n\n## Draft to Review:\n\n{}",
+        STYLE_GUIDE, markdown
+    );
+
+    let request_body = build_ai_request(provider, system_prompt, &user_prompt, model, 6000);
+    let response = ai_service::call_provider_raw_json(provider, request_body, api_key).await?;
+
+    let (content, tokens, cost) = extract_ai_response(provider, &response);
+
+    let mut report: ComplianceReport = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse compliance report: {}. Raw: {}", e, &content[..content.len().min(200)]))?;
+
+    report.tokens_used = tokens;
+    report.cost = cost;
+
+    Ok(report)
 }
 
 // ============================================================================
