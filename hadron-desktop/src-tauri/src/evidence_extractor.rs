@@ -2,9 +2,28 @@
 ///
 /// Extracts the most relevant evidence from raw walkback data to reduce token usage
 /// while preserving critical information for AI analysis.
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+
+// Static compiled regexes — compiled once, reused across all EvidenceExtractor instances.
+static RE_ORACLE_ERROR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)ORA-\d{5}").expect("static regex"));
+static RE_POSTGRES_ERROR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(SQLSTATE|ERROR|FATAL|PANIC):?\s*[\[\(]?\d{5}").expect("static regex"));
+static RE_SMALLTALK_EXCEPTION: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b[A-Z][a-zA-Z0-9]*(\s+class)?>>[\w:]+").expect("static regex"));
+static RE_DEADLOCK_MARKER: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(deadlock|ORA-00060|mutex|lock wait|blocking)").expect("static regex"));
+static RE_MEMORY_ERROR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(out of memory|heap|allocation failed|memory exhausted|ORA-04031)").expect("static regex"));
+static RE_NETWORK_ERROR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(connection (refused|reset|timed out)|socket|TNS-|network error)").expect("static regex"));
+static RE_ERROR_KEYWORD: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\b(ERROR|FATAL|EXCEPTION|FAILED|ABORT|CRASH|PANIC)\b").expect("static regex"));
+static RE_STACK_FRAME: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^\s*\d+\s+[A-Z][a-zA-Z0-9]*").expect("static regex"));
 
 // ============================================================================
 // Data Structures
@@ -144,15 +163,6 @@ impl ExtractionConfig {
 /// Extracts evidence from raw walkback content
 pub struct EvidenceExtractor {
     config: ExtractionConfig,
-    // Compiled regexes for performance
-    oracle_error: Regex,
-    postgres_error: Regex,
-    smalltalk_exception: Regex,
-    deadlock_marker: Regex,
-    memory_error: Regex,
-    network_error: Regex,
-    error_keyword: Regex,
-    stack_frame: Regex,
 }
 
 impl EvidenceExtractor {
@@ -163,34 +173,7 @@ impl EvidenceExtractor {
 
     /// Create with custom configuration
     pub fn with_config(config: ExtractionConfig) -> Self {
-        Self {
-            config,
-            // Oracle errors: ORA-xxxxx
-            oracle_error: Regex::new(r"(?i)ORA-\d{5}").unwrap(),
-            // PostgreSQL errors
-            postgres_error: Regex::new(r"(?i)(SQLSTATE|ERROR|FATAL|PANIC):?\s*[\[\(]?\d{5}")
-                .unwrap(),
-            // Smalltalk exceptions: ClassName>>methodName or Class class>>methodName
-            smalltalk_exception: Regex::new(r"\b[A-Z][a-zA-Z0-9]*(\s+class)?>>[\w:]+").unwrap(),
-            // Deadlock markers
-            deadlock_marker: Regex::new(r"(?i)(deadlock|ORA-00060|mutex|lock wait|blocking)")
-                .unwrap(),
-            // Memory errors
-            memory_error: Regex::new(
-                r"(?i)(out of memory|heap|allocation failed|memory exhausted|ORA-04031)",
-            )
-            .unwrap(),
-            // Network errors
-            network_error: Regex::new(
-                r"(?i)(connection (refused|reset|timed out)|socket|TNS-|network error)",
-            )
-            .unwrap(),
-            // General error keywords
-            error_keyword: Regex::new(r"(?i)\b(ERROR|FATAL|EXCEPTION|FAILED|ABORT|CRASH|PANIC)\b")
-                .unwrap(),
-            // Smalltalk stack frame pattern
-            stack_frame: Regex::new(r"^\s*\d+\s+[A-Z][a-zA-Z0-9]*").unwrap(),
-        }
+        Self { config }
     }
 
     /// Extract evidence from raw walkback content
@@ -370,19 +353,19 @@ impl EvidenceExtractor {
 
     /// Categorize a line by pattern match
     fn categorize_line(&self, line: &str) -> Option<MatchCategory> {
-        if self.oracle_error.is_match(line) {
+        if RE_ORACLE_ERROR.is_match(line) {
             Some(MatchCategory::OracleError)
-        } else if self.postgres_error.is_match(line) {
+        } else if RE_POSTGRES_ERROR.is_match(line) {
             Some(MatchCategory::PostgresError)
-        } else if self.deadlock_marker.is_match(line) {
+        } else if RE_DEADLOCK_MARKER.is_match(line) {
             Some(MatchCategory::Deadlock)
-        } else if self.memory_error.is_match(line) {
+        } else if RE_MEMORY_ERROR.is_match(line) {
             Some(MatchCategory::MemoryError)
-        } else if self.network_error.is_match(line) {
+        } else if RE_NETWORK_ERROR.is_match(line) {
             Some(MatchCategory::NetworkError)
-        } else if self.smalltalk_exception.is_match(line) && self.error_keyword.is_match(line) {
+        } else if RE_SMALLTALK_EXCEPTION.is_match(line) && RE_ERROR_KEYWORD.is_match(line) {
             Some(MatchCategory::SmalltalkException)
-        } else if self.error_keyword.is_match(line) {
+        } else if RE_ERROR_KEYWORD.is_match(line) {
             Some(MatchCategory::ErrorKeyword)
         } else {
             None
@@ -403,13 +386,13 @@ impl EvidenceExtractor {
         // Also scan all lines for patterns
         for line in lines {
             // Oracle errors
-            if let Some(captures) = self.oracle_error.find(line) {
+            if let Some(captures) = RE_ORACLE_ERROR.find(line) {
                 let sig = captures.as_str().to_uppercase();
                 *signature_counts.entry(sig).or_insert(0) += 1;
             }
 
             // Smalltalk method signatures at crash
-            if let Some(captures) = self.smalltalk_exception.find(line) {
+            if let Some(captures) = RE_SMALLTALK_EXCEPTION.find(line) {
                 let sig = captures.as_str().to_string();
                 *signature_counts.entry(sig).or_insert(0) += 1;
             }
@@ -429,12 +412,12 @@ impl EvidenceExtractor {
     /// Normalize a line into a signature
     fn normalize_signature(&self, line: &str) -> Option<String> {
         // Look for Oracle error
-        if let Some(m) = self.oracle_error.find(line) {
+        if let Some(m) = RE_ORACLE_ERROR.find(line) {
             return Some(m.as_str().to_uppercase());
         }
 
         // Look for Smalltalk method signature
-        if let Some(m) = self.smalltalk_exception.find(line) {
+        if let Some(m) = RE_SMALLTALK_EXCEPTION.find(line) {
             return Some(m.as_str().to_string());
         }
 
@@ -448,7 +431,7 @@ impl EvidenceExtractor {
         let mut in_stack = false;
 
         for (i, line) in lines.iter().enumerate() {
-            let looks_like_frame = self.stack_frame.is_match(line);
+            let looks_like_frame = RE_STACK_FRAME.is_match(line);
 
             if looks_like_frame {
                 if !in_stack {
