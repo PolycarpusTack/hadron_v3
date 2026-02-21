@@ -1,11 +1,10 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { FileUp, Code, History, Cpu, Ticket, Shield, MessageCircle, FileText } from "lucide-react";
-
-export type ViewType = "analyze" | "translate" | "history" | "detail" | "performance" | "jira" | "sentry" | "chat" | "release_notes";
+import type { View } from "../hooks/useAppState";
 
 interface NavigationProps {
-  currentView: ViewType;
-  onViewChange: (view: ViewType) => void;
+  currentView: View;
+  onViewChange: (view: View) => void;
   showJiraAnalyzer?: boolean;
   showSentryAnalyzer?: boolean;
   showReleaseNotes?: boolean;
@@ -15,7 +14,7 @@ interface NavigationProps {
 }
 
 interface TabConfig {
-  id: ViewType;
+  id: View;
   label: string;
   icon: typeof FileUp;
   iconColor: string;
@@ -62,7 +61,7 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
     ...(showCodeAnalyzer !== false
       ? [
           {
-            id: "translate" as ViewType,
+            id: "translate" as View,
             label: "Code Analyzer",
             icon: Code,
             iconColor: "text-violet-400",
@@ -75,7 +74,7 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
     ...(showJiraAnalyzer
       ? [
           {
-            id: "jira" as ViewType,
+            id: "jira" as View,
             label: "JIRA Analyzer",
             icon: Ticket,
             iconColor: "text-sky-400",
@@ -88,7 +87,7 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
     ...(showSentryAnalyzer
       ? [
           {
-            id: "sentry" as ViewType,
+            id: "sentry" as View,
             label: "Sentry Analyzer",
             icon: Shield,
             iconColor: "text-orange-400",
@@ -101,7 +100,7 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
     ...(showReleaseNotes
       ? [
           {
-            id: "release_notes" as ViewType,
+            id: "release_notes" as View,
             label: "Release Notes",
             icon: FileText,
             iconColor: "text-amber-400",
@@ -114,7 +113,7 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
     ...(showPerformanceAnalyzer !== false
       ? [
           {
-            id: "performance" as ViewType,
+            id: "performance" as View,
             label: "Performance Analyzer",
             icon: Cpu,
             iconColor: "text-cyan-400",
@@ -127,7 +126,7 @@ export default function Navigation({ currentView, onViewChange, showJiraAnalyzer
     ...(showAskHadron !== false
       ? [
           {
-            id: "chat" as ViewType,
+            id: "chat" as View,
             label: "Ask Hadron",
             icon: MessageCircle,
             iconColor: "text-emerald-400",
