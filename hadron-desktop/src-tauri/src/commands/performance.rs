@@ -9,6 +9,7 @@ use crate::commands::common::{
     DbState, MAX_PERFORMANCE_TRACE_SIZE_BYTES, normalize_severity, validate_file_path,
 };
 use crate::database::Analysis;
+use crate::error::{CommandResult, HadronError};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
@@ -119,12 +120,14 @@ pub struct PerformanceAnalysisResult {
 pub async fn analyze_performance_trace(
     file_path: String,
     db: DbState<'_>,
-) -> Result<PerformanceAnalysisResult, String> {
+) -> CommandResult<PerformanceAnalysisResult> {
     log::info!("Analyzing performance trace: {}", file_path);
     let start_time = Instant::now();
 
     // SECURITY: Validate file path before reading (canonicalization, blocklist, size limit)
-    let canonical_path = validate_file_path(&file_path, MAX_PERFORMANCE_TRACE_SIZE_BYTES).await?;
+    let canonical_path = validate_file_path(&file_path, MAX_PERFORMANCE_TRACE_SIZE_BYTES)
+        .await
+        .map_err(HadronError::Validation)?;
 
     // Read the file from validated path
     let content = async_fs::read_to_string(&canonical_path)
@@ -135,7 +138,7 @@ pub async fn analyze_performance_trace(
                 canonical_path.display(),
                 e
             );
-            "Failed to read file: check file permissions".to_string()
+            HadronError::Io(e)
         })?;
     let metadata = async_fs::metadata(&canonical_path).await.map_err(|e| {
         log::error!(
@@ -143,7 +146,7 @@ pub async fn analyze_performance_trace(
             canonical_path.display(),
             e
         );
-        "Failed to read file metadata".to_string()
+        HadronError::Io(e)
     })?;
 
     let filename = canonical_path
@@ -155,8 +158,8 @@ pub async fn analyze_performance_trace(
     // Move CPU-bound parsing to blocking thread pool to avoid starving the async executor
     let filename_for_parse = filename.clone();
     let result = tauri::async_runtime::spawn_blocking(move || parse_performance_trace(&content, &filename_for_parse))
-        .await
-        .map_err(|e| format!("Task error: {}", e))??;
+        .await?
+        .map_err(HadronError::Parse)?;
 
     let duration_ms = start_time.elapsed().as_millis() as i32;
     let severity = normalize_severity(&result.overall_severity);
@@ -199,19 +202,9 @@ pub async fn analyze_performance_trace(
     };
 
     let db_clone = Arc::clone(&db);
-    let file_path_for_log = file_path.clone();
     let severity_for_log = analysis.severity.clone();
     let id = tauri::async_runtime::spawn_blocking(move || db_clone.insert_analysis(&analysis))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| {
-            log::error!(
-                "Database insert failed for performance analysis: file={}, error={}",
-                file_path_for_log,
-                e
-            );
-            format!("Database error: {}", e)
-        })?;
+        .await??;
 
     log::info!(
         "Performance analysis saved: id={}, file={}, severity={}",
