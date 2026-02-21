@@ -15,6 +15,7 @@ import {
 import { getAnalysesFiltered } from "../services/api";
 import type { Analysis } from "../services/api";
 import { useDebounce } from "../hooks/useDebounce";
+import { getSeverityBadgeClasses } from "../utils/severity";
 
 interface JiraAnalysisHistoryProps {
   onViewAnalysis: (analysis: Analysis) => void;
@@ -70,21 +71,6 @@ export default function JiraAnalysisHistory({
   useEffect(() => {
     loadAnalyses();
   }, [loadAnalyses]);
-
-  const getSeverityBadge = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case "critical":
-        return "bg-red-600 text-white";
-      case "high":
-        return "bg-red-500/20 text-red-400";
-      case "medium":
-        return "bg-yellow-500/20 text-yellow-400";
-      case "low":
-        return "bg-blue-500/20 text-blue-400";
-      default:
-        return "bg-gray-500/20 text-gray-400";
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -161,7 +147,7 @@ export default function JiraAnalysisHistory({
 
               <div className="flex items-center gap-3 text-xs text-gray-500 flex-shrink-0">
                 <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${getSeverityBadge(
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${getSeverityBadgeClasses(
                     analysis.severity
                   )}`}
                 >

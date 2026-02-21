@@ -12,6 +12,7 @@ import type { Analysis, Translation } from "../services/api";
 import type { Tag } from "../types";
 import { TagPicker } from "./TagPicker";
 import { TagBadge } from "./TagBadge";
+import { getSeverityBadgeClasses } from "../utils/severity";
 
 // ============================================================================
 // Analysis List Item
@@ -27,21 +28,6 @@ interface AnalysisListItemProps {
   selectionMode?: boolean;
   isSelected?: boolean;
   onSelect?: (id: number, shiftKey: boolean) => void;
-}
-
-function getSeverityColor(severity: string): string {
-  switch (severity.toLowerCase()) {
-    case "critical":
-      return "bg-red-500/20 text-red-400 border-red-500/30";
-    case "high":
-      return "bg-orange-500/20 text-orange-400 border-orange-500/30";
-    case "medium":
-      return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
-    case "low":
-      return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-    default:
-      return "bg-gray-500/20 text-gray-400 border-gray-500/30";
-  }
 }
 
 export const AnalysisListItem = memo(function AnalysisListItem({
@@ -103,7 +89,7 @@ export const AnalysisListItem = memo(function AnalysisListItem({
           <div className="flex items-center gap-3 mb-2 flex-wrap">
             <h3 className="font-semibold text-lg truncate">{analysis.filename}</h3>
             <span
-              className={`px-3 py-1 rounded-full text-xs font-semibold border ${getSeverityColor(
+              className={`px-3 py-1 rounded-full text-xs font-semibold border ${getSeverityBadgeClasses(
                 analysis.severity
               )}`}
             >

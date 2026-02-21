@@ -4,6 +4,7 @@ import { ArrowRight, Check, X } from 'lucide-react';
 import Button from './ui/Button';
 import { GoldAnalysis } from '../types';
 import logger from '../services/logger';
+import { getSeverityBadgeClasses } from '../utils/severity';
 
 interface GoldReviewQueueProps {
   onClose?: () => void;
@@ -74,22 +75,6 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setProcessing(null);
-    }
-  };
-
-  const getSeverityColor = (severity?: string) => {
-    if (!severity) return 'bg-gray-500/20 text-gray-400';
-    switch (severity.toLowerCase()) {
-      case 'critical':
-        return 'bg-red-500/20 text-red-400';
-      case 'high':
-        return 'bg-orange-500/20 text-orange-400';
-      case 'medium':
-        return 'bg-yellow-500/20 text-yellow-400';
-      case 'low':
-        return 'bg-blue-500/20 text-blue-400';
-      default:
-        return 'bg-gray-500/20 text-gray-400';
     }
   };
 
@@ -210,7 +195,7 @@ export const GoldReviewQueue: React.FC<GoldReviewQueueProps> = ({ onClose }) => 
                           </span>
                         )}
                         {analysis.severity && (
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getSeverityColor(analysis.severity)}`}>
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getSeverityBadgeClasses(analysis.severity || "")}`}>
                             {analysis.severity}
                           </span>
                         )}

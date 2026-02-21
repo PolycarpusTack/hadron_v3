@@ -3,30 +3,16 @@ import Button from "./ui/Button";
 import type { AnalysisResult } from "../types/index";
 import CollapsibleSection from "./CollapsibleSection";
 import MultiPartAnalysisViewer from "./MultiPartAnalysisViewer";
+import { getSeverityTextColor, getSeverityBgClasses } from "../utils/severity";
 
 interface AnalysisResultsProps {
   result: AnalysisResult;
   onNewAnalysis: () => void;
 }
 
-const severityColors = {
-  critical: "text-red-500",
-  high: "text-red-400",
-  medium: "text-yellow-400",
-  low: "text-green-400",
-};
-
-const severityBgColors = {
-  critical: "bg-red-500/10 border-red-500/20",
-  high: "bg-red-400/10 border-red-400/20",
-  medium: "bg-yellow-400/10 border-yellow-400/20",
-  low: "bg-green-400/10 border-green-400/20",
-};
-
 export default function AnalysisResults({ result, onNewAnalysis }: AnalysisResultsProps) {
-  const severityKey = result.severity.toLowerCase() as keyof typeof severityColors;
-  const severityColor = severityColors[severityKey] || severityColors.medium;
-  const severityBg = severityBgColors[severityKey] || severityBgColors.medium;
+  const severityColor = getSeverityTextColor(result.severity);
+  const severityBg = getSeverityBgClasses(result.severity);
 
   // Parse suggested_fixes from JSON string to array
   const suggestedFixes: string[] = typeof result.suggested_fixes === 'string'

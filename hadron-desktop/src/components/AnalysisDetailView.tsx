@@ -12,6 +12,7 @@ import ExportDialog from "./ExportDialog";
 import LinkedTickets from "./LinkedTickets";
 import JiraSyncStatus from "./JiraSyncStatus";
 import { isJiraEnabled } from "../services/jira";
+import { getSeverityBadgeClasses } from "../utils/severity";
 
 interface AnalysisDetailViewProps {
   analysis: Analysis;
@@ -36,21 +37,6 @@ export default function AnalysisDetailView({ analysis, onBack }: AnalysisDetailV
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
-
-  const getSeverityColor = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case "critical":
-        return "bg-red-500/20 text-red-400 border-red-500/30";
-      case "high":
-        return "bg-orange-500/20 text-orange-400 border-orange-500/30";
-      case "medium":
-        return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
-      case "low":
-        return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-      default:
-        return "bg-gray-500/20 text-gray-400 border-gray-500/30";
-    }
-  };
 
   const handleCopyToClipboard = () => {
     const text = `
@@ -203,7 +189,7 @@ ${analysis.suggested_fixes}
             </div>
           </div>
           <span
-            className={`px-4 py-2 rounded-lg text-sm font-semibold border ${getSeverityColor(
+            className={`px-4 py-2 rounded-lg text-sm font-semibold border ${getSeverityBadgeClasses(
               analysis.severity
             )}`}
           >
@@ -332,7 +318,7 @@ ${analysis.suggested_fixes}
         icon={<AlertCircle className="w-5 h-5" />}
         badge={
           <span
-            className={`px-3 py-1 rounded-lg text-xs font-semibold border ${getSeverityColor(
+            className={`px-3 py-1 rounded-lg text-xs font-semibold border ${getSeverityBadgeClasses(
               analysis.severity
             )}`}
           >

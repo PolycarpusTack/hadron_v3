@@ -2,17 +2,11 @@ import { useState } from "react";
 import { BarChart3, Star, FileText, TrendingUp, ChevronDown, ChevronUp } from "lucide-react";
 import type { DatabaseStatistics } from "../services/api";
 import { TrendChart } from "./TrendChart";
+import { getSeverityBarColor } from "../utils/severity";
 
 interface AnalyticsDashboardProps {
   statistics: DatabaseStatistics;
 }
-
-const severityColors: Record<string, string> = {
-  CRITICAL: "bg-red-500",
-  HIGH: "bg-orange-500",
-  MEDIUM: "bg-yellow-500",
-  LOW: "bg-blue-500",
-};
 
 export default function AnalyticsDashboard({ statistics }: AnalyticsDashboardProps) {
   const totalAnalyses = statistics.severity_breakdown.reduce((sum, [_, count]) => sum + count, 0);
@@ -64,7 +58,7 @@ export default function AnalyticsDashboard({ statistics }: AnalyticsDashboardPro
             .sort((a, b) => b[1] - a[1]) // Sort by count descending
             .map(([severity, count]) => {
               const percentage = totalAnalyses > 0 ? (count / totalAnalyses) * 100 : 0;
-              const color = severityColors[severity] || "bg-gray-500";
+              const color = getSeverityBarColor(severity);
 
               return (
                 <div key={severity} className="flex items-center gap-2 text-xs">
