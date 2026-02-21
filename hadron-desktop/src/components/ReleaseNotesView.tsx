@@ -17,9 +17,10 @@ import ReleaseNotesReview from "./release-notes/ReleaseNotesReview";
 import ReleaseNotesInsights from "./release-notes/ReleaseNotesInsights";
 import ReleaseNotesStyleGuide from "./release-notes/ReleaseNotesStyleGuide";
 import ReleaseNotesHistory from "./release-notes/ReleaseNotesHistory";
+import ReleaseNotesCompliance from "./release-notes/ReleaseNotesCompliance";
 
 type TabId = "generate" | "review" | "style_guide" | "history";
-type ReviewSubTab = "editor" | "checklist" | "insights";
+type ReviewSubTab = "editor" | "checklist" | "insights" | "compliance";
 
 const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "generate", label: "Generate", icon: <Wand2 className="w-4 h-4" /> },
@@ -185,6 +186,7 @@ export default function ReleaseNotesView() {
                   { id: "editor" as const, label: "Editor" },
                   { id: "checklist" as const, label: "Checklist" },
                   { id: "insights" as const, label: "Insights" },
+                  { id: "compliance" as const, label: "Compliance" },
                 ]).map((sub) => (
                   <button
                     key={sub.id}
@@ -208,6 +210,12 @@ export default function ReleaseNotesView() {
               )}
               {reviewSubTab === "insights" && (
                 <ReleaseNotesInsightsWrapper draftId={activeDraftId} />
+              )}
+              {reviewSubTab === "compliance" && (
+                <ReleaseNotesCompliance
+                  content={editorContent}
+                  onContentChange={setEditorContent}
+                />
               )}
             </div>
           ) : (
