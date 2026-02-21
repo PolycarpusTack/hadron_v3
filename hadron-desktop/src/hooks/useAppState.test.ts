@@ -116,19 +116,6 @@ describe("appReducer", () => {
   });
 
   describe("UI Panels", () => {
-    it("OPEN_SETTINGS sets showSettings to true", () => {
-      const action: AppAction = { type: "OPEN_SETTINGS" };
-      const newState = appReducer(initialState, action);
-      expect(newState.showSettings).toBe(true);
-    });
-
-    it("CLOSE_SETTINGS sets showSettings to false", () => {
-      const stateWithSettings: AppState = { ...initialState, showSettings: true };
-      const action: AppAction = { type: "CLOSE_SETTINGS" };
-      const newState = appReducer(stateWithSettings, action);
-      expect(newState.showSettings).toBe(false);
-    });
-
     it("OPEN_DASHBOARD sets showDashboard to true", () => {
       const action: AppAction = { type: "OPEN_DASHBOARD" };
       const newState = appReducer(initialState, action);
@@ -371,7 +358,6 @@ describe("appReducer", () => {
     it("has correct initial values", () => {
       expect(initialState.isInitializing).toBe(true);
       expect(initialState.currentView).toBe("analyze");
-      expect(initialState.showSettings).toBe(false);
       expect(initialState.showDashboard).toBe(false);
       expect(initialState.darkMode).toBe(true);
       expect(initialState.apiKey).toBe("");

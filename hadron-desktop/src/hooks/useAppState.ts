@@ -16,7 +16,7 @@ import type { Analysis } from '../services/api';
 // State Types
 // ============================================================================
 
-export type View = 'analyze' | 'history' | 'detail' | 'translate' | 'performance' | 'jira' | 'sentry' | 'chat' | 'release_notes';
+export type View = 'analyze' | 'history' | 'detail' | 'translate' | 'performance' | 'jira' | 'sentry' | 'chat' | 'release_notes' | 'configure';
 
 export interface BatchProgress {
   total: number;
@@ -44,7 +44,6 @@ export interface AppState {
   currentView: View;
 
   // UI Panels
-  showSettings: boolean;
   showDashboard: boolean;
 
   // Theme
@@ -97,8 +96,6 @@ export type AppAction =
   | { type: 'BACK_TO_HISTORY' }
 
   // UI Panels
-  | { type: 'OPEN_SETTINGS' }
-  | { type: 'CLOSE_SETTINGS' }
   | { type: 'OPEN_DASHBOARD' }
   | { type: 'CLOSE_DASHBOARD' }
 
@@ -153,7 +150,6 @@ export type AppAction =
 export const initialState: AppState = {
   isInitializing: true,
   currentView: 'analyze',
-  showSettings: false,
   showDashboard: false,
   darkMode: true,
   apiKey: '',
@@ -218,12 +214,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       };
 
     // UI Panels
-    case 'OPEN_SETTINGS':
-      return { ...state, showSettings: true };
-
-    case 'CLOSE_SETTINGS':
-      return { ...state, showSettings: false };
-
     case 'OPEN_DASHBOARD':
       return { ...state, showDashboard: true };
 
@@ -460,8 +450,6 @@ export function useAppState() {
     ),
 
     // UI Panels
-    openSettings: useCallback(() => dispatch({ type: 'OPEN_SETTINGS' }), []),
-    closeSettings: useCallback(() => dispatch({ type: 'CLOSE_SETTINGS' }), []),
     openDashboard: useCallback(() => dispatch({ type: 'OPEN_DASHBOARD' }), []),
     closeDashboard: useCallback(() => dispatch({ type: 'CLOSE_DASHBOARD' }), []),
 

@@ -63,7 +63,6 @@ function App() {
   // Destructure for cleaner code
   const {
     currentView,
-    showSettings,
     showDashboard,
     darkMode,
     apiKey,
@@ -190,7 +189,7 @@ function App() {
       actions.clearAnalysis();
     },
     onViewHistory: () => actions.setView("history"),
-    onOpenSettings: () => actions.openSettings(),
+    onOpenSettings: () => actions.setView('configure'),
     onCloseModal: () => {
       if (showDocs) {
         setShowDocs(false);
@@ -585,17 +584,6 @@ function App() {
         {/* Footer */}
         <AppFooter hasApiKey={!!apiKey} />
       </div>
-
-      {/* Settings Panel */}
-      <ViewErrorBoundary name="Settings">
-        <SettingsPanel
-          isOpen={showSettings}
-          onClose={actions.closeSettings}
-          darkMode={darkMode}
-          onThemeChange={actions.setDarkMode}
-          onSettingsChange={handleSettingsChange}
-        />
-      </ViewErrorBoundary>
 
       {/* Dashboard Panel - lazy loaded */}
       {showDashboard && (
