@@ -134,13 +134,6 @@ class RequestDeduplicator {
   }
 
   /**
-   * Check if a request is currently in-flight
-   */
-  isPending(key: CacheKey): boolean {
-    return this.pending.has(key);
-  }
-
-  /**
    * Get count of pending requests for debugging
    */
   get pendingCount(): number {
@@ -274,17 +267,8 @@ export const CacheKeys = {
 // ============================================================================
 
 export const CacheTTL = {
-  /** Short TTL for frequently changing data */
-  SHORT: 10_000, // 10 seconds
-
   /** Default TTL for most queries */
   DEFAULT: 30_000, // 30 seconds
-
-  /** Medium TTL for semi-stable data */
-  MEDIUM: 60_000, // 1 minute
-
-  /** Long TTL for rarely changing data */
-  LONG: 300_000, // 5 minutes
 
   /** Statistics can be cached longer */
   STATISTICS: 30_000, // 30 seconds
