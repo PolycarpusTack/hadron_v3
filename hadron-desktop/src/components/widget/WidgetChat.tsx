@@ -203,10 +203,19 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
 
       const result = await analyzeCrashLog(filePath, apiKey, model, provider, "quick", "quick", false);
 
+      const fixes = result.suggested_fixes?.length
+        ? result.suggested_fixes.map((f, i) => `${i + 1}. ${f}`).join("\n")
+        : "";
+      const summary = [
+        `**${result.severity.toUpperCase()}** — ${result.error_type}`,
+        result.root_cause ? `\n**Root cause:** ${result.root_cause}` : "",
+        fixes ? `\n**Suggested fixes:**\n${fixes}` : "",
+      ].filter(Boolean).join("\n");
+
       const resultMsg: ChatMessage = {
         id: createMessageId(),
         role: "assistant",
-        content: result.analysis || "Analysis complete — no summary available.",
+        content: summary || "Analysis complete — no summary available.",
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, resultMsg]);
