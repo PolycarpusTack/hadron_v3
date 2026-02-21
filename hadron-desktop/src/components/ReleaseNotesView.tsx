@@ -3,7 +3,7 @@
  * Config check, amber-themed tab bar, progress events, and sub-component routing.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { FileText, Wand2, CheckCircle, BookOpen, History, AlertCircle, Loader2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { isJiraEnabled } from "../services/jira";
@@ -34,16 +34,32 @@ export default function ReleaseNotesView() {
   const [reviewSubTab, setReviewSubTab] = useState<ReviewSubTab>("editor");
   const [progress, setProgress] = useState<ReleaseNotesProgress | null>(null);
   const [activeDraftId, setActiveDraftId] = useState<number | null>(null);
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    activeRequestIdRef.current = activeRequestId;
+  }, [activeRequestId]);
 
   useEffect(() => {
     isJiraEnabled().then(setConfigured).catch(() => setConfigured(false));
   }, []);
 
-  // Listen for progress events
+  // Listen for progress events (stable listener — no re-subscription on requestId change)
   useEffect(() => {
     const unlisten = listen<ReleaseNotesProgress>("release-notes-progress", (event) => {
+      const payloadRequestId = event.payload.requestId || null;
+      const currentRequestId = activeRequestIdRef.current;
+      if (currentRequestId) {
+        if (payloadRequestId !== currentRequestId) return;
+      } else if (payloadRequestId) {
+        return;
+      }
+
       setProgress(event.payload);
       if (event.payload.phase === "complete" || event.payload.phase === "failed") {
+        setActiveRequestId(null);
         setTimeout(() => setProgress(null), 3000);
       }
     });
@@ -51,6 +67,16 @@ export default function ReleaseNotesView() {
     return () => {
       unlisten.then((fn) => fn());
     };
+  }, []);
+
+  const handleGenerationStart = useCallback((requestId: string) => {
+    setActiveRequestId(requestId);
+    setProgress({
+      phase: "fetching_tickets",
+      progress: 0,
+      message: "Starting release notes generation...",
+      requestId,
+    });
   }, []);
 
   const handleGenerated = useCallback((id: number) => {
@@ -145,6 +171,7 @@ export default function ReleaseNotesView() {
         {activeTab === "generate" && (
           <ReleaseNotesGenerator
             onGenerated={handleGenerated}
+            onGenerationStart={handleGenerationStart}
             isGenerating={progress !== null && progress.phase !== "complete" && progress.phase !== "failed"}
           />
         )}

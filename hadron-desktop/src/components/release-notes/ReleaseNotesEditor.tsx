@@ -37,17 +37,21 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [mode, setMode] = useState<EditorMode>("edit");
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
   // Load draft
   useEffect(() => {
     loadDraft();
   }, [draftId]);
 
-  // Clean up autosave timer on unmount or draftId change
+  // Track mount state and clean up autosave timer on unmount or draftId change
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (autosaveTimer.current) {
         clearTimeout(autosaveTimer.current);
         autosaveTimer.current = null;
@@ -57,17 +61,18 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
 
   const loadDraft = async () => {
     setLoading(true);
-    setError(null);
+    setLoadError(null);
+    setActionError(null);
     try {
       const data = await getReleaseNotes(draftId);
       if (data) {
         setDraft(data);
         setContent(data.markdownContent);
       } else {
-        setError("Release notes draft not found.");
+        setLoadError("Release notes draft not found.");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -84,15 +89,22 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
       }
 
       autosaveTimer.current = setTimeout(async () => {
+        if (!mountedRef.current) return;
         try {
           setSaving(true);
           await updateContent(draftId, newContent);
+          if (!mountedRef.current) return;
+          setActionError(null);
           setSaved(true);
-          setTimeout(() => setSaved(false), 2000);
+          setTimeout(() => {
+            if (mountedRef.current) setSaved(false);
+          }, 2000);
         } catch (err) {
+          if (!mountedRef.current) return;
+          setActionError("Autosave failed. Please retry manual save.");
           logger.error("Autosave failed", { error: err });
         } finally {
-          setSaving(false);
+          if (mountedRef.current) setSaving(false);
         }
       }, 1500);
     },
@@ -104,9 +116,11 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
     try {
       setSaving(true);
       await updateContent(draftId, content);
+      setActionError(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
+      setActionError("Manual save failed. Please try again.");
       logger.error("Manual save failed", { error: err });
     } finally {
       setSaving(false);
@@ -140,7 +154,7 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setActionError(err instanceof Error ? err.message : String(err));
       }
     },
     [draftId, draft],
@@ -155,10 +169,10 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
     );
   }
 
-  if (error) {
+  if (loadError) {
     return (
       <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-3 text-sm">
-        {error}
+        {loadError}
       </div>
     );
   }
@@ -167,6 +181,12 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
 
   return (
     <div className="space-y-4">
+      {actionError && (
+        <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-3 text-sm">
+          {actionError}
+        </div>
+      )}
+
       {/* Header: Title + Status */}
       <div className="flex items-center justify-between">
         <div>

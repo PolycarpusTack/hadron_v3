@@ -1108,13 +1108,25 @@ impl Database {
         // Analysis type filter
         if let Some(ref types) = options.analysis_types {
             if !types.is_empty() {
-                let placeholders: Vec<String> = types
+                // Expand aliases so callers can use stable canonical types.
+                // Example: "jira" should include legacy stored type "jira_ticket".
+                let mut expanded_types: Vec<String> = Vec::new();
+                for t in types {
+                    if !expanded_types.contains(t) {
+                        expanded_types.push(t.clone());
+                    }
+                    if t == "jira" && !expanded_types.iter().any(|et| et == "jira_ticket") {
+                        expanded_types.push("jira_ticket".to_string());
+                    }
+                }
+
+                let placeholders: Vec<String> = expanded_types
                     .iter()
                     .enumerate()
                     .map(|(i, _)| format!("?{}", params.len() + i + 1))
                     .collect();
                 conditions.push(format!("a.analysis_type IN ({})", placeholders.join(", ")));
-                for t in types {
+                for t in expanded_types {
                     params.push(Box::new(t.clone()));
                 }
             }
@@ -3404,6 +3416,41 @@ impl Database {
         Ok(())
     }
 
+    /// Update content + metadata after AI-driven incremental append.
+    pub fn update_release_notes_after_append(
+        &self,
+        id: i64,
+        content: &str,
+        ticket_keys_json: &str,
+        ticket_count: i32,
+        tokens_delta: i32,
+        cost_delta: f64,
+        ai_insights: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "UPDATE release_notes
+             SET markdown_content = ?1,
+                 ticket_keys = ?2,
+                 ticket_count = ?3,
+                 tokens_used = COALESCE(tokens_used, 0) + ?4,
+                 cost = COALESCE(cost, 0.0) + ?5,
+                 ai_insights = ?6,
+                 updated_at = datetime('now')
+             WHERE id = ?7 AND deleted_at IS NULL",
+            params![
+                content,
+                ticket_keys_json,
+                ticket_count,
+                tokens_delta,
+                cost_delta,
+                ai_insights,
+                id
+            ],
+        )?;
+        Ok(())
+    }
+
     pub fn update_release_notes_status(
         &self,
         id: i64,
@@ -3411,19 +3458,77 @@ impl Database {
         reviewed_by: Option<&str>,
     ) -> Result<()> {
         let conn = self.lock_conn();
-        let published_at = if status == "published" {
-            "datetime('now')"
+
+        let current_status: String = conn.query_row(
+            "SELECT status FROM release_notes WHERE id = ?1 AND deleted_at IS NULL",
+            params![id],
+            |row| row.get(0),
+        )?;
+
+        let valid_transition = if current_status == status {
+            true
         } else {
-            "published_at"
+            matches!(
+                (current_status.as_str(), status),
+                ("draft", "in_review")
+                    | ("in_review", "approved")
+                    | ("approved", "published")
+                    | ("published", "archived")
+            )
         };
-        let sql = format!(
-            "UPDATE release_notes SET status = ?1, reviewed_by = ?2,
-                    reviewed_at = datetime('now'), published_at = {},
-                    updated_at = datetime('now')
-             WHERE id = ?3 AND deleted_at IS NULL",
-            published_at
-        );
-        conn.execute(&sql, params![status, reviewed_by, id])?;
+
+        if !valid_transition {
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "Invalid status transition: {} -> {}",
+                current_status, status
+            )));
+        }
+
+        if matches!(status, "approved" | "published") {
+            let checklist_state: Option<String> = conn.query_row(
+                "SELECT checklist_state FROM release_notes WHERE id = ?1 AND deleted_at IS NULL",
+                params![id],
+                |row| row.get(0),
+            )?;
+
+            let checklist_complete = checklist_state
+                .as_deref()
+                .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+                .and_then(|value| value.as_array().cloned())
+                .map(|items| {
+                    !items.is_empty()
+                        && items.iter().all(|item| {
+                            item.get("checked")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false)
+                        })
+                })
+                .unwrap_or(false);
+
+            if !checklist_complete {
+                return Err(rusqlite::Error::InvalidParameterName(
+                    "Checklist must be complete before approval/publication".to_string(),
+                ));
+            }
+        }
+
+        if status == "published" {
+            conn.execute(
+                "UPDATE release_notes SET status = ?1, reviewed_by = ?2,
+                        reviewed_at = datetime('now'), published_at = datetime('now'),
+                        updated_at = datetime('now')
+                 WHERE id = ?3 AND deleted_at IS NULL",
+                params![status, reviewed_by, id],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE release_notes SET status = ?1, reviewed_by = ?2,
+                        reviewed_at = datetime('now'),
+                        updated_at = datetime('now')
+                 WHERE id = ?3 AND deleted_at IS NULL",
+                params![status, reviewed_by, id],
+            )?;
+        }
         Ok(())
     }
 
@@ -3566,11 +3671,6 @@ impl Database {
         Ok(())
     }
 
-    pub fn count_gold_answers(&self) -> Result<i64> {
-        let conn = self.lock_conn();
-        conn.query_row("SELECT COUNT(*) FROM gold_answers", [], |row| row.get(0))
-    }
-
     pub fn get_gold_answers_for_export(
         &self,
         date_from: Option<&str>,
@@ -3676,31 +3776,6 @@ impl Database {
             },
         )
         .optional()
-    }
-
-    pub fn update_session_summary(
-        &self,
-        session_id: &str,
-        summary_markdown: &str,
-        topic: &str,
-    ) -> Result<()> {
-        let conn = self.lock_conn();
-        conn.execute(
-            "UPDATE session_summaries SET summary_markdown = ?1, topic = ?2, updated_at = datetime('now')
-             WHERE session_id = ?3",
-            params![summary_markdown, topic, session_id],
-        )?;
-        Ok(())
-    }
-
-    pub fn mark_summary_exported(&self, session_id: &str) -> Result<()> {
-        let conn = self.lock_conn();
-        conn.execute(
-            "UPDATE session_summaries SET is_exported = 1, updated_at = datetime('now')
-             WHERE session_id = ?1",
-            params![session_id],
-        )?;
-        Ok(())
     }
 
     pub fn get_summaries_for_export(

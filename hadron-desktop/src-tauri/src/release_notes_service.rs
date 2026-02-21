@@ -27,6 +27,7 @@ const STYLE_GUIDE: &str = include_str!("style_guides/whatson_release_notes.md");
 pub struct ReleaseNotesConfig {
     pub fix_version: String,
     pub content_type: ContentType,
+    pub project_key: Option<String>,
     pub jql_filter: Option<String>,
     pub module_filter: Option<Vec<String>>,
     pub ai_enrichment: AiEnrichmentConfig,
@@ -127,6 +128,7 @@ pub enum ReleaseNotesPhase {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProgressEvent {
     pub phase: ReleaseNotesPhase,
     pub progress: f64,
@@ -140,11 +142,21 @@ pub struct ProgressEvent {
 // ============================================================================
 
 pub fn emit_progress(app: &AppHandle, phase: ReleaseNotesPhase, progress: f64, message: &str) {
+    emit_progress_with_request(app, phase, progress, message, None);
+}
+
+pub fn emit_progress_with_request(
+    app: &AppHandle,
+    phase: ReleaseNotesPhase,
+    progress: f64,
+    message: &str,
+    request_id: Option<&str>,
+) {
     let event = ProgressEvent {
         phase,
         progress,
         message: message.to_string(),
-        request_id: None,
+        request_id: request_id.map(|id| id.to_string()),
     };
     let _ = app.emit("release-notes-progress", &event);
 }
@@ -159,34 +171,32 @@ pub async fn fetch_tickets_for_release(
     email: &str,
     api_token: &str,
 ) -> Result<Vec<ReleaseNoteTicket>, String> {
-    let jql = if let Some(ref custom_jql) = config.jql_filter {
-        custom_jql.clone()
+    let project_key = config
+        .project_key
+        .as_deref()
+        .filter(|k| !k.trim().is_empty())
+        .unwrap_or("MGXPRODUCT");
+
+    let all_issues = if let Some(ref custom_jql) = config.jql_filter {
+        log::info!("Fetching JIRA tickets with custom JQL: {}", custom_jql);
+        fetch_issues_by_jql(base_url, email, api_token, custom_jql).await?
     } else {
-        let type_filter = match config.content_type {
-            ContentType::Features => "AND type IN (Story, \"New Feature\")",
-            ContentType::Fixes => "AND type = Bug",
-            ContentType::Both => "",
-        };
-        format!(
-            "project = \"MGXPRODUCT\" AND fixVersion = \"{}\" AND status IN (Done, Delivered, Closed) {}",
-            config.fix_version, type_filter
-        )
+        // Import all tickets for the selected fixVersion.
+        // We intentionally do NOT filter by issue type or status here;
+        // triage/selection can happen later in the workflow.
+        let default_jql = format!(
+            "project = \"{}\" AND fixVersion = \"{}\"",
+            escape_jql_string(project_key),
+            escape_jql_string(&config.fix_version)
+        );
+        log::info!(
+            "Fetching JIRA tickets with unfiltered default JQL: {}",
+            default_jql
+        );
+        fetch_issues_by_jql(base_url, email, api_token, &default_jql).await?
     };
 
-    log::info!("Fetching JIRA tickets with JQL: {}", jql);
-
-    let search_result = jira_service::search_jira_issues(
-        base_url.to_string(),
-        email.to_string(),
-        api_token.to_string(),
-        jql,
-        200,
-        false,
-    )
-    .await?;
-
-    let mut tickets: Vec<ReleaseNoteTicket> = search_result
-        .issues
+    let mut tickets: Vec<ReleaseNoteTicket> = all_issues
         .into_iter()
         .map(|issue| {
             let description = issue
@@ -228,6 +238,54 @@ pub async fn fetch_tickets_for_release(
 
     log::info!("Fetched {} tickets for release", tickets.len());
     Ok(tickets)
+}
+
+async fn fetch_issues_by_jql(
+    base_url: &str,
+    email: &str,
+    api_token: &str,
+    jql: &str,
+) -> Result<Vec<jira_service::JiraSearchIssue>, String> {
+    let page_size = 100;
+    let mut start_at = 0;
+    let mut all_issues = Vec::new();
+
+    loop {
+        let page = jira_service::search_jira_issues_page(
+            base_url.to_string(),
+            email.to_string(),
+            api_token.to_string(),
+            jql.to_string(),
+            start_at,
+            page_size,
+            false,
+        )
+        .await?;
+
+        let page_count = page.issues.len();
+        all_issues.extend(page.issues);
+
+        // Guardrail to avoid unexpectedly large pulls in one request cycle.
+        if start_at >= 5000 {
+            log::warn!(
+                "Release notes ticket fetch hit pagination guardrail at startAt={}",
+                start_at
+            );
+            break;
+        }
+
+        if page_count < page_size as usize {
+            break;
+        }
+        start_at += page_size;
+    }
+
+    Ok(all_issues)
+}
+
+/// Escape special characters in JQL string literals to prevent injection.
+fn escape_jql_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// Extract plain text from Atlassian Document Format (ADF) JSON
@@ -279,6 +337,7 @@ pub async fn classify_and_enrich_batch(
     provider: &str,
     enrichment: &AiEnrichmentConfig,
     app: &AppHandle,
+    request_id: Option<&str>,
 ) -> Result<(i32, f64), String> {
     if tickets.is_empty() {
         return Ok((0, 0.0));
@@ -291,11 +350,12 @@ pub async fn classify_and_enrich_batch(
 
     for (batch_idx, chunk) in tickets.chunks_mut(batch_size).enumerate() {
         let progress = 15.0 + (batch_idx as f64 / total_batches as f64) * 35.0;
-        emit_progress(
+        emit_progress_with_request(
             app,
             ReleaseNotesPhase::ClassifyingTickets,
             progress,
             &format!("Enriching batch {}/{}", batch_idx + 1, total_batches),
+            request_id,
         );
 
         let system_prompt = build_enrichment_system_prompt(enrichment);
@@ -696,14 +756,14 @@ pub fn markdown_to_html(markdown: &str) -> String {
             if !header_row_seen {
                 html.push_str("<thead><tr>");
                 for cell in &cells {
-                    html.push_str(&format!("<th>{}</th>", cell.trim().replace("**", "")));
+                    html.push_str(&format!("<th>{}</th>", html_escape(&cell.trim().replace("**", ""))));
                 }
                 html.push_str("</tr></thead>\n<tbody>\n");
                 header_row_seen = true;
             } else {
                 html.push_str("<tr>");
                 for cell in &cells {
-                    let content = cell.trim().replace("**", "<strong>").replace("**", "</strong>");
+                    let content = apply_inline_formatting(cell.trim());
                     html.push_str(&format!("<td>{}</td>", content));
                 }
                 html.push_str("</tr>\n");
@@ -733,11 +793,11 @@ pub fn markdown_to_html(markdown: &str) -> String {
 
         // Headings
         if let Some(rest) = trimmed.strip_prefix("### ") {
-            html.push_str(&format!("<h3>{}</h3>\n", rest));
+            html.push_str(&format!("<h3>{}</h3>\n", html_escape(rest)));
         } else if let Some(rest) = trimmed.strip_prefix("## ") {
-            html.push_str(&format!("<h2>{}</h2>\n", rest));
+            html.push_str(&format!("<h2>{}</h2>\n", html_escape(rest)));
         } else if let Some(rest) = trimmed.strip_prefix("# ") {
-            html.push_str(&format!("<h1>{}</h1>\n", rest));
+            html.push_str(&format!("<h1>{}</h1>\n", html_escape(rest)));
         } else if trimmed.is_empty() {
             html.push('\n');
         } else {
@@ -756,8 +816,19 @@ pub fn markdown_to_html(markdown: &str) -> String {
     html
 }
 
+/// Escape HTML entities to prevent XSS when inserting user content into HTML.
+fn html_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 fn apply_inline_formatting(text: &str) -> String {
-    let mut result = text.to_string();
+    // First escape HTML entities, then apply formatting
+    let escaped = html_escape(text);
+    let mut result = escaped;
     // Bold: **text** → <strong>text</strong>
     while let Some(start) = result.find("**") {
         if let Some(end) = result[start + 2..].find("**") {
@@ -789,14 +860,15 @@ pub async fn run_full_pipeline(
     provider: &str,
     db: &Database,
     app: &AppHandle,
+    request_id: Option<&str>,
 ) -> Result<ReleaseNotesResult, String> {
     let result = run_full_pipeline_inner(
-        config, base_url, email, api_token, api_key, model, provider, db, app,
+        config, base_url, email, api_token, api_key, model, provider, db, app, request_id,
     )
     .await;
 
     if let Err(ref e) = result {
-        emit_progress(app, ReleaseNotesPhase::Failed, 0.0, e);
+        emit_progress_with_request(app, ReleaseNotesPhase::Failed, 0.0, e, request_id);
     }
 
     result
@@ -812,17 +884,19 @@ async fn run_full_pipeline_inner(
     provider: &str,
     db: &Database,
     app: &AppHandle,
+    request_id: Option<&str>,
 ) -> Result<ReleaseNotesResult, String> {
     let start = Instant::now();
     let mut total_tokens = 0i32;
     let mut total_cost = 0.0f64;
 
     // Phase 1: Fetch tickets
-    emit_progress(
+    emit_progress_with_request(
         app,
         ReleaseNotesPhase::FetchingTickets,
         5.0,
         "Fetching JIRA tickets...",
+        request_id,
     );
     let mut tickets = fetch_tickets_for_release(&config, base_url, email, api_token).await?;
 
@@ -830,19 +904,21 @@ async fn run_full_pipeline_inner(
         return Err("No tickets found matching the filter criteria.".to_string());
     }
 
-    emit_progress(
+    emit_progress_with_request(
         app,
         ReleaseNotesPhase::FetchingTickets,
         15.0,
         &format!("Found {} tickets", tickets.len()),
+        request_id,
     );
 
     // Phase 2: Classify & Enrich
-    emit_progress(
+    emit_progress_with_request(
         app,
         ReleaseNotesPhase::ClassifyingTickets,
         20.0,
         "Classifying tickets with AI...",
+        request_id,
     );
     let (enrich_tokens, enrich_cost) = classify_and_enrich_batch(
         &mut tickets,
@@ -851,45 +927,50 @@ async fn run_full_pipeline_inner(
         provider,
         &config.ai_enrichment,
         app,
+        request_id,
     )
     .await?;
     total_tokens += enrich_tokens;
     total_cost += enrich_cost;
 
     // Phase 3: Generate markdown
-    emit_progress(
+    emit_progress_with_request(
         app,
         ReleaseNotesPhase::GeneratingDraft,
         55.0,
         "Generating release notes draft...",
+        request_id,
     );
     let (markdown, gen_tokens, gen_cost) =
         generate_release_notes_markdown(&tickets, &config, api_key, model, provider).await?;
     total_tokens += gen_tokens;
     total_cost += gen_cost;
 
-    emit_progress(
+    emit_progress_with_request(
         app,
         ReleaseNotesPhase::ApplyingStyleGuide,
         80.0,
         "Applying style guide...",
+        request_id,
     );
 
     // Phase 4: Compute insights
-    emit_progress(
+    emit_progress_with_request(
         app,
         ReleaseNotesPhase::ComputingInsights,
         88.0,
         "Computing quality insights...",
+        request_id,
     );
     let insights = compute_ai_insights(&tickets, &markdown);
 
     // Phase 5: Save to database
-    emit_progress(
+    emit_progress_with_request(
         app,
         ReleaseNotesPhase::Saving,
         95.0,
         "Saving release notes draft...",
+        request_id,
     );
 
     let ticket_keys: Vec<String> = tickets.iter().map(|t| t.key.clone()).collect();
@@ -926,11 +1007,12 @@ async fn run_full_pipeline_inner(
         .insert_release_notes(&draft)
         .map_err(|e| format!("Failed to save release notes: {}", e))?;
 
-    emit_progress(
+    emit_progress_with_request(
         app,
         ReleaseNotesPhase::Complete,
         100.0,
         "Release notes generated successfully!",
+        request_id,
     );
 
     Ok(ReleaseNotesResult {
