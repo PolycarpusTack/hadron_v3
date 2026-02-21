@@ -16,6 +16,7 @@ import type {
   ReleaseNotesExportFormat,
   AiEnrichmentConfig,
   ReleaseNotesContentType,
+  ComplianceReport,
 } from "../types";
 
 // ============================================================================
@@ -98,6 +99,7 @@ export async function previewTickets(
     const config: ReleaseNotesConfig = {
       fixVersion,
       contentType,
+      projectKey: jira.projectKey || undefined,
       jqlFilter,
       moduleFilter,
       aiEnrichment: {
@@ -130,6 +132,7 @@ export async function previewTickets(
 export interface GenerateOptions {
   fixVersion: string;
   contentType: ReleaseNotesContentType;
+  requestId?: string;
   jqlFilter?: string;
   moduleFilter?: string[];
   aiEnrichment?: Partial<AiEnrichmentConfig>;
@@ -143,6 +146,7 @@ export async function generateReleaseNotes(options: GenerateOptions) {
     const config: ReleaseNotesConfig = {
       fixVersion: options.fixVersion,
       contentType: options.contentType,
+      projectKey: jira.projectKey || undefined,
       jqlFilter: options.jqlFilter,
       moduleFilter: options.moduleFilter,
       aiEnrichment: {
@@ -156,6 +160,7 @@ export async function generateReleaseNotes(options: GenerateOptions) {
 
     const result = await invoke("generate_release_notes", {
       config,
+      requestId: options.requestId || null,
       baseUrl: jira.baseUrl,
       email: jira.email,
       apiToken: jira.apiToken,
@@ -248,6 +253,7 @@ export async function appendToReleaseNotes(
   fixVersion: string,
   contentType: ReleaseNotesContentType = "both",
   jqlFilter?: string,
+  requestId?: string,
 ) {
   try {
     const jira = await getJiraCredentials();
@@ -256,6 +262,7 @@ export async function appendToReleaseNotes(
     const config: ReleaseNotesConfig = {
       fixVersion,
       contentType,
+      projectKey: jira.projectKey || undefined,
       jqlFilter,
       aiEnrichment: {
         rewriteDescriptions: true,
@@ -268,6 +275,7 @@ export async function appendToReleaseNotes(
     const result = await invoke("append_to_release_notes", {
       id,
       config,
+      requestId: requestId || null,
       baseUrl: jira.baseUrl,
       email: jira.email,
       apiToken: jira.apiToken,
@@ -312,6 +320,25 @@ export async function deleteReleaseNotes(id: number): Promise<void> {
     logger.info("Deleted release notes", { id });
   } catch (error) {
     logger.error("Failed to delete release notes", { id, error });
+    throw error;
+  }
+}
+
+// ============================================================================
+// Style Compliance
+// ============================================================================
+
+export async function checkCompliance(content: string): Promise<ComplianceReport> {
+  try {
+    const ai = await getAiCredentials();
+    return await invoke<ComplianceReport>("check_release_notes_compliance", {
+      content,
+      apiKey: ai.apiKey,
+      model: ai.model,
+      provider: ai.provider,
+    });
+  } catch (error) {
+    logger.error("Compliance check failed", { error });
     throw error;
   }
 }

@@ -1070,6 +1070,7 @@ export type ReleaseNotesStatus = "draft" | "in_review" | "approved" | "published
 export interface ReleaseNotesConfig {
   fixVersion: string;
   contentType: ReleaseNotesContentType;
+  projectKey?: string;
   jqlFilter?: string;
   moduleFilter?: string[];
   aiEnrichment: AiEnrichmentConfig;
@@ -1137,6 +1138,7 @@ export interface ReleaseNotesProgress {
   phase: ReleaseNotesPhase;
   progress: number;
   message: string;
+  requestId?: string | null;
 }
 
 export type ReleaseNotesPhase =
@@ -1177,3 +1179,34 @@ export interface ReleaseNotesChecklistItem {
 }
 
 export type ReleaseNotesExportFormat = "markdown" | "confluence" | "html";
+
+// Style Compliance
+export interface ComplianceReport {
+  terminologyViolations: TerminologyViolation[];
+  structureViolations: StructureViolation[];
+  screenshotSuggestions: ScreenshotSuggestion[];
+  score: number;
+  tokensUsed: number;
+  cost: number;
+}
+
+export interface TerminologyViolation {
+  lineContext: string;
+  violation: string;
+  suggestedFix: string;
+  ruleReference: string;
+}
+
+export interface StructureViolation {
+  section: string;
+  violation: string;
+  suggestedFix: string;
+  ruleReference: string;
+}
+
+export interface ScreenshotSuggestion {
+  ticketKey: string;
+  description: string;
+  placementHint: string;
+  inlinePlaceholder: string;
+}
