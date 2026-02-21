@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewWindow};
 use crate::error::{CommandResult, HadronError};
 
@@ -73,4 +74,43 @@ pub async fn focus_main_window(app: AppHandle) -> CommandResult<()> {
     main.unminimize()?;
     main.set_focus()?;
     Ok(())
+}
+
+/// Widget position for persistence
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WidgetPosition {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Get the current widget window position
+#[tauri::command]
+pub async fn get_widget_position(app: AppHandle) -> CommandResult<WidgetPosition> {
+    let widget = get_widget(&app)
+        .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
+    let pos = widget.outer_position()?;
+    let scale = widget.scale_factor()?;
+    Ok(WidgetPosition {
+        x: pos.x as f64 / scale,
+        y: pos.y as f64 / scale,
+    })
+}
+
+/// Move the widget window to a specific logical position
+#[tauri::command]
+pub async fn move_widget(app: AppHandle, x: f64, y: f64) -> CommandResult<()> {
+    let widget = get_widget(&app)
+        .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
+    widget.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }))?;
+    Ok(())
+}
+
+/// Check if the main window is currently visible and focused
+#[tauri::command]
+pub async fn is_main_window_visible(app: AppHandle) -> CommandResult<bool> {
+    let main = app.get_webview_window(MAIN_LABEL);
+    match main {
+        Some(w) => Ok(w.is_visible()? && !w.is_minimized()?),
+        None => Ok(false),
+    }
 }

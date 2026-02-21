@@ -310,6 +310,9 @@ fn main() {
             widget_commands::hide_widget,
             widget_commands::resize_widget,
             widget_commands::focus_main_window,
+            widget_commands::get_widget_position,
+            widget_commands::move_widget,
+            widget_commands::is_main_window_visible,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
