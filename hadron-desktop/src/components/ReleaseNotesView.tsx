@@ -34,6 +34,7 @@ export default function ReleaseNotesView() {
   const [reviewSubTab, setReviewSubTab] = useState<ReviewSubTab>("editor");
   const [progress, setProgress] = useState<ReleaseNotesProgress | null>(null);
   const [activeDraftId, setActiveDraftId] = useState<number | null>(null);
+  const [editorContent, setEditorContent] = useState("");
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
 
@@ -200,7 +201,7 @@ export default function ReleaseNotesView() {
               </div>
 
               {reviewSubTab === "editor" && (
-                <ReleaseNotesEditor draftId={activeDraftId} />
+                <ReleaseNotesEditor draftId={activeDraftId} content={editorContent} onContentChange={setEditorContent} />
               )}
               {reviewSubTab === "checklist" && (
                 <ReleaseNotesReview draftId={activeDraftId} />

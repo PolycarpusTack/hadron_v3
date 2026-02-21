@@ -26,13 +26,14 @@ import logger from "../../services/logger";
 
 interface Props {
   draftId: number;
+  content: string;
+  onContentChange: (content: string) => void;
 }
 
 type EditorMode = "edit" | "preview" | "diff";
 
-export default function ReleaseNotesEditor({ draftId }: Props) {
+export default function ReleaseNotesEditor({ draftId, content, onContentChange }: Props) {
   const [draft, setDraft] = useState<ReleaseNotesDraft | null>(null);
-  const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -67,7 +68,7 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
       const data = await getReleaseNotes(draftId);
       if (data) {
         setDraft(data);
-        setContent(data.markdownContent);
+        onContentChange(data.markdownContent);
       } else {
         setLoadError("Release notes draft not found.");
       }
@@ -81,7 +82,7 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
   // Autosave on content change
   const handleContentChange = useCallback(
     (newContent: string) => {
-      setContent(newContent);
+      onContentChange(newContent);
       setSaved(false);
 
       if (autosaveTimer.current) {
@@ -108,7 +109,7 @@ export default function ReleaseNotesEditor({ draftId }: Props) {
         }
       }, 1500);
     },
-    [draftId],
+    [draftId, onContentChange],
   );
 
   const handleManualSave = useCallback(async () => {
