@@ -5,7 +5,7 @@
  * analyses, gold matches, and FTS search into contextual AI responses.
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   MessageCircle,
   Send,
@@ -641,12 +641,15 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
   // ============================================================================
 
   // Apply session filters (Task 22)
-  const filteredSessions = filterSessions(sessions, filters).sort((a, b) => {
-    // Starred sessions first, then by updatedAt desc
-    if (a.isStarred && !b.isStarred) return -1;
-    if (!a.isStarred && b.isStarred) return 1;
-    return b.updatedAt - a.updatedAt;
-  });
+  const filteredSessions = useMemo(() =>
+    filterSessions(sessions, filters).sort((a, b) => {
+      // Starred sessions first, then by updatedAt desc
+      if (a.isStarred && !b.isStarred) return -1;
+      if (!a.isStarred && b.isStarred) return 1;
+      return b.updatedAt - a.updatedAt;
+    }),
+    [sessions, filters]
+  );
 
   const hasMessages = messages.length > 0;
 
