@@ -1,8 +1,17 @@
 use futures::StreamExt;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 use tauri::Emitter;
+
+/// Shared HTTP client singleton (reqwest::Client is Arc-based, clone is cheap).
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+});
 
 use crate::deep_scan::{ChunkAnalysis, DeepScanRunner};
 use crate::evidence_extractor::{EvidenceExtractor, ExtractionConfig};
@@ -1017,16 +1026,8 @@ Return ONLY valid JSON. No markdown, no explanation outside JSON."#,
 }
 
 // ============================================================================
-// Unified HTTP Client
+// Request Building
 // ============================================================================
-
-/// Shared HTTP client with configured timeout (5 minutes for large crash logs)
-fn create_http_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(300))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
-}
 
 /// Build request body for OpenAI-compatible APIs
 fn build_openai_request(system_prompt: &str, user_prompt: &str, model: &str) -> serde_json::Value {
@@ -1147,7 +1148,7 @@ async fn call_provider(
     request_body: serde_json::Value,
     api_key: &str,
 ) -> Result<AnalysisResult, String> {
-    let client = create_http_client();
+    let client = HTTP_CLIENT.clone();
 
     // Build request with appropriate auth
     let mut request = client
@@ -1202,7 +1203,7 @@ async fn call_provider_raw(
     request_body: serde_json::Value,
     api_key: &str,
 ) -> Result<String, String> {
-    let client = create_http_client();
+    let client = HTTP_CLIENT.clone();
 
     // Build request with appropriate auth
     let mut request = client
@@ -1260,7 +1261,7 @@ pub async fn call_provider_raw_json(
         _ => ProviderConfig::openai(),
     };
 
-    let client = create_http_client();
+    let client = HTTP_CLIENT.clone();
 
     let mut request = client
         .post(config.endpoint)
@@ -1515,7 +1516,7 @@ pub async fn call_provider_streaming(
         ),
     };
 
-    let client = create_http_client();
+    let client = HTTP_CLIENT.clone();
     let mut request = client
         .post(endpoint)
         .header("Content-Type", "application/json");
