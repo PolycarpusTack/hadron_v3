@@ -9,6 +9,7 @@ import type { Analysis, AnalysisMode } from "../services/api";
 import { formatDistanceToNow } from "date-fns";
 import AnalysisProgressBar from "./AnalysisProgressBar";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
+import { getSeverityTextColor } from "../utils/severity";
 
 interface FileDropZoneProps {
   onFileSelect: (filePath: string, analysisType: string, analysisMode: AnalysisMode) => void;
@@ -61,19 +62,6 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
         return <Info className="w-5 h-5 text-yellow-400" />;
       default:
         return <FileText className="w-5 h-5 text-blue-400" />;
-    }
-  };
-
-  const getSeverityColor = (severity: string) => {
-    switch (severity.toUpperCase()) {
-      case "CRITICAL":
-        return "text-red-400";
-      case "HIGH":
-        return "text-orange-400";
-      case "MEDIUM":
-        return "text-yellow-400";
-      default:
-        return "text-blue-400";
     }
   };
 
@@ -368,7 +356,7 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{analysis.filename}</p>
                   <p className="text-sm text-gray-400">
-                    <span className={getSeverityColor(analysis.severity)}>{analysis.severity}</span>
+                    <span className={getSeverityTextColor(analysis.severity)}>{analysis.severity}</span>
                     {" • "}
                     {formatDistanceToNow(new Date(analysis.analyzed_at), { addSuffix: true })}
                   </p>

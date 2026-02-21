@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useEffect, useState, useCallback, lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import FileDropZone from "./components/FileDropZone";
 import AnalysisResults from "./components/AnalysisResults";
@@ -35,7 +35,6 @@ const AnalysisDetailView = lazy(() => import("./components/AnalysisDetailView"))
 const WhatsOnDetailView = lazy(() => import("./components/WhatsOnDetailView"));
 const QuickAnalysisDetailView = lazy(() => import("./components/QuickAnalysisDetailView"));
 const SentryDetailView = lazy(() => import("./components/sentry/SentryDetailView"));
-const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
 const AskHadronView = lazy(() => import("./components/AskHadronView"));
 const ReleaseNotesView = lazy(() => import("./components/ReleaseNotesView"));
 
@@ -63,8 +62,6 @@ function App() {
   // Destructure for cleaner code
   const {
     currentView,
-    showSettings,
-    showDashboard,
     darkMode,
     apiKey,
     analyzing,
@@ -190,7 +187,7 @@ function App() {
       actions.clearAnalysis();
     },
     onViewHistory: () => actions.setView("history"),
-    onOpenSettings: () => actions.openSettings(),
+    onOpenSettings: () => actions.setView('configure'),
     onCloseModal: () => {
       if (showDocs) {
         setShowDocs(false);
@@ -206,7 +203,7 @@ function App() {
   });
 
   // Handle single file analysis
-  const handleFileSelect = async (filePath: string, analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
+  const handleFileSelect = useCallback(async (filePath: string, analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
     actions.startAnalysis();
 
     try {
@@ -263,10 +260,10 @@ function App() {
       const suggestions = getRecoverySuggestions(err);
       actions.analysisError(friendlyMessage, suggestions);
     }
-  };
+  }, [apiKey, actions]);
 
   // Handle batch file analysis
-  const handleBatchSelect = async (filePaths: string[], analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
+  const handleBatchSelect = useCallback(async (filePaths: string[], analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
     if (!filePaths || filePaths.length === 0) return;
 
     actions.startBatch(filePaths.length);
@@ -318,10 +315,10 @@ function App() {
       const suggestions = getRecoverySuggestions(err);
       actions.setError(friendlyMessage, suggestions);
     }
-  };
+  }, [apiKey, actions]);
 
   // Handle code analysis
-  const handleCodeAnalysis = async (code: string, filename: string, language: string) => {
+  const handleCodeAnalysis = useCallback(async (code: string, filename: string, language: string) => {
     actions.startCodeAnalysis();
     try {
       const result = await analyzeCode(code, filename, language);
@@ -332,10 +329,10 @@ function App() {
       actions.codeAnalysisError(friendlyError);
       throw err;
     }
-  };
+  }, [actions]);
 
   // Handle settings change
-  const handleSettingsChange = async () => {
+  const handleSettingsChange = useCallback(async () => {
     const provider = getStoredProvider();
     const newApiKey = await getApiKey(provider);
     if (newApiKey) {
@@ -365,15 +362,17 @@ function App() {
     if (!codeFlag && currentView === "translate") actions.setView("analyze");
     if (!perfFlag && currentView === "performance") actions.setView("analyze");
     if (!chatFlag && currentView === "chat") actions.setView("analyze");
-  };
+  }, [currentView, actions]);
 
-  // Handle opening analysis from dashboard
-  const handleOpenFromDashboard = (analysis: typeof selectedAnalysis) => {
-    if (analysis) {
+  // Handle navigation to analysis from chat
+  const handleNavigateToAnalysis = useCallback(async (id: number) => {
+    try {
+      const analysis = await getAnalysisById(id);
       actions.viewAnalysis(analysis);
-      actions.closeDashboard();
+    } catch (err) {
+      logger.error("Failed to navigate to analysis", { id, error: err instanceof Error ? err.message : String(err) });
     }
-  };
+  }, [actions]);
 
   // Splashscreen on app start - only show for minimum time, don't block on initialization
   if (showSplash) {
@@ -523,14 +522,7 @@ function App() {
                 <div id="chat-panel" role="tabpanel">
                   <AskHadronView
                     selectedAnalysisId={selectedAnalysis?.id ?? null}
-                    onNavigateToAnalysis={async (id) => {
-                      try {
-                        const analysis = await getAnalysisById(id);
-                        actions.viewAnalysis(analysis);
-                      } catch (err) {
-                        logger.error("Failed to navigate to analysis", { id, error: err instanceof Error ? err.message : String(err) });
-                      }
-                    }}
+                    onNavigateToAnalysis={handleNavigateToAnalysis}
                   />
                 </div>
               </Suspense>
@@ -585,30 +577,6 @@ function App() {
         {/* Footer */}
         <AppFooter hasApiKey={!!apiKey} />
       </div>
-
-      {/* Settings Panel */}
-      <ViewErrorBoundary name="Settings">
-        <SettingsPanel
-          isOpen={showSettings}
-          onClose={actions.closeSettings}
-          darkMode={darkMode}
-          onThemeChange={actions.setDarkMode}
-          onSettingsChange={handleSettingsChange}
-        />
-      </ViewErrorBoundary>
-
-      {/* Dashboard Panel - lazy loaded */}
-      {showDashboard && (
-        <ViewErrorBoundary name="Dashboard">
-          <Suspense fallback={<LazyLoadFallback />}>
-            <DashboardPanel
-              isOpen={showDashboard}
-              onClose={actions.closeDashboard}
-              onOpenAnalysis={handleOpenFromDashboard}
-            />
-          </Suspense>
-        </ViewErrorBoundary>
-      )}
 
       {/* Console Viewer - toggle with Ctrl+Y */}
       <ConsoleViewer

@@ -129,15 +129,6 @@ export function getUserFriendlyErrorMessage(error: unknown): string {
 }
 
 /**
- * Check if user is online
- *
- * @returns true if online
- */
-export function isOnline(): boolean {
-  return navigator.onLine;
-}
-
-/**
  * Get recovery suggestions based on error
  *
  * @param error - Error object

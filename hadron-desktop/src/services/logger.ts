@@ -258,67 +258,6 @@ const logger = {
     });
   },
 
-  // Async operation wrapper with automatic timing
-  async timed<T>(
-    label: string,
-    operation: () => Promise<T>,
-    options?: { source?: string; category?: LogCategory; meta?: Record<string, unknown> }
-  ): Promise<T> {
-    const start = performance.now();
-    const correlationId = generateCorrelationId();
-
-    logger.debug(`${label} started`, options?.meta, {
-      source: options?.source,
-      category: options?.category ?? 'perf',
-      correlationId,
-    });
-
-    try {
-      const result = await operation();
-      const duration = Math.round(performance.now() - start);
-
-      logger.info(`${label} completed`, { ...options?.meta, duration_ms: duration }, {
-        source: options?.source,
-        category: options?.category ?? 'perf',
-        correlationId,
-        duration,
-      });
-
-      return result;
-    } catch (error) {
-      const duration = Math.round(performance.now() - start);
-
-      logger.error(`${label} failed`, {
-        ...options?.meta,
-        duration_ms: duration,
-        error: error instanceof Error ? error.message : String(error),
-      }, {
-        source: options?.source,
-        category: 'error',
-        correlationId,
-        duration,
-      });
-
-      throw error;
-    }
-  },
-
-  // Create a child logger with preset source/category
-  child: (defaultOptions: { source: string; category?: LogCategory }) => ({
-    debug: (message: string, meta?: Record<string, unknown>, options?: LogOptions) =>
-      logger.debug(message, meta, { ...defaultOptions, ...options }),
-    info: (message: string, meta?: Record<string, unknown>, options?: LogOptions) =>
-      logger.info(message, meta, { ...defaultOptions, ...options }),
-    warn: (message: string, meta?: Record<string, unknown>, options?: LogOptions) =>
-      logger.warn(message, meta, { ...defaultOptions, ...options }),
-    error: (message: string, meta?: Record<string, unknown>, options?: LogOptions) =>
-      logger.error(message, meta, { ...defaultOptions, ...options }),
-    time: (label: string) => logger.time(label, defaultOptions),
-    timeEnd: (label: string, meta?: Record<string, unknown>) => logger.timeEnd(label, meta),
-    timed: <T>(label: string, operation: () => Promise<T>, meta?: Record<string, unknown>) =>
-      logger.timed(label, operation, { ...defaultOptions, meta }),
-  }),
-
   // Get statistics about current logs
   getStats: () => {
     const stats = {

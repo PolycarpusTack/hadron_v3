@@ -16,6 +16,7 @@ import type { Analysis } from "../services/api";
 import JiraTicketModal from "./JiraTicketModal";
 import { isJiraEnabled } from "../services/jira";
 import Button from "./ui/Button";
+import { getSeverityBadgeClasses } from "../utils/severity";
 
 interface QuickAnalysisDetailViewProps {
   analysis: Analysis;
@@ -90,21 +91,6 @@ function parseQuickAnalysis(fullData: string | null, rootCause: string): QuickAn
   }
 
   return null;
-}
-
-function getSeverityColor(severity: string): string {
-  switch (severity?.toLowerCase()) {
-    case "critical":
-      return "bg-red-500/10 border-red-500/30 text-red-400";
-    case "high":
-      return "bg-orange-500/10 border-orange-500/30 text-orange-400";
-    case "medium":
-      return "bg-yellow-500/10 border-yellow-500/30 text-yellow-400";
-    case "low":
-      return "bg-green-500/10 border-green-500/30 text-green-400";
-    default:
-      return "bg-gray-500/10 border-gray-500/30 text-gray-400";
-  }
 }
 
 function getComplexityColor(complexity: string): string {
@@ -339,7 +325,7 @@ ${analysis.root_cause}
             </div>
           </div>
           <span
-            className={`px-4 py-2 rounded-lg text-sm font-semibold border ${getSeverityColor(
+            className={`px-4 py-2 rounded-lg text-sm font-semibold border ${getSeverityBadgeClasses(
               analysis.severity
             )}`}
           >

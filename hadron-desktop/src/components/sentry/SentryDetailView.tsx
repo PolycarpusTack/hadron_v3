@@ -37,6 +37,7 @@ import { GoldBadge } from "../GoldBadge";
 import { InlineEditor } from "../InlineEditor";
 import CitationPanel from "../CitationPanel";
 import { getLevelColor } from "./sentryHelpers";
+import { getSeverityBadgeClasses } from "../../utils/severity";
 
 // Sub-components
 import SentryUserImpact from "./SentryUserImpact";
@@ -188,21 +189,6 @@ export default function SentryDetailView({
     };
   }, []);
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case "critical":
-        return "bg-red-500/20 text-red-400 border-red-500/30";
-      case "high":
-        return "bg-orange-500/20 text-orange-400 border-orange-500/30";
-      case "medium":
-        return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
-      case "low":
-        return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-      default:
-        return "bg-gray-500/20 text-gray-400 border-gray-500/30";
-    }
-  };
-
   const handleCopyToClipboard = () => {
     const text = `
 Sentry Analysis Report - ${analysis.filename}
@@ -351,7 +337,7 @@ ${analysis.suggested_fixes}
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-2">
               <span
-                className={`px-4 py-2 rounded-lg text-sm font-semibold border ${getSeverityColor(
+                className={`px-4 py-2 rounded-lg text-sm font-semibold border ${getSeverityBadgeClasses(
                   analysis.severity
                 )}`}
               >
