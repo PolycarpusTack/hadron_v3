@@ -148,33 +148,31 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
     setLoading(true);
     setError(null);
     try {
-      // Load database statistics
-      const stats = await getDatabaseStatistics();
-      setStatistics(stats);
+      // Load statistics, tag count, and gold statuses in parallel
+      const [statsResult, tagCountResult, goldResult] = await Promise.allSettled([
+        getDatabaseStatistics(),
+        countAnalysesWithoutTags(),
+        getGoldAnalyses(),
+      ]);
 
-      // Load auto-tag preview count
-      try {
-        const count = await countAnalysesWithoutTags();
-        setAutoTagCount(count);
-      } catch (countErr) {
-        logger.warn("Failed to load auto-tag count", { error: countErr });
-        setAutoTagCount(null);
-      }
+      if (statsResult.status === "fulfilled") setStatistics(statsResult.value);
+      else logger.warn("Failed to load stats", { error: statsResult.reason });
 
-      // Load gold statuses
+      if (tagCountResult.status === "fulfilled") setAutoTagCount(tagCountResult.value);
+      else { logger.warn("Failed to load auto-tag count", { error: tagCountResult.reason }); setAutoTagCount(null); }
+
       let goldStatusMap = goldStatusByAnalysisId;
-      try {
-        const goldAnalyses = await getGoldAnalyses();
+      if (goldResult.status === "fulfilled") {
         const statusMap: Record<number, string> = {};
-        for (const gold of goldAnalyses) {
+        for (const gold of goldResult.value) {
           if (gold.sourceAnalysisId) {
             statusMap[gold.sourceAnalysisId] = gold.validationStatus;
           }
         }
         goldStatusMap = statusMap;
         setGoldStatusByAnalysisId(statusMap);
-      } catch (goldErr) {
-        logger.warn("Failed to load gold statuses", { error: goldErr });
+      } else {
+        logger.warn("Failed to load gold statuses", { error: goldResult.reason });
       }
 
       // Load analyses if needed
