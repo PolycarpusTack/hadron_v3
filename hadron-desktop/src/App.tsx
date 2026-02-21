@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useEffect, useState, useCallback, lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import FileDropZone from "./components/FileDropZone";
 import AnalysisResults from "./components/AnalysisResults";
@@ -203,7 +203,7 @@ function App() {
   });
 
   // Handle single file analysis
-  const handleFileSelect = async (filePath: string, analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
+  const handleFileSelect = useCallback(async (filePath: string, analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
     actions.startAnalysis();
 
     try {
@@ -260,10 +260,10 @@ function App() {
       const suggestions = getRecoverySuggestions(err);
       actions.analysisError(friendlyMessage, suggestions);
     }
-  };
+  }, [apiKey, actions]);
 
   // Handle batch file analysis
-  const handleBatchSelect = async (filePaths: string[], analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
+  const handleBatchSelect = useCallback(async (filePaths: string[], analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
     if (!filePaths || filePaths.length === 0) return;
 
     actions.startBatch(filePaths.length);
@@ -315,10 +315,10 @@ function App() {
       const suggestions = getRecoverySuggestions(err);
       actions.setError(friendlyMessage, suggestions);
     }
-  };
+  }, [apiKey, actions]);
 
   // Handle code analysis
-  const handleCodeAnalysis = async (code: string, filename: string, language: string) => {
+  const handleCodeAnalysis = useCallback(async (code: string, filename: string, language: string) => {
     actions.startCodeAnalysis();
     try {
       const result = await analyzeCode(code, filename, language);
@@ -329,10 +329,10 @@ function App() {
       actions.codeAnalysisError(friendlyError);
       throw err;
     }
-  };
+  }, [actions]);
 
   // Handle settings change
-  const handleSettingsChange = async () => {
+  const handleSettingsChange = useCallback(async () => {
     const provider = getStoredProvider();
     const newApiKey = await getApiKey(provider);
     if (newApiKey) {
@@ -362,7 +362,17 @@ function App() {
     if (!codeFlag && currentView === "translate") actions.setView("analyze");
     if (!perfFlag && currentView === "performance") actions.setView("analyze");
     if (!chatFlag && currentView === "chat") actions.setView("analyze");
-  };
+  }, [currentView, actions]);
+
+  // Handle navigation to analysis from chat
+  const handleNavigateToAnalysis = useCallback(async (id: number) => {
+    try {
+      const analysis = await getAnalysisById(id);
+      actions.viewAnalysis(analysis);
+    } catch (err) {
+      logger.error("Failed to navigate to analysis", { id, error: err instanceof Error ? err.message : String(err) });
+    }
+  }, [actions]);
 
   // Splashscreen on app start - only show for minimum time, don't block on initialization
   if (showSplash) {
@@ -512,14 +522,7 @@ function App() {
                 <div id="chat-panel" role="tabpanel">
                   <AskHadronView
                     selectedAnalysisId={selectedAnalysis?.id ?? null}
-                    onNavigateToAnalysis={async (id) => {
-                      try {
-                        const analysis = await getAnalysisById(id);
-                        actions.viewAnalysis(analysis);
-                      } catch (err) {
-                        logger.error("Failed to navigate to analysis", { id, error: err instanceof Error ? err.message : String(err) });
-                      }
-                    }}
+                    onNavigateToAnalysis={handleNavigateToAnalysis}
                   />
                 </div>
               </Suspense>
