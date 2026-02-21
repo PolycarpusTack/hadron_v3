@@ -88,6 +88,21 @@ impl Drop for Database {
 }
 
 impl Database {
+    /// Column list for SELECT queries returning an Analysis struct.
+    /// Must match the field order expected by `map_row_to_analysis`.
+    const ANALYSIS_SELECT_COLS: &'static str =
+        "id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace, \
+         root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider, \
+         tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at, \
+         view_count, analysis_duration_ms, analysis_type";
+
+    /// Same columns with `a.` table alias prefix for JOIN queries.
+    const ANALYSIS_SELECT_COLS_ALIASED: &'static str =
+        "a.id, a.filename, a.file_size_kb, a.error_type, a.error_message, a.severity, a.component, a.stack_trace, \
+         a.root_cause, a.suggested_fixes, a.confidence, a.analyzed_at, a.ai_model, a.ai_provider, \
+         a.tokens_used, a.cost, a.was_truncated, a.full_data, a.is_favorite, a.last_viewed_at, \
+         a.view_count, a.analysis_duration_ms, a.analysis_type";
+
     /// Helper method to acquire lock
     /// parking_lot::Mutex never poisons, so this always succeeds
     fn lock_conn(&self) -> parking_lot::MutexGuard<'_, Connection> {
@@ -198,47 +213,15 @@ impl Database {
             .clamp(1, MAX_PAGE_SIZE);
         let actual_offset = offset.unwrap_or(0).max(0); // No negative offsets
 
-        let sql = "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
-                    root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
-                    tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
-                    view_count, analysis_duration_ms, analysis_type
-             FROM analyses
-             WHERE deleted_at IS NULL
-             ORDER BY analyzed_at DESC
-             LIMIT ?1 OFFSET ?2";
+        let sql = format!(
+            "SELECT {} FROM analyses WHERE deleted_at IS NULL ORDER BY analyzed_at DESC LIMIT ?1 OFFSET ?2",
+            Self::ANALYSIS_SELECT_COLS
+        );
 
-        let mut stmt = conn.prepare(sql)?;
+        let mut stmt = conn.prepare(&sql)?;
 
         let analyses = stmt
-            .query_map([actual_limit, actual_offset], |row| {
-                Ok(Analysis {
-                    id: row.get(0)?,
-                    filename: row.get(1)?,
-                    file_size_kb: row.get(2)?,
-                    error_type: row.get(3)?,
-                    error_message: row.get(4)?,
-                    severity: row.get(5)?,
-                    component: row.get(6)?,
-                    stack_trace: row.get(7)?,
-                    root_cause: row.get(8)?,
-                    suggested_fixes: row.get(9)?,
-                    confidence: row.get(10)?,
-                    analyzed_at: row.get(11)?,
-                    ai_model: row.get(12)?,
-                    ai_provider: row.get(13)?,
-                    tokens_used: row.get(14)?,
-                    cost: row.get(15)?,
-                    was_truncated: row.get::<_, i32>(16)? != 0,
-                    full_data: row.get(17)?,
-                    is_favorite: row.get::<_, i32>(18)? != 0,
-                    last_viewed_at: row.get(19)?,
-                    view_count: row.get(20)?,
-                    analysis_duration_ms: row.get(21)?,
-                    analysis_type: row
-                        .get::<_, Option<String>>(22)?
-                        .unwrap_or_else(|| "complete".to_string()),
-                })
-            })?
+            .query_map([actual_limit, actual_offset], Self::map_row_to_analysis)?
             .collect::<Result<Vec<_>>>()?;
 
         Ok(analyses)
@@ -264,40 +247,9 @@ impl Database {
         )?;
 
         conn.query_row(
-            "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
-                    root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
-                    tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
-                    view_count, analysis_duration_ms, analysis_type
-             FROM analyses
-             WHERE id = ?1",
+            &format!("SELECT {} FROM analyses WHERE id = ?1", Self::ANALYSIS_SELECT_COLS),
             params![id],
-            |row| {
-                Ok(Analysis {
-                    id: row.get(0)?,
-                    filename: row.get(1)?,
-                    file_size_kb: row.get(2)?,
-                    error_type: row.get(3)?,
-                    error_message: row.get(4)?,
-                    severity: row.get(5)?,
-                    component: row.get(6)?,
-                    stack_trace: row.get(7)?,
-                    root_cause: row.get(8)?,
-                    suggested_fixes: row.get(9)?,
-                    confidence: row.get(10)?,
-                    analyzed_at: row.get(11)?,
-                    ai_model: row.get(12)?,
-                    ai_provider: row.get(13)?,
-                    tokens_used: row.get(14)?,
-                    cost: row.get(15)?,
-                    was_truncated: row.get::<_, i32>(16)? != 0,
-                    full_data: row.get(17)?,
-                    is_favorite: row.get::<_, i32>(18)? != 0,
-                    last_viewed_at: row.get(19)?,
-                    view_count: row.get(20)?,
-                    analysis_duration_ms: row.get(21)?,
-                    analysis_type: row.get::<_, Option<String>>(22)?.unwrap_or_else(|| "complete".to_string()),
-                })
-            },
+            Self::map_row_to_analysis,
         )
     }
 
@@ -320,33 +272,24 @@ impl Database {
         let conn = self.lock_conn();
 
         let sql = if severity_filter.is_some() {
-            "SELECT a.id, a.filename, a.file_size_kb, a.error_type, a.error_message, a.severity, a.component, a.stack_trace,
-                    a.root_cause, a.suggested_fixes, a.confidence, a.analyzed_at, a.ai_model, a.ai_provider,
-                    a.tokens_used, a.cost, a.was_truncated, a.full_data, a.is_favorite, a.last_viewed_at,
-                    a.view_count, a.analysis_duration_ms, a.analysis_type,
-                    bm25(analyses_fts) as rank
-             FROM analyses a
-             JOIN analyses_fts ON a.id = analyses_fts.rowid
-             WHERE analyses_fts MATCH ?1
-             AND a.severity = ?2
-             AND a.deleted_at IS NULL
-             ORDER BY rank DESC
-             LIMIT 100"
+            format!(
+                "SELECT {}, bm25(analyses_fts) as rank FROM analyses a \
+                 JOIN analyses_fts ON a.id = analyses_fts.rowid \
+                 WHERE analyses_fts MATCH ?1 AND a.severity = ?2 AND a.deleted_at IS NULL \
+                 ORDER BY rank DESC LIMIT 100",
+                Self::ANALYSIS_SELECT_COLS_ALIASED
+            )
         } else {
-            "SELECT a.id, a.filename, a.file_size_kb, a.error_type, a.error_message, a.severity, a.component, a.stack_trace,
-                    a.root_cause, a.suggested_fixes, a.confidence, a.analyzed_at, a.ai_model, a.ai_provider,
-                    a.tokens_used, a.cost, a.was_truncated, a.full_data, a.is_favorite, a.last_viewed_at,
-                    a.view_count, a.analysis_duration_ms, a.analysis_type,
-                    bm25(analyses_fts) as rank
-             FROM analyses a
-             JOIN analyses_fts ON a.id = analyses_fts.rowid
-             WHERE analyses_fts MATCH ?1
-             AND a.deleted_at IS NULL
-             ORDER BY rank DESC
-             LIMIT 100"
+            format!(
+                "SELECT {}, bm25(analyses_fts) as rank FROM analyses a \
+                 JOIN analyses_fts ON a.id = analyses_fts.rowid \
+                 WHERE analyses_fts MATCH ?1 AND a.deleted_at IS NULL \
+                 ORDER BY rank DESC LIMIT 100",
+                Self::ANALYSIS_SELECT_COLS_ALIASED
+            )
         };
 
-        let mut stmt = conn.prepare(sql)?;
+        let mut stmt = conn.prepare(&sql)?;
 
         let analyses = if let Some(severity) = severity_filter {
             stmt.query_map(params![query, severity], Self::map_row_to_analysis)?
@@ -408,16 +351,12 @@ impl Database {
         // We use weighted BM25 for ranking: bm25(table, w1..w6)
         // Columns: error_type=10, error_message=5, root_cause=8,
         //          suggested_fixes=3, component=7, stack_trace=2
-        let mut sql = String::from(
-            "SELECT a.id, a.filename, a.file_size_kb, a.error_type, a.error_message, a.severity, a.component, a.stack_trace,
-                    a.root_cause, a.suggested_fixes, a.confidence, a.analyzed_at, a.ai_model, a.ai_provider,
-                    a.tokens_used, a.cost, a.was_truncated, a.full_data, a.is_favorite, a.last_viewed_at,
-                    a.view_count, a.analysis_duration_ms, a.analysis_type,
-                    bm25(analyses_fts, 10.0, 5.0, 8.0, 3.0, 7.0, 2.0) as rank
-             FROM analyses a
-             JOIN analyses_fts ON a.id = analyses_fts.rowid
-             WHERE analyses_fts MATCH ?1
-             AND a.deleted_at IS NULL",
+        let mut sql = format!(
+            "SELECT {}, bm25(analyses_fts, 10.0, 5.0, 8.0, 3.0, 7.0, 2.0) as rank \
+             FROM analyses a \
+             JOIN analyses_fts ON a.id = analyses_fts.rowid \
+             WHERE analyses_fts MATCH ?1 AND a.deleted_at IS NULL",
+            Self::ANALYSIS_SELECT_COLS_ALIASED
         );
 
         // Append optional filters as static SQL conditions
@@ -501,15 +440,11 @@ impl Database {
     pub fn get_favorites(&self) -> Result<Vec<Analysis>> {
         let conn = self.lock_conn();
 
-        let mut stmt = conn.prepare(
-            "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
-                    root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
-                    tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
-                    view_count, analysis_duration_ms, analysis_type
-             FROM analyses
-             WHERE is_favorite = 1 AND deleted_at IS NULL
-             ORDER BY analyzed_at DESC",
-        )?;
+        let sql = format!(
+            "SELECT {} FROM analyses WHERE is_favorite = 1 AND deleted_at IS NULL ORDER BY analyzed_at DESC",
+            Self::ANALYSIS_SELECT_COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
 
         let analyses = stmt
             .query_map([], Self::map_row_to_analysis)?
@@ -522,16 +457,11 @@ impl Database {
     pub fn get_recent(&self, limit: i64) -> Result<Vec<Analysis>> {
         let conn = self.lock_conn();
 
-        let mut stmt = conn.prepare(
-            "SELECT id, filename, file_size_kb, error_type, error_message, severity, component, stack_trace,
-                    root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
-                    tokens_used, cost, was_truncated, full_data, is_favorite, last_viewed_at,
-                    view_count, analysis_duration_ms, analysis_type
-             FROM analyses
-             WHERE last_viewed_at IS NOT NULL AND deleted_at IS NULL
-             ORDER BY last_viewed_at DESC
-             LIMIT ?1",
-        )?;
+        let sql = format!(
+            "SELECT {} FROM analyses WHERE last_viewed_at IS NOT NULL AND deleted_at IS NULL ORDER BY last_viewed_at DESC LIMIT ?1",
+            Self::ANALYSIS_SELECT_COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
 
         let analyses = stmt
             .query_map(params![limit], Self::map_row_to_analysis)?
@@ -1539,46 +1469,14 @@ impl Database {
     /// Get all archived analyses
     pub fn get_archived_analyses(&self) -> Result<Vec<Analysis>> {
         let conn = self.lock_conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, filename, file_size_kb, error_type, error_message, severity,
-                    component, stack_trace, root_cause, suggested_fixes, confidence,
-                    analyzed_at, ai_model, ai_provider, tokens_used, cost, was_truncated,
-                    full_data, is_favorite, last_viewed_at, view_count, analysis_duration_ms,
-                    COALESCE(analysis_type, 'complete') as analysis_type
-             FROM analyses
-             WHERE deleted_at IS NOT NULL
-             ORDER BY deleted_at DESC",
-        )?;
+        let sql = format!(
+            "SELECT {} FROM analyses WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+            Self::ANALYSIS_SELECT_COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(Analysis {
-                id: row.get(0)?,
-                filename: row.get(1)?,
-                file_size_kb: row.get(2)?,
-                error_type: row.get(3)?,
-                error_message: row.get(4)?,
-                severity: row.get(5)?,
-                component: row.get(6)?,
-                stack_trace: row.get(7)?,
-                root_cause: row.get(8)?,
-                suggested_fixes: row.get(9)?,
-                confidence: row.get(10)?,
-                analyzed_at: row.get(11)?,
-                ai_model: row.get(12)?,
-                ai_provider: row.get(13)?,
-                tokens_used: row.get(14)?,
-                cost: row.get(15)?,
-                was_truncated: row.get(16)?,
-                full_data: row.get(17)?,
-                is_favorite: row.get(18)?,
-                last_viewed_at: row.get(19)?,
-                view_count: row.get(20)?,
-                analysis_duration_ms: row.get(21)?,
-                analysis_type: row.get(22)?,
-            })
-        })?;
-
-        rows.collect()
+        stmt.query_map([], Self::map_row_to_analysis)?
+            .collect()
     }
 
     /// Permanently delete an analysis (from archive)
@@ -1867,49 +1765,16 @@ impl Database {
         };
 
         // Find similar analyses (excluding the original)
-        let mut stmt = conn.prepare(
-            "SELECT id, filename, file_size_kb, error_type, error_message, severity,
-                    component, stack_trace, root_cause, suggested_fixes, confidence,
-                    analyzed_at, ai_model, ai_provider, tokens_used, cost, was_truncated,
-                    full_data, is_favorite, last_viewed_at, view_count, analysis_duration_ms,
-                    COALESCE(analysis_type, 'complete') as analysis_type
-             FROM analyses
-             WHERE error_signature = ?1
-               AND id != ?2
-               AND deleted_at IS NULL
-             ORDER BY analyzed_at DESC
-             LIMIT ?3",
-        )?;
+        let sql = format!(
+            "SELECT {} FROM analyses \
+             WHERE error_signature = ?1 AND id != ?2 AND deleted_at IS NULL \
+             ORDER BY analyzed_at DESC LIMIT ?3",
+            Self::ANALYSIS_SELECT_COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
 
-        let rows = stmt.query_map(params![signature, analysis_id, limit], |row| {
-            Ok(Analysis {
-                id: row.get(0)?,
-                filename: row.get(1)?,
-                file_size_kb: row.get(2)?,
-                error_type: row.get(3)?,
-                error_message: row.get(4)?,
-                severity: row.get(5)?,
-                component: row.get(6)?,
-                stack_trace: row.get(7)?,
-                root_cause: row.get(8)?,
-                suggested_fixes: row.get(9)?,
-                confidence: row.get(10)?,
-                analyzed_at: row.get(11)?,
-                ai_model: row.get(12)?,
-                ai_provider: row.get(13)?,
-                tokens_used: row.get(14)?,
-                cost: row.get(15)?,
-                was_truncated: row.get(16)?,
-                full_data: row.get(17)?,
-                is_favorite: row.get(18)?,
-                last_viewed_at: row.get(19)?,
-                view_count: row.get(20)?,
-                analysis_duration_ms: row.get(21)?,
-                analysis_type: row.get(22)?,
-            })
-        })?;
-
-        rows.collect()
+        stmt.query_map(params![signature, analysis_id, limit], Self::map_row_to_analysis)?
+            .collect()
     }
 
     /// Count similar analyses for an analysis
