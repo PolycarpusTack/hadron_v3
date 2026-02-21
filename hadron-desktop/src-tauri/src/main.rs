@@ -303,6 +303,7 @@ fn main() {
             commands::release_notes::append_to_release_notes,
             commands::release_notes::export_release_notes,
             commands::release_notes::delete_release_notes,
+            commands::release_notes::check_release_notes_compliance,
             // Widget
             widget_commands::toggle_widget,
             widget_commands::show_widget,

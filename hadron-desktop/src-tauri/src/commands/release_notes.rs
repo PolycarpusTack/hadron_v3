@@ -12,6 +12,7 @@ type DbState<'a> = State<'a, Arc<Database>>;
 #[tauri::command]
 pub async fn generate_release_notes(
     config: ReleaseNotesConfig,
+    request_id: Option<String>,
     base_url: String,
     email: String,
     api_token: String,
@@ -26,7 +27,16 @@ pub async fn generate_release_notes(
         config.fix_version
     );
     release_notes_service::run_full_pipeline(
-        config, &base_url, &email, &api_token, &api_key, &model, &provider, &db, &app,
+        config,
+        &base_url,
+        &email,
+        &api_token,
+        &api_key,
+        &model,
+        &provider,
+        &db,
+        &app,
+        request_id.as_deref(),
     )
     .await
 }
@@ -140,6 +150,7 @@ pub async fn update_release_notes_checklist(
 pub async fn append_to_release_notes(
     id: i64,
     config: ReleaseNotesConfig,
+    request_id: Option<String>,
     base_url: String,
     email: String,
     api_token: String,
@@ -161,11 +172,12 @@ pub async fn append_to_release_notes(
         .unwrap_or_default();
 
     // Fetch new tickets
-    release_notes_service::emit_progress(
+    release_notes_service::emit_progress_with_request(
         &app,
         release_notes_service::ReleaseNotesPhase::FetchingTickets,
         5.0,
         "Fetching new tickets...",
+        request_id.as_deref(),
     );
     let all_tickets =
         release_notes_service::fetch_tickets_for_release(&config, &base_url, &email, &api_token)
@@ -193,19 +205,35 @@ pub async fn append_to_release_notes(
     )
     .await?;
 
-    // Update existing draft (AI-driven append, not a manual edit)
+    let mut all_keys = existing_keys.clone();
+    all_keys.extend(new_tickets.iter().map(|t| t.key.clone()));
+    let ticket_keys_json =
+        serde_json::to_string(&all_keys).map_err(|e| format!("Serialization error: {}", e))?;
+    let refreshed_tickets =
+        release_notes_service::fetch_tickets_for_release(&config, &base_url, &email, &api_token)
+            .await?;
+    let insights = release_notes_service::compute_ai_insights(&refreshed_tickets, &combined);
+    let insights_json = serde_json::to_string(&insights).ok();
+
+    // Persist updated content and append metadata.
     db_inner
-        .update_release_notes_content_auto(id, &combined)
+        .update_release_notes_after_append(
+            id,
+            &combined,
+            &ticket_keys_json,
+            all_keys.len() as i32,
+            tokens,
+            cost,
+            insights_json.as_deref(),
+        )
         .map_err(|e| format!("Database error: {}", e))?;
 
-    let mut all_keys = existing_keys;
-    all_keys.extend(new_tickets.iter().map(|t| t.key.clone()));
-
-    release_notes_service::emit_progress(
+    release_notes_service::emit_progress_with_request(
         &app,
         release_notes_service::ReleaseNotesPhase::Complete,
         100.0,
         &format!("Appended {} new tickets", new_tickets.len()),
+        request_id.as_deref(),
     );
 
     Ok(release_notes_service::ReleaseNotesResult {
@@ -214,7 +242,7 @@ pub async fn append_to_release_notes(
         markdown_content: combined,
         ticket_count: all_keys.len() as i32,
         ticket_keys: all_keys,
-        ai_insights: None,
+        ai_insights: Some(insights),
         tokens_used: tokens,
         cost,
         generation_duration_ms: 0,
@@ -258,4 +286,16 @@ pub async fn delete_release_notes(
         .await
         .map_err(|e| format!("Task join error: {}", e))?
         .map_err(|e| format!("Database error: {}", e))
+}
+
+/// On-demand style compliance check
+#[tauri::command]
+pub async fn check_release_notes_compliance(
+    content: String,
+    api_key: String,
+    model: String,
+    provider: String,
+) -> Result<release_notes_service::ComplianceReport, String> {
+    log::info!("Running release notes compliance check");
+    release_notes_service::check_compliance(&content, &api_key, &model, &provider).await
 }
