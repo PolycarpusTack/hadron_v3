@@ -768,20 +768,20 @@ export default function PerformanceAnalyzerView() {
 
           {/* Feature highlights */}
           <div className="grid md:grid-cols-3 gap-4 mt-12">
-            <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+            <div className="hd-config-grid-card">
               <BarChart3 size={24} className="text-blue-400 mb-3" />
-              <h3 className="font-semibold text-white mb-1">Comprehensive Metrics</h3>
-              <p className="text-sm text-gray-400">Full breakdown of samples, GC activity, memory stats, and derived performance indicators.</p>
+              <h3 className="font-semibold mb-1" style={{ color: 'var(--hd-text)' }}>Comprehensive Metrics</h3>
+              <p className="text-sm" style={{ color: 'var(--hd-text-muted)' }}>Full breakdown of samples, GC activity, memory stats, and derived performance indicators.</p>
             </div>
-            <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+            <div className="hd-config-grid-card">
               <Target size={24} className="text-purple-400 mb-3" />
-              <h3 className="font-semibold text-white mb-1">Pattern Detection</h3>
-              <p className="text-sm text-gray-400">Automatic identification of UI bottlenecks, database issues, sync overhead, and memory pressure.</p>
+              <h3 className="font-semibold mb-1" style={{ color: 'var(--hd-text)' }}>Pattern Detection</h3>
+              <p className="text-sm" style={{ color: 'var(--hd-text-muted)' }}>Automatic identification of UI bottlenecks, database issues, sync overhead, and memory pressure.</p>
             </div>
-            <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+            <div className="hd-config-grid-card">
               <Lightbulb size={24} className="text-green-400 mb-3" />
-              <h3 className="font-semibold text-white mb-1">Actionable Insights</h3>
-              <p className="text-sm text-gray-400">Prioritized recommendations with effort estimates for code fixes, workarounds, and user guidance.</p>
+              <h3 className="font-semibold mb-1" style={{ color: 'var(--hd-text)' }}>Actionable Insights</h3>
+              <p className="text-sm" style={{ color: 'var(--hd-text-muted)' }}>Prioritized recommendations with effort estimates for code fixes, workarounds, and user guidance.</p>
             </div>
           </div>
         </div>

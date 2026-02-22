@@ -75,63 +75,67 @@ async fn list_openai_models(client: &Client, api_key: &str) -> Result<Vec<Model>
         .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
-    // Filter to models suitable for code analysis
-    // Prioritize: GPT-4 variants, o1/o3 reasoning models, GPT-4o
-    // Exclude: embeddings, audio, vision-only, realtime, fine-tuned, GPT-3.5 (too weak)
+    // Curated list of model prefixes suited for Hadron's use case
+    // (crash analysis, code review, release notes — needs strong reasoning + large context).
+    // This avoids showing dozens of dated variants like gpt-4-0613, gpt-4-0314, etc.
+    let curated_prefixes: Vec<&str> = vec![
+        "gpt-4.1",         // GPT-4.1 family (recommended)
+        "gpt-4o",          // GPT-4o family (fast)
+        "gpt-4-turbo",     // GPT-4 Turbo
+        "gpt-5",           // Future GPT-5
+        "o3",              // o3 reasoning
+        "o4",              // o4 reasoning
+    ];
+
     let filtered_models: Vec<Model> = models_response
         .data
         .into_iter()
         .filter(|m| {
             let id = m.id.to_lowercase();
 
-            // Must be a GPT or reasoning model
-            let is_gpt = id.starts_with("gpt-4") || id.starts_with("gpt-5");
-            let is_reasoning = id.starts_with("o1") || id.starts_with("o3");
+            // Must match one of our curated prefixes
+            let is_curated = curated_prefixes.iter().any(|prefix| id.starts_with(prefix));
 
-            // Exclude non-coding models
+            // Exclude non-chat models even if they match a prefix
             let excluded = id.contains("instruct") ||
                 id.contains("embedding") ||
                 id.contains("audio") ||
                 id.contains("tts") ||
-                id.contains("whisper") ||
                 id.contains("realtime") ||
                 id.contains("vision") ||
-                id.contains("dall") ||
                 id.contains("search") ||
-                id.starts_with("ft:") ||  // Fine-tuned models
-                id.starts_with("gpt-3"); // GPT-3.5 too weak for code analysis
+                id.starts_with("ft:");
 
-            (is_gpt || is_reasoning) && !excluded
+            is_curated && !excluded
         })
         .map(|m| {
             let id_lower = m.id.to_lowercase();
 
             // Determine context window
-            let context = if id_lower.contains("gpt-4-turbo")
-                || id_lower.contains("gpt-4o")
+            let context = if id_lower.starts_with("gpt-4.1") {
+                Some(1047576) // 1M tokens
+            } else if id_lower.starts_with("o3") || id_lower.starts_with("o4") {
+                Some(200000)
+            } else if id_lower.contains("gpt-4o")
+                || id_lower.contains("gpt-4-turbo")
                 || id_lower.contains("gpt-5")
-                || id_lower.contains("gpt-4.1")
-                || id_lower.starts_with("o1")
-                || id_lower.starts_with("o3")
             {
                 Some(128000)
-            } else if id_lower.contains("gpt-4-32k") {
-                Some(32768)
-            } else if id_lower.contains("gpt-4") {
-                Some(8192)
             } else {
                 Some(128000) // Default for newer models
             };
 
             // Categorize for UI display
-            let category = if id_lower.starts_with("o1") || id_lower.starts_with("o3") {
-                "reasoning" // Best for complex analysis
-            } else if id_lower.contains("gpt-4o") {
-                "fast" // Fast and capable
-            } else if id_lower.contains("gpt-4-turbo") || id_lower.contains("gpt-4.1") {
-                "recommended" // Best balance
+            let category = if id_lower.starts_with("o3") || id_lower.starts_with("o4") {
+                "reasoning"
+            } else if id_lower.contains("mini") || id_lower.contains("nano") {
+                "fast"
+            } else if id_lower.starts_with("gpt-4.1") {
+                "recommended"
             } else if id_lower.contains("gpt-5") {
                 "latest"
+            } else if id_lower.contains("gpt-4o") {
+                "fast"
             } else {
                 "standard"
             };
@@ -167,15 +171,22 @@ async fn list_openai_models(client: &Client, api_key: &str) -> Result<Vec<Model>
 fn format_openai_model_label(id: &str) -> String {
     let id_lower = id.to_lowercase();
 
-    // Add category suffix for clarity
-    let suffix = if id_lower.starts_with("o1") || id_lower.starts_with("o3") {
-        " (Reasoning)"
-    } else if id_lower.contains("gpt-4o") && !id_lower.contains("mini") {
-        " (Fast)"
+    let suffix = if id_lower.starts_with("o3") || id_lower.starts_with("o4") {
+        if id_lower.contains("mini") { " (Reasoning/Cheap)" } else { " (Reasoning)" }
+    } else if id_lower.starts_with("gpt-4.1") {
+        if id_lower.contains("nano") {
+            " (Cheapest)"
+        } else if id_lower.contains("mini") {
+            " (Fast)"
+        } else {
+            " (Recommended)"
+        }
     } else if id_lower.contains("gpt-4o-mini") {
         " (Fast/Cheap)"
-    } else if id_lower.contains("gpt-4-turbo") || id_lower.contains("gpt-4.1") {
-        " (Recommended)"
+    } else if id_lower.contains("gpt-4o") {
+        " (Fast)"
+    } else if id_lower.contains("gpt-4-turbo") {
+        " (Standard)"
     } else if id_lower.contains("gpt-5") {
         " (Latest)"
     } else {
@@ -219,17 +230,56 @@ async fn list_anthropic_models(client: &Client, api_key: &str) -> Result<Vec<Mod
         return Ok(get_anthropic_fallback_models());
     }
 
-    let filtered_models: Vec<Model> = models_response
+    // Curated Anthropic model prefixes suited for Hadron
+    let curated_prefixes: Vec<&str> = vec![
+        "claude-sonnet-4",
+        "claude-opus-4",
+        "claude-3-5-sonnet",
+        "claude-3-5-haiku",
+        "claude-3-opus",
+        "claude-3-haiku",
+    ];
+
+    let mut filtered_models: Vec<Model> = models_response
         .data
         .into_iter()
-        .filter(|m| m.id.starts_with("claude-"))
-        .map(|m| Model {
-            id: m.id.clone(),
-            label: m.display_name.unwrap_or_else(|| format_model_label(&m.id)),
-            context: Some(200000),
-            category: Some("chat".to_string()),
+        .filter(|m| {
+            curated_prefixes.iter().any(|prefix| m.id.starts_with(prefix))
+        })
+        .map(|m| {
+            let category = if m.id.contains("haiku") {
+                "fast"
+            } else if m.id.starts_with("claude-sonnet-4") && !m.id.contains("4.5") {
+                "recommended"
+            } else if m.id.contains("opus") {
+                "reasoning"
+            } else {
+                "standard"
+            };
+            Model {
+                label: m.display_name.unwrap_or_else(|| format_model_label(&m.id)),
+                id: m.id,
+                context: Some(200000),
+                category: Some(category.to_string()),
+            }
         })
         .collect();
+
+    // Sort: recommended first
+    filtered_models.sort_by(|a, b| {
+        let cat_order = |cat: &Option<String>| match cat.as_deref() {
+            Some("recommended") => 0,
+            Some("latest") => 1,
+            Some("reasoning") => 2,
+            Some("fast") => 3,
+            _ => 4,
+        };
+        cat_order(&a.category).cmp(&cat_order(&b.category))
+    });
+
+    if filtered_models.is_empty() {
+        return Ok(get_anthropic_fallback_models());
+    }
 
     Ok(filtered_models)
 }
@@ -237,28 +287,46 @@ async fn list_anthropic_models(client: &Client, api_key: &str) -> Result<Vec<Mod
 fn get_anthropic_fallback_models() -> Vec<Model> {
     vec![
         Model {
-            id: "claude-sonnet-4.5".to_string(),
+            id: "claude-sonnet-4-20250514".to_string(),
+            label: "Claude Sonnet 4 (Recommended)".to_string(),
+            context: Some(200000),
+            category: Some("recommended".to_string()),
+        },
+        Model {
+            id: "claude-sonnet-4-5-20250514".to_string(),
             label: "Claude Sonnet 4.5".to_string(),
             context: Some(200000),
-            category: Some("chat".to_string()),
+            category: Some("latest".to_string()),
+        },
+        Model {
+            id: "claude-opus-4-20250514".to_string(),
+            label: "Claude Opus 4".to_string(),
+            context: Some(200000),
+            category: Some("reasoning".to_string()),
         },
         Model {
             id: "claude-3-5-sonnet-20241022".to_string(),
             label: "Claude 3.5 Sonnet".to_string(),
             context: Some(200000),
-            category: Some("chat".to_string()),
+            category: Some("standard".to_string()),
+        },
+        Model {
+            id: "claude-3-5-haiku-20241022".to_string(),
+            label: "Claude 3.5 Haiku (Fast/Cheap)".to_string(),
+            context: Some(200000),
+            category: Some("fast".to_string()),
         },
         Model {
             id: "claude-3-opus-20240229".to_string(),
             label: "Claude 3 Opus".to_string(),
             context: Some(200000),
-            category: Some("chat".to_string()),
+            category: Some("standard".to_string()),
         },
         Model {
             id: "claude-3-haiku-20240307".to_string(),
-            label: "Claude 3 Haiku".to_string(),
+            label: "Claude 3 Haiku (Fast/Cheap)".to_string(),
             context: Some(200000),
-            category: Some("chat".to_string()),
+            category: Some("fast".to_string()),
         },
     ]
 }

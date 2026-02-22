@@ -20,6 +20,7 @@ import {
   Info,
   FileText,
   CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import Button from "../ui/Button";
 import JiraImportService, { type NormalizedIssue } from "../../services/jira-import";
@@ -28,6 +29,7 @@ import { getStoredModel, getStoredProvider } from "../../services/api";
 import type { Analysis } from "../../services/api";
 import { getStatusColor, getPriorityColor, formatRelativeTime } from "./jiraHelpers";
 import { isKBEnabled, getOpenSearchConfig } from "../../services/opensearch";
+import { isRagAvailable } from "../../services/rag";
 
 interface JiraTicketAnalyzerProps {
   onAnalysisComplete: (analysis: Analysis) => void;
@@ -85,6 +87,10 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
     try {
       const commentTexts = issue.comments.map((c) => c.body);
 
+      // Check if RAG is available
+      let useRag = false;
+      try { useRag = await isRagAvailable(); } catch { /* continue without */ }
+
       // Check if KB integration is enabled
       let kbOptions: { useKB?: boolean; customer?: string; wonVersion?: string; kbMode?: string } | undefined;
       try {
@@ -114,7 +120,7 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
         apiKey,
         getStoredModel(),
         getStoredProvider(),
-        undefined, // useRag
+        useRag || undefined,
         kbOptions,
       );
       const fullAnalysis = await getAnalysisById(result.id);
@@ -301,6 +307,9 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
           {/* Analysis Sources Box */}
           <AnalysisSourcesBox issue={issue} />
 
+          {/* Quality Warning Banner */}
+          <QualityWarningBanner issue={issue} />
+
           {/* Action Bar */}
           <div className="px-5 py-4 flex items-center justify-between">
             <Button
@@ -332,6 +341,102 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Ticket Quality Scorer
+// ============================================================================
+
+interface QualityResult {
+  score: number;
+  suggestions: string[];
+}
+
+function scoreTicketQuality(issue: NormalizedIssue): QualityResult {
+  let score = 0;
+  const suggestions: string[] = [];
+
+  // Description >100 chars: +25pts
+  if ((issue.descriptionPlaintext?.length ?? 0) > 100) {
+    score += 25;
+  } else {
+    suggestions.push("Add a detailed description (>100 characters) for better analysis");
+  }
+
+  // >=1 comment: +15pts
+  if (issue.comments.length >= 1) {
+    score += 15;
+  } else {
+    suggestions.push("Comments with reproduction steps or error details improve results");
+  }
+
+  // Error signatures detectable: +20pts
+  if (issue.extractedSignatures.length > 0) {
+    score += 20;
+  } else {
+    suggestions.push("Include error messages or stack traces in the description");
+  }
+
+  // Components specified: +10pts
+  if (issue.components.length > 0) {
+    score += 10;
+  } else {
+    suggestions.push("Add components to help identify the affected module");
+  }
+
+  // Labels present: +5pts
+  if (issue.labels.length > 0) {
+    score += 5;
+  }
+
+  // Priority set (not "None"): +10pts
+  if (issue.priority && issue.priority !== "None") {
+    score += 10;
+  }
+
+  // Status set: +5pts
+  if (issue.status) {
+    score += 5;
+  }
+
+  // Environment/version detectable: +10pts
+  const envRegex = /(?:version|v\d|environment|env|release|build)\s*[:=]?\s*\S+/i;
+  const fullText = `${issue.descriptionPlaintext ?? ""} ${issue.comments.map(c => c.body).join(" ")}`;
+  if (envRegex.test(fullText)) {
+    score += 10;
+  }
+
+  return { score, suggestions };
+}
+
+function QualityWarningBanner({ issue }: { issue: NormalizedIssue }) {
+  const { score, suggestions } = scoreTicketQuality(issue);
+
+  if (score >= 40) return null;
+
+  return (
+    <div className="mx-5 mb-1 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-amber-300">
+            Low data quality (score: {score}/100)
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5 mb-2">
+            The AI may produce less accurate results. Consider enriching the ticket:
+          </p>
+          <ul className="space-y-0.5">
+            {suggestions.map((s, i) => (
+              <li key={i} className="text-xs text-amber-400/80 flex items-start gap-1.5">
+                <span className="text-amber-500 mt-0.5">-</span>
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }

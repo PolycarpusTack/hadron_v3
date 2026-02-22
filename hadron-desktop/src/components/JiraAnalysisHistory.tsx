@@ -11,6 +11,9 @@ import {
   AlertCircle,
   ChevronRight,
   Zap,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { getAnalysesFiltered } from "../services/api";
 import type { Analysis } from "../services/api";
@@ -43,6 +46,8 @@ export default function JiraAnalysisHistory({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"date" | "severity" | "cost">("date");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -52,10 +57,10 @@ export default function JiraAnalysisHistory({
 
     try {
       const result = await getAnalysesFiltered({
-        analysisTypes: ["jira"],
+        analysisTypes: ["jira", "jira_ticket"],
         search: debouncedSearch || undefined,
-        sortBy: "date",
-        sortOrder: "desc",
+        sortBy,
+        sortOrder,
         limit: 50,
         offset: 0,
       });
@@ -66,7 +71,7 @@ export default function JiraAnalysisHistory({
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, sortBy, sortOrder]);
 
   useEffect(() => {
     loadAnalyses();
@@ -85,6 +90,29 @@ export default function JiraAnalysisHistory({
             placeholder="Search past analyses..."
             className="w-full bg-gray-800 border border-gray-600 rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-sky-500"
           />
+        </div>
+        <div className="flex items-center gap-1">
+          <ArrowUpDown className="w-3 h-3 text-gray-500" />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as "date" | "severity" | "cost")}
+            className="bg-gray-800 border border-gray-600 rounded text-xs text-gray-300 py-1 px-1.5 focus:outline-none focus:border-sky-500"
+          >
+            <option value="date">Date</option>
+            <option value="severity">Severity</option>
+            <option value="cost">Cost</option>
+          </select>
+          <button
+            onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+            className="p-1 hover:bg-gray-700 rounded transition"
+            title={sortOrder === "desc" ? "Descending" : "Ascending"}
+          >
+            {sortOrder === "desc" ? (
+              <ArrowDown className="w-3.5 h-3.5 text-gray-400" />
+            ) : (
+              <ArrowUp className="w-3.5 h-3.5 text-gray-400" />
+            )}
+          </button>
         </div>
         <button
           onClick={loadAnalyses}

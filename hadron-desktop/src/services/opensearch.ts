@@ -47,11 +47,11 @@ export interface KBImportResponse {
 const DEFAULT_CONFIG: OpenSearchConfig = {
   enabled: false,
   mode: "remote",
-  host: "",
-  port: 443,
-  useSsl: true,
+  host: "localhost",
+  port: 9200,
+  useSsl: false,
   username: "",
-  defaultVersion: "",
+  defaultVersion: "2025r12",
   defaultCustomer: "",
   localKbPath: "",
 };
@@ -68,22 +68,22 @@ export async function getOpenSearchConfig(): Promise<OpenSearchConfig> {
   try {
     const enabled = await getSetting<boolean>("opensearch_enabled", false);
     const mode = await getSetting<string>("opensearch_mode", "remote");
-    const host = await getSetting<string>("opensearch_host", "");
-    const port = await getSetting<number>("opensearch_port", 443);
-    const useSsl = await getSetting<boolean>("opensearch_use_ssl", true);
+    const host = await getSetting<string>("opensearch_host", "localhost");
+    const port = await getSetting<number>("opensearch_port", 9200);
+    const useSsl = await getSetting<boolean>("opensearch_use_ssl", false);
     const username = await getSetting<string>("opensearch_username", "");
-    const defaultVersion = await getSetting<string>("opensearch_default_version", "");
+    const defaultVersion = await getSetting<string>("opensearch_default_version", "2025r12");
     const defaultCustomer = await getSetting<string>("opensearch_default_customer", "");
     const localKbPath = await getSetting<string>("opensearch_local_kb_path", "");
 
     configCache = {
       enabled: enabled || false,
       mode: (mode as OpenSearchConfig["mode"]) || "remote",
-      host: host || "",
-      port: port || 443,
-      useSsl: useSsl ?? true,
+      host: host || "localhost",
+      port: port || 9200,
+      useSsl: useSsl ?? false,
       username: username || "",
-      defaultVersion: defaultVersion || "",
+      defaultVersion: defaultVersion || "2025r12",
       defaultCustomer: defaultCustomer || "",
       localKbPath: localKbPath || "",
     };

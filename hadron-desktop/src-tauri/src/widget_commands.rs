@@ -29,14 +29,13 @@ pub async fn toggle_widget(app: AppHandle) -> CommandResult<()> {
     Ok(())
 }
 
-/// Show and focus the widget
+/// Show the widget without stealing focus from other windows
 #[tauri::command]
 pub async fn show_widget(app: AppHandle) -> CommandResult<()> {
     log::debug!("cmd: show_widget");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
     widget.show()?;
-    widget.set_focus()?;
     Ok(())
 }
 

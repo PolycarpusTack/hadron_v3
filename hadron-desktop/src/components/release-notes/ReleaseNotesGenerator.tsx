@@ -29,10 +29,11 @@ import logger from "../../services/logger";
 
 interface Props {
   onGenerated: (id: number) => void;
+  onGenerationStart?: (requestId: string) => void;
   isGenerating: boolean;
 }
 
-export default function ReleaseNotesGenerator({ onGenerated, isGenerating }: Props) {
+export default function ReleaseNotesGenerator({ onGenerated, onGenerationStart, isGenerating }: Props) {
   // Fix version state
   const [fixVersions, setFixVersions] = useState<JiraFixVersion[]>([]);
   const [selectedVersion, setSelectedVersion] = useState("");
@@ -108,12 +109,19 @@ export default function ReleaseNotesGenerator({ onGenerated, isGenerating }: Pro
     if (!selectedVersion) return;
     setError(null);
     try {
+      const requestId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `rn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      onGenerationStart?.(requestId);
+
       const modules = moduleFilter
         ? moduleFilter.split(",").map((m) => m.trim()).filter(Boolean)
         : undefined;
       const result = await generateReleaseNotes({
         fixVersion: selectedVersion,
         contentType,
+        requestId,
         jqlFilter: jqlFilter || undefined,
         moduleFilter: modules,
         aiEnrichment: {
@@ -140,6 +148,7 @@ export default function ReleaseNotesGenerator({ onGenerated, isGenerating }: Pro
     classifyModules,
     detectBreakingChanges,
     onGenerated,
+    onGenerationStart,
   ]);
 
   return (

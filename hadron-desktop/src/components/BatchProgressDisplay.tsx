@@ -19,18 +19,21 @@ export default function BatchProgressDisplay({
   return (
     <>
       {batchProgress && (
-        <div className="mb-4 bg-gray-800/60 border border-gray-700 rounded-lg p-4 text-sm">
-          <div className="font-semibold text-gray-100">
+        <div className="mb-4 rounded-lg p-4 text-sm" style={{ background: 'var(--hd-bg-surface)', border: '1px solid var(--hd-border)' }}>
+          <div className="font-semibold" style={{ color: 'var(--hd-text)' }}>
             Batch analysis: {batchProgress.processed} / {batchProgress.total} ({Math.round((batchProgress.processed / batchProgress.total) * 100)}%) completed
           </div>
-          <div className="mt-2 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+          <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--hd-bg-raised)' }}>
             <div
-              className="h-full bg-blue-500 rounded-full transition-all duration-300"
-              style={{ width: `${Math.round((batchProgress.processed / batchProgress.total) * 100)}%` }}
+              className="h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${Math.round((batchProgress.processed / batchProgress.total) * 100)}%`,
+                background: 'linear-gradient(90deg, #059669, #10b981)',
+              }}
             />
           </div>
           {batchProgress.currentFile && (
-            <div className="text-xs text-gray-400 truncate mt-1">
+            <div className="text-xs truncate mt-1" style={{ color: 'var(--hd-text-dim)' }}>
               Current file: {batchProgress.currentFile}
             </div>
           )}
@@ -42,7 +45,7 @@ export default function BatchProgressDisplay({
         </div>
       )}
       {batchSummary && !isAnalyzing && (
-        <div className="mb-4 bg-gray-800/40 border border-gray-700 rounded-lg p-3 text-xs text-gray-300">
+        <div className="mb-4 rounded-lg p-3 text-xs" style={{ background: 'var(--hd-bg-surface)', border: '1px solid var(--hd-border)', color: 'var(--hd-text-muted)' }}>
           {batchSummary}
         </div>
       )}

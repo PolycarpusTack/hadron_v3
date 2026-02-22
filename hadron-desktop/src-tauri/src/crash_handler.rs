@@ -11,8 +11,11 @@ use std::path::PathBuf;
 /// Argument passed to the re-launched executable to start as crash monitor.
 pub const CRASH_MONITOR_ARG: &str = "--crash-monitor";
 
-/// Socket name for IPC between the monitored app and the crash monitor.
-const SOCKET_NAME: &str = "hadron-crash-monitor";
+/// Returns the socket path for IPC between the app and crash monitor.
+/// Uses temp dir to avoid triggering Tauri's dev file watcher.
+fn socket_path() -> PathBuf {
+    std::env::temp_dir().join("hadron-crash-monitor")
+}
 
 /// Returns the directory for crash artifacts (minidumps).
 /// Creates it if it doesn't exist.
@@ -128,7 +131,7 @@ impl minidumper::ServerHandler for CrashDumpHandler {
 /// `--crash-monitor`. This blocks until the monitored process crashes or exits.
 pub fn run_crash_monitor() -> ! {
     let mut server =
-        minidumper::Server::with_name(SOCKET_NAME).expect("failed to create crash monitor server");
+        minidumper::Server::with_name(socket_path().as_path()).expect("failed to create crash monitor server");
 
     let shutdown = std::sync::atomic::AtomicBool::new(false);
     let _ = server.run(Box::new(CrashDumpHandler), &shutdown, None);
@@ -168,7 +171,7 @@ pub fn install_crash_handler() -> Result<(), String> {
     std::thread::sleep(std::time::Duration::from_millis(200));
 
     // Connect to the monitor
-    let client = minidumper::Client::with_name(SOCKET_NAME)
+    let client = minidumper::Client::with_name(socket_path().as_path())
         .map_err(|e| format!("Failed to connect to crash monitor: {}", e))?;
 
     // Register the signal/exception handler

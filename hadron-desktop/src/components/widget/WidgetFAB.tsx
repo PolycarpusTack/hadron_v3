@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Zap, Search, FileText, Wrench, Copy } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Search, FileText, Wrench, Copy } from "lucide-react";
 import { looksLikeError } from "../../utils/errorDetection";
 
 interface WidgetFABProps {
@@ -16,21 +17,24 @@ const TEMPLATES = [
   { icon: Copy, label: "Find similar issues", prefix: "Find similar issues to: " },
 ];
 
-// Menu needs ~230x220 to render; FAB is 60x60.
+// Menu needs ~230x250 to render; FAB is 44x44.
 const MENU_SIZE = { width: 230, height: 250 };
-const FAB_SIZE = { width: 60, height: 60 };
+const FAB_SIZE = { width: 44, height: 44 };
 const DRAG_THRESHOLD = 5; // px before a click becomes a drag
 
 export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const fabRef = useRef<HTMLButtonElement>(null);
   const isDragging = useRef(false);
-  const dragStart = useRef<{ screenX: number; screenY: number; winX: number; winY: number } | null>(null);
 
   useEffect(() => {
     if (!showMenu) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (
+        menuRef.current && !menuRef.current.contains(e.target as Node) &&
+        fabRef.current && !fabRef.current.contains(e.target as Node)
+      ) {
         closeMenu();
       }
     };
@@ -41,7 +45,6 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
   const closeMenu = useCallback(async () => {
     setShowMenu(false);
     try {
-      // Resize back to FAB and restore position
       const pos = await invoke<{ x: number; y: number }>("get_widget_position");
       const dx = MENU_SIZE.width - FAB_SIZE.width;
       const dy = MENU_SIZE.height - FAB_SIZE.height;
@@ -53,7 +56,7 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
   const handleContextMenu = useCallback(async (e: React.MouseEvent) => {
     e.preventDefault();
     try {
-      // Expand window upward-left so menu has room to render above the FAB
+      // Expand window upward-left so menu renders above the FAB
       const pos = await invoke<{ x: number; y: number }>("get_widget_position");
       const dx = MENU_SIZE.width - FAB_SIZE.width;
       const dy = MENU_SIZE.height - FAB_SIZE.height;
@@ -76,64 +79,65 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
     onTemplate(prefix + clipContent);
   };
 
-  // --- Drag-to-move logic ---
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return; // Only left-click
+  // --- Drag-to-move using native Tauri startDragging ---
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return;
     isDragging.current = false;
-    invoke<{ x: number; y: number }>("get_widget_position").then((pos) => {
-      dragStart.current = { screenX: e.screenX, screenY: e.screenY, winX: pos.x, winY: pos.y };
-    });
 
-    const handleMouseMove = (ev: MouseEvent) => {
-      if (!dragStart.current) return;
-      const dx = ev.screenX - dragStart.current.screenX;
-      const dy = ev.screenY - dragStart.current.screenY;
-      if (!isDragging.current && Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
-      isDragging.current = true;
-      invoke("move_widget", {
-        x: dragStart.current.winX + dx,
-        y: dragStart.current.winY + dy,
-      }).catch(() => {});
-    };
+    const startX = e.screenX;
+    const startY = e.screenY;
 
-    const handleMouseUp = (ev: MouseEvent) => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      if (isDragging.current && dragStart.current) {
-        const dx = ev.screenX - dragStart.current.screenX;
-        const dy = ev.screenY - dragStart.current.screenY;
-        const finalX = dragStart.current.winX + dx;
-        const finalY = dragStart.current.winY + dy;
-        onDragEnd?.(finalX, finalY);
+    const onMove = (ev: PointerEvent) => {
+      if (!isDragging.current && Math.abs(ev.screenX - startX) + Math.abs(ev.screenY - startY) >= DRAG_THRESHOLD) {
+        isDragging.current = true;
+        cleanup();
+        // Hand off to native OS window dragging
+        getCurrentWindow().startDragging().then(async () => {
+          // startDragging resolves when drag ends — save final position
+          try {
+            const pos = await invoke<{ x: number; y: number }>("get_widget_position");
+            onDragEnd?.(pos.x, pos.y);
+          } catch { /* ignore */ }
+        }).catch(() => {});
       }
-      dragStart.current = null;
     };
 
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-  }, [onDragEnd]);
+    const onUp = () => {
+      cleanup();
+      // No drag occurred — treat as click
+      if (!isDragging.current) {
+        onClick();
+      }
+    };
 
-  const handleClick = useCallback(() => {
-    // Only fire click if we didn't just drag
-    if (!isDragging.current) {
-      onClick();
-    }
-  }, [onClick]);
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [onClick, onDragEnd]);
 
   return (
     <div className="relative w-full h-full flex items-end justify-end">
       <button
-        onClick={handleClick}
+        ref={fabRef}
+        onPointerDown={handlePointerDown}
         onContextMenu={handleContextMenu}
-        onMouseDown={handleMouseDown}
-        className="w-[56px] h-[56px] rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600
-                   flex items-center justify-center shadow-lg shadow-emerald-500/25
-                   hover:from-emerald-400 hover:to-emerald-500 transition-all duration-200
-                   border border-emerald-400/30 cursor-grab active:cursor-grabbing select-none"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        className="elena-fab-badge w-[40px] h-[40px] rounded-full
+                   flex items-center justify-center
+                   cursor-grab active:cursor-grabbing select-none"
+        style={{ WebkitAppRegion: "no-drag", background: "transparent" } as React.CSSProperties}
         title="Hadron Quick — Click to expand, right-click for quick actions, drag to move"
       >
-        <Zap className="w-6 h-6 text-white pointer-events-none" fill="currentColor" />
+        <img
+          src="/elena-button.png"
+          alt="Hadron"
+          className="w-9 h-9 rounded-full pointer-events-none"
+          draggable={false}
+        />
+        <span className="elena-signal-dot" />
       </button>
 
       {showMenu && (

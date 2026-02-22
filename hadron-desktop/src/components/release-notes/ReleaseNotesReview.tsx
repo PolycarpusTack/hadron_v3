@@ -123,6 +123,9 @@ export default function ReleaseNotesReview({ draftId }: Props) {
   const completedCount = checklist.filter((c) => c.checked).length;
   const progress = Math.round((completedCount / checklist.length) * 100);
   const statusAction = STATUS_FLOW[draft.status];
+  const requiresChecklistComplete =
+    statusAction?.next === "approved" || statusAction?.next === "published";
+  const checklistBlocksTransition = requiresChecklistComplete && progress < 100;
 
   return (
     <div className="space-y-6">
@@ -148,8 +151,9 @@ export default function ReleaseNotesReview({ draftId }: Props) {
         {statusAction && (
           <button
             onClick={() => handleStatusChange(statusAction.next)}
-            disabled={updatingStatus}
+            disabled={updatingStatus || checklistBlocksTransition}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${statusAction.color} disabled:opacity-50`}
+            title={checklistBlocksTransition ? "Complete checklist before this transition" : undefined}
           >
             {updatingStatus ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -160,6 +164,13 @@ export default function ReleaseNotesReview({ draftId }: Props) {
           </button>
         )}
       </div>
+
+      {checklistBlocksTransition && (
+        <div className="text-xs text-amber-400 flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Complete all checklist items before moving to {statusAction?.next.replace("_", " ")}.
+        </div>
+      )}
 
       {/* Checklist */}
       <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5">

@@ -1475,8 +1475,8 @@ impl Database {
         );
         let mut stmt = conn.prepare(&sql)?;
 
-        stmt.query_map([], Self::map_row_to_analysis)?
-            .collect()
+        let rows = stmt.query_map([], Self::map_row_to_analysis)?;
+        rows.collect()
     }
 
     /// Permanently delete an analysis (from archive)
@@ -1773,8 +1773,8 @@ impl Database {
         );
         let mut stmt = conn.prepare(&sql)?;
 
-        stmt.query_map(params![signature, analysis_id, limit], Self::map_row_to_analysis)?
-            .collect()
+        let rows = stmt.query_map(params![signature, analysis_id, limit], Self::map_row_to_analysis)?;
+        rows.collect()
     }
 
     /// Count similar analyses for an analysis
@@ -3264,17 +3264,6 @@ impl Database {
         let conn = self.lock_conn();
         conn.execute(
             "UPDATE release_notes SET markdown_content = ?1, is_manual_edit = 1,
-                    updated_at = datetime('now') WHERE id = ?2 AND deleted_at IS NULL",
-            params![content, id],
-        )?;
-        Ok(())
-    }
-
-    /// Update content without marking as manual edit (for AI-driven appends/updates)
-    pub fn update_release_notes_content_auto(&self, id: i64, content: &str) -> Result<()> {
-        let conn = self.lock_conn();
-        conn.execute(
-            "UPDATE release_notes SET markdown_content = ?1,
                     updated_at = datetime('now') WHERE id = ?2 AND deleted_at IS NULL",
             params![content, id],
         )?;

@@ -4,7 +4,7 @@
 
 @layer base {
   :focus-visible {
-    outline: 2px solid rgb(59 130 246);
+    outline: 2px solid rgb(16 185 129);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -17,6 +17,545 @@
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+}
+
+@layer components {
+  .hd-shell-card {
+    @apply rounded-2xl shadow-sm backdrop-blur-sm;
+    background: linear-gradient(165deg, var(--hd-bg-raised), var(--hd-bg-surface-2));
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-panel {
+    background: linear-gradient(165deg, var(--hd-bg-raised), var(--hd-bg-surface-2));
+    border: 1px solid var(--hd-border);
+    border-radius: var(--hd-radius);
+    box-shadow: var(--hd-shadow-sm);
+  }
+
+  .hd-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--hd-border-subtle);
+    border-radius: var(--hd-radius-sm);
+  }
+
+  .hd-panel-soft {
+    @apply rounded-xl;
+    background: var(--hd-bg-surface);
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-panel-chat {
+    @apply rounded-xl;
+    background: var(--hd-bg-surface);
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-modal-shell {
+    @apply rounded-2xl shadow-2xl;
+    background: rgba(12, 20, 37, 0.97);
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-setting-row {
+    @apply flex items-center justify-between rounded-lg p-4;
+    background: var(--hd-bg-surface);
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-setting-card {
+    @apply rounded-lg p-4;
+    background: var(--hd-bg-surface);
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-toggle {
+    @apply relative h-8 w-14 rounded-full transition-colors;
+  }
+
+  .hd-toggle-knob {
+    @apply absolute top-1 h-6 w-6 rounded-full bg-white transition-transform;
+  }
+
+  .hd-toggle-knob-icon {
+    @apply flex items-center justify-center;
+  }
+
+  .hd-chip {
+    @apply rounded-full border px-2.5 py-1 text-xs font-medium;
+  }
+
+  .hd-chip-emerald {
+    @apply border-emerald-500/30 bg-emerald-500/10 text-emerald-300;
+  }
+
+  .hd-chip-blue {
+    @apply border-blue-500/30 bg-blue-500/10 text-blue-300;
+  }
+
+  .hd-chip-neutral {
+    border: 1px solid var(--hd-border);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--hd-text-muted);
+  }
+
+  .hd-chip-amber {
+    @apply border-amber-500/30 bg-amber-500/10 text-amber-300;
+  }
+
+  .hd-chip-chat {
+    @apply px-2 py-0.5 text-[11px];
+  }
+
+  /* v4 Flat Navigation Bar */
+  .hd-nav-bar {
+    @apply flex items-center gap-1 overflow-x-auto rounded-xl px-1.5 py-1.5 scrollbar-hide;
+    background: var(--hd-bg-raised);
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-nav-btn {
+    @apply flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-all;
+    color: var(--hd-text-muted);
+  }
+
+  .hd-nav-btn:hover {
+    background: var(--hd-bg-hover);
+    color: var(--hd-text);
+  }
+
+  .hd-nav-btn-active {
+    @apply font-semibold;
+    background: linear-gradient(135deg, #10b981, #34d399);
+    color: #052e24;
+    box-shadow: 0 2px 10px rgba(16, 185, 129, 0.25);
+  }
+
+  /* Ask Hadron floating button */
+  .hd-ask-floating {
+    @apply inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #6ee7b7;
+    background: rgba(16, 185, 129, 0.08);
+  }
+
+  .hd-ask-floating:hover {
+    background: rgba(16, 185, 129, 0.15);
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+  }
+
+  .hd-ask-floating-active {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #022c22;
+    border-color: transparent;
+  }
+
+  /* Status pill (connection indicator) */
+  .hd-status-pill {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-status-dot {
+    @apply h-2 w-2 rounded-full;
+  }
+
+  .hd-status-dot-connected {
+    @apply bg-emerald-400;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+  }
+
+  .hd-status-dot-disconnected {
+    @apply bg-red-400;
+  }
+
+  /* Version badge */
+  .hd-version-badge {
+    @apply rounded-md px-2 py-1 text-xs font-mono;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--hd-border);
+    color: var(--hd-text-dim);
+  }
+
+  /* Severity badges */
+  .hd-badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+    border: 1px solid transparent;
+  }
+
+  .hd-badge-critical {
+    @apply bg-red-500/15 text-red-400 border-red-500/25;
+  }
+
+  .hd-badge-high {
+    @apply bg-orange-500/15 text-orange-400 border-orange-500/25;
+  }
+
+  .hd-badge-medium {
+    @apply bg-yellow-500/15 text-yellow-400 border-yellow-500/25;
+  }
+
+  .hd-badge-low {
+    @apply bg-blue-500/15 text-blue-400 border-blue-500/25;
+  }
+
+  .hd-badge-ok {
+    @apply bg-emerald-500/15 text-emerald-400 border-emerald-500/25;
+  }
+
+  .hd-badge-neutral {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--hd-text-muted);
+    border-color: var(--hd-border);
+  }
+
+  .hd-badge-type {
+    @apply bg-violet-500/15 text-violet-400 border-violet-500/25;
+  }
+
+  /* Segmented control */
+  .hd-segmented {
+    @apply inline-flex rounded-lg p-1;
+    background: var(--hd-bg-raised);
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-segmented-btn {
+    @apply rounded-md px-4 py-2 text-sm font-medium transition-all;
+    color: var(--hd-text-muted);
+  }
+
+  .hd-segmented-btn:hover {
+    color: var(--hd-text);
+  }
+
+  .hd-segmented-btn-active {
+    @apply font-semibold;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.1));
+    color: #6ee7b7;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Filter pill buttons */
+  .hd-pill-btn {
+    @apply rounded-full px-3 py-1 text-xs font-semibold transition;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--hd-border);
+    color: var(--hd-text-muted);
+  }
+
+  .hd-pill-btn:hover {
+    background: var(--hd-bg-hover);
+    color: var(--hd-text);
+  }
+
+  .hd-pill-btn-active {
+    color: var(--hd-text);
+  }
+
+  /* Search input */
+  .hd-search-wrap {
+    @apply relative;
+  }
+
+  .hd-search-input {
+    @apply w-full rounded-lg py-2.5 pl-10 pr-4 text-sm;
+    background: var(--hd-bg-raised);
+    border: 1px solid var(--hd-border);
+    color: var(--hd-text);
+    transition: border-color var(--hd-transition);
+  }
+
+  .hd-search-input:focus {
+    outline: none;
+    border-color: var(--hd-accent);
+  }
+
+  .hd-search-input::placeholder {
+    color: var(--hd-text-dim);
+  }
+
+  /* History row grid */
+  .hd-history-row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 0.55fr 0.55fr 0.5fr 0.4fr auto;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-radius: var(--hd-radius-sm);
+    transition: background var(--hd-transition);
+  }
+
+  .hd-history-row:hover {
+    background: var(--hd-bg-hover);
+  }
+
+  .hd-history-group-header {
+    @apply text-xs font-semibold uppercase tracking-wider py-2 px-4;
+    color: var(--hd-text-dim);
+    border-bottom: 1px solid var(--hd-border-subtle);
+  }
+
+  /* Config card / row (settings inline) */
+  .hd-config-card {
+    @apply rounded-xl p-5;
+    background: linear-gradient(165deg, var(--hd-bg-raised), var(--hd-bg-surface-2));
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-config-row {
+    @apply flex items-center justify-between rounded-lg p-4;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--hd-border-subtle);
+  }
+
+  /* Updated dropzone */
+  .hd-dropzone {
+    @apply relative border-2 border-dashed rounded-xl p-12 transition-all;
+    border-color: var(--hd-border);
+  }
+
+  .hd-dropzone:hover {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.03);
+  }
+
+  .hd-dropzone-active {
+    border-color: var(--hd-accent) !important;
+    background: rgba(16, 185, 129, 0.08) !important;
+    transform: scale(1.01);
+  }
+
+  /* Legacy compatibility (deprecated - remove after Phase 7 verified) */
+  .hd-ask-btn {
+    @apply inline-flex items-center gap-2 rounded-lg bg-emerald-500/15 px-3.5 py-2 text-sm font-semibold text-emerald-500 transition hover:bg-emerald-500/25 dark:text-emerald-400;
+  }
+
+  .hd-ask-btn-active {
+    @apply bg-emerald-600 text-white;
+  }
+
+  .hd-section-title {
+    @apply text-2xl font-bold;
+    color: var(--hd-text);
+  }
+
+  .hd-section-subtitle {
+    @apply text-sm;
+    color: var(--hd-text-muted);
+  }
+
+  /* Ask Hadron drawer */
+  .hd-drawer-backdrop {
+    @apply fixed inset-0 z-[300] transition-opacity duration-300;
+    background: rgba(3, 7, 15, 0.6);
+  }
+
+  .hd-drawer {
+    @apply fixed top-0 right-0 z-[301] flex h-full w-[400px] flex-col transition-transform duration-300;
+    background: var(--hd-bg-raised);
+    border-left: 1px solid var(--hd-border);
+    box-shadow: -8px 0 40px rgba(0, 0, 0, 0.4);
+    transform: translateX(100%);
+  }
+
+  .hd-drawer-open {
+    transform: translateX(0);
+  }
+
+  /* Analyzer master-detail layout */
+  .hd-analyzer-layout {
+    @apply flex overflow-hidden rounded-xl;
+    border: 1px solid var(--hd-border-subtle);
+    background: var(--hd-bg-raised);
+    min-height: 560px;
+  }
+
+  .hd-analyzer-sidebar {
+    @apply flex w-[400px] flex-shrink-0 flex-col;
+    border-right: 1px solid var(--hd-border-subtle);
+    background: var(--hd-bg-base);
+  }
+
+  .hd-analyzer-detail {
+    @apply relative flex flex-1 flex-col overflow-hidden;
+  }
+
+  /* Issue list item */
+  .hd-issue-item {
+    @apply cursor-pointer border-b px-3.5 py-3 transition-colors;
+    border-color: var(--hd-border-subtle);
+  }
+
+  .hd-issue-item:hover {
+    background: var(--hd-bg-hover);
+  }
+
+  .hd-issue-item-selected {
+    background: rgba(16, 185, 129, 0.06);
+    border-left: 3px solid var(--hd-accent);
+  }
+
+  /* Detail tabs */
+  .hd-detail-tab {
+    @apply cursor-pointer border-b-2 border-transparent px-3.5 py-2.5 text-sm transition-colors;
+    color: var(--hd-text-muted);
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    font-family: inherit;
+  }
+
+  .hd-detail-tab:hover {
+    color: var(--hd-text);
+  }
+
+  .hd-detail-tab-active {
+    color: var(--hd-accent);
+    border-bottom-color: var(--hd-accent);
+  }
+
+  /* Analysis section card */
+  .hd-analysis-section {
+    @apply mb-3 rounded-lg p-3.5;
+    background: var(--hd-bg-surface);
+    border: 1px solid var(--hd-border-subtle);
+  }
+
+  .hd-analysis-section-alert {
+    border-color: rgba(248, 113, 113, 0.2);
+    background: rgba(248, 113, 113, 0.03);
+  }
+
+  /* Confidence bar */
+  .hd-confidence-bar {
+    @apply mt-2 h-1 rounded-full;
+    background: var(--hd-border);
+  }
+
+  .hd-confidence-fill {
+    @apply h-full rounded-full;
+    background: var(--hd-accent);
+  }
+
+  /* History triage grid row */
+  .hd-triage-row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 0.55fr 0.55fr 0.5fr 0.4fr auto;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.6rem 0.75rem;
+    border-radius: var(--hd-radius-xs);
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: background 0.12s, border-color 0.12s;
+  }
+
+  .hd-triage-row:hover {
+    background: var(--hd-bg-hover);
+    border-color: var(--hd-border-subtle);
+  }
+
+  .hd-triage-row-active {
+    background: rgba(16, 185, 129, 0.06);
+    border-color: rgba(16, 185, 129, 0.25);
+  }
+
+  /* Filter drawer */
+  .hd-filter-drawer {
+    @apply mt-2 overflow-hidden rounded-lg transition-all duration-300;
+    background: var(--hd-bg-base);
+    border: 1px solid var(--hd-border);
+    max-height: 0;
+    opacity: 0;
+    padding: 0 0.875rem;
+  }
+
+  .hd-filter-drawer-open {
+    max-height: 300px;
+    opacity: 1;
+    padding: 0.875rem;
+  }
+
+  /* Collapsible section */
+  .hd-collapsible-header {
+    @apply flex cursor-pointer items-center justify-between p-4 transition-colors;
+  }
+
+  .hd-collapsible-header:hover {
+    background: var(--hd-bg-hover);
+  }
+
+  /* Config grid card */
+  .hd-config-grid-card {
+    @apply rounded-xl p-4;
+    background: linear-gradient(165deg, var(--hd-bg-raised), var(--hd-bg-surface-2));
+    border: 1px solid var(--hd-border-subtle);
+    box-shadow: var(--hd-shadow-sm);
+  }
+
+  /* Ghost button */
+  .hd-btn-ghost {
+    @apply inline-flex items-center justify-center rounded-lg transition-colors;
+    background: transparent;
+    border: 1px solid var(--hd-border-subtle);
+    color: var(--hd-text-muted);
+    font-family: inherit;
+  }
+
+  .hd-btn-ghost:hover {
+    background: var(--hd-bg-hover);
+    color: var(--hd-text);
+    border-color: var(--hd-border);
+  }
+
+  .hd-btn-ghost:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Nav bar Ask Hadron accent button */
+  .hd-ask-nav-btn {
+    @apply inline-flex items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition-all;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: var(--hd-accent);
+    background: rgba(16, 185, 129, 0.08);
+    font-family: inherit;
+  }
+
+  .hd-ask-nav-btn:hover {
+    background: rgba(16, 185, 129, 0.18);
+  }
+
+  .hd-ask-nav-btn-active {
+    background: var(--hd-accent);
+    color: #052e24;
+    border-color: var(--hd-accent);
+  }
+
+  /* Header icon buttons (Settings, Ask Hadron in top bar) */
+  .hd-header-icon-btn {
+    @apply inline-flex items-center justify-center rounded-lg p-2 transition-all;
+    color: var(--hd-text-muted);
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .hd-header-icon-btn:hover {
+    color: var(--hd-text);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--hd-border-subtle);
+  }
+
+  .hd-header-icon-btn-active {
+    color: var(--hd-accent);
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.3);
   }
 }
 
@@ -40,6 +579,37 @@
   --input-bg: #1f2937;
   --text-color: #f3f4f6;
   --text-muted: #9ca3af;
+
+  /* Hadron v4 Design Tokens */
+  --hd-bg-base: #0c1222;
+  --hd-bg-raised: #111a2d;
+  --hd-bg-surface: #16213a;
+  --hd-bg-surface-2: #1b2847;
+  --hd-bg-hover: #1e2f50;
+  --hd-border: #2a3f65;
+  --hd-border-subtle: #1f3058;
+  --hd-text: #e8edf6;
+  --hd-text-muted: #8da0c2;
+  --hd-text-dim: #5a7099;
+  --hd-accent: #10b981;
+  --hd-accent-dim: rgba(16, 185, 129, 0.15);
+  --hd-accent-glow: rgba(16, 185, 129, 0.25);
+  --hd-radius: 12px;
+  --hd-radius-sm: 8px;
+  --hd-radius-xs: 6px;
+  --hd-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  --hd-shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
+  --hd-transition: 0.2s ease;
+  --hd-critical: #ef4444;
+  --hd-high: #f97316;
+  --hd-medium: #eab308;
+  --hd-low: #3b82f6;
+  --hd-danger: #ef4444;
+  --hd-danger-dim: rgba(239, 68, 68, 0.12);
+  --hd-warn: #f59e0b;
+  --hd-warn-dim: rgba(245, 158, 11, 0.12);
+  --hd-info: #3b82f6;
+  --hd-info-dim: rgba(59, 130, 246, 0.12);
 }
 
 body {
@@ -131,7 +701,7 @@ body {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3805E3, #B8AFDA);
+  background: linear-gradient(90deg, #059669, #10b981);
   border-radius: 4px;
   transition: width 0.3s ease-out;
 }
@@ -369,4 +939,56 @@ body {
 .gold-badge.promote:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ============================================================================
+   Elena FAB Mascot Animations (Widget Hover Button)
+   ============================================================================ */
+
+@keyframes elena-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes elena-breathe {
+  0%, 100% {
+    opacity: 0.7;
+    box-shadow: 0 0 4px rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
+  }
+}
+
+@keyframes elena-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.5);
+  }
+}
+
+.elena-fab-badge {
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.elena-fab-badge:hover {
+  transform: scale(1.08);
+  animation: elena-glow 2s ease-in-out infinite;
+}
+
+.elena-signal-dot {
+  animation: elena-breathe 3s ease-in-out infinite;
+}
+
+.elena-fab-badge:hover .elena-ping-ring {
+  animation: elena-ping 0.8s ease-out forwards;
 }

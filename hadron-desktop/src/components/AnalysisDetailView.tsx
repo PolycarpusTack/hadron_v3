@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge, Link2, ExternalLink, Shield } from "lucide-react";
+import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge, Link2, ExternalLink, Shield, Database, BookOpen, Tag } from "lucide-react";
 import Button from "./ui/Button";
 import { useState, useEffect, useRef } from "react";
 import { open } from "@tauri-apps/plugin-shell";
@@ -108,6 +108,12 @@ ${analysis.suggested_fixes}
   // Parse Sentry metadata from full_data (if sentry analysis)
   const sentryData = analysis.analysis_type === "sentry" && analysis.full_data
     ? parseSentryFullData(analysis.full_data)
+    : null;
+
+  // Parse JIRA metadata from full_data (if jira analysis)
+  const isJiraAnalysis = analysis.analysis_type === "jira" || analysis.analysis_type === "jira_ticket";
+  const jiraData = isJiraAnalysis && analysis.full_data
+    ? parseJiraFullData(analysis.full_data)
     : null;
 
   return (
@@ -233,6 +239,59 @@ ${analysis.suggested_fixes}
                 "bg-gray-500/20 text-gray-400"
               }`}>
                 {sentryData.level}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* JIRA Issue Metadata */}
+        {jiraData && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-sky-500/10 border border-sky-500/20 rounded-lg text-sky-400">
+              <Ticket className="w-3.5 h-3.5" />
+              {jiraData.jiraKey || "JIRA"}
+            </span>
+            {jiraData.jiraPriority && (
+              <span className="text-gray-400">
+                <span className="text-gray-500">Priority:</span> {jiraData.jiraPriority}
+              </span>
+            )}
+            {jiraData.jiraStatus && (
+              <span className="text-gray-400">
+                <span className="text-gray-500">Status:</span> {jiraData.jiraStatus}
+              </span>
+            )}
+            {jiraData.jiraComponents && jiraData.jiraComponents.length > 0 && (
+              <span className="flex items-center gap-1 text-gray-400">
+                <Package className="w-3 h-3 text-gray-500" />
+                {jiraData.jiraComponents.map((c) => (
+                  <span key={c} className="px-1.5 py-0.5 bg-sky-500/10 border border-sky-500/20 rounded text-xs text-sky-300">
+                    {c}
+                  </span>
+                ))}
+              </span>
+            )}
+            {jiraData.jiraLabels && jiraData.jiraLabels.length > 0 && (
+              <span className="flex items-center gap-1 text-gray-400">
+                <Tag className="w-3 h-3 text-gray-500" />
+                {jiraData.jiraLabels.map((l) => (
+                  <span key={l} className="px-1.5 py-0.5 bg-gray-700 rounded text-xs text-gray-300">
+                    {l}
+                  </span>
+                ))}
+              </span>
+            )}
+            {jiraData.ragEnabled && (jiraData.ragCaseCount ?? 0) > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-xs text-emerald-400">
+                <Database className="w-3 h-3" />
+                RAG: {jiraData.ragCaseCount} case{jiraData.ragCaseCount !== 1 ? "s" : ""}
+              </span>
+            )}
+            {jiraData.kbEnabled && ((jiraData.kbDocCount ?? 0) > 0 || (jiraData.kbReleaseNoteCount ?? 0) > 0) && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-500/10 border border-purple-500/20 rounded text-xs text-purple-400">
+                <BookOpen className="w-3 h-3" />
+                KB: {jiraData.kbDocCount} doc{jiraData.kbDocCount !== 1 ? "s" : ""}
+                {(jiraData.kbReleaseNoteCount ?? 0) > 0 && `, ${jiraData.kbReleaseNoteCount} RN`}
               </span>
             )}
           </div>
@@ -545,6 +604,50 @@ function parseSentryFullData(fullData: string): SentryFullData | null {
       platform: data.sentry_platform,
       count: data.sentry_count,
       userCount: data.sentry_user_count,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
+// JIRA full_data parser
+// ============================================================================
+
+interface JiraFullData {
+  jiraKey?: string;
+  jiraSummary?: string;
+  jiraPriority?: string;
+  jiraStatus?: string;
+  jiraComponents?: string[];
+  jiraLabels?: string[];
+  descriptionChars?: number;
+  commentCount?: number;
+  ragEnabled?: boolean;
+  ragCaseCount?: number;
+  kbEnabled?: boolean;
+  kbDocCount?: number;
+  kbReleaseNoteCount?: number;
+}
+
+function parseJiraFullData(fullData: string): JiraFullData | null {
+  try {
+    const data = JSON.parse(fullData);
+    const trace = data.analysis_trace?.context ?? {};
+    return {
+      jiraKey: data.jira_key,
+      jiraSummary: data.jira_summary,
+      jiraPriority: data.jira_priority,
+      jiraStatus: data.jira_status,
+      jiraComponents: data.jira_components,
+      jiraLabels: data.jira_labels,
+      descriptionChars: data.description_chars,
+      commentCount: data.comment_count,
+      ragEnabled: trace.rag_enabled,
+      ragCaseCount: trace.rag_case_count,
+      kbEnabled: trace.kb_enabled,
+      kbDocCount: trace.kb_doc_count,
+      kbReleaseNoteCount: trace.kb_release_note_count,
     };
   } catch {
     return null;

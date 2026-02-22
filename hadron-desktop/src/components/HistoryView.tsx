@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { History, Search, AlertCircle, SlidersHorizontal, X, CheckSquare } from "lucide-react";
-import TabBar from "./ui/TabBar";
+import { Search, AlertCircle, SlidersHorizontal, X, CheckSquare, Download, Columns, Tag } from "lucide-react";
+import { format } from "date-fns";
 import {
   getAllAnalyses,
   deleteAnalysis,
@@ -26,15 +26,13 @@ import {
 import { useDebounce } from "../hooks/useDebounce";
 import logger from "../services/logger";
 import type { Analysis, Translation, DatabaseStatistics } from "../services/api";
-import type { HistoryFilters, Tag } from "../types";
+import type { HistoryFilters, Tag as TagType } from "../types";
 import { DEFAULT_HISTORY_FILTERS, filtersToApiOptions } from "../types";
-import AnalyticsDashboard from "./AnalyticsDashboard";
-import { AnalysisListItem, TranslationListItem } from "./HistoryListItem";
-import { SmartList } from "./VirtualizedList";
-import { useToast } from "./Toast";
 import { AdvancedFilterPanel } from "./AdvancedFilterPanel";
 import { BulkActionBar, SelectionType } from "./BulkActionBar";
+import { useToast } from "./Toast";
 import Button from "./ui/Button";
+import { getSeverityBadgeClasses } from "../utils/severity";
 
 // localStorage key for filter persistence
 const FILTER_STORAGE_KEY = "hadron_history_filters";
@@ -64,12 +62,30 @@ const loadSavedFilters = (): HistoryFilters => {
   return DEFAULT_HISTORY_FILTERS;
 };
 
+// Visible column configuration
+const ALL_COLUMNS = [
+  { key: "file", label: "File" },
+  { key: "rootCause", label: "Root Cause" },
+  { key: "severity", label: "Severity" },
+  { key: "status", label: "Status" },
+  { key: "component", label: "Component" },
+  { key: "cost", label: "Cost" },
+] as const;
+
+type ColumnKey = (typeof ALL_COLUMNS)[number]["key"];
+
+const DEFAULT_VISIBLE_COLUMNS: Set<ColumnKey> = new Set([
+  "file", "rootCause", "severity", "status", "component", "cost",
+]);
+
 export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
+  // currentTab is always "all" in triage mode -- kept for loadData() compatibility
   const [currentTab, setCurrentTab] = useState<"analyses" | "translations" | "all" | "favorites">("all");
+  void setCurrentTab; // Tab switching removed in triage layout
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [translations, setTranslations] = useState<Translation[]>([]);
   const [filters, setFilters] = useState<HistoryFilters>(loadSavedFilters);
-  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  const [availableTags, setAvailableTags] = useState<TagType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statistics, setStatistics] = useState<DatabaseStatistics | null>(null);
@@ -78,6 +94,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
   const [autoTagCount, setAutoTagCount] = useState<number | null>(null);
   const [autoTagging, setAutoTagging] = useState(false);
   const [tagRefreshKey, setTagRefreshKey] = useState(0);
+  void tagRefreshKey; // Used internally by setTagRefreshKey for cache-busting
   const [goldStatusByAnalysisId, setGoldStatusByAnalysisId] = useState<Record<number, string>>({});
 
   // Selection mode state
@@ -88,6 +105,14 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
   const lastSelectedAnalysisId = useRef<number | null>(null);
   const lastSelectedTranslationId = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // New triage workspace state
+  const [previewAnalysis, setPreviewAnalysis] = useState<Analysis | null>(null);
+  const [sortBy, setSortBy] = useState<"recent" | "severity" | "recurrence" | "cost">("recent");
+  const [groupBy, setGroupBy] = useState<"none" | "component" | "status" | "severity">("none");
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [quickFilter, setQuickFilter] = useState<string>("all");
+  const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(new Set(DEFAULT_VISIBLE_COLUMNS));
 
   // Debounce search term for better performance
   const debouncedSearchTerm = useDebounce(filters.search, 300);
@@ -285,6 +310,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
     try {
       await deleteAnalysis(id);
       setAnalyses((prev) => prev.filter((a) => a.id !== id));
+      setPreviewAnalysis((prev) => (prev?.id === id ? null : prev));
       toast.success("Analysis deleted");
     } catch (err) {
       logger.error('Failed to delete analysis', { id, error: err instanceof Error ? err.message : String(err) });
@@ -307,6 +333,9 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
       const newStatus = await toggleFavorite(id);
       setAnalyses((prev) =>
         prev.map((a) => (a.id === id ? { ...a, is_favorite: newStatus } : a))
+      );
+      setPreviewAnalysis((prev) =>
+        prev?.id === id ? { ...prev, is_favorite: newStatus } : prev
       );
       toast.success(newStatus ? "Added to favorites" : "Removed from favorites");
     } catch (err) {
@@ -646,6 +675,14 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
     }));
   }, [availableTags]);
 
+  // Preserve handler references for future use (translations view, type filters, etc.)
+  // These are not rendered in the triage grid but remain part of the component's API surface.
+  void toggleAnalysisType;
+  void handleDeleteTranslation;
+  void handleToggleTranslationFavorite;
+  void handleSelectTranslation;
+  void handleShowTaggedOnly;
+
   // Keyboard shortcuts for history view
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -668,7 +705,9 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
       // Escape - Clear selection or close panel
       if (event.key === "Escape") {
-        if (advancedFiltersOpen) {
+        if (columnsOpen) {
+          setColumnsOpen(false);
+        } else if (advancedFiltersOpen) {
           setAdvancedFiltersOpen(false);
         } else if (selectionMode) {
           clearSelection();
@@ -705,12 +744,117 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [advancedFiltersOpen, selectionMode, selectedCount, currentTab, analyses, translations, clearSelection, handleBulkDelete, handleBulkExport]);
+  }, [advancedFiltersOpen, columnsOpen, selectionMode, selectedCount, currentTab, analyses, translations, clearSelection, handleBulkDelete, handleBulkExport]);
+
+  // =========================================================================
+  // Triage Sort and Group Logic
+  // =========================================================================
+
+  const sortedAnalyses = useMemo(() => {
+    const sorted = [...analyses];
+    switch (sortBy) {
+      case "severity": {
+        const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+        sorted.sort((a, b) => (order[a.severity.toLowerCase()] ?? 4) - (order[b.severity.toLowerCase()] ?? 4));
+        break;
+      }
+      case "cost":
+        sorted.sort((a, b) => b.cost - a.cost);
+        break;
+      case "recent":
+      default:
+        sorted.sort((a, b) => new Date(b.analyzed_at).getTime() - new Date(a.analyzed_at).getTime());
+        break;
+    }
+    return sorted;
+  }, [analyses, sortBy]);
+
+  const groupedAnalyses = useMemo(() => {
+    if (groupBy === "none") return { "": sortedAnalyses };
+    const groups: Record<string, Analysis[]> = {};
+    for (const analysis of sortedAnalyses) {
+      let key: string;
+      if (groupBy === "component") {
+        key = analysis.component || "Unknown";
+      } else if (groupBy === "severity") {
+        key = analysis.severity;
+      } else {
+        key = "analyzed";
+      }
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(analysis);
+    }
+    return groups;
+  }, [sortedAnalyses, groupBy]);
+
+  // Quick filter: apply client-side date filtering on top of the sorted list
+  const quickFilteredGroups = useMemo(() => {
+    if (quickFilter === "all") return groupedAnalyses;
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const sevenDaysAgo = new Date(startOfToday.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    function filterList(list: Analysis[]): Analysis[] {
+      switch (quickFilter) {
+        case "today":
+          return list.filter((a) => new Date(a.analyzed_at) >= startOfToday);
+        case "7days":
+          return list.filter((a) => new Date(a.analyzed_at) >= sevenDaysAgo);
+        case "gold":
+          return list.filter((a) => goldStatusByAnalysisId[a.id]);
+        case "noTags":
+          // Placeholder: show all (no tag data on Analysis object)
+          return list;
+        default:
+          return list;
+      }
+    }
+
+    const filtered: Record<string, Analysis[]> = {};
+    for (const [key, items] of Object.entries(groupedAnalyses)) {
+      const result = filterList(items);
+      if (result.length > 0) {
+        filtered[key] = result;
+      }
+    }
+    return filtered;
+  }, [groupedAnalyses, quickFilter, goldStatusByAnalysisId]);
+
+  // Severity stats from statistics (severity_breakdown is [string, number][])
+  const severityStats = useMemo(() => {
+    const result = { critical: 0, high: 0, medium: 0, low: 0 };
+    if (!statistics?.severity_breakdown) return result;
+    for (const [severity, count] of statistics.severity_breakdown) {
+      const key = severity.toLowerCase() as keyof typeof result;
+      if (key in result) {
+        result[key] = count;
+      }
+    }
+    return result;
+  }, [statistics]);
+
+  // Toggle column visibility
+  const toggleColumn = useCallback((col: ColumnKey) => {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(col)) {
+        next.delete(col);
+      } else {
+        next.add(col);
+      }
+      return next;
+    });
+  }, []);
+
+  // =========================================================================
+  // Rendering
+  // =========================================================================
 
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12">
-        <div className="text-gray-400">Loading history...</div>
+        <div style={{ color: "var(--hd-text-dim)" }}>Loading history...</div>
       </div>
     );
   }
@@ -726,353 +870,638 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
     );
   }
 
+  // Flat list of all analyses after quick filter for total count
+  const displayedAnalyses = Object.values(quickFilteredGroups).flat();
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <span className="p-2 bg-amber-500/20 rounded-lg">
-            <History className="w-6 h-6 text-amber-400" />
-          </span>
+    <div className="space-y-2.5">
+      {/* Toolbar Panel */}
+      <div className="hd-panel" style={{ padding: 14 }}>
+        {/* Header row: title + stat badges */}
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div>
-            <h2 className="text-2xl font-bold">History</h2>
-            <p className="text-sm text-gray-400">Browse and manage your analysis history</p>
+            <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--hd-text)" }}>
+              History: Triage Workspace
+            </h2>
+            <p className="text-xs mt-1" style={{ color: "var(--hd-text-dim)" }}>
+              Sortable columns, grouping, bulk actions, and side preview
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className="px-2 py-0.5 rounded text-xs font-medium"
+              style={{
+                background: "var(--hd-bg-surface)",
+                border: "1px solid var(--hd-border-subtle)",
+                color: "var(--hd-text-muted)",
+              }}
+            >
+              {displayedAnalyses.length} shown
+            </span>
+            {severityStats.critical > 0 && (
+              <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                {severityStats.critical} critical
+              </span>
+            )}
+            {severityStats.high > 0 && (
+              <span className="px-2 py-0.5 rounded text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                {severityStats.high} high
+              </span>
+            )}
+            {severityStats.medium > 0 && (
+              <span className="px-2 py-0.5 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                {severityStats.medium} medium
+              </span>
+            )}
+            {severityStats.low > 0 && (
+              <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                {severityStats.low} low
+              </span>
+            )}
           </div>
         </div>
-        <Button
-          onClick={toggleSelectionMode}
-          variant={selectionMode ? "primary" : "secondary"}
-          icon={<CheckSquare />}
-          title={selectionMode ? "Exit selection mode" : "Enter selection mode"}
-        >
-          {selectionMode ? "Cancel Selection" : "Select"}
-        </Button>
-      </div>
 
-      {/* Analytics Dashboard */}
-      {statistics && <AnalyticsDashboard statistics={statistics} />}
-
-      {/* Tabs */}
-      <TabBar
-        tabs={[
-          { id: "all" as const, label: "All", count: analyses.length + translations.length },
-          { id: "analyses" as const, label: "Crash Analyses", count: analyses.length },
-          { id: "translations" as const, label: "Translations", count: translations.length },
-          {
-            id: "favorites" as const,
-            label: "Favorites",
-            count: statistics?.favorite_count || 0,
-            icon: (
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-              </svg>
-            ),
-          },
-        ]}
-        activeTab={currentTab}
-        onTabChange={setCurrentTab}
-      />
-
-      {/* Search and Filters */}
-      <div className="space-y-3">
-        {autoTagCount !== null && autoTagCount > 0 && (
-          <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 flex items-center justify-between gap-4">
-            <div>
-              <p className="font-semibold text-gray-200">
-                {autoTagCount} analysis{autoTagCount === 1 ? "" : "es"} without tags
-              </p>
-              <p className="text-sm text-gray-400">
-                Auto-tag your history with severity, type, and pattern-based tags.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={handleAutoTag}
-                loading={autoTagging}
-              >
-                {autoTagging ? "Tagging..." : "Auto-tag History"}
-              </Button>
-              {availableTags.length > 0 && (
-                <Button
-                  onClick={handleShowTaggedOnly}
-                  variant="secondary"
-                >
-                  Show Tagged Only
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-        <div className="flex gap-4">
-          {/* Search */}
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+        {/* Toolbar Row 1: Search + Sort + Group */}
+        <div className="flex gap-2 flex-wrap" style={{ marginBottom: 8 }}>
+          <div className="flex-1 relative" style={{ minWidth: 200 }}>
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
+              style={{ color: "var(--hd-text-dim)" }}
+            />
             <input
               ref={searchInputRef}
               type="text"
-              placeholder={
-                currentTab === "translations"
-                  ? "Search translations... (Press / to focus)"
-                  : currentTab === "analyses"
-                  ? "Search by filename, error type, or cause... (Press / to focus)"
-                  : "Search analyses and translations... (Press / to focus)"
-              }
+              placeholder="Search by file, signature, component..."
               value={filters.search}
               onChange={(e) => updateFilters({ search: e.target.value })}
-              className="w-full bg-gray-800 border border-gray-600 rounded-lg pl-10 pr-4 py-3 focus:outline-none focus:border-blue-500"
+              className="hd-input w-full"
+              style={{ paddingLeft: 34, paddingRight: 32, fontSize: "0.82rem" }}
             />
+            <span
+              style={{
+                position: "absolute",
+                right: 10,
+                top: "50%",
+                transform: "translateY(-50%)",
+                fontSize: "0.68rem",
+                color: "var(--hd-text-dim)",
+                background: "var(--hd-bg-surface)",
+                border: "1px solid var(--hd-border-subtle)",
+                borderRadius: 4,
+                padding: "1px 5px",
+                pointerEvents: "none",
+              }}
+            >
+              /
+            </span>
           </div>
 
-          {/* Advanced Filters Button */}
-          {currentTab !== "translations" && (
-            <div className="relative">
-              <button
-                onClick={() => setAdvancedFiltersOpen(!advancedFiltersOpen)}
-                className={`flex items-center gap-2 px-4 py-3 rounded-lg transition border ${
-                  advancedFiltersOpen || activeFilterCount > 0
-                    ? "bg-blue-600/20 border-blue-500 text-blue-400"
-                    : "bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700"
-                }`}
-              >
-                <SlidersHorizontal className="w-5 h-5" />
-                <span>Filters</span>
-                {activeFilterCount > 0 && (
-                  <span className="px-1.5 py-0.5 bg-blue-600 text-white text-xs rounded-full">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </button>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="hd-input"
+            style={{ fontSize: "0.78rem", padding: "6px 10px", minWidth: 140 }}
+          >
+            <option value="recent">Sort: Most recent</option>
+            <option value="severity">Sort: Severity</option>
+            <option value="cost">Sort: Highest cost</option>
+          </select>
 
-              {/* Advanced Filter Panel */}
-              <AdvancedFilterPanel
-                filters={filters}
-                availableTags={availableTags}
-                onChange={updateFilters}
-                onReset={resetFilters}
-                isOpen={advancedFiltersOpen}
-                onClose={() => setAdvancedFiltersOpen(false)}
-              />
-            </div>
+          <select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as typeof groupBy)}
+            className="hd-input"
+            style={{ fontSize: "0.78rem", padding: "6px 10px", minWidth: 130 }}
+          >
+            <option value="none">Group: None</option>
+            <option value="component">Group: Component</option>
+            <option value="status">Group: Status</option>
+            <option value="severity">Group: Severity</option>
+          </select>
+        </div>
+
+        {/* Toolbar Row 2: Action buttons */}
+        <div className="flex gap-2 flex-wrap items-center" style={{ marginBottom: 8 }}>
+          <Button
+            onClick={toggleSelectionMode}
+            variant={selectionMode ? "primary" : "secondary"}
+            size="sm"
+            icon={<CheckSquare />}
+          >
+            {selectionMode ? "Cancel" : "Select"}
+          </Button>
+
+          <Button
+            onClick={() => setAdvancedFiltersOpen(!advancedFiltersOpen)}
+            variant={advancedFiltersOpen || activeFilterCount > 0 ? "accent" : "secondary"}
+            size="sm"
+            icon={<SlidersHorizontal />}
+          >
+            Filters
+            {activeFilterCount > 0 && (
+              <span
+                className="px-1.5 py-0.5 rounded-full text-xs"
+                style={{
+                  background: "var(--hd-accent)",
+                  color: "#052e24",
+                  fontWeight: 700,
+                  marginLeft: 2,
+                }}
+              >
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+
+          <Button
+            onClick={() => setColumnsOpen(!columnsOpen)}
+            variant={columnsOpen ? "accent" : "secondary"}
+            size="sm"
+            icon={<Columns />}
+          >
+            Columns
+          </Button>
+
+          {selectedCount > 0 && (
+            <Button
+              onClick={handleBulkExport}
+              variant="secondary"
+              size="sm"
+              icon={<Download />}
+            >
+              Export CSV
+            </Button>
+          )}
+
+          <div className="flex-1" />
+
+          {autoTagCount !== null && autoTagCount > 0 && (
+            <Button
+              onClick={handleAutoTag}
+              loading={autoTagging}
+              variant="secondary"
+              size="sm"
+              icon={<Tag />}
+            >
+              {autoTagging ? "Tagging..." : `Auto-tag (${autoTagCount})`}
+            </Button>
           )}
         </div>
 
-        {/* Quick Severity Filter Pills */}
-        {currentTab !== "translations" && (
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-sm text-gray-400">Severity:</span>
-            <button
-              onClick={() => updateFilters({ severities: [] })}
-              className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                filters.severities.length === 0
-                  ? "bg-gray-600 text-white"
-                  : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => toggleSeverity("critical")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.severities.includes("critical")
-                  ? "bg-red-500/20 text-red-400 border-red-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-red-500/30"
-              }`}
-            >
-              Critical
-            </button>
-            <button
-              onClick={() => toggleSeverity("high")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.severities.includes("high")
-                  ? "bg-orange-500/20 text-orange-400 border-orange-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-orange-500/30"
-              }`}
-            >
-              High
-            </button>
-            <button
-              onClick={() => toggleSeverity("medium")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.severities.includes("medium")
-                  ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-yellow-500/30"
-              }`}
-            >
-              Medium
-            </button>
-            <button
-              onClick={() => toggleSeverity("low")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.severities.includes("low")
-                  ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-blue-500/30"
-              }`}
-            >
-              Low
-            </button>
+        {/* Quick Filter Chips */}
+        <div className="flex flex-wrap gap-1.5 items-center" style={{ marginBottom: 8 }}>
+          {(["all", "today", "7days", "gold", "noTags"] as const).map((chip) => {
+            const labels: Record<string, string> = {
+              all: "All",
+              today: "Today",
+              "7days": "Last 7 days",
+              gold: "Gold only",
+              noTags: "No tags",
+            };
+            return (
+              <button
+                key={chip}
+                onClick={() => setQuickFilter(chip)}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 9999,
+                  fontSize: "0.72rem",
+                  fontWeight: 500,
+                  border: "1px solid var(--hd-border-subtle)",
+                  background: quickFilter === chip ? "var(--hd-accent)" : "transparent",
+                  color: quickFilter === chip ? "#052e24" : "var(--hd-text-dim)",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                {labels[chip]}
+              </button>
+            );
+          })}
 
-            {/* Separator */}
-            <span className="w-px h-5 bg-gray-600 mx-1" />
+          <span style={{ width: 1, height: 16, background: "var(--hd-border)", margin: "0 4px" }} />
 
-            {/* Type Filter Pills */}
-            <span className="text-sm text-gray-400">Type:</span>
+          <span style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)", marginRight: 2 }}>Severity:</span>
+          <button
+            onClick={() => updateFilters({ severities: [] })}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 9999,
+              fontSize: "0.72rem",
+              fontWeight: 500,
+              border: "1px solid var(--hd-border-subtle)",
+              background: filters.severities.length === 0 ? "var(--hd-accent)" : "transparent",
+              color: filters.severities.length === 0 ? "#052e24" : "var(--hd-text-dim)",
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            All
+          </button>
+          {(["critical", "high", "medium", "low"] as const).map((sev) => (
             <button
-              onClick={() => {
-                // Toggle both comprehensive and whatson (legacy) for backward compatibility
-                toggleAnalysisType("comprehensive");
-                if (!filters.analysisTypes.includes("comprehensive")) {
-                  // Adding - also add whatson
-                  if (!filters.analysisTypes.includes("whatson")) {
-                    toggleAnalysisType("whatson");
-                  }
-                }
+              key={sev}
+              onClick={() => toggleSeverity(sev)}
+              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border transition ${
+                filters.severities.includes(sev)
+                  ? getSeverityBadgeClasses(sev)
+                  : ""
+              }`}
+              style={{
+                fontSize: "0.72rem",
+                cursor: "pointer",
+                ...(filters.severities.includes(sev) ? {} : {
+                  background: "transparent",
+                  border: "1px solid var(--hd-border-subtle)",
+                  color: "var(--hd-text-dim)",
+                }),
               }}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.analysisTypes.includes("comprehensive") || filters.analysisTypes.includes("whatson")
-                  ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-emerald-500/30"
-              }`}
             >
-              Comprehensive
+              {sev.charAt(0).toUpperCase() + sev.slice(1)}
             </button>
-            <button
-              onClick={() => toggleAnalysisType("quick")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.analysisTypes.includes("quick")
-                  ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-cyan-500/30"
-              }`}
-            >
-              Quick
-            </button>
-            <button
-              onClick={() => toggleAnalysisType("gold")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.analysisTypes.includes("gold")
-                  ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-yellow-500/30"
-              }`}
-            >
-              Gold Only
-            </button>
-            <button
-              onClick={() => toggleAnalysisType("performance")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.analysisTypes.includes("performance")
-                  ? "bg-orange-500/20 text-orange-400 border-orange-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-orange-500/30"
-              }`}
-            >
-              Performance
-            </button>
-            <button
-              onClick={() => toggleAnalysisType("code")}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.analysisTypes.includes("code")
-                  ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-indigo-500/30"
-              }`}
-            >
-              Code
-            </button>
-            <button
-              onClick={() => {
-                // Toggle legacy types (complete/specialized)
-                toggleAnalysisType("complete");
-                if (!filters.analysisTypes.includes("complete")) {
-                  // Adding - also add specialized
-                  if (!filters.analysisTypes.includes("specialized")) {
-                    toggleAnalysisType("specialized");
-                  }
-                }
-              }}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                filters.analysisTypes.includes("complete") || filters.analysisTypes.includes("specialized")
-                  ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-                  : "bg-gray-800 text-gray-400 border-gray-600 hover:border-purple-500/30"
-              }`}
-            >
-              Legacy
-            </button>
+          ))}
 
-            {/* Clear All Filters */}
-            {activeFilterCount > 0 && (
-              <>
-                <span className="w-px h-5 bg-gray-600 mx-1" />
-                <button
-                  onClick={resetFilters}
-                  className="px-3 py-1 rounded-full text-xs font-semibold text-gray-400
-                           hover:text-white hover:bg-gray-700 transition flex items-center gap-1"
-                >
-                  <X className="w-3 h-3" />
-                  Clear Filters
-                </button>
-              </>
-            )}
+          {activeFilterCount > 0 && (
+            <>
+              <span style={{ width: 1, height: 16, background: "var(--hd-border)", margin: "0 4px" }} />
+              <button
+                onClick={resetFilters}
+                className="flex items-center gap-1"
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 9999,
+                  fontSize: "0.72rem",
+                  fontWeight: 500,
+                  border: "1px solid var(--hd-border-subtle)",
+                  background: "transparent",
+                  color: "var(--hd-text-dim)",
+                  cursor: "pointer",
+                }}
+              >
+                <X className="w-3 h-3" />
+                Clear Filters
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Advanced Filters Drawer (collapsible) */}
+        <div className={`hd-filter-drawer ${advancedFiltersOpen ? "hd-filter-drawer-open" : ""}`}>
+          <AdvancedFilterPanel
+            filters={filters}
+            availableTags={availableTags}
+            onChange={updateFilters}
+            onReset={resetFilters}
+            isOpen={advancedFiltersOpen}
+            onClose={() => setAdvancedFiltersOpen(false)}
+          />
+        </div>
+
+        {/* Column Customization Drawer (collapsible) */}
+        <div className={`hd-filter-drawer ${columnsOpen ? "hd-filter-drawer-open" : ""}`}>
+          <div style={{ fontSize: "0.78rem", fontWeight: 600, marginBottom: 8, color: "var(--hd-text)" }}>
+            Visible Columns
           </div>
-        )}
+          <div className="flex flex-wrap gap-3">
+            {ALL_COLUMNS.map((col) => (
+              <label
+                key={col.key}
+                className="flex items-center gap-1.5 cursor-pointer"
+                style={{ fontSize: "0.78rem", color: "var(--hd-text-muted)" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={visibleColumns.has(col.key)}
+                  onChange={() => toggleColumn(col.key)}
+                  style={{ accentColor: "var(--hd-accent)", width: 14, height: 14 }}
+                />
+                {col.label}
+              </label>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* Results */}
-      {analyses.length === 0 && translations.length === 0 ? (
-        <div className="text-center p-8 bg-gray-800/50 rounded-lg border border-gray-700">
-          <History className="w-10 h-10 text-gray-500 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">
-            {filters.search || activeFilterCount > 0
+      {/* Two-Panel Layout: List + Preview */}
+      {displayedAnalyses.length === 0 ? (
+        <div className="hd-panel" style={{ padding: 32, textAlign: "center" }}>
+          <p style={{ color: "var(--hd-text-dim)", fontSize: "0.88rem" }}>
+            {filters.search || activeFilterCount > 0 || quickFilter !== "all"
               ? "No items match your filters"
-              : currentTab === "favorites"
-              ? "No favorites yet. Star items to add them to your favorites!"
-              : "No history yet. Start by analyzing a crash log or translating technical content!"}
+              : "No history yet. Start by analyzing a crash log!"}
           </p>
-          {activeFilterCount > 0 && (
-            <Button onClick={resetFilters} variant="ghost" size="sm" className="mt-4">
+          {(activeFilterCount > 0 || quickFilter !== "all") && (
+            <Button
+              onClick={() => { resetFilters(); setQuickFilter("all"); }}
+              variant="ghost"
+              size="sm"
+              className="mt-4"
+            >
               Clear all filters
             </Button>
           )}
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* Crash Analyses - using SmartList for incremental loading */}
-          {(currentTab === "all" || currentTab === "analyses" || currentTab === "favorites") && analyses.length > 0 && (
-            <SmartList
-              items={analyses}
-              initialCount={20}
-              incrementCount={20}
-              keyExtractor={(analysis) => `${analysis.id}-${tagRefreshKey}`}
-              renderItem={(analysis) => (
-                <AnalysisListItem
-                  analysis={analysis}
-                  onView={handleView}
-                  onDelete={handleDelete}
-                  onToggleFavorite={handleToggleFavorite}
-                  selectionMode={selectionMode}
-                  isSelected={selectedAnalysisIds.has(analysis.id)}
-                  onSelect={handleSelectAnalysis}
-                  goldStatus={goldStatusByAnalysisId[analysis.id]}
-                />
-              )}
-            />
-          )}
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 0.7fr", gap: 10, minHeight: 480 }}>
+          {/* Left: List Panel */}
+          <div className="hd-panel" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {/* Column Headers */}
+            <div
+              className="hd-triage-row"
+              style={{
+                borderBottom: "1px solid var(--hd-border-subtle)",
+                fontSize: "0.72rem",
+                color: "var(--hd-text-dim)",
+                fontWeight: 600,
+                cursor: "default",
+              }}
+            >
+              {visibleColumns.has("file") && <span>File</span>}
+              {visibleColumns.has("rootCause") && <span>Root Cause</span>}
+              {visibleColumns.has("severity") && <span>Severity</span>}
+              {visibleColumns.has("status") && <span>Status</span>}
+              {visibleColumns.has("component") && <span>Component</span>}
+              {visibleColumns.has("cost") && <span>Cost</span>}
+              <span>Actions</span>
+            </div>
 
-          {/* Translations - using SmartList for incremental loading */}
-          {(currentTab === "all" || currentTab === "translations" || currentTab === "favorites") && translations.length > 0 && (
-            <SmartList
-              items={translations}
-              initialCount={20}
-              incrementCount={20}
-              keyExtractor={(translation) => translation.id}
-              renderItem={(translation) => (
-                <TranslationListItem
-                  translation={translation}
-                  onDelete={handleDeleteTranslation}
-                  onToggleFavorite={handleToggleTranslationFavorite}
-                  selectionMode={selectionMode}
-                  isSelected={selectedTranslationIds.has(translation.id)}
-                  onSelect={handleSelectTranslation}
-                />
+            {/* Scrollable List */}
+            <div style={{ overflowY: "auto", flex: 1, padding: "6px 8px" }}>
+              {Object.entries(quickFilteredGroups).map(([groupLabel, groupItems]) => (
+                <div key={groupLabel || "__default"}>
+                  {/* Group header when grouping is active */}
+                  {groupBy !== "none" && groupLabel && (
+                    <div
+                      style={{
+                        padding: "6px 8px",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        color: "var(--hd-accent)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                        borderBottom: "1px solid var(--hd-border-subtle)",
+                        marginTop: 6,
+                        marginBottom: 2,
+                      }}
+                    >
+                      {groupLabel} ({groupItems.length})
+                    </div>
+                  )}
+
+                  {groupItems.map((analysis) => (
+                    <div
+                      key={analysis.id}
+                      className={`hd-triage-row ${previewAnalysis?.id === analysis.id ? "hd-triage-row-active" : ""}`}
+                      onClick={() => setPreviewAnalysis(analysis)}
+                    >
+                      {visibleColumns.has("file") && (
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          {selectionMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedAnalysisIds.has(analysis.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectAnalysis(analysis.id, e.shiftKey);
+                              }}
+                              onChange={() => {}}
+                              style={{
+                                accentColor: "var(--hd-accent)",
+                                width: 14,
+                                height: 14,
+                                cursor: "pointer",
+                                marginRight: 4,
+                              }}
+                            />
+                          )}
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {analysis.filename}
+                          </span>
+                          {analysis.is_favorite && (
+                            <span style={{ color: "#fbbf24" }}>&#9733;</span>
+                          )}
+                          {goldStatusByAnalysisId[analysis.id] && (
+                            <span style={{ fontSize: "0.7rem", color: "#fbbf24" }}>&#11088;</span>
+                          )}
+                        </div>
+                      )}
+
+                      {visibleColumns.has("rootCause") && (
+                        <div
+                          style={{
+                            color: "var(--hd-text-muted)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            fontSize: "0.78rem",
+                          }}
+                        >
+                          {analysis.root_cause}
+                        </div>
+                      )}
+
+                      {visibleColumns.has("severity") && (
+                        <div>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${getSeverityBadgeClasses(analysis.severity)}`}
+                          >
+                            {analysis.severity}
+                          </span>
+                        </div>
+                      )}
+
+                      {visibleColumns.has("status") && (
+                        <div style={{ fontSize: "0.72rem", color: "var(--hd-text-muted)" }}>
+                          analyzed
+                        </div>
+                      )}
+
+                      {visibleColumns.has("component") && (
+                        <div style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)" }}>
+                          {analysis.component || "\u2014"}
+                        </div>
+                      )}
+
+                      {visibleColumns.has("cost") && (
+                        <div style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)", fontVariantNumeric: "tabular-nums" }}>
+                          ${analysis.cost.toFixed(3)}
+                        </div>
+                      )}
+
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleFavorite(analysis.id);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            color: analysis.is_favorite ? "#fbbf24" : "var(--hd-text-dim)",
+                            fontSize: "0.9rem",
+                            padding: 2,
+                          }}
+                        >
+                          &#9733;
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(analysis.id, analysis.filename);
+                          }}
+                          style={{
+                            background: "var(--hd-danger-dim, rgba(239,68,68,0.12))",
+                            border: "none",
+                            color: "var(--hd-danger, #ef4444)",
+                            borderRadius: 4,
+                            padding: "3px 6px",
+                            fontSize: "0.68rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Del
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            {/* Selection summary footer */}
+            {selectionMode && selectedCount > 0 && (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  borderTop: "1px solid var(--hd-border-subtle)",
+                  fontSize: "0.75rem",
+                  color: "var(--hd-text-muted)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span>{selectedCount} selected</span>
+                <button
+                  onClick={clearSelection}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--hd-text-dim)",
+                    cursor: "pointer",
+                    fontSize: "0.72rem",
+                    textDecoration: "underline",
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Right: Preview Panel */}
+          <div className="hd-panel" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div
+              style={{ padding: "10px 14px", borderBottom: "1px solid var(--hd-border-subtle)" }}
+              className="flex items-center justify-between"
+            >
+              <strong style={{ fontSize: "0.88rem", color: "var(--hd-text)" }}>Preview</strong>
+              <span className="text-xs" style={{ color: "var(--hd-text-dim)" }}>
+                #{previewAnalysis?.id ?? "\u2014"}
+              </span>
+            </div>
+            <div style={{ overflowY: "auto", flex: 1, padding: "10px 14px" }}>
+              {previewAnalysis ? (
+                <>
+                  {/* Root Cause section */}
+                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
+                      Root Cause
+                    </div>
+                    <div style={{ fontSize: "0.82rem", color: "var(--hd-text-muted)" }}>
+                      {previewAnalysis.root_cause}
+                    </div>
+                  </div>
+
+                  {/* Suggested Fix */}
+                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
+                      Suggested Fix
+                    </div>
+                    <div style={{ fontSize: "0.82rem", color: "var(--hd-text-muted)", whiteSpace: "pre-wrap" }}>
+                      {previewAnalysis.suggested_fixes}
+                    </div>
+                  </div>
+
+                  {/* Timeline / Details section */}
+                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
+                      Details
+                    </div>
+                    <div
+                      style={{
+                        borderLeft: "2px solid rgba(16,185,129,0.3)",
+                        paddingLeft: 10,
+                        fontSize: "0.78rem",
+                        color: "var(--hd-text-muted)",
+                      }}
+                    >
+                      <div style={{ marginBottom: 4 }}>
+                        Analyzed: {format(new Date(previewAnalysis.analyzed_at), "MMM d, yyyy 'at' h:mm a")}
+                      </div>
+                      <div style={{ marginBottom: 4 }}>Error: {previewAnalysis.error_type}</div>
+                      <div style={{ marginBottom: 4 }}>
+                        Component: {previewAnalysis.component || "\u2014"}
+                      </div>
+                      <div>Cost: ${previewAnalysis.cost.toFixed(4)}</div>
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex gap-2 flex-wrap" style={{ marginTop: 12 }}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleView(previewAnalysis.id)}
+                    >
+                      Open Full Detail
+                    </Button>
+                    <Button
+                      variant="ghost-danger"
+                      size="sm"
+                      onClick={() => handleDelete(previewAnalysis.id, previewAnalysis.filename)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    color: "var(--hd-text-dim)",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  Select an item to preview
+                </div>
               )}
-            />
-          )}
+            </div>
+          </div>
         </div>
       )}
 

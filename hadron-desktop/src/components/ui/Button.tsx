@@ -22,14 +22,22 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: "bg-blue-600 hover:bg-blue-700 text-white",
-  secondary: "bg-gray-700 hover:bg-gray-600 text-white",
-  danger: "bg-red-600 hover:bg-red-700 text-white",
-  success: "bg-green-600 hover:bg-green-700 text-white",
-  warning: "bg-orange-600 hover:bg-orange-700 text-white",
-  accent: "bg-purple-600 hover:bg-purple-700 text-white",
-  ghost: "bg-transparent hover:bg-gray-700 text-gray-300",
-  "ghost-danger": "bg-transparent hover:bg-gray-700 text-red-400",
+  primary:
+    "bg-gradient-to-br from-emerald-500 to-emerald-600 hover:shadow-lg hover:shadow-emerald-500/30 hover:-translate-y-px text-emerald-950 font-semibold",
+  secondary:
+    "bg-white/[0.03] border border-[color:var(--hd-border)] text-[color:var(--hd-text)] hover:bg-[color:var(--hd-bg-hover)]",
+  danger:
+    "bg-red-500/[.12] border border-red-500/30 text-red-300 hover:bg-red-500/20",
+  success:
+    "bg-emerald-500/[.12] border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20",
+  warning:
+    "bg-amber-500/[.12] border border-amber-500/30 text-amber-300 hover:bg-amber-500/20",
+  accent:
+    "bg-emerald-500/[.12] border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20",
+  ghost:
+    "bg-white/[0.03] border border-[color:var(--hd-border)] text-[color:var(--hd-text)] hover:bg-[color:var(--hd-bg-hover)]",
+  "ghost-danger":
+    "bg-transparent border border-[color:var(--hd-border)] text-red-400 hover:bg-red-500/10",
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {

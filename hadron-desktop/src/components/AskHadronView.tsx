@@ -662,7 +662,7 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
     <div className="flex h-[calc(100dvh-14rem)] min-h-[24rem] gap-4">
       {/* Sessions Sidebar */}
       {showSidebar && (
-        <div className="w-64 flex-shrink-0 bg-gray-800/50 border border-gray-700 rounded-lg flex flex-col">
+        <div className="hd-panel-soft flex w-64 flex-shrink-0 flex-col bg-gray-900/45">
           {/* New Chat Button */}
           <button
             onClick={startNewSession}
@@ -785,9 +785,14 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
       )}
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-gray-800/30 border border-gray-700 rounded-lg overflow-hidden">
+      <div className="hd-panel-chat flex flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
+        <div className="border-b border-gray-700 px-6 py-4">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="hd-chip hd-chip-chat hd-chip-emerald">Context-aware answers</span>
+            <span className="hd-chip hd-chip-chat hd-chip-blue">Session memory</span>
+          </div>
+          <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setShowSidebar((s) => !s)}
@@ -836,6 +841,7 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
               </button>
             </div>
           )}
+          </div>
         </div>
 
         {/* Error Banner */}
@@ -912,9 +918,10 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
         {/* Input Area */}
         <div className="border-t border-gray-700 px-4 py-3">
           {/* Source Toggles */}
-          <div className="flex items-center gap-2 mb-2">
+          <div className="mb-2 flex items-center gap-2">
             <button
               onClick={() => setUseRag((v) => !v)}
+              aria-pressed={useRag}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition ${
                 useRag
                   ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
@@ -928,6 +935,7 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
             {kbAvailable && (
               <button
                 onClick={() => setUseKb((v) => !v)}
+                aria-pressed={useKb}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition ${
                   useKb
                     ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
@@ -941,6 +949,7 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
             )}
             <button
               onClick={() => setShowAdvanced((v) => !v)}
+              aria-pressed={showAdvanced}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition ${
                 showAdvanced
                   ? "bg-gray-600/50 text-gray-300 border border-gray-500"
@@ -955,6 +964,7 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
             <span className="w-px h-4 bg-gray-700 mx-0.5" />
             <button
               onClick={() => setVerbosity((v) => v === "concise" ? null : "concise")}
+              aria-pressed={verbosity === "concise"}
               className={`px-2 py-1 rounded-md text-xs font-medium transition ${
                 verbosity === "concise"
                   ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
@@ -966,6 +976,7 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
             </button>
             <button
               onClick={() => setVerbosity((v) => v === "detailed" ? null : "detailed")}
+              aria-pressed={verbosity === "detailed"}
               className={`px-2 py-1 rounded-md text-xs font-medium transition ${
                 verbosity === "detailed"
                   ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
@@ -994,7 +1005,7 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
           </div>
 
           {/* Advanced Retrieval Filters */}
-          <div className={`flex items-center gap-2 mb-2 ${showAdvanced ? "" : "hidden"}`}>
+          <div className={`mb-2 flex items-center gap-2 ${showAdvanced ? "" : "hidden"}`}>
             <label className="text-xs text-gray-500">WON Version</label>
             <input
               type="text"

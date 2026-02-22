@@ -18,11 +18,14 @@ import ApiKeyWarning from "./components/ApiKeyWarning";
 import BatchProgressDisplay from "./components/BatchProgressDisplay";
 import AppHeader from "./components/AppHeader";
 import AppFooter from "./components/AppFooter";
+import AskHadronDrawer from "./components/AskHadronDrawer";
 import { analyzeCrashLog, getStoredModel, getStoredProvider, getAnalysisById, type AnalysisMode } from "./services/api";
 import { analyzeCode } from "./services/code-analysis";
 import { isJiraEnabled } from "./services/jira";
 import { isSentryEnabled } from "./services/sentry";
 import { checkAndUpdate } from "./services/updater";
+import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { STORAGE_KEYS, getBooleanSetting } from "./utils/config";
 import { getApiKey, migrateFromLocalStorage } from "./services/secure-storage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -58,6 +61,7 @@ function App() {
   const [showCodeAnalyzer, setShowCodeAnalyzer] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true));
   const [showPerformanceAnalyzer, setShowPerformanceAnalyzer] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true));
   const [showAskHadron, setShowAskHadron] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true));
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Destructure for cleaner code
   const {
@@ -355,9 +359,15 @@ function App() {
     const codeFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true);
     const perfFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true);
     const chatFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true);
+    const hoverFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_HOVER_BUTTON, true);
     setShowCodeAnalyzer(codeFlag);
     setShowPerformanceAnalyzer(perfFlag);
     setShowAskHadron(chatFlag);
+    // Notify widget window of hover button setting change
+    emit("settings:hover-button-changed", { enabled: hoverFlag }).catch(() => {});
+    if (!hoverFlag) {
+      invoke("hide_widget").catch(() => {});
+    }
     // Redirect if active view was disabled
     if (!codeFlag && currentView === "translate") actions.setView("analyze");
     if (!perfFlag && currentView === "performance") actions.setView("analyze");
@@ -389,7 +399,7 @@ function App() {
       className="min-h-screen transition-colors duration-200"
       style={{
         background: 'var(--hd-bg-base)',
-        backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(16,185,129,0.08), transparent)',
+        backgroundImage: 'radial-gradient(ellipse at 15% 5%, rgba(16,185,129,0.06) 0%, transparent 50%), radial-gradient(ellipse at 85% 10%, rgba(59,130,246,0.04) 0%, transparent 40%)',
         color: 'var(--hd-text)',
       }}
     >
@@ -399,13 +409,15 @@ function App() {
           providerName={getStoredProvider()}
           jiraConnected={jiraEnabled}
           sentryConnected={sentryEnabled}
+          onOpenSettings={() => actions.setView("configure")}
+          onOpenAskHadronDrawer={() => setDrawerOpen(true)}
+          isSettingsActive={currentView === "configure"}
         />
 
         {/* Navigation Tabs */}
         <Navigation
           currentView={currentView}
           onViewChange={actions.setView}
-          onOpenAskHadron={() => actions.setView("chat")}
           showJiraAnalyzer={jiraEnabled}
           showSentryAnalyzer={sentryEnabled}
           showReleaseNotes={jiraEnabled}
@@ -588,6 +600,16 @@ function App() {
       <DocumentationViewer
         isOpen={showDocs}
         onClose={() => setShowDocs(false)}
+      />
+
+      {/* Ask Hadron Drawer */}
+      <AskHadronDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onOpenFullView={() => {
+          setDrawerOpen(false);
+          actions.setView("chat");
+        }}
       />
     </div>
   );

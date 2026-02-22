@@ -15,7 +15,7 @@ export default function AnalyzerEntryPanel({
   iconBgClassName,
   children
 }: AnalyzerEntryPanelProps) {
-  const iconBg = iconBgClassName ?? "bg-blue-500/20";
+  const iconBg = iconBgClassName ?? "bg-emerald-500/15";
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -23,12 +23,12 @@ export default function AnalyzerEntryPanel({
           {icon}
         </span>
         <div>
-          <h2 className="text-2xl font-bold">{title}</h2>
-          <p className="text-sm text-gray-400">{subtitle}</p>
+          <h2 className="text-2xl font-bold" style={{ color: 'var(--hd-text)' }}>{title}</h2>
+          <p className="text-sm" style={{ color: 'var(--hd-text-muted)' }}>{subtitle}</p>
         </div>
       </div>
 
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
+      <div className="hd-panel p-6">
         {children}
       </div>
     </div>

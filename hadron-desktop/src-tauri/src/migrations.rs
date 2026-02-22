@@ -6,7 +6,7 @@
 use rusqlite::{Connection, Result};
 
 /// Current schema version. Increment when adding new migrations.
-pub const CURRENT_SCHEMA_VERSION: i32 = 12;
+pub const CURRENT_SCHEMA_VERSION: i32 = 13;
 
 /// Migration function type
 type MigrationFn = fn(&Connection) -> Result<()>;
@@ -79,6 +79,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 12,
         name: "ask_hadron_2",
         up: migration_012_ask_hadron_2,
+    },
+    Migration {
+        version: 13,
+        name: "canonicalize_jira_type",
+        up: migration_013_canonicalize_jira_type,
     },
 ];
 
@@ -1062,6 +1067,15 @@ fn migration_012_ask_hadron_2(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Migration 13: Canonicalize jira_ticket → jira in analysis_type
+fn migration_013_canonicalize_jira_type(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "UPDATE analyses SET analysis_type = 'jira' WHERE analysis_type = 'jira_ticket'",
+        [],
+    )?;
+    Ok(())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -1095,11 +1109,11 @@ mod tests {
         let version = get_current_version(&conn).unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
-        // Verify only 12 migration records exist
+        // Verify only 13 migration records exist
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 12);
+        assert_eq!(count, 13);
     }
 
     #[test]

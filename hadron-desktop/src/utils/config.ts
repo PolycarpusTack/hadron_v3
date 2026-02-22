@@ -41,6 +41,7 @@ export const STORAGE_KEYS = {
   FEATURE_CODE_ANALYZER: "feature_code_analyzer",
   FEATURE_PERFORMANCE_ANALYZER: "feature_performance_analyzer",
   FEATURE_ASK_HADRON: "feature_ask_hadron",
+  FEATURE_HOVER_BUTTON: "feature_hover_button",
 
   // Chat
   CHAT_FEEDBACK: "hadron_chat_feedback",

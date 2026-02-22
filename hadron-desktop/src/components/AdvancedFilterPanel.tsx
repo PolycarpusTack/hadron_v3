@@ -26,6 +26,7 @@ const ANALYSIS_TYPES = [
   { value: "specialized", label: "Specialized" },
   { value: "performance", label: "Performance" },
   { value: "code", label: "Code" },
+  { value: "jira", label: "JIRA" },
 ];
 
 // Analysis modes

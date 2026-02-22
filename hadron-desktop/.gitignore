@@ -27,6 +27,12 @@ dist-ssr
 /src-tauri/target
 /src-tauri/Cargo.lock
 
+# Cargo local config (build parallelism, linker settings)
+.cargo/
+
+# Crash monitor IPC socket (created at runtime)
+/src-tauri/hadron-crash-monitor
+
 # Python
 __pycache__/
 *.py[cod]
@@ -41,6 +47,13 @@ ENV/
 *.db
 *.sqlite
 *.sqlite3
+
+# Development artifacts
+docs/mockups/
+docs/scrsht/
+docs/logo/*.png
+!docs/logo/*iconsolo2.png
+!docs/logo/*iconsolo2.ico
 
 # Archive (obsolete/unused files)
 .archive/

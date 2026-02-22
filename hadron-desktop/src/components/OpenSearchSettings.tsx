@@ -34,11 +34,11 @@ export default function OpenSearchSettings({ onConfigChange }: OpenSearchSetting
   const [config, setConfig] = useState<OpenSearchConfig>({
     enabled: false,
     mode: "remote",
-    host: "",
-    port: 443,
-    useSsl: true,
+    host: "localhost",
+    port: 9200,
+    useSsl: false,
     username: "",
-    defaultVersion: "",
+    defaultVersion: "2025r12",
     defaultCustomer: "",
     localKbPath: "",
   });
@@ -235,7 +235,7 @@ export default function OpenSearchSettings({ onConfigChange }: OpenSearchSetting
                   <input
                     type="number"
                     value={config.port}
-                    onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) || 443 })}
+                    onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) || 9200 })}
                     className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-teal-500"
                   />
                 </div>

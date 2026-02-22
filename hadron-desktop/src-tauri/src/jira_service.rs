@@ -83,15 +83,15 @@ struct JiraProject {
     name: String,
 }
 
-/// Map priority string to JIRA priority ID
-fn map_priority_to_id(priority: &str) -> &str {
+/// Normalize priority label to common JIRA priority names.
+fn normalize_priority_name(priority: &str) -> &str {
     match priority.to_lowercase().as_str() {
-        "highest" => "1",
-        "high" => "2",
-        "medium" => "3",
-        "low" => "4",
-        "lowest" => "5",
-        _ => "3", // Default to Medium
+        "highest" => "Highest",
+        "high" => "High",
+        "medium" => "Medium",
+        "low" => "Low",
+        "lowest" => "Lowest",
+        _ => "Medium", // Default to Medium
     }
 }
 
@@ -232,8 +232,17 @@ pub async fn create_jira_ticket(
 
     log::info!("Creating JIRA ticket in project {}", project_key);
 
+    let normalized_priority = normalize_priority_name(&ticket.priority);
+    let components = ticket
+        .components
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| !c.trim().is_empty())
+        .map(|c| serde_json::json!({ "name": c.trim() }))
+        .collect::<Vec<_>>();
+
     // Build the issue creation payload
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "fields": {
             "project": {
                 "key": project_key
@@ -258,11 +267,15 @@ pub async fn create_jira_ticket(
                 "name": issue_type
             },
             "priority": {
-                "id": map_priority_to_id(&ticket.priority)
+                "name": normalized_priority
             },
             "labels": ticket.labels
         }
     });
+
+    if !components.is_empty() {
+        payload["fields"]["components"] = serde_json::Value::Array(components);
+    }
 
     let response = HTTP_CLIENT
         .post(format!("{}/rest/api/3/issue", base_url))
@@ -401,6 +414,9 @@ pub struct JiraSearchResponse {
     pub start_at: i32,
     #[serde(default)]
     pub max_results: i32,
+    /// Cursor token for the next page (/rest/api/3/search/jql pagination)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_page_token: Option<String>,
 }
 
 /// JIRA issue from search results (full detail)
@@ -567,10 +583,54 @@ pub async fn search_jira_issues(
     max_results: i32,
     include_comments: bool,
 ) -> Result<JiraSearchResponse, String> {
+    search_jira_issues_page(
+        base_url,
+        email,
+        api_token,
+        jql,
+        0,
+        max_results,
+        include_comments,
+    )
+    .await
+}
+
+/// Search JIRA issues using JQL with cursor-based pagination.
+///
+/// The `/rest/api/3/search/jql` endpoint does NOT accept `startAt`.
+/// Pagination is driven by `nextPageToken` returned in each response.
+pub async fn search_jira_issues_page(
+    base_url: String,
+    email: String,
+    api_token: String,
+    jql: String,
+    _start_at: i32, // kept for API compat but ignored — use next_page_token
+    max_results: i32,
+    include_comments: bool,
+) -> Result<JiraSearchResponse, String> {
+    search_jira_issues_page_cursor(
+        base_url, email, api_token, jql, None, max_results, include_comments,
+    )
+    .await
+}
+
+/// Inner search using cursor-based pagination (nextPageToken).
+pub async fn search_jira_issues_page_cursor(
+    base_url: String,
+    email: String,
+    api_token: String,
+    jql: String,
+    next_page_token: Option<String>,
+    max_results: i32,
+    include_comments: bool,
+) -> Result<JiraSearchResponse, String> {
     let base_url = base_url.trim_end_matches('/');
     let auth_header = create_auth_header(&email, &api_token);
 
-    log::info!("Searching JIRA issues with JQL: {}", jql);
+    log::info!(
+        "Searching JIRA issues with JQL: {} (maxResults={}, nextPageToken={:?})",
+        jql, max_results, next_page_token
+    );
 
     // Build fields to expand
     let mut fields = vec![
@@ -583,14 +643,22 @@ pub async fn search_jira_issues(
         fields.push("comment");
     }
 
-    // Build POST body for /rest/api/3/search/jql (replaces removed GET /rest/api/3/search)
+    // Build POST body for /rest/api/3/search/jql
+    // NOTE: This endpoint does NOT accept startAt — only nextPageToken for pagination
     let url = format!("{}/rest/api/3/search/jql", base_url);
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "jql": jql,
         "maxResults": max_results,
         "fields": fields,
     });
+
+    if let Some(ref token) = next_page_token {
+        body.as_object_mut().unwrap().insert(
+            "nextPageToken".to_string(),
+            serde_json::Value::String(token.clone()),
+        );
+    }
 
     let response = HTTP_CLIENT
         .post(&url)

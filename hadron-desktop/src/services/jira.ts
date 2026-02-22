@@ -472,6 +472,48 @@ export async function createJiraTicket(ticket: JiraTicket): Promise<JiraCreateRe
 }
 
 /**
+ * Post analysis as a comment on an existing JIRA issue
+ */
+export async function postAnalysisComment(
+  issueKey: string,
+  commentBody: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const config = await getJiraConfig();
+    const apiToken = await getApiKey("jira");
+
+    if (!config.enabled) {
+      return { success: false, error: "JIRA integration is not enabled" };
+    }
+
+    if (!config.baseUrl || !config.email || !apiToken) {
+      return { success: false, error: "JIRA configuration is incomplete" };
+    }
+
+    if (!issueKey.trim()) {
+      return { success: false, error: "Issue key is required" };
+    }
+
+    await invoke("post_jira_comment", {
+      baseUrl: config.baseUrl,
+      email: config.email,
+      apiToken,
+      issueKey: issueKey.trim().toUpperCase(),
+      commentBody,
+    });
+
+    logger.info("JIRA comment posted", { issueKey });
+    return { success: true };
+  } catch (error) {
+    logger.error("JIRA comment posting failed", { error });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to post comment",
+    };
+  }
+}
+
+/**
  * Check if JIRA is configured and enabled
  */
 export async function isJiraEnabled(): Promise<boolean> {

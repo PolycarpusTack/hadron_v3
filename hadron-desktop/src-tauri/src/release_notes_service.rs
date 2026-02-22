@@ -183,10 +183,6 @@ pub struct ProgressEvent {
 // Progress Emission
 // ============================================================================
 
-pub fn emit_progress(app: &AppHandle, phase: ReleaseNotesPhase, progress: f64, message: &str) {
-    emit_progress_with_request(app, phase, progress, message, None);
-}
-
 pub fn emit_progress_with_request(
     app: &AppHandle,
     phase: ReleaseNotesPhase,
@@ -289,16 +285,17 @@ async fn fetch_issues_by_jql(
     jql: &str,
 ) -> Result<Vec<jira_service::JiraSearchIssue>, String> {
     let page_size = 100;
-    let mut start_at = 0;
     let mut all_issues = Vec::new();
+    let mut next_page_token: Option<String> = None;
+    let mut page_count_total = 0;
 
     loop {
-        let page = jira_service::search_jira_issues_page(
+        let page = jira_service::search_jira_issues_page_cursor(
             base_url.to_string(),
             email.to_string(),
             api_token.to_string(),
             jql.to_string(),
-            start_at,
+            next_page_token.clone(),
             page_size,
             false,
         )
@@ -306,20 +303,24 @@ async fn fetch_issues_by_jql(
 
         let page_count = page.issues.len();
         all_issues.extend(page.issues);
+        page_count_total += page_count;
 
-        // Guardrail to avoid unexpectedly large pulls in one request cycle.
-        if start_at >= 5000 {
+        // Guardrail to avoid unexpectedly large pulls.
+        if page_count_total >= 5000 {
             log::warn!(
-                "Release notes ticket fetch hit pagination guardrail at startAt={}",
-                start_at
+                "Release notes ticket fetch hit pagination guardrail at {} issues",
+                page_count_total
             );
             break;
         }
 
-        if page_count < page_size as usize {
-            break;
+        // Use cursor-based pagination: stop when no nextPageToken or empty page
+        match page.next_page_token {
+            Some(token) if !token.is_empty() && page_count > 0 => {
+                next_page_token = Some(token);
+            }
+            _ => break,
         }
-        start_at += page_size;
     }
 
     Ok(all_issues)

@@ -907,127 +907,145 @@ export default function CodeAnalyzerView({
 
   return (
     <div className="space-y-6">
-      {/* Input Section (only show if no result) */}
+      {/* Input + Placeholder when no result */}
       {!analysisResult && (
-        <AnalyzerEntryPanel
-          icon={<Code className="w-6 h-6 text-violet-400" />}
-          title="Code Analyzer"
-          subtitle="Analyze code for issues, get walkthroughs, and learn best practices"
-          iconBgClassName="bg-violet-500/20"
-        >
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium text-gray-300">Paste or drop your code:</label>
-              <div className="flex items-center gap-2">
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className="px-3 py-1 bg-gray-900 border border-gray-700 rounded text-sm text-gray-200"
-                >
-                  <option>Auto-detect</option>
-                  <option>SQL</option>
-                  <option>React</option>
-                  <option>TypeScript</option>
-                  <option>JavaScript</option>
-                  <option>Smalltalk</option>
-                  <option>Python</option>
-                  <option>Rust</option>
-                  <option>Go</option>
-                  <option>XML</option>
-                  <option>Plaintext</option>
-                </select>
-                <input
-                  type="text"
-                  value={filename}
-                  onChange={(e) => setFilename(e.target.value)}
-                  placeholder="filename.ext"
-                  className="px-3 py-1 bg-gray-900 border border-gray-700 rounded text-sm font-mono text-gray-200 w-40"
-                />
-              </div>
-            </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+            {/* Left: Input panel */}
+            <div className="md:col-span-7">
+              <AnalyzerEntryPanel
+                icon={<Code className="w-6 h-6 text-violet-400" />}
+                title="Code Analyzer"
+                subtitle="Analyze code for issues, get walkthroughs, and learn best practices"
+                iconBgClassName="bg-violet-500/20"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-medium text-gray-300">Paste or drop your code:</label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={language}
+                        onChange={(e) => setLanguage(e.target.value)}
+                        className="px-3 py-1 bg-gray-900 border border-gray-700 rounded text-sm text-gray-200"
+                      >
+                        <option>Auto-detect</option>
+                        <option>SQL</option>
+                        <option>React</option>
+                        <option>TypeScript</option>
+                        <option>JavaScript</option>
+                        <option>Smalltalk</option>
+                        <option>Python</option>
+                        <option>Rust</option>
+                        <option>Go</option>
+                        <option>XML</option>
+                        <option>Plaintext</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={filename}
+                        onChange={(e) => setFilename(e.target.value)}
+                        placeholder="filename.ext"
+                        className="px-3 py-1 bg-gray-900 border border-gray-700 rounded text-sm font-mono text-gray-200 w-40"
+                      />
+                    </div>
+                  </div>
 
-            <div
-              onDrop={handleDrop}
-              onDragOver={(e) => e.preventDefault()}
-              className="relative"
-            >
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Paste code here, or drag & drop a file..."
-                className="w-full h-64 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none font-mono text-sm text-gray-200"
-                disabled={isAnalyzing}
-              />
-              {!input && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="text-center text-gray-400">
-                    <Upload className="w-8 h-8 mx-auto mb-2" />
-                    <p className="text-sm">Drop a file here or paste code above</p>
+                  <div
+                    onDrop={handleDrop}
+                    onDragOver={(e) => e.preventDefault()}
+                    className="relative"
+                  >
+                    <textarea
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      placeholder="Paste code here, or drag & drop a file..."
+                      className="w-full h-64 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none font-mono text-sm text-gray-200"
+                      disabled={isAnalyzing}
+                    />
+                    {!input && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="text-center text-gray-400">
+                          <Upload className="w-8 h-8 mx-auto mb-2" />
+                          <p className="text-sm">Drop a file here or paste code above</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={handleAnalyze}
+                      disabled={!input.trim() || isAnalyzing}
+                      loading={isAnalyzing}
+                      icon={<FileCode className="w-4 h-4" />}
+                      className="bg-violet-600 hover:bg-violet-700"
+                    >
+                      {isAnalyzing ? "Analyzing..." : "Analyze Code"}
+                    </Button>
+
+                    <Button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isAnalyzing}
+                      variant="secondary"
+                      icon={<Upload className="w-4 h-4" />}
+                    >
+                      Browse
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      accept=".sql,.tsx,.jsx,.ts,.js,.st,.py,.rs,.go,.java,.xml,.html,.css,.json,.yaml,.yml,.md,.rb,.txt"
+                    />
+
+                    <Button
+                      onClick={handleClear}
+                      disabled={isAnalyzing}
+                      variant="secondary"
+                    >
+                      Clear
+                    </Button>
                   </div>
                 </div>
-              )}
+              </AnalyzerEntryPanel>
             </div>
 
-            <div className="flex gap-3">
-              <Button
-                onClick={handleAnalyze}
-                disabled={!input.trim() || isAnalyzing}
-                loading={isAnalyzing}
-                icon={<FileCode className="w-4 h-4" />}
-                className="bg-violet-600 hover:bg-violet-700"
-              >
-                {isAnalyzing ? "Analyzing..." : "Analyze Code"}
-              </Button>
-
-              <Button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isAnalyzing}
-                variant="secondary"
-                icon={<Upload className="w-4 h-4" />}
-              >
-                Browse
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={handleFileSelect}
-                className="hidden"
-                accept=".sql,.tsx,.jsx,.ts,.js,.st,.py,.rs,.go,.java,.xml,.html,.css,.json,.yaml,.yml,.md,.rb,.txt"
-              />
-
-              <Button
-                onClick={handleClear}
-                disabled={isAnalyzing}
-                variant="secondary"
-              >
-                Clear
-              </Button>
+            {/* Right: Results placeholder */}
+            <div className="md:col-span-5">
+              <div className="hd-panel p-4" style={{ minHeight: 400 }}>
+                <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--hd-text)' }}>Results</h3>
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <span className="text-4xl mb-3">🔍</span>
+                  <p className="text-sm" style={{ color: 'var(--hd-text-muted)' }}>Submit code to see analysis results</p>
+                  <p className="text-xs mt-2" style={{ color: 'var(--hd-text-dim)' }}>Security issues, code smells, and suggestions</p>
+                </div>
+              </div>
             </div>
           </div>
-        </AnalyzerEntryPanel>
+
+          {/* Feature highlights below the grid */}
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="hd-config-grid-card">
+              <Shield className="w-6 h-6 text-purple-400 mb-3" />
+              <h3 className="font-semibold mb-1" style={{ color: 'var(--hd-text)' }}>Security & Risks</h3>
+              <p className="text-sm" style={{ color: 'var(--hd-text-muted)' }}>Spot risky patterns, unsafe inputs, and security hotspots with prioritized severity.</p>
+            </div>
+            <div className="hd-config-grid-card">
+              <BookOpen className="w-6 h-6 text-blue-400 mb-3" />
+              <h3 className="font-semibold mb-1" style={{ color: 'var(--hd-text)' }}>Guided Walkthroughs</h3>
+              <p className="text-sm" style={{ color: 'var(--hd-text-muted)' }}>Step-by-step explanations that map issues to concrete fixes and best practices.</p>
+            </div>
+            <div className="hd-config-grid-card">
+              <Lightbulb className="w-6 h-6 text-green-400 mb-3" />
+              <h3 className="font-semibold mb-1" style={{ color: 'var(--hd-text)' }}>Optimization Ideas</h3>
+              <p className="text-sm" style={{ color: 'var(--hd-text-muted)' }}>Performance and quality suggestions with practical next steps you can apply.</p>
+            </div>
+          </div>
+        </>
       )}
 
-      {!analysisResult && (
-        <div className="grid md:grid-cols-3 gap-4">
-          <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
-            <Shield className="w-6 h-6 text-purple-400 mb-3" />
-            <h3 className="font-semibold text-white mb-1">Security & Risks</h3>
-            <p className="text-sm text-gray-400">Spot risky patterns, unsafe inputs, and security hotspots with prioritized severity.</p>
-          </div>
-          <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
-            <BookOpen className="w-6 h-6 text-blue-400 mb-3" />
-            <h3 className="font-semibold text-white mb-1">Guided Walkthroughs</h3>
-            <p className="text-sm text-gray-400">Step-by-step explanations that map issues to concrete fixes and best practices.</p>
-          </div>
-          <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
-            <Lightbulb className="w-6 h-6 text-green-400 mb-3" />
-            <h3 className="font-semibold text-white mb-1">Optimization Ideas</h3>
-            <p className="text-sm text-gray-400">Performance and quality suggestions with practical next steps you can apply.</p>
-          </div>
-        </div>
-      )}
-
-      {/* Results Section */}
+      {/* Results Section - full width */}
       {analysisResult && (
         <>
           {/* Action Bar */}
@@ -1085,20 +1103,6 @@ export default function CodeAnalyzerView({
             </div>
           </div>
         </>
-      )}
-
-      {/* Tips (only show when no input) */}
-      {!input && !analysisResult && (
-        <div className="bg-gray-100 dark:bg-gray-800/50 rounded-lg p-4">
-          <h4 className="font-semibold mb-2 text-sm">Supported Languages:</h4>
-          <div className="flex flex-wrap gap-2">
-            {["SQL", "React/TSX", "TypeScript", "JavaScript", "Smalltalk", "Python", "Rust", "Go", "XML"].map((lang) => (
-              <span key={lang} className="px-2 py-1 bg-white dark:bg-gray-700 rounded text-xs text-gray-600 dark:text-gray-400">
-                {lang}
-              </span>
-            ))}
-          </div>
-        </div>
       )}
     </div>
   );
