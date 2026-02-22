@@ -18,6 +18,7 @@ pub async fn bulk_delete_analyses(
     ids: Vec<i64>,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_delete_analyses");
     let total = ids.len();
     let db = Arc::clone(&db);
 
@@ -39,6 +40,7 @@ pub async fn bulk_delete_translations(
     ids: Vec<i64>,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_delete_translations");
     let total = ids.len();
     let db = Arc::clone(&db);
 
@@ -61,6 +63,7 @@ pub async fn bulk_add_tag_to_analyses(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_add_tag_to_analyses");
     let total = analysis_ids.len();
     let db = Arc::clone(&db);
 
@@ -90,6 +93,7 @@ pub async fn bulk_remove_tag_from_analyses(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_remove_tag_from_analyses");
     let total = analysis_ids.len();
     let db = Arc::clone(&db);
 
@@ -119,6 +123,7 @@ pub async fn bulk_set_favorite_analyses(
     favorite: bool,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_set_favorite_analyses");
     let total = analysis_ids.len();
     let db = Arc::clone(&db);
 
@@ -148,6 +153,7 @@ pub async fn bulk_set_favorite_translations(
     favorite: bool,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_set_favorite_translations");
     let total = translation_ids.len();
     let db = Arc::clone(&db);
 

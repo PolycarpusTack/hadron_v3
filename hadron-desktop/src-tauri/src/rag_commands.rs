@@ -204,6 +204,7 @@ const MAX_ANALYSIS_SIZE: usize = 1024 * 1024;
 /// Security: API key passed via stdin, timeout enforced
 #[tauri::command]
 pub async fn rag_query(request: RAGQueryRequest) -> Result<Vec<RAGQueryResult>, String> {
+    log::debug!("cmd: rag_query");
     // Validate query size
     if request.query.len() > MAX_QUERY_SIZE {
         return Err(format!(
@@ -233,6 +234,7 @@ pub async fn rag_query(request: RAGQueryRequest) -> Result<Vec<RAGQueryResult>, 
 /// Security: API key passed via stdin, size limits enforced
 #[tauri::command]
 pub async fn rag_index_analysis(request: RAGIndexRequest) -> Result<RAGIndexResponse, String> {
+    log::debug!("cmd: rag_index_analysis");
     // Validate analysis size
     let analysis_str = serde_json::to_string(&request.analysis)
         .map_err(|e| format!("Failed to serialize analysis: {}", e))?;
@@ -257,6 +259,7 @@ pub async fn rag_index_analysis(request: RAGIndexRequest) -> Result<RAGIndexResp
 /// Security: API key passed via stdin, timeout enforced
 #[tauri::command]
 pub async fn rag_build_context(request: RAGContextRequest) -> Result<RAGContext, String> {
+    log::debug!("cmd: rag_build_context");
     // Validate query size
     if request.query.len() > MAX_QUERY_SIZE {
         return Err(format!(
@@ -286,6 +289,7 @@ pub async fn rag_build_context(request: RAGContextRequest) -> Result<RAGContext,
 /// Security: Read-only operation, no API key required
 #[tauri::command]
 pub async fn rag_get_stats() -> Result<RAGStatsResponse, String> {
+    log::debug!("cmd: rag_get_stats");
     // Get storage path for stats response
     let storage_path = get_rag_storage_path()?;
 
@@ -304,6 +308,7 @@ pub async fn rag_get_stats() -> Result<RAGStatsResponse, String> {
 /// Query the KB/Release Notes (remote OpenSearch or local ChromaDB)
 #[tauri::command]
 pub async fn kb_query(request: KBQueryRequest) -> Result<KBContext, String> {
+    log::debug!("cmd: kb_query");
     if request.query.len() > MAX_QUERY_SIZE {
         return Err(format!(
             "Query too large: {} bytes exceeds maximum of {} bytes",
@@ -338,6 +343,7 @@ pub async fn kb_query(request: KBQueryRequest) -> Result<KBContext, String> {
 /// Test OpenSearch connectivity
 #[tauri::command]
 pub async fn kb_test_connection(config: OpenSearchConfig, api_key: String) -> Result<KBTestResponse, String> {
+    log::debug!("cmd: kb_test_connection");
     let input = serde_json::json!({
         "host": config.host,
         "port": config.port,
@@ -353,6 +359,7 @@ pub async fn kb_test_connection(config: OpenSearchConfig, api_key: String) -> Re
 /// List available KB indices from OpenSearch
 #[tauri::command]
 pub async fn kb_list_indices(config: OpenSearchConfig, api_key: String) -> Result<Vec<String>, String> {
+    log::debug!("cmd: kb_list_indices");
     let input = serde_json::json!({
         "host": config.host,
         "port": config.port,
@@ -368,6 +375,7 @@ pub async fn kb_list_indices(config: OpenSearchConfig, api_key: String) -> Resul
 /// Import local KB HTML files into ChromaDB
 #[tauri::command]
 pub async fn kb_import_docs(request: KBImportRequest) -> Result<KBImportResponse, String> {
+    log::debug!("cmd: kb_import_docs");
     let input = serde_json::json!({
         "root_path": request.root_path,
         "won_version": request.won_version,
@@ -380,6 +388,7 @@ pub async fn kb_import_docs(request: KBImportRequest) -> Result<KBImportResponse
 /// Get local KB store statistics
 #[tauri::command]
 pub async fn kb_get_stats() -> Result<KBStatsResponse, String> {
+    log::debug!("cmd: kb_get_stats");
     // kb-stats doesn't need an API key but we pass empty string
     let input = serde_json::json!({});
     let result = run_rag_cli_command("kb-stats", &input, "").await?;

@@ -34,6 +34,7 @@ pub async fn initialize_keeper(
     token: String,
     hostname: Option<String>,
 ) -> Result<keeper_service::KeeperInitResult, String> {
+    log::debug!("cmd: initialize_keeper");
     log::info!("Initializing Keeper with one-time token");
     run_off_runtime(move || {
         keeper_service::initialize_keeper(&token, hostname.as_deref())
@@ -44,6 +45,7 @@ pub async fn initialize_keeper(
 /// List secrets from Keeper vault
 #[tauri::command]
 pub async fn list_keeper_secrets() -> Result<keeper_service::KeeperSecretsListResult, String> {
+    log::debug!("cmd: list_keeper_secrets");
     log::info!("Listing Keeper secrets");
     run_off_runtime(keeper_service::list_keeper_secrets).await?
 }
@@ -51,6 +53,7 @@ pub async fn list_keeper_secrets() -> Result<keeper_service::KeeperSecretsListRe
 /// Get Keeper status
 #[tauri::command]
 pub async fn get_keeper_status() -> Result<keeper_service::KeeperStatus, String> {
+    log::debug!("cmd: get_keeper_status");
     // get_keeper_status internally calls list_keeper_secrets which uses the SDK,
     // so it must also run off the tokio runtime.
     run_off_runtime(|| Ok(keeper_service::get_keeper_status())).await?
@@ -59,6 +62,7 @@ pub async fn get_keeper_status() -> Result<keeper_service::KeeperStatus, String>
 /// Clear Keeper configuration
 #[tauri::command]
 pub async fn clear_keeper_config() -> Result<(), String> {
+    log::debug!("cmd: clear_keeper_config");
     log::info!("Clearing Keeper configuration");
     keeper_service::clear_keeper_config()
 }
@@ -66,6 +70,7 @@ pub async fn clear_keeper_config() -> Result<(), String> {
 /// Test Keeper connection
 #[tauri::command]
 pub async fn test_keeper_connection() -> Result<keeper_service::KeeperSecretsListResult, String> {
+    log::debug!("cmd: test_keeper_connection");
     log::info!("Testing Keeper connection");
     run_off_runtime(keeper_service::list_keeper_secrets).await?
 }

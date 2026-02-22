@@ -41,6 +41,7 @@ pub async fn generate_session_summary(
     db: tauri::State<'_, Arc<Database>>,
     request: GenerateSummaryRequest,
 ) -> Result<String, String> {
+    log::debug!("cmd: generate_session_summary");
     // Load all messages for session
     let messages = db
         .get_chat_messages(&request.session_id)
@@ -95,6 +96,7 @@ pub async fn save_session_summary(
     db: tauri::State<'_, Arc<Database>>,
     request: SaveSummaryRequest,
 ) -> Result<i64, String> {
+    log::debug!("cmd: save_session_summary");
     db.save_session_summary(
         &request.session_id,
         &request.summary_markdown,
@@ -110,6 +112,7 @@ pub async fn get_session_summary(
     db: tauri::State<'_, Arc<Database>>,
     session_id: String,
 ) -> Result<Option<SessionSummary>, String> {
+    log::debug!("cmd: get_session_summary");
     db.get_session_summary(&session_id)
         .map_err(|e| e.to_string())
 }
@@ -119,6 +122,7 @@ pub async fn export_summaries_bundle(
     db: tauri::State<'_, Arc<Database>>,
     request: ExportSummariesRequest,
 ) -> Result<String, String> {
+    log::debug!("cmd: export_summaries_bundle");
     let summaries = db
         .get_summaries_for_export(
             request.date_from.as_deref(),

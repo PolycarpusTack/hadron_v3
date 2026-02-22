@@ -45,6 +45,7 @@ pub fn generate_report(
     request: ExportRequest,
     engine: State<'_, PatternEngineState>,
 ) -> Result<ExportResponse, String> {
+    log::debug!("cmd: generate_report");
     log::info!(
         "Generating {} report for: {}",
         request.format,
@@ -150,6 +151,7 @@ pub fn generate_report(
 /// Get available export formats
 #[tauri::command]
 pub fn get_export_formats() -> Vec<serde_json::Value> {
+    log::debug!("cmd: get_export_formats");
     vec![
         serde_json::json!({
             "id": "markdown",
@@ -175,6 +177,7 @@ pub fn get_export_formats() -> Vec<serde_json::Value> {
 /// Get available audience options
 #[tauri::command]
 pub fn get_audience_options() -> Vec<serde_json::Value> {
+    log::debug!("cmd: get_audience_options");
     vec![
         serde_json::json!({
             "id": "technical",
@@ -208,6 +211,7 @@ pub fn preview_report(
     audience: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<String, String> {
+    log::debug!("cmd: preview_report");
     let request = ExportRequest {
         crash_content,
         file_name,
@@ -225,6 +229,7 @@ pub fn preview_report(
 /// Check content for sensitive data before sending to AI
 #[tauri::command]
 pub fn check_sensitive_content(content: String) -> Result<SensitiveContentResult, String> {
+    log::debug!("cmd: check_sensitive_content");
     log::debug!(
         "Checking content for sensitive data ({} bytes)",
         content.len()
@@ -269,6 +274,7 @@ pub fn check_sensitive_content(content: String) -> Result<SensitiveContentResult
 /// Sanitize content for a specific audience
 #[tauri::command]
 pub fn sanitize_content(content: String, audience: String) -> Result<String, String> {
+    log::debug!("cmd: sanitize_content");
     log::debug!("Sanitizing content for audience: {}", audience);
 
     let sanitized = match audience.to_lowercase().as_str() {
@@ -305,6 +311,7 @@ pub fn generate_report_multi(
     request: MultiExportRequest,
     engine: State<'_, PatternEngineState>,
 ) -> Result<ExportResponse, String> {
+    log::debug!("cmd: generate_report_multi");
     log::info!(
         "Generating multi-file {} report for {} files",
         request.format,

@@ -22,6 +22,7 @@ pub async fn generate_release_notes(
     db: DbState<'_>,
     app: AppHandle,
 ) -> Result<release_notes_service::ReleaseNotesResult, String> {
+    log::debug!("cmd: generate_release_notes");
     log::info!(
         "Generating release notes for version {}",
         config.fix_version
@@ -49,6 +50,7 @@ pub async fn preview_release_notes_tickets(
     email: String,
     api_token: String,
 ) -> Result<Vec<release_notes_service::ReleaseNoteTicket>, String> {
+    log::debug!("cmd: preview_release_notes_tickets");
     log::info!(
         "Previewing tickets for version {}",
         config.fix_version
@@ -64,6 +66,7 @@ pub async fn list_jira_fix_versions(
     api_token: String,
     project_key: String,
 ) -> Result<Vec<jira_service::JiraFixVersion>, String> {
+    log::debug!("cmd: list_jira_fix_versions");
     log::info!("Listing fix versions for {}", project_key);
     jira_service::list_fix_versions(base_url, email, api_token, project_key).await
 }
@@ -74,6 +77,7 @@ pub async fn get_release_notes(
     id: i64,
     db: DbState<'_>,
 ) -> Result<Option<crate::database::ReleaseNotesDraft>, String> {
+    log::debug!("cmd: get_release_notes");
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || db.get_release_notes(id))
         .await
@@ -89,6 +93,7 @@ pub async fn list_release_notes(
     offset: Option<i64>,
     db: DbState<'_>,
 ) -> Result<Vec<crate::database::ReleaseNotesSummary>, String> {
+    log::debug!("cmd: list_release_notes");
     let db = db.inner().clone();
     let limit = limit.unwrap_or(50);
     let offset = offset.unwrap_or(0);
@@ -107,6 +112,7 @@ pub async fn update_release_notes_content(
     content: String,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: update_release_notes_content");
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || db.update_release_notes_content(id, &content))
         .await
@@ -122,6 +128,7 @@ pub async fn update_release_notes_status(
     reviewed_by: Option<String>,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: update_release_notes_status");
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || {
         db.update_release_notes_status(id, &status, reviewed_by.as_deref())
@@ -138,6 +145,7 @@ pub async fn update_release_notes_checklist(
     checklist_json: String,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: update_release_notes_checklist");
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || db.update_release_notes_checklist(id, &checklist_json))
         .await
@@ -160,6 +168,7 @@ pub async fn append_to_release_notes(
     db: DbState<'_>,
     app: AppHandle,
 ) -> Result<release_notes_service::ReleaseNotesResult, String> {
+    log::debug!("cmd: append_to_release_notes");
     let db_inner = db.inner().clone();
 
     // Load existing draft
@@ -256,6 +265,7 @@ pub async fn export_release_notes(
     format: String,
     db: DbState<'_>,
 ) -> Result<String, String> {
+    log::debug!("cmd: export_release_notes");
     let db_inner = db.inner().clone();
 
     let draft = db_inner
@@ -281,6 +291,7 @@ pub async fn delete_release_notes(
     id: i64,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: delete_release_notes");
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || db.soft_delete_release_notes(id))
         .await
@@ -296,6 +307,7 @@ pub async fn check_release_notes_compliance(
     model: String,
     provider: String,
 ) -> Result<release_notes_service::ComplianceReport, String> {
+    log::debug!("cmd: check_release_notes_compliance");
     log::info!("Running release notes compliance check");
     release_notes_service::check_compliance(&content, &api_key, &model, &provider).await
 }

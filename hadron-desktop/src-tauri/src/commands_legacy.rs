@@ -16,13 +16,11 @@ use crate::python_runner::run_python_translation;
 use crate::rag_commands;
 use crate::signature;
 use once_cell::sync::Lazy;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 use tauri::{AppHandle, State};
 use tokio::fs as async_fs;
 use zeroize::Zeroizing;
@@ -33,7 +31,7 @@ use zeroize::Zeroizing;
 
 pub use crate::commands::common::{
     AnalysisPhase, AnalysisProgress, AutoTagSummary, DbState,
-    MAX_CRASH_LOG_SIZE_BYTES, MAX_PERFORMANCE_TRACE_SIZE_BYTES,
+    MAX_CRASH_LOG_SIZE_BYTES,
     MAX_TRANSLATION_CONTENT_SIZE, MAX_PASTED_LOG_SIZE,
     emit_progress, normalize_severity, redact_pii_basic, validate_file_path,
     detect_pii_types,
@@ -675,14 +673,19 @@ fn detect_won_version(content: &str) -> Option<String> {
         .map(|c| format!("{}r{}", &c[1], &c[2]))
 }
 
-/// Extract a KB-relevant query from content
-fn extract_kb_query(content: &str, analysis_type: &str) -> String {
+/// Extract a KB-relevant query from content.
+/// For JIRA analyses, `hint` should be the ticket summary (avoids parsing the composed header).
+fn extract_kb_query(content: &str, analysis_type: &str, hint: Option<&str>) -> String {
     match analysis_type {
-        "jira" => {
-            // For JIRA: summary (first line) is the best query
+        "jira" | "jira_ticket" => {
+            if let Some(h) = hint {
+                return h.chars().take(300).collect();
+            }
+            // Fallback: parse "Summary: ..." line from composed content
             content
                 .lines()
-                .next()
+                .find(|l| l.starts_with("Summary: "))
+                .and_then(|l| l.strip_prefix("Summary: "))
                 .unwrap_or("")
                 .chars()
                 .take(300)
@@ -717,6 +720,7 @@ pub async fn analyze_crash_log(
     db: DbState<'_>,
     app: AppHandle,
 ) -> Result<AnalysisResponse, String> {
+    log::debug!("cmd: analyze_crash_log");
     log::info!(
         "Starting crash analysis: file={}, provider={}, model={}, type={}",
         request.file_path,
@@ -898,7 +902,7 @@ pub async fn analyze_crash_log(
     let domain_knowledge = if request.use_kb.unwrap_or(false) {
         log::info!("KB domain knowledge retrieval enabled");
         let version = detect_won_version(&crash_content).or(request.won_version.clone());
-        let kb_query = extract_kb_query(&crash_content, &request.analysis_type);
+        let kb_query = extract_kb_query(&crash_content, &request.analysis_type, None);
         let mode = request.kb_mode.as_deref().unwrap_or("remote");
 
         emit_progress(
@@ -1249,6 +1253,7 @@ pub async fn analyze_jira_ticket(
     db: DbState<'_>,
     app: AppHandle,
 ) -> Result<AnalysisResponse, String> {
+    log::debug!("cmd: analyze_jira_ticket");
     log::info!(
         "Starting JIRA ticket analysis: key={}, provider={}, model={}",
         request.jira_key,
@@ -1367,7 +1372,7 @@ pub async fn analyze_jira_ticket(
     let domain_knowledge = if request.use_kb.unwrap_or(false) {
         log::info!("KB domain knowledge retrieval enabled for JIRA ticket");
         let version = detect_won_version(&content).or(request.won_version.clone());
-        let kb_query = extract_kb_query(&content, analysis_type);
+        let kb_query = extract_kb_query(&content, analysis_type, Some(&request.summary));
         let mode = request.kb_mode.as_deref().unwrap_or("remote");
 
         emit_progress(
@@ -1408,6 +1413,11 @@ pub async fn analyze_jira_ticket(
     } else {
         None
     };
+
+    // Capture context counts before moving into AI call (needed for analysis_trace)
+    let rag_case_count = rag_context.as_ref().map_or(0, |c| c.similar_cases.len());
+    let kb_doc_count = domain_knowledge.as_ref().map_or(0, |dk| dk.kb_results.len());
+    let kb_release_note_count = domain_knowledge.as_ref().map_or(0, |dk| dk.release_note_results.len());
 
     // Call AI service - use RAG-enhanced if context available
     let has_extra_context = rag_context.is_some() || domain_knowledge.is_some();
@@ -1465,6 +1475,48 @@ pub async fn analyze_jira_ticket(
     let file_size_kb = content_len as f64 / 1024.0;
     let filename = format!("JIRA: {}", request.jira_key);
 
+    // Build rich full_data blob with JIRA metadata & analysis trace
+    let analysis_trace = serde_json::json!({
+        "input": {
+            "jira_key": &request.jira_key,
+            "summary": request.summary.chars().take(200).collect::<String>(),
+            "description_chars": request.description.len(),
+            "comment_count": request.comments.len(),
+            "priority": &request.priority,
+            "status": &request.status,
+            "components": &request.components,
+            "labels": &request.labels,
+        },
+        "context": {
+            "rag_enabled": request.use_rag.unwrap_or(false),
+            "rag_case_count": rag_case_count,
+            "kb_enabled": request.use_kb.unwrap_or(false),
+            "kb_doc_count": kb_doc_count,
+            "kb_release_note_count": kb_release_note_count,
+        },
+        "model": {
+            "provider": &request.provider,
+            "model": &request.model,
+        },
+    });
+
+    let rich_full_data = {
+        let full = serde_json::json!({
+            "jira_key": &request.jira_key,
+            "jira_summary": &request.summary,
+            "jira_priority": &request.priority,
+            "jira_status": &request.status,
+            "jira_components": &request.components,
+            "jira_labels": &request.labels,
+            "description_chars": request.description.len(),
+            "comment_count": request.comments.len(),
+            "analysis_trace": &analysis_trace,
+            "ai_result": serde_json::to_value(&result).ok(),
+            "raw_enhanced_json": &result.raw_enhanced_json,
+        });
+        Some(full.to_string())
+    };
+
     // Create analysis record
     let analysis = Analysis {
         id: 0,
@@ -1487,17 +1539,12 @@ pub async fn analyze_jira_ticket(
         tokens_used: result.tokens_used,
         cost: result.cost,
         was_truncated: result.was_truncated.unwrap_or(false),
-        full_data: result.raw_enhanced_json.clone().or_else(|| {
-            Some(serde_json::to_string(&result).unwrap_or_else(|e| {
-                log::warn!("Failed to serialize full analysis result: {}", e);
-                "{}".to_string()
-            }))
-        }),
+        full_data: rich_full_data,
         is_favorite: false,
         last_viewed_at: None,
         view_count: 0,
         analysis_duration_ms: result.analysis_duration_ms,
-        analysis_type: "jira_ticket".to_string(),
+        analysis_type: "jira".to_string(),
     };
 
     // Extract fields for response before moving analysis
@@ -1571,7 +1618,7 @@ pub async fn analyze_jira_ticket(
         last_viewed_at: None,
         view_count: 0,
         analysis_duration_ms: None,
-        analysis_type: "jira_ticket".to_string(),
+        analysis_type: "jira".to_string(),
     };
 
     let api_key_clone = api_key.to_string();
@@ -1637,6 +1684,7 @@ pub async fn translate_content(
     redact_pii: Option<bool>,
     db: DbState<'_>,
 ) -> Result<String, String> {
+    log::debug!("cmd: translate_content");
     // SECURITY: Wrap API key in Zeroizing to ensure it's cleared from memory after use
     let api_key = Zeroizing::new(api_key);
 
@@ -1741,6 +1789,7 @@ pub async fn save_external_analysis(
     request: ExternalAnalysisRequest,
     db: DbState<'_>,
 ) -> Result<i64, String> {
+    log::debug!("cmd: save_external_analysis");
     let severity = normalize_severity(request.severity.as_deref().unwrap_or("medium"));
     let suggested_fixes = request.suggested_fixes.unwrap_or_default();
 
@@ -1835,6 +1884,7 @@ pub async fn search_analyses(
     severity_filter: Option<String>,
     db: DbState<'_>,
 ) -> Result<Vec<Analysis>, String> {
+    log::debug!("cmd: search_analyses");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || {
         db.search_analyses(&query, severity_filter.as_deref())
@@ -1852,6 +1902,7 @@ pub async fn search_analyses(
 /// Create a new tag
 #[tauri::command]
 pub async fn create_tag(name: String, color: String, db: DbState<'_>) -> Result<Tag, String> {
+    log::debug!("cmd: create_tag");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.create_tag(&name, &color))
         .await
@@ -1867,6 +1918,7 @@ pub async fn update_tag(
     color: Option<String>,
     db: DbState<'_>,
 ) -> Result<Tag, String> {
+    log::debug!("cmd: update_tag");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || {
         db.update_tag(id, name.as_deref(), color.as_deref())
@@ -1879,6 +1931,7 @@ pub async fn update_tag(
 /// Delete a tag (cascades to remove from all analyses and translations)
 #[tauri::command]
 pub async fn delete_tag(id: i64, db: DbState<'_>) -> Result<(), String> {
+    log::debug!("cmd: delete_tag");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.delete_tag(id))
         .await
@@ -1889,6 +1942,7 @@ pub async fn delete_tag(id: i64, db: DbState<'_>) -> Result<(), String> {
 /// Get all tags ordered by usage
 #[tauri::command]
 pub async fn get_all_tags(db: DbState<'_>) -> Result<Vec<Tag>, String> {
+    log::debug!("cmd: get_all_tags");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.get_all_tags())
         .await
@@ -1903,6 +1957,7 @@ pub async fn add_tag_to_analysis(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: add_tag_to_analysis");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.add_tag_to_analysis(analysis_id, tag_id))
         .await
@@ -1917,6 +1972,7 @@ pub async fn remove_tag_from_analysis(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: remove_tag_from_analysis");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.remove_tag_from_analysis(analysis_id, tag_id))
         .await
@@ -1927,6 +1983,7 @@ pub async fn remove_tag_from_analysis(
 /// Get all tags for a specific analysis
 #[tauri::command]
 pub async fn get_tags_for_analysis(analysis_id: i64, db: DbState<'_>) -> Result<Vec<Tag>, String> {
+    log::debug!("cmd: get_tags_for_analysis");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.get_tags_for_analysis(analysis_id))
         .await
@@ -1941,6 +1998,7 @@ pub async fn add_tag_to_translation(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: add_tag_to_translation");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.add_tag_to_translation(translation_id, tag_id))
         .await
@@ -1955,6 +2013,7 @@ pub async fn remove_tag_from_translation(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: remove_tag_from_translation");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || {
         db.remove_tag_from_translation(translation_id, tag_id)
@@ -1970,6 +2029,7 @@ pub async fn get_tags_for_translation(
     translation_id: i64,
     db: DbState<'_>,
 ) -> Result<Vec<Tag>, String> {
+    log::debug!("cmd: get_tags_for_translation");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.get_tags_for_translation(translation_id))
         .await
@@ -1984,6 +2044,7 @@ pub async fn auto_tag_analyses(
     limit: Option<i64>,
     db: DbState<'_>,
 ) -> Result<AutoTagSummary, String> {
+    log::debug!("cmd: auto_tag_analyses");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || {
         const PAGE_SIZE: i64 = 200;
@@ -2057,6 +2118,7 @@ pub async fn auto_tag_analyses(
 /// Count analyses without any tags (used for auto-tag preview)
 #[tauri::command]
 pub async fn count_analyses_without_tags(db: DbState<'_>) -> Result<i64, String> {
+    log::debug!("cmd: count_analyses_without_tags");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.count_analyses_without_tags())
         .await
@@ -2123,6 +2185,7 @@ pub async fn get_analyses_filtered(
     options: AdvancedFilterOptions,
     db: DbState<'_>,
 ) -> Result<FilteredResults<Analysis>, String> {
+    log::debug!("cmd: get_analyses_filtered");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.get_analyses_filtered(&options))
         .await
@@ -2148,6 +2211,7 @@ pub async fn bulk_delete_analyses(
     ids: Vec<i64>,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_delete_analyses");
     let total = ids.len();
     let db = Arc::clone(&db);
 
@@ -2169,6 +2233,7 @@ pub async fn bulk_delete_translations(
     ids: Vec<i64>,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_delete_translations");
     let total = ids.len();
     let db = Arc::clone(&db);
 
@@ -2191,6 +2256,7 @@ pub async fn bulk_add_tag_to_analyses(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_add_tag_to_analyses");
     let total = analysis_ids.len();
     let db = Arc::clone(&db);
 
@@ -2220,6 +2286,7 @@ pub async fn bulk_remove_tag_from_analyses(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_remove_tag_from_analyses");
     let total = analysis_ids.len();
     let db = Arc::clone(&db);
 
@@ -2249,6 +2316,7 @@ pub async fn bulk_set_favorite_analyses(
     favorite: bool,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_set_favorite_analyses");
     let total = analysis_ids.len();
     let db = Arc::clone(&db);
 
@@ -2278,6 +2346,7 @@ pub async fn bulk_set_favorite_translations(
     favorite: bool,
     db: DbState<'_>,
 ) -> Result<BulkOperationResult, String> {
+    log::debug!("cmd: bulk_set_favorite_translations");
     let total = translation_ids.len();
     let db = Arc::clone(&db);
 
@@ -2312,6 +2381,7 @@ pub async fn get_similar_analyses(
     limit: Option<i32>,
     db: DbState<'_>,
 ) -> Result<Vec<Analysis>, String> {
+    log::debug!("cmd: get_similar_analyses");
     let db = Arc::clone(&db);
     let limit = limit.unwrap_or(10);
 
@@ -2332,6 +2402,7 @@ pub async fn get_similar_analyses(
 /// Count similar analyses for an analysis
 #[tauri::command]
 pub async fn count_similar_analyses(analysis_id: i64, db: DbState<'_>) -> Result<i32, String> {
+    log::debug!("cmd: count_similar_analyses");
     let db = Arc::clone(&db);
 
     let count =
@@ -2350,6 +2421,7 @@ pub async fn get_trend_data(
     range_days: i32,
     db: DbState<'_>,
 ) -> Result<Vec<TrendDataPoint>, String> {
+    log::debug!("cmd: get_trend_data");
     let db = Arc::clone(&db);
     let period_clone = period.clone();
 
@@ -2374,6 +2446,7 @@ pub async fn get_top_error_patterns(
     limit: Option<i32>,
     db: DbState<'_>,
 ) -> Result<Vec<ErrorPatternCount>, String> {
+    log::debug!("cmd: get_top_error_patterns");
     let db = Arc::clone(&db);
     let limit = limit.unwrap_or(10);
 
@@ -2389,6 +2462,7 @@ pub async fn get_top_error_patterns(
 /// List available models from AI provider
 #[tauri::command]
 pub async fn list_models(provider: String, api_key: String) -> Result<Vec<Model>, String> {
+    log::debug!("cmd: list_models");
     // SECURITY: Wrap API key in Zeroizing to ensure it's cleared from memory after use
     let api_key = Zeroizing::new(api_key);
 
@@ -2406,6 +2480,7 @@ pub async fn test_connection(
     provider: String,
     api_key: String,
 ) -> Result<ConnectionTestResult, String> {
+    log::debug!("cmd: test_connection");
     // SECURITY: Wrap API key in Zeroizing to ensure it's cleared from memory after use
     let api_key = Zeroizing::new(api_key);
 
@@ -2443,6 +2518,7 @@ pub async fn save_analysis(
     analysis_type: String,
     db: DbState<'_>,
 ) -> Result<i64, String> {
+    log::debug!("cmd: save_analysis");
     log::info!(
         "Saving analysis to database: file={}, provider={}",
         file_path,
@@ -2506,6 +2582,7 @@ pub async fn save_analysis(
 /// Save pasted log text to a temporary file
 #[tauri::command]
 pub async fn save_pasted_log(content: String) -> Result<String, String> {
+    log::debug!("cmd: save_pasted_log");
     use std::env;
 
     // SECURITY: Validate content size to prevent memory exhaustion
@@ -2561,6 +2638,7 @@ pub async fn initialize_keeper(
     token: String,
     hostname: Option<String>,
 ) -> Result<keeper_service::KeeperInitResult, String> {
+    log::debug!("cmd: initialize_keeper");
     log::info!("Initializing Keeper connection");
     run_keeper_off_runtime(move || {
         keeper_service::initialize_keeper(&token, hostname.as_deref())
@@ -2572,6 +2650,7 @@ pub async fn initialize_keeper(
 /// Safe to return to frontend - only shows titles and UIDs
 #[tauri::command]
 pub async fn list_keeper_secrets() -> Result<keeper_service::KeeperSecretsListResult, String> {
+    log::debug!("cmd: list_keeper_secrets");
     log::debug!("Listing Keeper secrets");
     run_keeper_off_runtime(keeper_service::list_keeper_secrets).await?
 }
@@ -2579,6 +2658,7 @@ pub async fn list_keeper_secrets() -> Result<keeper_service::KeeperSecretsListRe
 /// Get Keeper connection status
 #[tauri::command]
 pub async fn get_keeper_status() -> Result<keeper_service::KeeperStatus, String> {
+    log::debug!("cmd: get_keeper_status");
     log::debug!("Getting Keeper status");
     run_keeper_off_runtime(|| Ok(keeper_service::get_keeper_status())).await?
 }
@@ -2586,6 +2666,7 @@ pub async fn get_keeper_status() -> Result<keeper_service::KeeperStatus, String>
 /// Clear Keeper configuration (disconnect)
 #[tauri::command]
 pub async fn clear_keeper_config() -> Result<(), String> {
+    log::debug!("cmd: clear_keeper_config");
     log::info!("Clearing Keeper configuration");
     keeper_service::clear_keeper_config()
 }
@@ -2593,6 +2674,7 @@ pub async fn clear_keeper_config() -> Result<(), String> {
 /// Test Keeper connection by attempting to list secrets
 #[tauri::command]
 pub async fn test_keeper_connection() -> Result<keeper_service::KeeperSecretsListResult, String> {
+    log::debug!("cmd: test_keeper_connection");
     log::info!("Testing Keeper connection");
     run_keeper_off_runtime(keeper_service::list_keeper_secrets).await?
 }
@@ -2608,6 +2690,7 @@ pub async fn test_jira_connection(
     email: String,
     api_token: String,
 ) -> Result<jira_service::JiraTestResponse, String> {
+    log::debug!("cmd: test_jira_connection");
     log::info!("Testing JIRA connection");
     jira_service::test_jira_connection(base_url, email, api_token).await
 }
@@ -2619,6 +2702,7 @@ pub async fn list_jira_projects(
     email: String,
     api_token: String,
 ) -> Result<Vec<jira_service::JiraProjectInfo>, String> {
+    log::debug!("cmd: list_jira_projects");
     log::info!("Listing JIRA projects");
     jira_service::list_jira_projects(base_url, email, api_token).await
 }
@@ -2633,6 +2717,7 @@ pub async fn create_jira_ticket(
     issue_type: String,
     ticket: jira_service::JiraTicketRequest,
 ) -> Result<jira_service::JiraCreateResponse, String> {
+    log::debug!("cmd: create_jira_ticket");
     log::info!("Creating JIRA ticket");
     jira_service::create_jira_ticket(base_url, email, api_token, project_key, issue_type, ticket)
         .await
@@ -2648,6 +2733,7 @@ pub async fn search_jira_issues(
     max_results: i32,
     include_comments: bool,
 ) -> Result<jira_service::JiraSearchResponse, String> {
+    log::debug!("cmd: search_jira_issues");
     log::info!("Searching JIRA issues with JQL");
     jira_service::search_jira_issues(base_url, email, api_token, jql, max_results, include_comments)
         .await
@@ -2662,6 +2748,7 @@ pub async fn post_jira_comment(
     issue_key: String,
     comment_body: String,
 ) -> Result<(), String> {
+    log::debug!("cmd: post_jira_comment");
     log::info!("Posting comment to JIRA issue {}", issue_key);
     jira_service::post_jira_comment(&base_url, &email, &api_token, &issue_key, &comment_body).await
 }
@@ -2677,6 +2764,7 @@ pub fn compute_crash_signature(
     stack_trace: Option<String>,
     root_cause: String,
 ) -> Result<signature::CrashSignature, String> {
+    log::debug!("cmd: compute_crash_signature");
     log::debug!("Computing crash signature for: {}", error_type);
     let config = signature::SignatureConfig::default();
     Ok(signature::compute_signature(
@@ -2696,6 +2784,7 @@ pub async fn register_crash_signature(
     root_cause: String,
     db: DbState<'_>,
 ) -> Result<signature::SignatureRegistrationResult, String> {
+    log::debug!("cmd: register_crash_signature");
     log::info!("Registering crash signature for analysis {}", analysis_id);
 
     let config = signature::SignatureConfig::default();
@@ -2738,6 +2827,7 @@ pub async fn get_signature_occurrences(
     hash: String,
     db: DbState<'_>,
 ) -> Result<signature::SignatureOccurrences, String> {
+    log::debug!("cmd: get_signature_occurrences");
     log::debug!("Getting occurrences for signature: {}", hash);
 
     let db_clone = Arc::clone(&db);
@@ -2767,6 +2857,7 @@ pub async fn get_top_signatures(
     status: Option<String>,
     db: DbState<'_>,
 ) -> Result<Vec<signature::CrashSignature>, String> {
+    log::debug!("cmd: get_top_signatures");
     log::debug!(
         "Getting top signatures (limit: {:?}, status: {:?})",
         limit,
@@ -2791,6 +2882,7 @@ pub async fn update_signature_status(
     metadata: Option<String>,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: update_signature_status");
     log::info!("Updating signature {} status to {}", hash, status);
 
     let db_clone = Arc::clone(&db);
@@ -2810,6 +2902,7 @@ pub async fn link_ticket_to_signature(
     ticket_url: Option<String>,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: link_ticket_to_signature");
     log::info!("Linking ticket {} to signature {}", ticket_id, hash);
 
     let db_clone = Arc::clone(&db);
@@ -2828,6 +2921,7 @@ pub async fn link_ticket_to_signature(
 /// Parse a crash file from disk path
 #[tauri::command]
 pub async fn parse_crash_file(path: String) -> Result<CrashFile, String> {
+    log::debug!("cmd: parse_crash_file");
     // SECURITY: Validate path to prevent path traversal attacks
     if path.contains("..") {
         log::warn!("Path traversal attempt in parse_crash_file: {}", path);
@@ -2885,6 +2979,7 @@ pub async fn parse_crash_file(path: String) -> Result<CrashFile, String> {
 /// Parse crash file content directly (for pasted content)
 #[tauri::command]
 pub fn parse_crash_content(content: String, file_name: String) -> Result<CrashFile, String> {
+    log::debug!("cmd: parse_crash_content");
     log::info!("Parsing crash content: {}", file_name);
     let parser = CrashFileParser::new();
     parser
@@ -2897,6 +2992,7 @@ pub fn parse_crash_content(content: String, file_name: String) -> Result<CrashFi
 pub async fn parse_crash_files_batch(
     paths: Vec<String>,
 ) -> Result<Vec<(String, Result<CrashFile, String>)>, String> {
+    log::debug!("cmd: parse_crash_files_batch");
     log::info!("Parsing {} crash files in batch", paths.len());
     let parser = CrashFileParser::new();
     let mut results = Vec::new();
@@ -2985,6 +3081,7 @@ pub fn match_patterns(
     crash: CrashFile,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Vec<PatternMatchResult>, String> {
+    log::debug!("cmd: match_patterns");
     log::debug!("Matching patterns for crash file");
     // FIX #2/#3: Handle lock poisoning gracefully instead of panicking
     let engine_guard = engine
@@ -3002,6 +3099,7 @@ pub fn get_best_pattern_match(
     crash: CrashFile,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Option<PatternMatchResult>, String> {
+    log::debug!("cmd: get_best_pattern_match");
     log::debug!("Finding best pattern match");
     // FIX #2/#3: Handle lock poisoning gracefully instead of panicking
     let engine_guard = engine
@@ -3016,6 +3114,7 @@ pub fn get_best_pattern_match(
 /// List all available patterns
 #[tauri::command]
 pub fn list_patterns(engine: State<'_, PatternEngineState>) -> Result<Vec<PatternSummary>, String> {
+    log::debug!("cmd: list_patterns");
     log::debug!("Listing all patterns");
     // FIX #2/#3: Handle lock poisoning gracefully instead of panicking
     let engine_guard = engine
@@ -3043,6 +3142,7 @@ pub fn get_pattern_by_id(
     id: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Option<CrashPattern>, String> {
+    log::debug!("cmd: get_pattern_by_id");
     log::debug!("Getting pattern by ID: {}", id);
     // FIX #2/#3: Handle lock poisoning gracefully instead of panicking
     let engine_guard = engine
@@ -3060,6 +3160,7 @@ pub fn reload_patterns(
     custom_dir: Option<String>,
     engine: State<'_, PatternEngineState>,
 ) -> Result<usize, String> {
+    log::debug!("cmd: reload_patterns");
     log::info!("Reloading patterns (custom_dir: {:?})", custom_dir);
     // Create new engine OUTSIDE the lock to minimize hold time
     let new_engine = create_pattern_engine(
@@ -3088,6 +3189,7 @@ pub fn quick_pattern_match(
     file_name: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Option<PatternMatchResult>, String> {
+    log::debug!("cmd: quick_pattern_match");
     log::info!("Quick pattern match for: {}", file_name);
 
     // Parse the crash file OUTSIDE the lock (good practice already)
@@ -3142,6 +3244,7 @@ pub fn generate_report(
     request: ExportRequest,
     engine: State<'_, PatternEngineState>,
 ) -> Result<ExportResponse, String> {
+    log::debug!("cmd: generate_report");
     log::info!(
         "Generating {} report for: {}",
         request.format,
@@ -3248,6 +3351,7 @@ pub fn generate_report(
 /// Get available export formats
 #[tauri::command]
 pub fn get_export_formats() -> Vec<serde_json::Value> {
+    log::debug!("cmd: get_export_formats");
     vec![
         serde_json::json!({
             "id": "markdown",
@@ -3291,6 +3395,7 @@ pub fn get_export_formats() -> Vec<serde_json::Value> {
 /// Get available audience options
 #[tauri::command]
 pub fn get_audience_options() -> Vec<serde_json::Value> {
+    log::debug!("cmd: get_audience_options");
     vec![
         serde_json::json!({
             "id": "technical",
@@ -3324,6 +3429,7 @@ pub fn preview_report(
     audience: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<String, String> {
+    log::debug!("cmd: preview_report");
     let request = ExportRequest {
         crash_content,
         file_name,
@@ -3353,6 +3459,7 @@ pub struct SensitiveContentResult {
 /// Check content for sensitive data before sending to AI
 #[tauri::command]
 pub fn check_sensitive_content(content: String) -> Result<SensitiveContentResult, String> {
+    log::debug!("cmd: check_sensitive_content");
     log::debug!(
         "Checking content for sensitive data ({} bytes)",
         content.len()
@@ -3413,6 +3520,7 @@ pub fn check_sensitive_content(content: String) -> Result<SensitiveContentResult
 /// Sanitize content for a specific audience
 #[tauri::command]
 pub fn sanitize_content(content: String, audience: String) -> Result<String, String> {
+    log::debug!("cmd: sanitize_content");
     log::debug!("Sanitizing content for audience: {}", audience);
 
     let sanitized = match audience.to_lowercase().as_str() {
@@ -3445,6 +3553,7 @@ pub fn get_patterns_by_category(
     category: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Vec<PatternSummary>, String> {
+    log::debug!("cmd: get_patterns_by_category");
     log::debug!("Getting patterns by category: {}", category);
 
     let engine_guard = engine
@@ -3505,6 +3614,7 @@ pub fn get_patterns_by_tag(
     tag: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Vec<PatternSummary>, String> {
+    log::debug!("cmd: get_patterns_by_tag");
     log::debug!("Getting patterns by tag: {}", tag);
 
     let engine_guard = engine
@@ -3533,6 +3643,7 @@ pub fn get_patterns_by_tag(
 /// Get all unique tags from patterns
 #[tauri::command]
 pub fn get_pattern_tags(engine: State<'_, PatternEngineState>) -> Result<Vec<String>, String> {
+    log::debug!("cmd: get_pattern_tags");
     log::debug!("Getting all pattern tags");
 
     let engine_guard = engine
@@ -3561,6 +3672,7 @@ pub fn get_pattern_tags(engine: State<'_, PatternEngineState>) -> Result<Vec<Str
 pub fn get_pattern_categories(
     engine: State<'_, PatternEngineState>,
 ) -> Result<Vec<String>, String> {
+    log::debug!("cmd: get_pattern_categories");
     log::debug!("Getting all pattern categories");
 
     let engine_guard = engine
@@ -3605,6 +3717,7 @@ pub fn generate_report_multi(
     request: MultiExportRequest,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Vec<ExportResponse>, String> {
+    log::debug!("cmd: generate_report_multi");
     log::info!(
         "Generating multi-format report for: {} ({} formats)",
         request.file_name,
@@ -3737,6 +3850,7 @@ pub struct DatabaseInfo {
 /// Get database admin information
 #[tauri::command]
 pub async fn get_database_info(db: DbState<'_>) -> Result<DatabaseInfo, String> {
+    log::debug!("cmd: get_database_info");
     log::debug!("Getting database info");
 
     // Try to get database file size asynchronously (separate from blocking DB ops)
@@ -3827,6 +3941,7 @@ pub async fn get_database_info(db: DbState<'_>) -> Result<DatabaseInfo, String> 
 /// SECURITY: Uses path validation to prevent access to sensitive system files
 #[tauri::command]
 pub async fn get_file_stats(path: String) -> Result<serde_json::Value, String> {
+    log::debug!("cmd: get_file_stats");
     // SECURITY: Validate file path before accessing (canonicalization, blocklist)
     // Use a generous size limit since we're only reading metadata, not content
     let canonical_path = validate_file_path(&path, u64::MAX).await?;
@@ -3869,6 +3984,7 @@ pub fn submit_analysis_feedback(
     feedback: FeedbackRequest,
     db: DbState<'_>,
 ) -> Result<AnalysisFeedback, String> {
+    log::debug!("cmd: submit_analysis_feedback");
     log::info!(
         "Submitting {} feedback for analysis {}",
         feedback.feedback_type,
@@ -3908,6 +4024,7 @@ pub fn get_feedback_for_analysis(
     analysis_id: i64,
     db: DbState<'_>,
 ) -> Result<Vec<AnalysisFeedback>, String> {
+    log::debug!("cmd: get_feedback_for_analysis");
     log::info!("Getting feedback for analysis {}", analysis_id);
     db.get_feedback_for_analysis(analysis_id)
         .map_err(|e| format!("Failed to get feedback: {}", e))
@@ -3916,6 +4033,7 @@ pub fn get_feedback_for_analysis(
 /// Promote an analysis to gold standard
 #[tauri::command]
 pub fn promote_to_gold(analysis_id: i64, db: DbState<'_>) -> Result<GoldAnalysis, String> {
+    log::debug!("cmd: promote_to_gold");
     log::info!("Promoting analysis {} to gold standard", analysis_id);
     db.promote_to_gold(analysis_id)
         .map_err(|e| format!("Failed to promote to gold: {}", e))
@@ -3924,6 +4042,7 @@ pub fn promote_to_gold(analysis_id: i64, db: DbState<'_>) -> Result<GoldAnalysis
 /// Get all gold analyses
 #[tauri::command]
 pub fn get_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
+    log::debug!("cmd: get_gold_analyses");
     log::info!("Getting all gold analyses");
     db.get_gold_analyses()
         .map_err(|e| format!("Failed to get gold analyses: {}", e))
@@ -3932,6 +4051,7 @@ pub fn get_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
 /// Check if an analysis is a gold standard
 #[tauri::command]
 pub fn is_gold_analysis(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    log::debug!("cmd: is_gold_analysis");
     db.is_gold_analysis(analysis_id)
         .map_err(|e| format!("Failed to check gold status: {}", e))
 }
@@ -3939,6 +4059,7 @@ pub fn is_gold_analysis(analysis_id: i64, db: DbState<'_>) -> Result<bool, Strin
 /// Get pending gold analyses for review
 #[tauri::command]
 pub fn get_pending_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
+    log::debug!("cmd: get_pending_gold_analyses");
     log::info!("Getting pending gold analyses for review");
     db.get_pending_gold_analyses()
         .map_err(|e| format!("Failed to get pending gold analyses: {}", e))
@@ -3951,6 +4072,7 @@ pub fn verify_gold_analysis(
     verified_by: Option<String>,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: verify_gold_analysis");
     log::info!("Verifying gold analysis {}", gold_analysis_id);
     db.verify_gold_analysis(gold_analysis_id, verified_by.as_deref())
         .map_err(|e| format!("Failed to verify gold analysis: {}", e))
@@ -3963,6 +4085,7 @@ pub fn reject_gold_analysis(
     verified_by: Option<String>,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: reject_gold_analysis");
     log::info!("Rejecting gold analysis {}", gold_analysis_id);
     db.reject_gold_analysis(gold_analysis_id, verified_by.as_deref())
         .map_err(|e| format!("Failed to reject gold analysis: {}", e))
@@ -3971,6 +4094,7 @@ pub fn reject_gold_analysis(
 /// Get rejected gold analyses for review
 #[tauri::command]
 pub fn get_rejected_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
+    log::debug!("cmd: get_rejected_gold_analyses");
     db.get_gold_analyses_by_status("rejected")
         .map_err(|e| format!("Failed to get rejected gold analyses: {}", e))
 }
@@ -3978,6 +4102,7 @@ pub fn get_rejected_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, 
 /// Reopen a rejected gold analysis (set back to pending)
 #[tauri::command]
 pub fn reopen_gold_analysis(gold_analysis_id: i64, db: DbState<'_>) -> Result<(), String> {
+    log::debug!("cmd: reopen_gold_analysis");
     log::info!("Reopening gold analysis {}", gold_analysis_id);
     db.reopen_gold_analysis(gold_analysis_id)
         .map_err(|e| format!("Failed to reopen gold analysis: {}", e))
@@ -3986,6 +4111,7 @@ pub fn reopen_gold_analysis(gold_analysis_id: i64, db: DbState<'_>) -> Result<()
 /// Check if an analysis is eligible for auto-promotion
 #[tauri::command]
 pub fn check_auto_promotion_eligibility(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    log::debug!("cmd: check_auto_promotion_eligibility");
     db.check_auto_promotion_eligibility(analysis_id)
         .map_err(|e| format!("Failed to check auto-promotion eligibility: {}", e))
 }
@@ -3993,6 +4119,7 @@ pub fn check_auto_promotion_eligibility(analysis_id: i64, db: DbState<'_>) -> Re
 /// Auto-promote an analysis to gold if eligible
 #[tauri::command]
 pub fn auto_promote_if_eligible(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    log::debug!("cmd: auto_promote_if_eligible");
     log::info!("Checking auto-promotion eligibility for analysis {}", analysis_id);
     db.auto_promote_if_eligible(analysis_id)
         .map_err(|e| format!("Failed to auto-promote analysis: {}", e))
@@ -4027,6 +4154,7 @@ struct FineTuneConversation {
 /// Export verified gold analyses as JSONL for OpenAI fine-tuning
 #[tauri::command]
 pub fn export_gold_jsonl(db: DbState<'_>) -> Result<FineTuneExportResult, String> {
+    log::debug!("cmd: export_gold_jsonl");
     log::info!("Exporting gold analyses to JSONL for fine-tuning");
 
     let gold_analyses = db
@@ -4156,6 +4284,7 @@ fn build_analysis_response(gold: &crate::database::GoldAnalysisExport) -> String
 /// Count verified gold analyses available for export
 #[tauri::command]
 pub fn count_gold_for_export(db: DbState<'_>) -> Result<i64, String> {
+    log::debug!("cmd: count_gold_for_export");
     db.count_verified_gold_analyses()
         .map_err(|e| format!("Failed to count gold analyses: {}", e))
 }
@@ -4213,6 +4342,7 @@ pub fn export_gold_jsonl_enhanced(
     options: Option<ExportOptions>,
     db: DbState<'_>,
 ) -> Result<EnhancedExportResult, String> {
+    log::debug!("cmd: export_gold_jsonl_enhanced");
     log::info!("Exporting gold analyses with enhanced options");
 
     let opts = options.unwrap_or(ExportOptions {
@@ -4397,6 +4527,7 @@ fn generate_jsonl(
 /// Get dataset statistics without exporting
 #[tauri::command]
 pub fn get_export_statistics(db: DbState<'_>) -> Result<DatasetStatistics, String> {
+    log::debug!("cmd: get_export_statistics");
     log::info!("Getting export statistics");
 
     let gold_analyses = db
@@ -4458,6 +4589,7 @@ pub async fn link_jira_to_analysis(
     request: LinkJiraTicketRequest,
     db: DbState<'_>,
 ) -> Result<JiraLink, String> {
+    log::debug!("cmd: link_jira_to_analysis");
     log::info!(
         "Linking JIRA {} to analysis {}",
         request.jira_key,
@@ -4502,6 +4634,7 @@ pub async fn unlink_jira_from_analysis(
     jira_key: String,
     db: DbState<'_>,
 ) -> Result<bool, String> {
+    log::debug!("cmd: unlink_jira_from_analysis");
     log::info!("Unlinking JIRA {} from analysis {}", jira_key, analysis_id);
 
     let db_clone = Arc::clone(&db);
@@ -4518,6 +4651,7 @@ pub async fn get_jira_links_for_analysis(
     analysis_id: i64,
     db: DbState<'_>,
 ) -> Result<Vec<JiraLink>, String> {
+    log::debug!("cmd: get_jira_links_for_analysis");
     log::debug!("Getting JIRA links for analysis {}", analysis_id);
 
     let db_clone = Arc::clone(&db);
@@ -4534,6 +4668,7 @@ pub async fn get_analyses_for_jira_ticket(
     jira_key: String,
     db: DbState<'_>,
 ) -> Result<Vec<(Analysis, JiraLink)>, String> {
+    log::debug!("cmd: get_analyses_for_jira_ticket");
     log::debug!("Getting analyses linked to JIRA {}", jira_key);
 
     let db_clone = Arc::clone(&db);
@@ -4553,6 +4688,7 @@ pub async fn update_jira_link_metadata(
     jira_priority: Option<String>,
     db: DbState<'_>,
 ) -> Result<usize, String> {
+    log::debug!("cmd: update_jira_link_metadata");
     log::info!("Updating JIRA {} metadata in links", jira_key);
 
     let db_clone = Arc::clone(&db);
@@ -4576,6 +4712,7 @@ pub async fn count_jira_links_for_analysis(
     analysis_id: i64,
     db: DbState<'_>,
 ) -> Result<i64, String> {
+    log::debug!("cmd: count_jira_links_for_analysis");
     let db_clone = Arc::clone(&db);
 
     tauri::async_runtime::spawn_blocking(move || db_clone.count_jira_links_for_analysis(analysis_id))
@@ -4587,6 +4724,7 @@ pub async fn count_jira_links_for_analysis(
 /// Get all JIRA links across all analyses (for sync service)
 #[tauri::command]
 pub async fn get_all_jira_links(db: DbState<'_>) -> Result<Vec<JiraLink>, String> {
+    log::debug!("cmd: get_all_jira_links");
     log::debug!("Getting all JIRA links for sync");
 
     let db_clone = Arc::clone(&db);
@@ -4607,6 +4745,7 @@ pub async fn test_sentry_connection(
     base_url: String,
     auth_token: String,
 ) -> Result<sentry_service::SentryTestResponse, String> {
+    log::debug!("cmd: test_sentry_connection");
     log::info!("Testing Sentry connection");
     sentry_service::test_sentry_connection(&base_url, &auth_token).await
 }
@@ -4617,6 +4756,7 @@ pub async fn list_sentry_projects(
     base_url: String,
     auth_token: String,
 ) -> Result<Vec<sentry_service::SentryProjectInfo>, String> {
+    log::debug!("cmd: list_sentry_projects");
     log::info!("Listing Sentry projects");
     sentry_service::list_sentry_projects(&base_url, &auth_token).await
 }
@@ -4631,6 +4771,7 @@ pub async fn list_sentry_issues(
     query: Option<String>,
     cursor: Option<String>,
 ) -> Result<sentry_service::SentryIssueList, String> {
+    log::debug!("cmd: list_sentry_issues");
     log::info!("Listing Sentry issues for {}/{}", org, project);
     sentry_service::list_sentry_issues(
         &base_url,
@@ -4652,6 +4793,7 @@ pub async fn list_sentry_org_issues(
     query: Option<String>,
     cursor: Option<String>,
 ) -> Result<sentry_service::SentryIssueList, String> {
+    log::debug!("cmd: list_sentry_org_issues");
     log::info!("Listing recent Sentry issues for org {}", org);
     sentry_service::list_sentry_org_issues(
         &base_url,
@@ -4670,6 +4812,7 @@ pub async fn fetch_sentry_issue(
     auth_token: String,
     issue_id: String,
 ) -> Result<sentry_service::SentryIssue, String> {
+    log::debug!("cmd: fetch_sentry_issue");
     log::info!("Fetching Sentry issue {}", issue_id);
     sentry_service::fetch_sentry_issue(&base_url, &auth_token, &issue_id).await
 }
@@ -4681,6 +4824,7 @@ pub async fn fetch_sentry_latest_event(
     auth_token: String,
     issue_id: String,
 ) -> Result<sentry_service::SentryEvent, String> {
+    log::debug!("cmd: fetch_sentry_latest_event");
     log::info!("Fetching latest event for Sentry issue {}", issue_id);
     sentry_service::fetch_sentry_latest_event(&base_url, &auth_token, &issue_id).await
 }
@@ -4697,6 +4841,7 @@ pub async fn analyze_sentry_issue(
     db: DbState<'_>,
     app: AppHandle,
 ) -> Result<AnalysisResponse, String> {
+    log::debug!("cmd: analyze_sentry_issue");
     log::info!("Starting Sentry issue analysis: issue_id={}", issue_id);
 
     // Phase 1: Fetch issue and event data

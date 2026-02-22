@@ -11,6 +11,7 @@ pub async fn get_similar_analyses(
     limit: Option<i32>,
     db: DbState<'_>,
 ) -> Result<Vec<Analysis>, String> {
+    log::debug!("cmd: get_similar_analyses");
     let db = Arc::clone(&db);
     let limit = limit.unwrap_or(10);
 
@@ -31,6 +32,7 @@ pub async fn get_similar_analyses(
 /// Count similar analyses for an analysis
 #[tauri::command]
 pub async fn count_similar_analyses(analysis_id: i64, db: DbState<'_>) -> Result<i32, String> {
+    log::debug!("cmd: count_similar_analyses");
     let db = Arc::clone(&db);
 
     let count =
@@ -49,6 +51,7 @@ pub async fn get_trend_data(
     range_days: i32,
     db: DbState<'_>,
 ) -> Result<Vec<TrendDataPoint>, String> {
+    log::debug!("cmd: get_trend_data");
     let db = Arc::clone(&db);
     let period_clone = period.clone();
 
@@ -73,6 +76,7 @@ pub async fn get_top_error_patterns(
     limit: Option<i32>,
     db: DbState<'_>,
 ) -> Result<Vec<ErrorPatternCount>, String> {
+    log::debug!("cmd: get_top_error_patterns");
     let db = Arc::clone(&db);
     let limit = limit.unwrap_or(10);
 

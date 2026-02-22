@@ -6,6 +6,7 @@ mod chat_commands;
 mod chat_tools;
 mod commands;
 mod commands_legacy;
+mod crash_handler;
 mod database;
 mod error;
 mod export;
@@ -33,8 +34,22 @@ use commands::*;
 use database::Database;
 use rag_commands::*;
 use std::sync::{Arc, RwLock};
+use tauri::Manager;
 
 fn main() {
+    // If launched as crash monitor (child process), run the monitor and exit
+    if std::env::args().any(|a| a == crash_handler::CRASH_MONITOR_ARG) {
+        crash_handler::run_crash_monitor();
+    }
+
+    // Install panic hook first — captures crash info if anything panics during init
+    crash_handler::install_panic_hook();
+
+    // Install minidump crash handler (non-fatal if it fails)
+    if let Err(e) = crash_handler::install_crash_handler() {
+        eprintln!("Warning: minidump crash handler not available: {}", e);
+    }
+
     // Initialize database wrapped in Arc for safe sharing across spawn_blocking tasks
     let db = Arc::new(match Database::new() {
         Ok(db) => db,
@@ -62,7 +77,10 @@ fn main() {
                     }),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
-                .level(log::LevelFilter::Info)
+                .level(log::LevelFilter::Debug)
+                .max_file_size(50_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
+                .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
@@ -87,6 +105,11 @@ fn main() {
                     });
                 }
             })?;
+
+            log::info!(
+                "Hadron {} started (crash logging active)",
+                env!("CARGO_PKG_VERSION")
+            );
 
             Ok(())
         })
@@ -314,6 +337,23 @@ fn main() {
             widget_commands::move_widget,
             widget_commands::is_main_window_visible,
         ])
+        .on_window_event(|window, event| {
+            match event {
+                tauri::WindowEvent::CloseRequested { .. } => {
+                    log::info!("window: {} close requested", window.label());
+                    if window.label() == "main" {
+                        window.app_handle().exit(0);
+                    }
+                }
+                tauri::WindowEvent::Focused(focused) => {
+                    log::debug!("window: {} focused={}", window.label(), focused);
+                }
+                tauri::WindowEvent::Destroyed => {
+                    log::info!("window: {} destroyed", window.label());
+                }
+                _ => {}
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

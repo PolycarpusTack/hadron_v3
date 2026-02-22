@@ -8,6 +8,7 @@ use std::sync::Arc;
 /// Get all analyses from history (with default pagination)
 #[tauri::command]
 pub async fn get_all_analyses(db: DbState<'_>) -> CommandResult<Vec<Analysis>> {
+    log::debug!("cmd: get_all_analyses");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.get_all_analyses()).await??)
 }
@@ -21,6 +22,7 @@ pub async fn get_analyses_paginated(
     offset: Option<i64>,
     db: DbState<'_>,
 ) -> CommandResult<Vec<Analysis>> {
+    log::debug!("cmd: get_analyses_paginated");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.get_analyses_paginated(limit, offset)).await??)
 }
@@ -28,6 +30,7 @@ pub async fn get_analyses_paginated(
 /// Get total count of analyses (for pagination UI)
 #[tauri::command]
 pub async fn get_analyses_count(db: DbState<'_>) -> CommandResult<i64> {
+    log::debug!("cmd: get_analyses_count");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.get_analyses_count()).await??)
 }
@@ -35,6 +38,7 @@ pub async fn get_analyses_count(db: DbState<'_>) -> CommandResult<i64> {
 /// Get a specific analysis by ID
 #[tauri::command]
 pub async fn get_analysis_by_id(id: i64, db: DbState<'_>) -> CommandResult<Analysis> {
+    log::debug!("cmd: get_analysis_by_id");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.get_analysis_by_id(id)).await??)
 }
@@ -42,6 +46,7 @@ pub async fn get_analysis_by_id(id: i64, db: DbState<'_>) -> CommandResult<Analy
 /// Delete an analysis
 #[tauri::command]
 pub async fn delete_analysis(id: i64, db: DbState<'_>) -> CommandResult<()> {
+    log::debug!("cmd: delete_analysis");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.delete_analysis(id)).await??)
 }
@@ -49,6 +54,7 @@ pub async fn delete_analysis(id: i64, db: DbState<'_>) -> CommandResult<()> {
 /// Export analysis to Markdown
 #[tauri::command]
 pub async fn export_analysis(id: i64, db: DbState<'_>) -> CommandResult<String> {
+    log::debug!("cmd: export_analysis");
     let db = Arc::clone(&db);
     let analysis = tauri::async_runtime::spawn_blocking(move || db.get_analysis_by_id(id)).await??;
 
@@ -90,6 +96,7 @@ pub async fn export_analysis(id: i64, db: DbState<'_>) -> CommandResult<String> 
 /// Toggle favorite status for an analysis
 #[tauri::command]
 pub async fn toggle_favorite(id: i64, db: DbState<'_>) -> CommandResult<bool> {
+    log::debug!("cmd: toggle_favorite");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.toggle_favorite(id)).await??)
 }
@@ -97,6 +104,7 @@ pub async fn toggle_favorite(id: i64, db: DbState<'_>) -> CommandResult<bool> {
 /// Get all favorite analyses
 #[tauri::command]
 pub async fn get_favorites(db: DbState<'_>) -> CommandResult<Vec<Analysis>> {
+    log::debug!("cmd: get_favorites");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.get_favorites()).await??)
 }
@@ -104,6 +112,7 @@ pub async fn get_favorites(db: DbState<'_>) -> CommandResult<Vec<Analysis>> {
 /// Get recently viewed analyses
 #[tauri::command]
 pub async fn get_recent(limit: Option<i64>, db: DbState<'_>) -> CommandResult<Vec<Analysis>> {
+    log::debug!("cmd: get_recent");
     let db = Arc::clone(&db);
     let limit = limit.unwrap_or(10);
     Ok(tauri::async_runtime::spawn_blocking(move || db.get_recent(limit)).await??)
@@ -112,6 +121,7 @@ pub async fn get_recent(limit: Option<i64>, db: DbState<'_>) -> CommandResult<Ve
 /// Get database statistics
 #[tauri::command]
 pub async fn get_database_statistics(db: DbState<'_>) -> CommandResult<serde_json::Value> {
+    log::debug!("cmd: get_database_statistics");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.get_statistics()).await??)
 }
@@ -119,6 +129,7 @@ pub async fn get_database_statistics(db: DbState<'_>) -> CommandResult<serde_jso
 /// Optimize FTS5 index
 #[tauri::command]
 pub async fn optimize_fts_index(db: DbState<'_>) -> CommandResult<()> {
+    log::debug!("cmd: optimize_fts_index");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.optimize_fts()).await??)
 }
@@ -126,6 +137,7 @@ pub async fn optimize_fts_index(db: DbState<'_>) -> CommandResult<()> {
 /// Run database integrity check
 #[tauri::command]
 pub async fn check_database_integrity(db: DbState<'_>) -> CommandResult<bool> {
+    log::debug!("cmd: check_database_integrity");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.integrity_check()).await??)
 }
@@ -133,6 +145,7 @@ pub async fn check_database_integrity(db: DbState<'_>) -> CommandResult<bool> {
 /// Compact database (VACUUM)
 #[tauri::command]
 pub async fn compact_database(db: DbState<'_>) -> CommandResult<()> {
+    log::debug!("cmd: compact_database");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.compact()).await??)
 }
@@ -140,6 +153,7 @@ pub async fn compact_database(db: DbState<'_>) -> CommandResult<()> {
 /// Checkpoint WAL file
 #[tauri::command]
 pub async fn checkpoint_wal(db: DbState<'_>) -> CommandResult<()> {
+    log::debug!("cmd: checkpoint_wal");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.checkpoint_wal()).await??)
 }
@@ -147,6 +161,7 @@ pub async fn checkpoint_wal(db: DbState<'_>) -> CommandResult<()> {
 /// Get all translations
 #[tauri::command]
 pub async fn get_all_translations(db: DbState<'_>) -> CommandResult<Vec<Translation>> {
+    log::debug!("cmd: get_all_translations");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.get_all_translations()).await??)
 }
@@ -154,6 +169,7 @@ pub async fn get_all_translations(db: DbState<'_>) -> CommandResult<Vec<Translat
 /// Get translation by ID
 #[tauri::command]
 pub async fn get_translation_by_id(id: i64, db: DbState<'_>) -> CommandResult<Translation> {
+    log::debug!("cmd: get_translation_by_id");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.get_translation_by_id(id)).await??)
 }
@@ -161,6 +177,7 @@ pub async fn get_translation_by_id(id: i64, db: DbState<'_>) -> CommandResult<Tr
 /// Delete a translation
 #[tauri::command]
 pub async fn delete_translation(id: i64, db: DbState<'_>) -> CommandResult<()> {
+    log::debug!("cmd: delete_translation");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.delete_translation(id)).await??)
 }
@@ -168,6 +185,7 @@ pub async fn delete_translation(id: i64, db: DbState<'_>) -> CommandResult<()> {
 /// Toggle favorite status for a translation
 #[tauri::command]
 pub async fn toggle_translation_favorite(id: i64, db: DbState<'_>) -> CommandResult<bool> {
+    log::debug!("cmd: toggle_translation_favorite");
     let db = Arc::clone(&db);
     Ok(tauri::async_runtime::spawn_blocking(move || db.toggle_translation_favorite(id)).await??)
 }

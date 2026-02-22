@@ -34,6 +34,7 @@ pub async fn save_gold_answer(
     db: tauri::State<'_, Arc<Database>>,
     request: SaveGoldAnswerRequest,
 ) -> CommandResult<i64> {
+    log::debug!("cmd: save_gold_answer");
     Ok(db.save_gold_answer(
         &request.question,
         &request.answer,
@@ -55,6 +56,7 @@ pub async fn list_gold_answers(
     customer: Option<String>,
     tag: Option<String>,
 ) -> CommandResult<Vec<GoldAnswer>> {
+    log::debug!("cmd: list_gold_answers");
     Ok(db.list_gold_answers(
         limit.unwrap_or(50),
         offset.unwrap_or(0),
@@ -69,6 +71,7 @@ pub async fn search_gold_answers_cmd(
     query: String,
     limit: Option<i64>,
 ) -> CommandResult<Vec<GoldAnswer>> {
+    log::debug!("cmd: search_gold_answers_cmd");
     Ok(db.search_gold_answers(&query, limit.unwrap_or(10))?)
 }
 
@@ -77,6 +80,7 @@ pub async fn delete_gold_answer_cmd(
     db: tauri::State<'_, Arc<Database>>,
     id: i64,
 ) -> CommandResult<()> {
+    log::debug!("cmd: delete_gold_answer_cmd");
     Ok(db.delete_gold_answer(id)?)
 }
 
@@ -85,6 +89,7 @@ pub async fn export_gold_answers_jsonl(
     db: tauri::State<'_, Arc<Database>>,
     request: ExportGoldRequest,
 ) -> CommandResult<String> {
+    log::debug!("cmd: export_gold_answers_jsonl");
     let answers = db.get_gold_answers_for_export(
         request.date_from.as_deref(),
         request.date_to.as_deref(),

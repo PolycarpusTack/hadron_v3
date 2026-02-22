@@ -82,6 +82,7 @@ pub fn submit_analysis_feedback(
     feedback: FeedbackRequest,
     db: DbState<'_>,
 ) -> Result<AnalysisFeedback, String> {
+    log::debug!("cmd: submit_analysis_feedback");
     log::info!(
         "Submitting {} feedback for analysis {}",
         feedback.feedback_type,
@@ -119,6 +120,7 @@ pub fn get_feedback_for_analysis(
     analysis_id: i64,
     db: DbState<'_>,
 ) -> Result<Vec<AnalysisFeedback>, String> {
+    log::debug!("cmd: get_feedback_for_analysis");
     log::info!("Getting feedback for analysis {}", analysis_id);
     db.get_feedback_for_analysis(analysis_id)
         .map_err(|e| format!("Failed to get feedback: {}", e))
@@ -127,6 +129,7 @@ pub fn get_feedback_for_analysis(
 /// Promote an analysis to gold standard
 #[tauri::command]
 pub fn promote_to_gold(analysis_id: i64, db: DbState<'_>) -> Result<GoldAnalysis, String> {
+    log::debug!("cmd: promote_to_gold");
     log::info!("Promoting analysis {} to gold standard", analysis_id);
     db.promote_to_gold(analysis_id)
         .map_err(|e| format!("Failed to promote to gold: {}", e))
@@ -135,6 +138,7 @@ pub fn promote_to_gold(analysis_id: i64, db: DbState<'_>) -> Result<GoldAnalysis
 /// Get all gold analyses
 #[tauri::command]
 pub fn get_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
+    log::debug!("cmd: get_gold_analyses");
     log::info!("Getting all gold analyses");
     db.get_gold_analyses()
         .map_err(|e| format!("Failed to get gold analyses: {}", e))
@@ -143,6 +147,7 @@ pub fn get_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
 /// Check if an analysis is a gold standard
 #[tauri::command]
 pub fn is_gold_analysis(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    log::debug!("cmd: is_gold_analysis");
     db.is_gold_analysis(analysis_id)
         .map_err(|e| format!("Failed to check gold status: {}", e))
 }
@@ -150,6 +155,7 @@ pub fn is_gold_analysis(analysis_id: i64, db: DbState<'_>) -> Result<bool, Strin
 /// Get pending gold analyses for review
 #[tauri::command]
 pub fn get_pending_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
+    log::debug!("cmd: get_pending_gold_analyses");
     log::info!("Getting pending gold analyses for review");
     db.get_pending_gold_analyses()
         .map_err(|e| format!("Failed to get pending gold analyses: {}", e))
@@ -162,6 +168,7 @@ pub fn verify_gold_analysis(
     verified_by: Option<String>,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: verify_gold_analysis");
     log::info!("Verifying gold analysis {}", gold_analysis_id);
     db.verify_gold_analysis(gold_analysis_id, verified_by.as_deref())
         .map_err(|e| format!("Failed to verify gold analysis: {}", e))
@@ -174,6 +181,7 @@ pub fn reject_gold_analysis(
     verified_by: Option<String>,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: reject_gold_analysis");
     log::info!("Rejecting gold analysis {}", gold_analysis_id);
     db.reject_gold_analysis(gold_analysis_id, verified_by.as_deref())
         .map_err(|e| format!("Failed to reject gold analysis: {}", e))
@@ -182,6 +190,7 @@ pub fn reject_gold_analysis(
 /// Get rejected gold analyses for review
 #[tauri::command]
 pub fn get_rejected_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, String> {
+    log::debug!("cmd: get_rejected_gold_analyses");
     db.get_gold_analyses_by_status("rejected")
         .map_err(|e| format!("Failed to get rejected gold analyses: {}", e))
 }
@@ -189,6 +198,7 @@ pub fn get_rejected_gold_analyses(db: DbState<'_>) -> Result<Vec<GoldAnalysis>, 
 /// Reopen a rejected gold analysis (set back to pending)
 #[tauri::command]
 pub fn reopen_gold_analysis(gold_analysis_id: i64, db: DbState<'_>) -> Result<(), String> {
+    log::debug!("cmd: reopen_gold_analysis");
     log::info!("Reopening gold analysis {}", gold_analysis_id);
     db.reopen_gold_analysis(gold_analysis_id)
         .map_err(|e| format!("Failed to reopen gold analysis: {}", e))
@@ -197,6 +207,7 @@ pub fn reopen_gold_analysis(gold_analysis_id: i64, db: DbState<'_>) -> Result<()
 /// Check if an analysis is eligible for auto-promotion
 #[tauri::command]
 pub fn check_auto_promotion_eligibility(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    log::debug!("cmd: check_auto_promotion_eligibility");
     db.check_auto_promotion_eligibility(analysis_id)
         .map_err(|e| format!("Failed to check auto-promotion eligibility: {}", e))
 }
@@ -204,6 +215,7 @@ pub fn check_auto_promotion_eligibility(analysis_id: i64, db: DbState<'_>) -> Re
 /// Auto-promote an analysis to gold if eligible
 #[tauri::command]
 pub fn auto_promote_if_eligible(analysis_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    log::debug!("cmd: auto_promote_if_eligible");
     log::info!(
         "Checking auto-promotion eligibility for analysis {}",
         analysis_id
@@ -215,6 +227,7 @@ pub fn auto_promote_if_eligible(analysis_id: i64, db: DbState<'_>) -> Result<boo
 /// Export verified gold analyses as JSONL for OpenAI fine-tuning
 #[tauri::command]
 pub fn export_gold_jsonl(db: DbState<'_>) -> Result<FineTuneExportResult, String> {
+    log::debug!("cmd: export_gold_jsonl");
     log::info!("Exporting gold analyses to JSONL for fine-tuning");
 
     let gold_analyses = db
@@ -333,6 +346,7 @@ fn build_analysis_response(gold: &crate::database::GoldAnalysisExport) -> String
 /// Count verified gold analyses available for export
 #[tauri::command]
 pub fn count_gold_for_export(db: DbState<'_>) -> Result<i64, String> {
+    log::debug!("cmd: count_gold_for_export");
     db.count_verified_gold_analyses()
         .map_err(|e| format!("Failed to count gold analyses: {}", e))
 }
@@ -340,6 +354,7 @@ pub fn count_gold_for_export(db: DbState<'_>) -> Result<i64, String> {
 /// Get export statistics
 #[tauri::command]
 pub fn get_export_statistics(db: DbState<'_>) -> Result<DatasetStatistics, String> {
+    log::debug!("cmd: get_export_statistics");
     let gold_analyses = db
         .get_gold_analyses_for_export()
         .map_err(|e| format!("Failed to get gold analyses: {}", e))?;

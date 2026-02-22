@@ -8,6 +8,7 @@ pub async fn test_sentry_connection(
     base_url: String,
     auth_token: String,
 ) -> Result<sentry_service::SentryTestResponse, String> {
+    log::debug!("cmd: test_sentry_connection");
     log::info!("Testing Sentry connection");
     sentry_service::test_sentry_connection(&base_url, &auth_token).await
 }
@@ -18,6 +19,7 @@ pub async fn list_sentry_projects(
     base_url: String,
     auth_token: String,
 ) -> Result<Vec<sentry_service::SentryProjectInfo>, String> {
+    log::debug!("cmd: list_sentry_projects");
     log::info!("Listing Sentry projects");
     sentry_service::list_sentry_projects(&base_url, &auth_token).await
 }
@@ -32,6 +34,7 @@ pub async fn list_sentry_issues(
     query: Option<String>,
     cursor: Option<String>,
 ) -> Result<sentry_service::SentryIssueList, String> {
+    log::debug!("cmd: list_sentry_issues");
     log::info!("Listing Sentry issues for {}/{}", org, project);
     sentry_service::list_sentry_issues(
         &base_url,
@@ -53,6 +56,7 @@ pub async fn list_sentry_org_issues(
     query: Option<String>,
     cursor: Option<String>,
 ) -> Result<sentry_service::SentryIssueList, String> {
+    log::debug!("cmd: list_sentry_org_issues");
     log::info!("Listing recent Sentry issues for org {}", org);
     sentry_service::list_sentry_org_issues(
         &base_url,
@@ -71,6 +75,7 @@ pub async fn fetch_sentry_issue(
     auth_token: String,
     issue_id: String,
 ) -> Result<sentry_service::SentryIssue, String> {
+    log::debug!("cmd: fetch_sentry_issue");
     log::info!("Fetching Sentry issue {}", issue_id);
     sentry_service::fetch_sentry_issue(&base_url, &auth_token, &issue_id).await
 }
@@ -82,6 +87,7 @@ pub async fn fetch_sentry_latest_event(
     auth_token: String,
     issue_id: String,
 ) -> Result<sentry_service::SentryEvent, String> {
+    log::debug!("cmd: fetch_sentry_latest_event");
     log::info!("Fetching latest event for Sentry issue {}", issue_id);
     sentry_service::fetch_sentry_latest_event(&base_url, &auth_token, &issue_id).await
 }

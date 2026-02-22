@@ -55,6 +55,10 @@ hex = "0.4"
 # Better mutex implementation (no poisoning, faster)
 parking_lot = "0.12"
 
+# Crash capture: write minidumps on native crashes (segfault, abort, etc.)
+crash-handler = "0.6"
+minidumper = "0.8"
+
 # Parser dependencies
 thiserror = "1.0"
 anyhow = "1.0"

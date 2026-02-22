@@ -421,6 +421,7 @@ pub async fn chat_send(
     db: tauri::State<'_, Arc<Database>>,
     request: ChatRequest,
 ) -> Result<ChatResponse, String> {
+    log::debug!("cmd: chat_send");
     let request_id = request.request_id.clone();
     let chat_start = std::time::Instant::now();
 
@@ -1289,6 +1290,7 @@ pub async fn chat_submit_feedback(
     db: tauri::State<'_, Arc<Database>>,
     request: ChatFeedbackRequest,
 ) -> Result<(), String> {
+    log::debug!("cmd: chat_submit_feedback");
     let tools_json = request
         .tools_used
         .map(|t| serde_json::to_string(&t).unwrap_or_default());
@@ -1337,6 +1339,7 @@ pub async fn chat_delete_feedback(
     db: tauri::State<'_, Arc<Database>>,
     request: ChatDeleteFeedbackRequest,
 ) -> Result<(), String> {
+    log::debug!("cmd: chat_delete_feedback");
     let log_session = request.session_id.clone();
     let log_msg = request.message_id.clone();
 
@@ -1380,6 +1383,7 @@ pub async fn chat_save_session(
     db: tauri::State<'_, Arc<Database>>,
     request: SaveChatSessionRequest,
 ) -> Result<(), String> {
+    log::debug!("cmd: chat_save_session");
     let db = Arc::clone(&db);
     let req = request;
     tokio::task::spawn_blocking(move || {
@@ -1405,6 +1409,7 @@ pub async fn chat_save_session(
 pub async fn chat_list_sessions(
     db: tauri::State<'_, Arc<Database>>,
 ) -> Result<Vec<crate::database::ChatSessionRecord>, String> {
+    log::debug!("cmd: chat_list_sessions");
     let db = Arc::clone(&db);
     tokio::task::spawn_blocking(move || db.get_chat_sessions())
         .await
@@ -1417,6 +1422,7 @@ pub async fn chat_get_messages(
     db: tauri::State<'_, Arc<Database>>,
     session_id: String,
 ) -> Result<Vec<crate::database::ChatMessageRecord>, String> {
+    log::debug!("cmd: chat_get_messages");
     let db = Arc::clone(&db);
     tokio::task::spawn_blocking(move || db.get_chat_messages(&session_id))
         .await
@@ -1429,6 +1435,7 @@ pub async fn chat_delete_session(
     db: tauri::State<'_, Arc<Database>>,
     session_id: String,
 ) -> Result<(), String> {
+    log::debug!("cmd: chat_delete_session");
     let db = Arc::clone(&db);
     tokio::task::spawn_blocking(move || db.delete_chat_session(&session_id))
         .await
@@ -1442,6 +1449,7 @@ pub async fn chat_rename_session(
     session_id: String,
     title: String,
 ) -> Result<(), String> {
+    log::debug!("cmd: chat_rename_session");
     let db = Arc::clone(&db);
     tokio::task::spawn_blocking(move || db.update_chat_session_title(&session_id, &title))
         .await
@@ -1459,6 +1467,7 @@ pub async fn chat_star_session(
     session_id: String,
     starred: bool,
 ) -> Result<(), String> {
+    log::debug!("cmd: chat_star_session");
     db.star_chat_session(&session_id, starred)
         .map_err(|e| e.to_string())
 }
@@ -1469,6 +1478,7 @@ pub async fn chat_tag_session(
     session_id: String,
     tags: String,
 ) -> Result<(), String> {
+    log::debug!("cmd: chat_tag_session");
     db.tag_chat_session(&session_id, &tags)
         .map_err(|e| e.to_string())
 }
@@ -1480,6 +1490,7 @@ pub async fn chat_update_session_metadata(
     customer: Option<String>,
     won_version: Option<String>,
 ) -> Result<(), String> {
+    log::debug!("cmd: chat_update_session_metadata");
     db.update_chat_session_metadata(
         &session_id,
         customer.as_deref(),
@@ -1616,6 +1627,7 @@ pub async fn run_retrieval_eval(
     db: tauri::State<'_, Arc<Database>>,
     request: RunEvalRequest,
 ) -> Result<serde_json::Value, String> {
+    log::debug!("cmd: run_retrieval_eval");
     use crate::retrieval::eval;
     use crate::retrieval::hybrid_analysis;
     use crate::retrieval::RetrievalOptions;

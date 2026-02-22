@@ -11,6 +11,7 @@ pub fn compute_crash_signature(
     stack_trace: Option<String>,
     root_cause: String,
 ) -> Result<signature::CrashSignature, String> {
+    log::debug!("cmd: compute_crash_signature");
     log::debug!("Computing crash signature for: {}", error_type);
     let config = signature::SignatureConfig::default();
     Ok(signature::compute_signature(
@@ -30,6 +31,7 @@ pub async fn register_crash_signature(
     root_cause: String,
     db: DbState<'_>,
 ) -> Result<signature::SignatureRegistrationResult, String> {
+    log::debug!("cmd: register_crash_signature");
     log::info!("Registering crash signature for analysis {}", analysis_id);
 
     let config = signature::SignatureConfig::default();
@@ -71,6 +73,7 @@ pub async fn get_signature_occurrences(
     hash: String,
     db: DbState<'_>,
 ) -> Result<signature::SignatureOccurrences, String> {
+    log::debug!("cmd: get_signature_occurrences");
     log::debug!("Getting occurrences for signature: {}", hash);
 
     let db_clone = Arc::clone(&db);
@@ -100,6 +103,7 @@ pub async fn get_top_signatures(
     status: Option<String>,
     db: DbState<'_>,
 ) -> Result<Vec<signature::CrashSignature>, String> {
+    log::debug!("cmd: get_top_signatures");
     log::debug!(
         "Getting top signatures (limit: {:?}, status: {:?})",
         limit,
@@ -124,6 +128,7 @@ pub async fn update_signature_status(
     metadata: Option<String>,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: update_signature_status");
     log::info!("Updating signature {} status to {}", hash, status);
 
     let db_clone = Arc::clone(&db);
@@ -143,6 +148,7 @@ pub async fn link_ticket_to_signature(
     ticket_url: Option<String>,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: link_ticket_to_signature");
     log::info!("Linking ticket {} to signature {}", ticket_key, hash);
 
     let db_clone = Arc::clone(&db);

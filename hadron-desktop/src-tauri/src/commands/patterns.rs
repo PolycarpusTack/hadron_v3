@@ -24,6 +24,7 @@ pub struct PatternSummary {
 /// Parse a crash file from disk path
 #[tauri::command]
 pub async fn parse_crash_file(path: String) -> Result<CrashFile, String> {
+    log::debug!("cmd: parse_crash_file");
     // SECURITY: Validate path to prevent path traversal attacks
     if path.contains("..") {
         log::warn!("Path traversal attempt in parse_crash_file: {}", path);
@@ -81,6 +82,7 @@ pub async fn parse_crash_file(path: String) -> Result<CrashFile, String> {
 /// Parse crash file content directly (for pasted content)
 #[tauri::command]
 pub fn parse_crash_content(content: String, file_name: String) -> Result<CrashFile, String> {
+    log::debug!("cmd: parse_crash_content");
     log::info!("Parsing crash content: {}", file_name);
     let parser = CrashFileParser::new();
     parser
@@ -93,6 +95,7 @@ pub fn parse_crash_content(content: String, file_name: String) -> Result<CrashFi
 pub async fn parse_crash_files_batch(
     paths: Vec<String>,
 ) -> Result<Vec<(String, Result<CrashFile, String>)>, String> {
+    log::debug!("cmd: parse_crash_files_batch");
     log::info!("Parsing {} crash files in batch", paths.len());
     let parser = CrashFileParser::new();
     let mut results = Vec::new();
@@ -160,6 +163,7 @@ pub fn match_patterns(
     crash: CrashFile,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Vec<PatternMatchResult>, String> {
+    log::debug!("cmd: match_patterns");
     log::debug!("Matching patterns for crash file");
     let engine_guard = engine
         .0
@@ -176,6 +180,7 @@ pub fn get_best_pattern_match(
     crash: CrashFile,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Option<PatternMatchResult>, String> {
+    log::debug!("cmd: get_best_pattern_match");
     log::debug!("Finding best pattern match");
     let engine_guard = engine
         .0
@@ -189,6 +194,7 @@ pub fn get_best_pattern_match(
 /// List all available patterns
 #[tauri::command]
 pub fn list_patterns(engine: State<'_, PatternEngineState>) -> Result<Vec<PatternSummary>, String> {
+    log::debug!("cmd: list_patterns");
     log::debug!("Listing all patterns");
     let engine_guard = engine
         .0
@@ -215,6 +221,7 @@ pub fn get_pattern_by_id(
     id: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Option<CrashPattern>, String> {
+    log::debug!("cmd: get_pattern_by_id");
     log::debug!("Getting pattern by ID: {}", id);
     let engine_guard = engine
         .0
@@ -231,6 +238,7 @@ pub fn reload_patterns(
     custom_dir: Option<String>,
     engine: State<'_, PatternEngineState>,
 ) -> Result<usize, String> {
+    log::debug!("cmd: reload_patterns");
     log::info!("Reloading patterns (custom_dir: {:?})", custom_dir);
     // Create new engine OUTSIDE the lock to minimize hold time
     let new_engine = create_pattern_engine(
@@ -258,6 +266,7 @@ pub fn quick_pattern_match(
     file_name: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Option<PatternMatchResult>, String> {
+    log::debug!("cmd: quick_pattern_match");
     log::info!("Quick pattern match for: {}", file_name);
 
     // Parse the crash file OUTSIDE the lock
@@ -281,6 +290,7 @@ pub fn get_patterns_by_category(
     category: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Vec<CrashPattern>, String> {
+    log::debug!("cmd: get_patterns_by_category");
     log::debug!("Getting patterns for category: {}", category);
     let engine_guard = engine
         .0
@@ -304,6 +314,7 @@ pub fn get_patterns_by_tag(
     tag: String,
     engine: State<'_, PatternEngineState>,
 ) -> Result<Vec<CrashPattern>, String> {
+    log::debug!("cmd: get_patterns_by_tag");
     log::debug!("Getting patterns for tag: {}", tag);
     let engine_guard = engine
         .0
@@ -324,6 +335,7 @@ pub fn get_patterns_by_tag(
 /// Get all pattern tags
 #[tauri::command]
 pub fn get_pattern_tags(engine: State<'_, PatternEngineState>) -> Result<Vec<String>, String> {
+    log::debug!("cmd: get_pattern_tags");
     log::debug!("Getting all pattern tags");
     let engine_guard = engine
         .0
@@ -347,6 +359,7 @@ pub fn get_pattern_tags(engine: State<'_, PatternEngineState>) -> Result<Vec<Str
 /// Get all pattern categories
 #[tauri::command]
 pub fn get_pattern_categories(engine: State<'_, PatternEngineState>) -> Result<Vec<String>, String> {
+    log::debug!("cmd: get_pattern_categories");
     log::debug!("Getting all pattern categories");
     let engine_guard = engine
         .0

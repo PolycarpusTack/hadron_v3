@@ -121,6 +121,7 @@ pub async fn analyze_performance_trace(
     file_path: String,
     db: DbState<'_>,
 ) -> CommandResult<PerformanceAnalysisResult> {
+    log::debug!("cmd: analyze_performance_trace");
     log::info!("Analyzing performance trace: {}", file_path);
     let start_time = Instant::now();
 

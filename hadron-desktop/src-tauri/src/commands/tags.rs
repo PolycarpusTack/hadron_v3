@@ -208,6 +208,7 @@ pub(crate) fn apply_auto_tags(db: &Database, analysis: &Analysis) -> Result<(), 
 /// Create a new tag
 #[tauri::command]
 pub async fn create_tag(name: String, color: String, db: DbState<'_>) -> Result<Tag, String> {
+    log::debug!("cmd: create_tag");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.create_tag(&name, &color))
         .await
@@ -223,6 +224,7 @@ pub async fn update_tag(
     color: Option<String>,
     db: DbState<'_>,
 ) -> Result<Tag, String> {
+    log::debug!("cmd: update_tag");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || {
         db.update_tag(id, name.as_deref(), color.as_deref())
@@ -235,6 +237,7 @@ pub async fn update_tag(
 /// Delete a tag (cascades to remove from all analyses and translations)
 #[tauri::command]
 pub async fn delete_tag(id: i64, db: DbState<'_>) -> Result<(), String> {
+    log::debug!("cmd: delete_tag");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.delete_tag(id))
         .await
@@ -245,6 +248,7 @@ pub async fn delete_tag(id: i64, db: DbState<'_>) -> Result<(), String> {
 /// Get all tags ordered by usage
 #[tauri::command]
 pub async fn get_all_tags(db: DbState<'_>) -> Result<Vec<Tag>, String> {
+    log::debug!("cmd: get_all_tags");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.get_all_tags())
         .await
@@ -259,6 +263,7 @@ pub async fn add_tag_to_analysis(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: add_tag_to_analysis");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.add_tag_to_analysis(analysis_id, tag_id))
         .await
@@ -273,6 +278,7 @@ pub async fn remove_tag_from_analysis(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: remove_tag_from_analysis");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.remove_tag_from_analysis(analysis_id, tag_id))
         .await
@@ -283,6 +289,7 @@ pub async fn remove_tag_from_analysis(
 /// Get all tags for a specific analysis
 #[tauri::command]
 pub async fn get_tags_for_analysis(analysis_id: i64, db: DbState<'_>) -> Result<Vec<Tag>, String> {
+    log::debug!("cmd: get_tags_for_analysis");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.get_tags_for_analysis(analysis_id))
         .await
@@ -297,6 +304,7 @@ pub async fn add_tag_to_translation(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: add_tag_to_translation");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.add_tag_to_translation(translation_id, tag_id))
         .await
@@ -311,6 +319,7 @@ pub async fn remove_tag_from_translation(
     tag_id: i64,
     db: DbState<'_>,
 ) -> Result<(), String> {
+    log::debug!("cmd: remove_tag_from_translation");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || {
         db.remove_tag_from_translation(translation_id, tag_id)
@@ -326,6 +335,7 @@ pub async fn get_tags_for_translation(
     translation_id: i64,
     db: DbState<'_>,
 ) -> Result<Vec<Tag>, String> {
+    log::debug!("cmd: get_tags_for_translation");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.get_tags_for_translation(translation_id))
         .await
@@ -340,6 +350,7 @@ pub async fn auto_tag_analyses(
     limit: Option<i64>,
     db: DbState<'_>,
 ) -> Result<AutoTagSummary, String> {
+    log::debug!("cmd: auto_tag_analyses");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || {
         const PAGE_SIZE: i64 = 200;
@@ -413,6 +424,7 @@ pub async fn auto_tag_analyses(
 /// Count analyses without any tags (used for auto-tag preview)
 #[tauri::command]
 pub async fn count_analyses_without_tags(db: DbState<'_>) -> Result<i64, String> {
+    log::debug!("cmd: count_analyses_without_tags");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.count_analyses_without_tags())
         .await

@@ -63,6 +63,7 @@ pub async fn search_analyses(
     severity_filter: Option<String>,
     db: DbState<'_>,
 ) -> Result<Vec<Analysis>, String> {
+    log::debug!("cmd: search_analyses");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || {
         db.search_analyses(&query, severity_filter.as_deref())
@@ -78,6 +79,7 @@ pub async fn get_analyses_filtered(
     options: AdvancedFilterOptions,
     db: DbState<'_>,
 ) -> Result<FilteredResults<Analysis>, String> {
+    log::debug!("cmd: get_analyses_filtered");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || db.get_analyses_filtered(&options))
         .await

@@ -27,6 +27,7 @@ pub async fn test_jira_connection(
     email: String,
     api_token: String,
 ) -> Result<jira_service::JiraTestResponse, String> {
+    log::debug!("cmd: test_jira_connection");
     log::info!("Testing JIRA connection");
     jira_service::test_jira_connection(base_url, email, api_token).await
 }
@@ -38,6 +39,7 @@ pub async fn list_jira_projects(
     email: String,
     api_token: String,
 ) -> Result<Vec<jira_service::JiraProjectInfo>, String> {
+    log::debug!("cmd: list_jira_projects");
     log::info!("Listing JIRA projects");
     jira_service::list_jira_projects(base_url, email, api_token).await
 }
@@ -52,6 +54,7 @@ pub async fn create_jira_ticket(
     issue_type: String,
     ticket: jira_service::JiraTicketRequest,
 ) -> Result<jira_service::JiraCreateResponse, String> {
+    log::debug!("cmd: create_jira_ticket");
     log::info!("Creating JIRA ticket");
     jira_service::create_jira_ticket(base_url, email, api_token, project_key, issue_type, ticket)
         .await
@@ -67,6 +70,7 @@ pub async fn search_jira_issues(
     max_results: i32,
     include_comments: bool,
 ) -> Result<jira_service::JiraSearchResponse, String> {
+    log::debug!("cmd: search_jira_issues");
     log::info!("Searching JIRA issues with JQL");
     jira_service::search_jira_issues(base_url, email, api_token, jql, max_results, include_comments)
         .await
@@ -83,6 +87,7 @@ pub async fn link_jira_to_analysis(
     summary: Option<String>,
     db: DbState<'_>,
 ) -> Result<JiraLink, String> {
+    log::debug!("cmd: link_jira_to_analysis");
     let db = Arc::clone(&db);
     let link_type = link_type.unwrap_or_else(|| "related".to_string());
 
@@ -104,6 +109,7 @@ pub async fn link_jira_to_analysis(
 /// Unlink a JIRA ticket from an analysis
 #[tauri::command]
 pub async fn unlink_jira_from_analysis(link_id: i64, db: DbState<'_>) -> Result<(), String> {
+    log::debug!("cmd: unlink_jira_from_analysis");
     let db = Arc::clone(&db);
 
     tauri::async_runtime::spawn_blocking(move || db.unlink_jira_from_analysis(link_id))
@@ -118,6 +124,7 @@ pub async fn get_jira_links_for_analysis(
     analysis_id: i64,
     db: DbState<'_>,
 ) -> Result<Vec<JiraLink>, String> {
+    log::debug!("cmd: get_jira_links_for_analysis");
     let db = Arc::clone(&db);
 
     tauri::async_runtime::spawn_blocking(move || db.get_jira_links_for_analysis(analysis_id))
@@ -132,6 +139,7 @@ pub async fn get_analyses_for_jira_ticket(
     jira_key: String,
     db: DbState<'_>,
 ) -> Result<Vec<i64>, String> {
+    log::debug!("cmd: get_analyses_for_jira_ticket");
     let db = Arc::clone(&db);
 
     tauri::async_runtime::spawn_blocking(move || db.get_analyses_for_jira_ticket(&jira_key))
@@ -148,6 +156,7 @@ pub async fn update_jira_link_metadata(
     summary: Option<String>,
     db: DbState<'_>,
 ) -> Result<JiraLink, String> {
+    log::debug!("cmd: update_jira_link_metadata");
     let db = Arc::clone(&db);
 
     tauri::async_runtime::spawn_blocking(move || {
@@ -164,6 +173,7 @@ pub async fn count_jira_links_for_analysis(
     analysis_id: i64,
     db: DbState<'_>,
 ) -> Result<i64, String> {
+    log::debug!("cmd: count_jira_links_for_analysis");
     let db = Arc::clone(&db);
 
     tauri::async_runtime::spawn_blocking(move || db.count_jira_links_for_analysis(analysis_id))
@@ -175,6 +185,7 @@ pub async fn count_jira_links_for_analysis(
 /// Get all JIRA links
 #[tauri::command]
 pub async fn get_all_jira_links(db: DbState<'_>) -> Result<Vec<JiraLink>, String> {
+    log::debug!("cmd: get_all_jira_links");
     let db = Arc::clone(&db);
 
     tauri::async_runtime::spawn_blocking(move || db.get_all_jira_links())
