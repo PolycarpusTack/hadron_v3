@@ -1,0 +1,19 @@
+[package]
+name = "hadron-core"
+description = "Shared business logic for Hadron analysis platform"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+once_cell = "1.19"

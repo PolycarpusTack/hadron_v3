@@ -45,10 +45,16 @@ fn main() {
     // Install panic hook first — captures crash info if anything panics during init
     crash_handler::install_panic_hook();
 
-    // Install minidump crash handler (non-fatal if it fails)
-    if let Err(e) = crash_handler::install_crash_handler() {
-        eprintln!("Warning: minidump crash handler not available: {}", e);
-    }
+    // NOTE: Minidump crash handler DISABLED — causes heap corruption on Windows.
+    // The crash-handler 0.6 / minidumper 0.8 crates corrupt the heap via their
+    // unsafe signal handler + IPC child process. All 6 crash dumps since
+    // installation showed HEAP_CORRUPTION / ILLEGAL_INSTRUCTION / ACCESS_VIOLATION.
+    // The panic hook above still captures Rust panics to disk.
+    // See: C:\Users\...\AppData\Roaming\hadron\crashes\ for the evidence.
+    //
+    // if let Err(e) = crash_handler::install_crash_handler() {
+    //     eprintln!("Warning: minidump crash handler not available: {}", e);
+    // }
 
     // Initialize database wrapped in Arc for safe sharing across spawn_blocking tasks
     let db = Arc::new(match Database::new() {

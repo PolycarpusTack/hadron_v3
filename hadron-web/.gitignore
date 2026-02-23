@@ -1,0 +1,30 @@
+# ==============================================
+# Hadron Web .gitignore
+# ==============================================
+
+# --- Rust ---
+/target/
+
+# --- Frontend ---
+/frontend/node_modules/
+/frontend/dist/
+
+# --- Environment & Secrets ---
+.env
+.env.local
+.env.*.local
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Override root .gitignore ---
+# Cargo.lock MUST be committed for binary crates (reproducible builds)
+!Cargo.lock

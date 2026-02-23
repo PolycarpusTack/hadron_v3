@@ -2,95 +2,74 @@
 
 **AI-Powered Smalltalk Crash Analyzer**
 
-Hadron is a desktop application that uses AI to analyze VisualWorks Smalltalk crash logs, providing intelligent root cause detection, suggested fixes, and searchable analysis history.
+Hadron uses AI to analyze VisualWorks Smalltalk crash logs, providing intelligent root cause detection, suggested fixes, and searchable analysis history.
+
+Two editions are available:
+
+| Edition | Description | Location |
+|---------|-------------|----------|
+| **Hadron Desktop** | Single-user Tauri desktop app (Windows/macOS/Linux) | `hadron-desktop/` |
+| **Hadron Web** | Multi-user web app with RBAC, Docker deployment | `hadron-web/` |
 
 ---
 
 ## Features
 
-- **Multi-Provider AI** - OpenAI, Anthropic Claude, Z.ai, Ollama (offline)
-- **Intelligent Analysis** - Root cause detection, fix suggestions, severity classification
-- **Offline Operation** - 100% local analysis with Ollama/local LLMs
-- **Full-Text Search** - SQLite FTS5 with BM25 ranking
-- **Circuit Breaker** - Automatic failover between AI providers
-- **Secure Storage** - OS-level encryption for API keys
-- **Cross-Platform** - Windows, macOS, Linux
+- **Multi-Provider AI** — OpenAI, Anthropic Claude, Ollama (offline, desktop only)
+- **Intelligent Analysis** — Root cause detection, fix suggestions, severity classification
+- **Crash Signatures** — Automatic deduplication of recurring errors
+- **Full-Text Search** — SQLite FTS5 (desktop) / PostgreSQL FTS (web)
+- **RAG** — Embedding-based similar crash retrieval (pgvector)
+- **Analytics Dashboard** — Severity trends, component distribution, daily counts
+- **Integrations** — OpenSearch, Jira, Sentry (web)
+- **RBAC** — Analyst / Lead / Admin roles with team feeds (web)
+- **Audit Logging** — Full action trail for compliance (web)
 
-## Tech Stack
+## Hadron Desktop
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | React 18 + TypeScript + Tailwind CSS |
-| Backend | Rust (Tauri 2) |
-| Database | SQLite with FTS5 |
-| AI Engine | Python 3.10+ |
-| Build | Vite |
-
-## Quick Start
+Single-user Tauri app with SQLite backend and Python AI engine.
 
 ```bash
-# Clone the repository
-git clone https://github.com/PolycarpysTack/hadron_v3.git
 cd hadron-desktop
-
-# Install dependencies
 npm install
 cd python && pip install -r requirements-api.txt && cd ..
-
-# Run in development mode
 npm run tauri dev
 ```
 
-### Prerequisites
+**Prerequisites:** Node.js 18+, Rust (stable), Python 3.10+
 
-- **Node.js** 18+
-- **Rust** (latest stable)
-- **Python** 3.10+
+See [`hadron-desktop/README.md`](hadron-desktop/README.md) for full documentation.
 
-## Project Structure
+## Hadron Web
 
-```
-Hadron_v3/
-├── hadron-desktop/          # Main application
-│   ├── src/                 # React frontend
-│   ├── src-tauri/           # Rust backend
-│   ├── python/              # AI analysis engine
-│   └── docs/                # Documentation
-└── .archive/                # Archived planning docs
-```
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [Getting Started](hadron-desktop/docs/GETTING-STARTED.md) | Installation and first steps |
-| [User Guide](hadron-desktop/docs/user/USER-GUIDE.md) | Complete usage guide |
-| [Developer Guide](hadron-desktop/docs/DEVELOPER-GUIDE.md) | Development setup |
-| [Features](hadron-desktop/FEATURES.md) | Full feature list |
-| [Troubleshooting](hadron-desktop/TROUBLESHOOTING.md) | Common issues |
-
-## Build
+Multi-user web app with PostgreSQL + pgvector, Docker deployment.
 
 ```bash
-cd hadron-desktop
-
-# Build for production
-npm run tauri build
-
-# Output:
-# Windows: src-tauri/target/release/bundle/msi/
-# macOS:   src-tauri/target/release/bundle/dmg/
-# Linux:   src-tauri/target/release/bundle/deb/
+cd hadron-web
+docker compose build
+docker compose up -d
+# Open http://localhost:8080
 ```
+
+**Prerequisites:** Docker 20.10+, Docker Compose v2+
+
+See [`hadron-web/DEPLOYMENT.md`](hadron-web/DEPLOYMENT.md) for the full deployment guide.
+
+## Tech Stack
+
+| Layer | Desktop | Web |
+|-------|---------|-----|
+| Frontend | React 18 + TypeScript + Tailwind | React 18 + TypeScript + Tailwind |
+| Backend | Rust (Tauri 2) | Rust (Axum 0.8) |
+| Database | SQLite + FTS5 | PostgreSQL 16 + pgvector |
+| AI Engine | Python 3.10+ | Rust (reqwest to OpenAI/Anthropic) |
+| Auth | N/A (single-user) | Azure AD OIDC / Dev mode |
+| Deployment | Native installer | Docker Compose |
 
 ## Version
 
-**Current**: v3.9.0
+**Current:** v4.1.0
 
 ## License
 
-Proprietary - MediaGeniX / Hadron Project
-
----
-
-Built with [Tauri](https://tauri.app), [React](https://react.dev), and AI providers including [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), and [Ollama](https://ollama.com).
+Proprietary — MediaGeniX / Hadron Project

@@ -1,0 +1,50 @@
+[package]
+name = "hadron-server"
+description = "Axum web server for Hadron analysis platform"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+hadron-core = { path = "../hadron-core" }
+
+# Web framework
+axum = { version = "0.8", features = ["multipart", "macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "compression-gzip", "trace", "limit", "fs"] }
+
+# Database
+sqlx = { version = "0.8", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "chrono",
+    "uuid",
+    "json",
+    "migrate",
+] }
+
+# Auth
+jsonwebtoken = "9"
+
+# Workspace deps
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Streaming
+tokio-stream = "0.1"
+futures = "0.3"
+
+# Config
+dotenvy = "0.15"
+
+# Pattern matching
+regex = "1"
