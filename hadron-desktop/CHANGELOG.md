@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [4.2.0] - 2025-02-24
+
+### Fixed
+- **Widget stability**: Added NaN/Infinity validation to `move_widget` and `resize_widget` to prevent invalid window positions causing crashes
+- **Widget lock contention**: Removed unnecessary WidgetLock acquisition from `focus_main_window` and `is_main_window_visible`, eliminating deadlock potential with widget operations
+- **Widget position restore**: Wrapped startup position restore and settings-triggered hide in `withWidgetLock` to prevent race conditions with other widget operations
+- **Widget pointer handling**: Added `pointercancel` event cleanup to FAB drag handler, preventing orphaned listeners on touch interruption
+- **Widget context menu**: Fixed unhandled promise rejection in right-click menu; menu now only shows after window resize succeeds
+- **Widget click-outside**: Fixed missing `closeMenu` dependency in useEffect, ensuring click-outside detection always uses the latest handler
+- **Widget chat listeners**: Fixed race condition where stream/final-content listener refs could be null during early unmount by assigning refs inside `.then()` callbacks
+- **FTS5 search injection**: Sanitized user search input through `sanitize_fts5_query` before passing to SQLite FTS5, preventing query syntax errors and injection
+- **Analytics render mutation**: Fixed `severity_breakdown.sort()` mutating props during render by spread-copying the array first
+- **Unbounded database queries**: Added `LIMIT 500` to favorites and archived analyses queries to prevent memory exhaustion on large datasets
+
+### Changed
+- Production log level reduced from Debug to Info (Debug still used in dev builds)
+
+---
+
+## [4.1.0] - 2025-02-20
+
 ### Added
 - Ollama support for 100% offline operation (2025-11-14)
 - Circuit breaker timeout increased to 60s for slow OpenAI responses
@@ -108,6 +131,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Release Notes
+
+### [4.2.0] - Stability & Security Hardening
+
+**Key Highlights**:
+- **11 bug fixes** across widget system, search, analytics, database, and logging
+- **Widget crash prevention**: Comprehensive input validation and lock contention fixes eliminate several causes of ILLEGAL_INSTRUCTION crashes on Windows
+- **FTS5 injection fix**: User search input is now sanitized before reaching SQLite, preventing query syntax errors and potential injection
+- **Production logging**: Release builds no longer emit Debug-level logs, reducing log noise and disk usage
+- **Memory safety**: Unbounded database queries now have row limits; render-time array mutations eliminated
+
+**Breaking Changes**: None (fully backward compatible)
+
+---
 
 ### [1.1.0] - Multi-Provider Support & Security Hardening
 
