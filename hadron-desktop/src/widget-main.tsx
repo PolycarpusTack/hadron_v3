@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { AppErrorBoundary } from "./components/ErrorBoundary";
 import WidgetApp from "./components/widget/WidgetApp";
-import { error as logError, attachConsole } from "@tauri-apps/plugin-log";
+import { error as logError, info as logInfo, attachConsole } from "@tauri-apps/plugin-log";
 import "./styles.css";
 
 // Forward uncaught JS errors to persistent Rust log file
@@ -21,6 +21,19 @@ window.onunhandledrejection = (event) => {
 
 // Attach console bridge so console.log/warn/error also go to the log file
 attachConsole();
+logInfo("[JS:widget] widget webview booted");
+
+document.addEventListener("visibilitychange", () => {
+  logInfo(`[JS:widget] visibility=${document.visibilityState}`);
+});
+window.addEventListener("focus", () => logInfo("[JS:widget] focus"));
+window.addEventListener("blur", () => logInfo("[JS:widget] blur"));
+window.addEventListener("pagehide", (event) => {
+  logInfo(`[JS:widget] pagehide persisted=${event.persisted}`);
+});
+window.addEventListener("beforeunload", () => {
+  logInfo("[JS:widget] beforeunload");
+});
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

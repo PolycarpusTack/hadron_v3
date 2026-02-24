@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, lazy, Suspense } from "react";
+import { useEffect, useState, useCallback, lazy, Suspense, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import FileDropZone from "./components/FileDropZone";
 import AnalysisResults from "./components/AnalysisResults";
@@ -80,6 +80,94 @@ function App() {
     codeAnalysisResult,
     codeInput,
   } = state;
+
+  const runtimeStateRef = useRef({
+    currentView,
+    analyzing,
+    codeAnalyzing,
+    selectedAnalysisId: selectedAnalysis?.id ?? null,
+  });
+
+  useEffect(() => {
+    runtimeStateRef.current = {
+      currentView,
+      analyzing,
+      codeAnalyzing,
+      selectedAnalysisId: selectedAnalysis?.id ?? null,
+    };
+  }, [currentView, analyzing, codeAnalyzing, selectedAnalysis?.id]);
+
+  useEffect(() => {
+    logger.info("View changed", {
+      view: currentView,
+      analyzing,
+      codeAnalyzing,
+      selectedAnalysisId: selectedAnalysis?.id ?? null,
+    }, {
+      source: "App",
+      category: "ui",
+    });
+  }, [currentView, analyzing, codeAnalyzing, selectedAnalysis?.id]);
+
+  useEffect(() => {
+    const logWindowState = (event: string) => {
+      const snapshot = runtimeStateRef.current;
+      logger.info(`Window lifecycle: ${event}`, {
+        view: snapshot.currentView,
+        analyzing: snapshot.analyzing,
+        codeAnalyzing: snapshot.codeAnalyzing,
+        selectedAnalysisId: snapshot.selectedAnalysisId,
+        visibility: document.visibilityState,
+        hasFocus: typeof document.hasFocus === "function" ? document.hasFocus() : undefined,
+      }, {
+        source: "AppLifecycle",
+        category: "system",
+      });
+    };
+
+    const onVisibilityChange = () => logWindowState(`visibilitychange:${document.visibilityState}`);
+    const onFocus = () => logWindowState("focus");
+    const onBlur = () => logWindowState("blur");
+    const onPageHide = (event: PageTransitionEvent) => {
+      logWindowState(`pagehide:persisted=${event.persisted}`);
+    };
+    const onBeforeUnload = () => logWindowState("beforeunload");
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    const heartbeat = window.setInterval(() => {
+      const snapshot = runtimeStateRef.current;
+      const perfMem = (performance as any).memory;
+      logger.info("Heartbeat", {
+        view: snapshot.currentView,
+        analyzing: snapshot.analyzing,
+        codeAnalyzing: snapshot.codeAnalyzing,
+        selectedAnalysisId: snapshot.selectedAnalysisId,
+        visibility: document.visibilityState,
+        hasFocus: typeof document.hasFocus === "function" ? document.hasFocus() : undefined,
+        jsHeapUsed: perfMem?.usedJSHeapSize,
+        jsHeapTotal: perfMem?.totalJSHeapSize,
+      }, {
+        source: "AppLifecycle",
+        category: "system",
+      });
+    }, 30_000);
+
+    logWindowState("startup");
+
+    return () => {
+      window.clearInterval(heartbeat);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, []);
 
   // Initialize app on mount
   useEffect(() => {

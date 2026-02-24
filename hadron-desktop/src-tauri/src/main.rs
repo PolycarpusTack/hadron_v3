@@ -36,6 +36,23 @@ use rag_commands::*;
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
+fn log_level_from_env_or_default() -> log::LevelFilter {
+    match std::env::var("HADRON_LOG_LEVEL")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "off" => log::LevelFilter::Off,
+        "error" => log::LevelFilter::Error,
+        "warn" | "warning" => log::LevelFilter::Warn,
+        "info" => log::LevelFilter::Info,
+        "debug" => log::LevelFilter::Debug,
+        "trace" => log::LevelFilter::Trace,
+        // Default to Debug while random shutdowns are being investigated.
+        _ => log::LevelFilter::Debug,
+    }
+}
+
 fn main() {
     // If launched as crash monitor (child process), run the monitor and exit
     if std::env::args().any(|a| a == crash_handler::CRASH_MONITOR_ARG) {
@@ -83,7 +100,7 @@ fn main() {
                     }),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
-                .level(if cfg!(debug_assertions) { log::LevelFilter::Debug } else { log::LevelFilter::Info })
+                .level(log_level_from_env_or_default())
                 .max_file_size(50_000)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
                 .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
@@ -130,6 +147,10 @@ fn main() {
             log::info!(
                 "Hadron {} started (crash logging active)",
                 env!("CARGO_PKG_VERSION")
+            );
+            log::info!(
+                "Log level configured via HADRON_LOG_LEVEL={} (default: debug)",
+                std::env::var("HADRON_LOG_LEVEL").unwrap_or_else(|_| "<unset>".to_string())
             );
 
             Ok(())
