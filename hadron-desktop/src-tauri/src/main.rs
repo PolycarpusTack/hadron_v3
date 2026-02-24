@@ -100,9 +100,24 @@ fn main() {
         .setup(|app| {
             // Register global hotkey: Ctrl+Shift+H to toggle widget
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+            use std::sync::atomic::{AtomicU64, Ordering};
+            use std::sync::Arc;
+
+            let last_toggle = Arc::new(AtomicU64::new(0));
+            let last_toggle_ref = Arc::clone(&last_toggle);
 
             app.global_shortcut().on_shortcut("CmdOrCtrl+Shift+H", move |app, _shortcut, event| {
                 if event.state == ShortcutState::Pressed {
+                    // Debounce: ignore presses within 300ms of the last one
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let prev = last_toggle_ref.swap(now, Ordering::Relaxed);
+                    if now.saturating_sub(prev) < 300 {
+                        return;
+                    }
+
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
                         if let Err(e) = widget_commands::toggle_widget(app).await {
@@ -122,6 +137,7 @@ fn main() {
         .manage(db)
         .manage(pattern_engine_state)
         .manage(embedding_cache)
+        .manage(widget_commands::WidgetLock::new())
         .invoke_handler(tauri::generate_handler![
             analyze_crash_log,
             analyze_jira_ticket,

@@ -9,6 +9,18 @@ const MIN_WIDGET_DIMENSION: f64 = 44.0;
 const MAX_WIDGET_WIDTH: f64 = 800.0;
 const MAX_WIDGET_HEIGHT: f64 = 1200.0;
 
+/// Serialization lock for widget window operations.
+/// Prevents concurrent show/hide/resize/move from corrupting wry/WebView2
+/// event loop state, which causes ILLEGAL_INSTRUCTION (0xc000001d) crashes
+/// on Windows.
+pub struct WidgetLock(parking_lot::Mutex<()>);
+
+impl WidgetLock {
+    pub fn new() -> Self {
+        Self(parking_lot::Mutex::new(()))
+    }
+}
+
 /// Get the widget window handle, if it exists
 fn get_widget(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(WIDGET_LABEL)
@@ -17,6 +29,8 @@ fn get_widget(app: &AppHandle) -> Option<WebviewWindow> {
 /// Toggle the widget window visibility
 #[tauri::command]
 pub async fn toggle_widget(app: AppHandle) -> CommandResult<()> {
+    let wl = app.state::<WidgetLock>();
+    let _guard = wl.0.lock();
     log::debug!("cmd: toggle_widget");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
@@ -32,6 +46,8 @@ pub async fn toggle_widget(app: AppHandle) -> CommandResult<()> {
 /// Show the widget without stealing focus from other windows
 #[tauri::command]
 pub async fn show_widget(app: AppHandle) -> CommandResult<()> {
+    let wl = app.state::<WidgetLock>();
+    let _guard = wl.0.lock();
     log::debug!("cmd: show_widget");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
@@ -42,6 +58,8 @@ pub async fn show_widget(app: AppHandle) -> CommandResult<()> {
 /// Hide the widget
 #[tauri::command]
 pub async fn hide_widget(app: AppHandle) -> CommandResult<()> {
+    let wl = app.state::<WidgetLock>();
+    let _guard = wl.0.lock();
     log::debug!("cmd: hide_widget");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
@@ -52,6 +70,8 @@ pub async fn hide_widget(app: AppHandle) -> CommandResult<()> {
 /// Resize the widget window (for FAB <-> expanded transitions)
 #[tauri::command]
 pub async fn resize_widget(app: AppHandle, width: f64, height: f64) -> CommandResult<()> {
+    let wl = app.state::<WidgetLock>();
+    let _guard = wl.0.lock();
     log::debug!("cmd: resize_widget");
     if width < MIN_WIDGET_DIMENSION || width > MAX_WIDGET_WIDTH
         || height < MIN_WIDGET_DIMENSION || height > MAX_WIDGET_HEIGHT
@@ -70,6 +90,8 @@ pub async fn resize_widget(app: AppHandle, width: f64, height: f64) -> CommandRe
 /// Show the main window and bring it to focus
 #[tauri::command]
 pub async fn focus_main_window(app: AppHandle) -> CommandResult<()> {
+    let wl = app.state::<WidgetLock>();
+    let _guard = wl.0.lock();
     log::debug!("cmd: focus_main_window");
     let main = app
         .get_webview_window(MAIN_LABEL)
@@ -90,6 +112,8 @@ pub struct WidgetPosition {
 /// Get the current widget window position
 #[tauri::command]
 pub async fn get_widget_position(app: AppHandle) -> CommandResult<WidgetPosition> {
+    let wl = app.state::<WidgetLock>();
+    let _guard = wl.0.lock();
     log::debug!("cmd: get_widget_position");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
@@ -104,6 +128,8 @@ pub async fn get_widget_position(app: AppHandle) -> CommandResult<WidgetPosition
 /// Move the widget window to a specific logical position
 #[tauri::command]
 pub async fn move_widget(app: AppHandle, x: f64, y: f64) -> CommandResult<()> {
+    let wl = app.state::<WidgetLock>();
+    let _guard = wl.0.lock();
     log::debug!("cmd: move_widget");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
@@ -114,6 +140,8 @@ pub async fn move_widget(app: AppHandle, x: f64, y: f64) -> CommandResult<()> {
 /// Check if the main window is currently visible and focused
 #[tauri::command]
 pub async fn is_main_window_visible(app: AppHandle) -> CommandResult<bool> {
+    let wl = app.state::<WidgetLock>();
+    let _guard = wl.0.lock();
     log::debug!("cmd: is_main_window_visible");
     let main = app.get_webview_window(MAIN_LABEL);
     match main {

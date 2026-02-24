@@ -144,11 +144,14 @@ pub fn run_crash_monitor() -> ! {
 // =============================================================================
 
 /// Keeps the crash handler and monitor process alive for the process lifetime.
+/// Currently unused — minidump handler disabled due to heap corruption on Windows.
+#[allow(dead_code)]
 struct CrashGuard {
     _handler: crash_handler::CrashHandler,
     _monitor: std::process::Child,
 }
 
+#[allow(dead_code)]
 static CRASH_GUARD: std::sync::OnceLock<CrashGuard> = std::sync::OnceLock::new();
 
 /// Install the crash handler that captures native crashes (segfault, abort, etc.)
@@ -159,6 +162,8 @@ static CRASH_GUARD: std::sync::OnceLock<CrashGuard> = std::sync::OnceLock::new()
 /// a minidump on crash.
 ///
 /// Non-fatal if it fails — the app runs fine without minidump capture.
+/// Currently unused — disabled due to heap corruption on Windows.
+#[allow(dead_code)]
 pub fn install_crash_handler() -> Result<(), String> {
     // Spawn the monitor as a child process (same binary, different mode)
     let exe = std::env::current_exe().map_err(|e| format!("Can't find executable: {}", e))?;

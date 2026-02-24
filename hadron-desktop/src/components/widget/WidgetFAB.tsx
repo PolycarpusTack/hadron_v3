@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Search, FileText, Wrench, Copy } from "lucide-react";
 import { looksLikeError } from "../../utils/errorDetection";
+import { withWidgetLock } from "./widgetLock";
 
 interface WidgetFABProps {
   onClick: () => void;
@@ -42,28 +43,32 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showMenu]);
 
-  const closeMenu = useCallback(async () => {
+  const closeMenu = useCallback(() => {
     setShowMenu(false);
-    try {
-      const pos = await invoke<{ x: number; y: number }>("get_widget_position");
-      const dx = MENU_SIZE.width - FAB_SIZE.width;
-      const dy = MENU_SIZE.height - FAB_SIZE.height;
-      await invoke("resize_widget", FAB_SIZE);
-      await invoke("move_widget", { x: pos.x + dx, y: pos.y + dy });
-    } catch { /* ignore resize errors */ }
+    return withWidgetLock(async () => {
+      try {
+        const pos = await invoke<{ x: number; y: number }>("get_widget_position");
+        const dx = MENU_SIZE.width - FAB_SIZE.width;
+        const dy = MENU_SIZE.height - FAB_SIZE.height;
+        await invoke("resize_widget", FAB_SIZE);
+        await invoke("move_widget", { x: pos.x + dx, y: pos.y + dy });
+      } catch { /* ignore resize errors */ }
+    });
   }, []);
 
-  const handleContextMenu = useCallback(async (e: React.MouseEvent) => {
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    try {
-      // Expand window upward-left so menu renders above the FAB
-      const pos = await invoke<{ x: number; y: number }>("get_widget_position");
-      const dx = MENU_SIZE.width - FAB_SIZE.width;
-      const dy = MENU_SIZE.height - FAB_SIZE.height;
-      await invoke("move_widget", { x: pos.x - dx, y: pos.y - dy });
-      await invoke("resize_widget", MENU_SIZE);
-    } catch { /* ignore */ }
-    setShowMenu(true);
+    withWidgetLock(async () => {
+      try {
+        // Expand window upward-left so menu renders above the FAB
+        const pos = await invoke<{ x: number; y: number }>("get_widget_position");
+        const dx = MENU_SIZE.width - FAB_SIZE.width;
+        const dy = MENU_SIZE.height - FAB_SIZE.height;
+        await invoke("move_widget", { x: pos.x - dx, y: pos.y - dy });
+        await invoke("resize_widget", MENU_SIZE);
+      } catch { /* ignore */ }
+      setShowMenu(true);
+    });
   }, []);
 
   const handleSelect = async (prefix: string) => {

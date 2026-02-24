@@ -6,6 +6,7 @@ import WidgetFAB from "./WidgetFAB";
 import WidgetPanel from "./WidgetPanel";
 import WidgetChat from "./WidgetChat";
 import ClipboardWatcher from "./ClipboardWatcher";
+import { withWidgetLock } from "./widgetLock";
 import type { ChatMessage } from "../../services/chat";
 
 type WidgetState = "fab" | "expanded";
@@ -13,7 +14,6 @@ type WidgetState = "fab" | "expanded";
 const FAB_SIZE = { width: 44, height: 44 };
 const PANEL_SIZE = { width: 400, height: 520 };
 const POSITION_STORAGE_KEY = "hadron-widget-position";
-const VISIBILITY_CHECK_INTERVAL = 2000; // ms
 const SCREEN_MARGIN = 8; // px padding from screen edges
 
 /**
@@ -104,20 +104,24 @@ export default function WidgetApp() {
   }, []);
 
   // Poll main window visibility — hide widget when main is visible, show when hidden
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      if (!hoverEnabledRef.current) return;
-      try {
-        const mainVisible = await invoke<boolean>("is_main_window_visible");
-        if (mainVisible) {
-          await invoke("hide_widget");
-        } else {
-          await invoke("show_widget");
-        }
-      } catch { /* ignore */ }
-    }, VISIBILITY_CHECK_INTERVAL);
-    return () => clearInterval(interval);
-  }, []);
+  // NOTE: Disabled for crash investigation — rapid show/hide cycling may be causing
+  // ILLEGAL_INSTRUCTION crashes via tao/wry event loop state machine violations.
+  // Re-enable once root cause is confirmed.
+  //
+  // useEffect(() => {
+  //   const interval = setInterval(async () => {
+  //     if (!hoverEnabledRef.current) return;
+  //     try {
+  //       const mainVisible = await invoke<boolean>("is_main_window_visible");
+  //       if (mainVisible) {
+  //         await invoke("hide_widget");
+  //       } else {
+  //         await invoke("show_widget");
+  //       }
+  //     } catch { /* ignore */ }
+  //   }, VISIBILITY_CHECK_INTERVAL);
+  //   return () => clearInterval(interval);
+  // }, []);
 
   const handleMessagesChange = useCallback((messages: ChatMessage[]) => {
     widgetMessagesRef.current = messages;
@@ -132,8 +136,8 @@ export default function WidgetApp() {
     }
   }, []);
 
-  // Shared helper: reposition + resize for expanding
-  const expandToPanel = useCallback(async () => {
+  // Shared helper: reposition + resize for expanding (serialized via lock)
+  const expandToPanel = useCallback(() => withWidgetLock(async () => {
     try {
       // Save FAB position so we can restore on collapse
       fabPositionRef.current = await invoke<{ x: number; y: number }>("get_widget_position");
@@ -145,14 +149,14 @@ export default function WidgetApp() {
     } catch {
       // Resize/move failed; still expand to avoid stuck state
     }
-  }, []);
+  }), []);
 
   const expand = useCallback(async () => {
     await expandToPanel();
     setWidgetState("expanded");
   }, [expandToPanel]);
 
-  const collapse = useCallback(async () => {
+  const collapse = useCallback(() => withWidgetLock(async () => {
     try {
       await invoke("resize_widget", FAB_SIZE);
       // Restore FAB to its original position before expansion
@@ -166,7 +170,7 @@ export default function WidgetApp() {
     setPendingClipboard(null);
     setPendingInput(null);
     setWidgetState("fab");
-  }, []);
+  }), []);
 
   const handleClipboardAnalyze = useCallback(async (content: string) => {
     setPendingClipboard(content);
