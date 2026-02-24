@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
-import { X, BookOpen, Code, HelpCircle, GraduationCap, ChevronRight, ExternalLink } from "lucide-react";
+import { X, BookOpen, HelpCircle, GraduationCap, ChevronRight, ExternalLink, Layers, ArrowRightLeft, FileCode, Cpu } from "lucide-react";
 import Modal from "./ui/Modal";
 import Button from "./ui/Button";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { APP_VERSION } from "../constants/version";
 
 // Documentation content types
-type DocType = "getting-started" | "help" | "developer";
+type DocType = "getting-started" | "architecture" | "data-flow" | "api-reference" | "module-deep-dive" | "troubleshooting";
 
 interface DocumentationViewerProps {
   isOpen: boolean;
@@ -26,19 +27,37 @@ const docSections: DocSection[] = [
     id: "getting-started",
     title: "Getting Started",
     icon: <GraduationCap className="w-5 h-5" />,
-    description: "Tutorial for new users - learn Hadron step by step",
+    description: "Tutorial for new users — learn Hadron step by step",
   },
   {
-    id: "help",
+    id: "architecture",
+    title: "Architecture",
+    icon: <Layers className="w-5 h-5" />,
+    description: "Directory structure, system diagram, and technology stack",
+  },
+  {
+    id: "data-flow",
+    title: "Data Flow",
+    icon: <ArrowRightLeft className="w-5 h-5" />,
+    description: "How requests flow through the system end to end",
+  },
+  {
+    id: "api-reference",
+    title: "API Reference",
+    icon: <FileCode className="w-5 h-5" />,
+    description: "All Tauri commands, chat tools, and integration endpoints",
+  },
+  {
+    id: "module-deep-dive",
+    title: "Module Deep-Dive",
+    icon: <Cpu className="w-5 h-5" />,
+    description: "Purpose, dependencies, and key logic for every major module",
+  },
+  {
+    id: "troubleshooting",
     title: "Help & Troubleshooting",
     icon: <HelpCircle className="w-5 h-5" />,
     description: "Solve common problems and find answers",
-  },
-  {
-    id: "developer",
-    title: "Developer Guide",
-    icon: <Code className="w-5 h-5" />,
-    description: "Architecture, codebase structure, and contribution guide",
   },
 ];
 
@@ -46,7 +65,7 @@ const docSections: DocSection[] = [
 const DOCS: Record<DocType, string> = {
   "getting-started": `# Getting Started with Hadron
 
-Welcome to Hadron — your AI-powered support assistant for WHATS'ON crash analysis, JIRA integration, Sentry monitoring, and release notes generation.
+Welcome to **Hadron** — your AI-powered support assistant for WHATS'ON crash analysis, JIRA integration, Sentry monitoring, and release notes generation.
 
 ---
 
@@ -116,7 +135,7 @@ Results include:
 - **Severity** — Critical, High, Medium, or Low
 - **Component** — Which part of the application was affected
 
-From results, you can: **Export** (Markdown/HTML/JSON), **Create JIRA Ticket**, **Add Tags**, or **Re-analyze**.
+From results, you can: **Export** (Markdown/HTML/JSON/XLSX), **Create JIRA Ticket**, **Add Tags**, or **Re-analyze**.
 
 ---
 
@@ -140,11 +159,26 @@ Configure in Settings > JIRA Integration. Once connected, you can create tickets
 Configure in Settings > Sentry Integration. The **Sentry Analyzer** tab lets you browse production errors, view event details, and run AI analysis on Sentry issues. Detects patterns: Deadlocks, N+1 Queries, Memory Leaks, Unhandled Promises.
 
 ### Release Notes
-The **Release Notes** tab generates AI-powered release notes from JIRA fix versions. Lifecycle: Draft -> In Review -> Approved -> Published.
+The **Release Notes** tab generates AI-powered release notes from JIRA fix versions. Lifecycle: Draft > In Review > Approved > Published.
+
+### Keeper Secrets
+Configure in Settings > Keeper Integration to securely store API keys in Keeper vault instead of local storage.
 
 ---
 
-## Module 5: Keyboard Shortcuts
+## Module 5: Widget (Floating Button)
+
+The widget is a small floating button that stays on top of other windows:
+
+- **Click** to expand into a quick chat panel
+- **Right-click** for quick action templates (Explain Error, Summarize for Jira, etc.)
+- **Drag** to reposition anywhere on screen
+- **Drop files** onto the expanded panel for quick analysis
+- Toggle via **Alt+H** or in Settings
+
+---
+
+## Module 6: Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
@@ -152,19 +186,665 @@ The **Release Notes** tab generates AI-powered release notes from JIRA fix versi
 | \`Ctrl+H\` | Open History |
 | \`Ctrl+,\` | Open Settings |
 | \`Ctrl+Y\` | Open Console |
+| \`Alt+H\` | Toggle Widget |
 | \`Esc\` | Close panel |
+`,
+
+  architecture: `# Architecture
+
+Hadron uses a **three-layer hybrid architecture**:
+
+| Layer | Technology | Role |
+|-------|------------|------|
+| **Frontend** | React 18 + TypeScript + Tailwind | 68 components, state management, services |
+| **Backend** | Rust + Tauri v2 | Parsing, AI calls, database, integrations, 100+ commands |
+| **Scripts** | Python 3.10+ (optional) | RAG vector search, training, offline analysis |
+
+Communication: Frontend <-> Backend via **Tauri IPC** (\`invoke()\` calls + event streaming).
 
 ---
 
-## Getting Help
+## Directory Structure
 
-- Check the **Help & Troubleshooting** guide for common issues
-- Press \`Ctrl+Y\` to open the Console Viewer for debugging
+\`\`\`
+hadron-desktop/
+src/                          # Frontend (React + TypeScript)
+  components/                 # 68 UI components
+    widget/                   #   Floating widget (FAB, panel, chat)
+    jira/                     #   JIRA integration (10 components)
+    sentry/                   #   Sentry integration (12 components)
+    release-notes/            #   Release notes lifecycle (8 components)
+    whatson/                   #   Enhanced analysis tabs (9 components)
+    ui/                       #   Primitives (Button, Modal, TabBar)
+  services/                   # 21 service modules (api, chat, circuit-breaker, cache, etc.)
+  hooks/                      # useAppState (40+ actions), useKeyboardShortcuts, useDebounce
+  types/                      # TypeScript type definitions
+  utils/                      # Error detection, severity helpers, parsers
+
+src-tauri/src/                # Backend (Rust)
+  main.rs                     # Entry point: Tauri builder, plugins, commands
+  error.rs                    # HadronError enum (20+ variants)
+  database.rs                 # SQLite wrapper (50+ methods, WAL, FTS5)
+  migrations.rs               # 13 schema migrations
+  ai_service.rs               # 4 AI providers (OpenAI, Anthropic, Z.ai, llama.cpp)
+  chat_commands.rs             # Agentic chat loop (8 iterations, 15 tools)
+  chat_tools.rs               # Tool definitions + executors
+  commands/                   # 20 modular command files (crud, tags, export, jira, etc.)
+  commands_legacy.rs          # Legacy commands (being migrated)
+  parser/                     # Crash log parser (WCR + text)
+    sections/                 #   Per-section parsers (header, exception, stack, etc.)
+  patterns/                   # Pattern matching engine
+    library/builtin.rs        #   30+ built-in crash patterns
+    matchers/                 #   Exception, stack, context, DB matchers
+  retrieval/                  # Hybrid RAG pipeline
+    hybrid_analysis.rs        #   FTS5 search with query variants
+    hybrid_kb.rs              #   OpenSearch vector + text
+    rrf.rs                    #   Reciprocal Rank Fusion
+    citation.rs               #   Citation extraction + validation
+    evidence_gate.rs          #   Sufficiency scoring
+    query_planner.rs          #   LLM-driven query rewriting
+  export/generators/          # HTML, Markdown, JSON, TXT, XLSX
+  jira_service.rs             # JIRA REST API client
+  sentry_service.rs           # Sentry REST API client
+  keeper_service.rs           # Keeper Secrets Manager
+  widget_commands.rs          # Widget window operations
+
+python/                       # Optional Python modules
+  api/                        #   FastAPI server
+  rag/                        #   Chroma vector DB + embeddings
+  offline/                    #   llama.cpp integration
+  training/                   #   QLoRA fine-tuning
+\`\`\`
+
+---
+
+## System Architecture Diagram
+
+\`\`\`
++----------------------------------------------------------+
+|                    Frontend (React 18)                    |
+|                                                          |
+|  App.tsx ──> useAppState (40+ actions)                   |
+|  68 Components ──> 21 Services ──> invoke() / events     |
++----------------------------+-----------------------------+
+                             | Tauri IPC
++----------------------------v-----------------------------+
+|                    Backend (Rust/Tauri v2)                |
+|                                                          |
+|  100+ Commands ──> ai_service ──> 4 AI Providers         |
+|                ──> database   ──> SQLite (15+ tables)    |
+|                ──> parser     ──> CrashFile sections      |
+|                ──> patterns   ──> 30+ crash patterns      |
+|                ──> retrieval  ──> FTS5 + OpenSearch + RRF |
+|                ──> export     ──> HTML/MD/JSON/XLSX       |
+|                ──> jira/sentry/keeper services            |
++----------------------------+-----------------------------+
+                             |
+          +------------------+------------------+
+          |                  |                  |
+  +-------v------+  +-------v------+  +--------v-------+
+  | OpenAI/      |  | JIRA Cloud   |  | Sentry         |
+  | Anthropic/   |  | REST API     |  | REST API       |
+  | Z.ai/        |  +--------------+  +----------------+
+  | llama.cpp    |
+  +--------------+
+\`\`\`
+
+---
+
+## Database Schema (SQLite + FTS5)
+
+**15+ tables** across 13 migrations:
+
+| Table | Purpose |
+|-------|---------|
+| \`analyses\` | Core crash analysis records (30+ columns) |
+| \`analyses_fts\` | FTS5 full-text search (BM25 ranking) |
+| \`translations\` | Content translations |
+| \`tags\` / \`analysis_tags\` | Tagging system (many-to-many) |
+| \`crash_signatures\` | Error deduplication + tracking |
+| \`analysis_notes\` | User notes on analyses |
+| \`analysis_feedback\` | Accept/reject/edit/rating feedback |
+| \`gold_analyses\` | Verified gold-standard answers |
+| \`gold_answers\` | Ask Hadron Q&A pairs |
+| \`jira_links\` | JIRA ticket linking |
+| \`chat_sessions\` / \`chat_messages\` | Chat history |
+| \`chat_feedback\` | Chat response ratings |
+| \`release_notes\` | Generated release notes |
+| \`session_summaries\` | Chat session summaries |
+
+**Configuration:** WAL mode, NORMAL synchronous, 256MB mmap, FTS5 with weighted BM25 (error_type x10, root_cause x8, component x7).
 `,
 
-  help: `# Hadron Help & Troubleshooting Guide
+  "data-flow": `# Data Flow
 
-Quick solutions to common problems in Hadron 4.0.
+## Crash Analysis Flow
+
+When a user drops a crash log file, the following sequence occurs:
+
+\`\`\`
+User drops file
+  |
+  v
+FileDropZone.onFileSelect()
+  |
+  v
+api.analyzeCrashLog(filePath, options)
+  |
+  v
+circuit-breaker.ts ── checks provider health
+  |
+  v
+invoke("analyze_crash_log", request)
+  |
+  v
+Backend: validate_file_path() ── security check
+  |
+  v
+parser/crash_file.rs: parse_file(path)
+  |── header.rs:     timestamp, product, version
+  |── exception.rs:  error type, message, code
+  |── stack_trace.rs: frames, symbols, addresses
+  |── context.rs:    registers, heap state
+  |── environment.rs: system info
+  |── database.rs:   query history
+  |── processes.rs:  running processes
+  |── memory.rs:     memory layout
+  |── windows.rs:    UI state
+  v
+CrashFile (all parsed sections)
+  |
+  +──[if RAG enabled]──> retrieval/hybrid_analysis.rs
+  |                       |── FTS5 search (similar analyses)
+  |                       |── Query variant generation
+  |                       v
+  |                     RAGContext (similar cases)
+  |
+  +──[if KB enabled]───> retrieval/hybrid_kb.rs
+  |                       |── OpenSearch KNN (vector search)
+  |                       |── OpenSearch BM25 (text search)
+  |                       |── retrieval/rrf.rs (fusion)
+  |                       v
+  |                     KBContext (knowledge base hits)
+  |
+  v
+ai_service.rs: call_provider_raw_json()
+  |── Build prompt with crash data + RAG context + KB context
+  |── Send to provider (OpenAI / Anthropic / Z.ai / llama.cpp)
+  v
+JSON analysis result
+  |
+  v
+database.rs: insert_analysis()
+  |── FTS5 auto-indexed via triggers
+  |── Auto-tagging (if enabled)
+  v
+Return Analysis to frontend
+  |
+  v
+Render AnalysisDetailView / WhatsOnDetailView
+\`\`\`
+
+---
+
+## Ask Hadron Chat Flow
+
+When a user sends a message to Ask Hadron:
+
+\`\`\`
+User types message
+  |
+  v
+chat.ts: sendChatMessage(messages, options)
+  |── Subscribe to events: chat:stream, chat:tool-use, chat:diagnostics
+  v
+invoke("chat_send", { messages, options })
+  |
+  v
+chat_commands.rs: Build system prompt + 15 tool definitions
+  |
+  +──[RAG context]──> FTS5 search + similar analyses
+  |
+  v
+AGENT LOOP (max 8 iterations):
+  |
+  |── ai_service: call_provider_streaming(messages + tools)
+  |     |
+  |     +──> emit("chat:stream", token)  ──> Frontend renders token
+  |     v
+  |   Response from AI
+  |     |
+  |     +── [if tool_calls detected]
+  |     |     |
+  |     |     v
+  |     |   chat_tools.rs: execute_tool(name, args)
+  |     |     |── search_analyses → SQLite FTS5
+  |     |     |── search_kb → OpenSearch
+  |     |     |── search_jira → JIRA API
+  |     |     |── create_jira_ticket → JIRA API
+  |     |     |── find_similar_crashes → SQLite
+  |     |     |── get_trend_data → SQLite
+  |     |     |── ... (15 tools total)
+  |     |     v
+  |     |   Append tool result to messages → CONTINUE LOOP
+  |     |
+  |     +── [if text response (no tools)]
+  |           |
+  |           v
+  |         BREAK LOOP
+  |
+  v
+Citation extraction + validation
+  |── Extract markdown links from response
+  |── Validate against tool results
+  |── Flag hallucinated citations
+  v
+emit("chat:final-content", response)
+  |
+  v
+Frontend renders final response with citations
+\`\`\`
+
+---
+
+## Widget Communication Flow
+
+\`\`\`
+Widget Window (WidgetApp.tsx)              Main Window (App.tsx)
+  |                                           |
+  |── Click FAB → expand panel                |
+  |── WidgetChat: user types message          |
+  |── Chat completes                          |
+  |                                           |
+  |── "Open in Main" clicked                  |
+  |     |                                     |
+  |     +── emit("widget:open-in-main",       |
+  |     |        { messages })                |
+  |     |                                     |
+  |     +── invoke("focus_main_window")       |
+  |                                     ──────|
+  |                                     listen("widget:open-in-main")
+  |                                     AskHadronView receives messages
+  |
+  +── Settings changed in main window
+  |     |
+  |     +─────────────── emit("settings:hover-button-changed")
+  |     |                                     |
+  |     v                                     |
+  |   Widget hides/shows accordingly          |
+\`\`\`
+
+---
+
+## Circuit Breaker Pattern
+
+\`\`\`
+API Call
+  |
+  v
+Check circuit state for provider
+  |
+  +── CLOSED (healthy): Execute call
+  |     |
+  |     +── Success → Record success, return result
+  |     +── Failure → Record failure
+  |           |
+  |           +── Error rate > 50%? → OPEN circuit
+  |
+  +── OPEN (failing): Skip provider
+  |     |
+  |     +── Cooldown elapsed? → HALF-OPEN
+  |     +── Otherwise → Try next provider
+  |
+  +── HALF-OPEN (testing): Execute single test call
+        |
+        +── Success → CLOSED
+        +── Failure → OPEN (reset cooldown)
+\`\`\`
+`,
+
+  "api-reference": `# API Reference
+
+All backend functionality is exposed as Tauri commands, invoked from the frontend via \`invoke("command_name", { params })\`.
+
+---
+
+## Analysis & CRUD
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`analyze_crash_log\` | file_path, api_key, model, provider, analysis_type, verbosity, redact_pii | \`Analysis\` |
+| \`analyze_jira_ticket\` | JiraTicketAnalyzeRequest | \`Analysis\` |
+| \`save_external_analysis\` | ExternalAnalysisRequest | \`Analysis\` |
+| \`get_all_analyses\` | — | \`Vec<Analysis>\` |
+| \`get_analyses_paginated\` | limit?, offset? | \`Vec<Analysis>\` |
+| \`get_analysis_by_id\` | id | \`Analysis\` |
+| \`get_analyses_count\` | — | \`i64\` |
+| \`delete_analysis\` | id | \`()\` |
+| \`toggle_favorite\` | id | \`bool\` |
+| \`get_favorites\` | — | \`Vec<Analysis>\` |
+| \`get_recent\` | limit | \`Vec<Analysis>\` |
+| \`search_analyses\` | query, severity_filter? | \`Vec<Analysis>\` |
+| \`get_analyses_filtered\` | query, date_from?, date_to?, severity?, type?, component? | \`Vec<Analysis>\` |
+| \`get_database_statistics\` | — | \`DatabaseStatistics\` |
+
+---
+
+## Tags
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`create_tag\` | name, color | \`Tag\` |
+| \`update_tag\` | id, name?, color? | \`Tag\` |
+| \`delete_tag\` | id | \`()\` |
+| \`get_all_tags\` | — | \`Vec<Tag>\` |
+| \`add_tag_to_analysis\` | analysis_id, tag_id | \`()\` |
+| \`remove_tag_from_analysis\` | analysis_id, tag_id | \`()\` |
+| \`auto_tag_analyses\` | — | \`{ tagged, skipped }\` |
+
+---
+
+## Ask Hadron (Chat)
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`chat_send\` | messages, options (useRag, useKb, requestId, verbosity) | \`String\` |
+| \`chat_save_session\` | ChatSession | \`i64\` |
+| \`chat_list_sessions\` | — | \`Vec<ChatSession>\` |
+| \`chat_get_messages\` | session_id | \`Vec<ChatMessage>\` |
+| \`chat_delete_session\` | session_id | \`()\` |
+| \`chat_submit_feedback\` | session_id, message_id, type, reason? | \`()\` |
+
+### Chat Tools (15)
+
+The AI agent can invoke these tools during conversation:
+
+| Tool | Purpose |
+|------|---------|
+| \`search_analyses\` | Full-text search past crash analyses |
+| \`search_kb\` | Semantic search the knowledge base |
+| \`search_jira\` | JQL search for JIRA issues |
+| \`create_jira_ticket\` | Create a new JIRA issue |
+| \`find_similar_crashes\` | Find analyses with similar error signatures |
+| \`get_analysis_detail\` | Load full analysis by ID |
+| \`get_trend_data\` | Error trends over a time period |
+| \`get_top_error_patterns\` | Most frequent crash patterns |
+| \`get_crash_signatures\` | Signature deduplication data |
+| \`search_release_notes\` | Search generated release notes |
+| \`get_gold_answers\` | Retrieve verified Q&A pairs |
+| \`search_sentry_issues\` | Search Sentry issues |
+| \`get_database_stats\` | Database statistics |
+| \`calculate\` | Evaluate math expressions |
+| \`get_current_date\` | Return current date/time |
+
+---
+
+## JIRA Integration
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`test_jira_connection\` | base_url, email, api_token | \`JiraTestResponse\` |
+| \`list_jira_projects\` | base_url, email, api_token | \`Vec<JiraProjectInfo>\` |
+| \`create_jira_ticket\` | JiraCreateRequest | \`JiraCreateResponse\` |
+| \`search_jira_issues\` | base_url, email, api_token, jql | \`Vec<JiraIssue>\` |
+| \`link_jira_to_analysis\` | analysis_id, jira_link | \`i64\` |
+| \`unlink_jira_from_analysis\` | analysis_id, jira_key | \`()\` |
+| \`post_jira_comment\` | base_url, email, api_token, issue_key, comment | \`()\` |
+
+---
+
+## Sentry Integration
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`test_sentry_connection\` | org_slug, auth_token | \`SentryTestResponse\` |
+| \`list_sentry_projects\` | org_slug, auth_token | \`Vec<SentryProject>\` |
+| \`list_sentry_issues\` | project_id, auth_token | \`Vec<SentryIssue>\` |
+| \`fetch_sentry_issue\` | project_id, issue_id, auth_token | \`SentryIssueDetail\` |
+| \`analyze_sentry_issue\` | SentryAnalyzeRequest | \`Analysis\` |
+
+---
+
+## Export & Reports
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`generate_report\` | analysis_id, format, audience?, sections? | \`ReportResult\` |
+| \`generate_report_multi\` | analysis_id, formats[] | \`Vec<ReportResult>\` |
+| \`preview_report\` | analysis_id | \`String (HTML)\` |
+| \`check_sensitive_content\` | content | \`SensitiveContentResult\` |
+| \`sanitize_content\` | content, audience | \`String\` |
+| \`get_export_formats\` | — | \`Vec<ExportFormat>\` |
+
+**Supported formats:** HTML, Interactive HTML, Markdown, JSON, TXT, XLSX
+
+---
+
+## Widget
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`toggle_widget\` | — | \`()\` |
+| \`show_widget\` | — | \`()\` |
+| \`hide_widget\` | — | \`()\` |
+| \`resize_widget\` | width, height | \`()\` |
+| \`move_widget\` | x, y | \`()\` |
+| \`get_widget_position\` | — | \`WidgetPosition { x, y }\` |
+| \`focus_main_window\` | — | \`()\` |
+| \`is_main_window_visible\` | — | \`bool\` |
+
+---
+
+## Intelligence Platform
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`submit_analysis_feedback\` | analysis_id, type, field_name?, values?, rating?, reason? | \`()\` |
+| \`promote_to_gold\` | analysis_id | \`()\` |
+| \`verify_gold_analysis\` | gold_id | \`()\` |
+| \`reject_gold_analysis\` | gold_id, reason | \`()\` |
+| \`export_gold_jsonl\` | — | \`String (JSONL)\` |
+| \`save_gold_answer\` | question, answer, component?, severity? | \`i64\` |
+| \`search_gold_answers_cmd\` | query | \`Vec<GoldAnswer>\` |
+
+---
+
+## Release Notes
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`generate_release_notes\` | jira_version, config | \`ReleaseNotes\` |
+| \`list_release_notes\` | — | \`Vec<ReleaseNotes>\` |
+| \`get_release_notes\` | id | \`ReleaseNotes\` |
+| \`update_release_notes_status\` | id, status | \`()\` |
+| \`export_release_notes\` | id, format | \`String\` |
+
+---
+
+## Database Maintenance
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`optimize_fts_index\` | — | \`()\` |
+| \`check_database_integrity\` | — | \`bool\` |
+| \`compact_database\` | — | \`()\` |
+| \`checkpoint_wal\` | — | \`()\` |
+| \`get_database_info\` | — | \`DatabaseInfo\` |
+
+---
+
+## Pattern Matching
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`parse_crash_file\` | path | \`CrashFile\` |
+| \`parse_crash_content\` | content, filename | \`CrashFile\` |
+| \`match_patterns\` | crash_file | \`Vec<PatternMatchResult>\` |
+| \`get_best_pattern_match\` | crash_file | \`PatternMatchResult?\` |
+| \`list_patterns\` | — | \`Vec<CrashPattern>\` |
+| \`reload_patterns\` | — | \`()\` |
+
+---
+
+## Crash Signatures
+
+| Command | Inputs | Returns |
+|---------|--------|---------|
+| \`compute_crash_signature\` | crash_file | \`String (hash)\` |
+| \`register_crash_signature\` | CrashSignature | \`()\` |
+| \`get_signature_occurrences\` | hash | \`i32\` |
+| \`get_top_signatures\` | limit | \`Vec<CrashSignature>\` |
+| \`update_signature_status\` | hash, status | \`()\` |
+| \`link_ticket_to_signature\` | hash, ticket_system, ticket_id, url | \`()\` |
+`,
+
+  "module-deep-dive": `# Module Deep-Dive
+
+Detailed documentation for every major module in the system.
+
+---
+
+## Frontend Core
+
+### App.tsx — Root Orchestrator
+- **Purpose:** Routes all views, manages global state, orchestrates lazy loading.
+- **Dependencies:** All views (lazy), useAppState, useKeyboardShortcuts, DocumentationViewer, ConsoleViewer.
+- **Exports:** Root React component.
+- **Key Logic:** \`useAppState\` (useReducer) provides centralized state with 40+ action types covering navigation, analysis lifecycle, batch processing, code analysis, and error display. Routes to 10 views via \`currentView\` state. Lazy-loads heavy views (AnalysisDetailView, WhatsOnDetailView, AskHadronView, ReleaseNotesView) with Suspense.
+
+### services/api.ts — Backend Gateway
+- **Purpose:** Tauri IPC wrappers for all 100+ backend commands.
+- **Dependencies:** \`@tauri-apps/api/core\` (invoke).
+- **Exports:** 40+ async functions (analyzeCrashLog, getAllAnalyses, searchAnalyses, etc.).
+- **Key Logic:** Each function maps to a Tauri command. Provider/model configuration stored in localStorage. File path validation delegated to backend.
+
+### services/circuit-breaker.ts — Provider Failover
+- **Purpose:** Resilient API calls with automatic provider switching.
+- **Exports:** \`circuitBreaker.call()\`, \`circuitBreaker.getState()\`.
+- **Key Logic:** Tracks error rates per provider (50% threshold). Three states: closed (healthy), open (failing), half-open (testing). Auto-falls back to next healthy provider. 5-minute timeout for deep scan operations.
+
+### services/chat.ts — Chat Streaming
+- **Purpose:** Ask Hadron chat session management and real-time event streaming.
+- **Exports:** \`sendChatMessage\`, \`cancelChat\`, event subscribers, session CRUD.
+- **Key Logic:** Invokes \`chat_send\` while subscribing to Tauri events: \`chat:stream\` (tokens), \`chat:tool-use\` (tool invocations), \`chat:diagnostics\` (retrieval stats), \`chat:final-content\` (complete response). Subscriptions scoped by requestId.
+
+---
+
+## Frontend — Widget System
+
+### widget/WidgetApp.tsx — Widget Root
+- **Purpose:** Manages the floating widget window (FAB and expanded states).
+- **Key Logic:** Two states: FAB (44x44px) and expanded (400x520px). Smart positioning: detects screen quadrant, expands away from edges. Saves position to localStorage. All window operations serialized via \`withWidgetLock\` to prevent wry/WebView2 crashes on Windows.
+
+### widget/widgetLock.ts — Concurrency Control
+- **Purpose:** Prevents concurrent widget window operations.
+- **Key Logic:** Promise-based queue. Only one operation (show/hide/resize/move) at a time. Required because concurrent Tauri window API calls cause ILLEGAL_INSTRUCTION crashes.
+
+---
+
+## Backend Core
+
+### main.rs — Entry Point
+- **Purpose:** Tauri builder configuration and startup.
+- **Key Logic:** Registers 100+ commands, 10+ plugins (log, dialog, store, updater, process, notification, window-state, global-shortcut, clipboard). Manages shared state: Database (Arc), PatternEngine (RwLock), EmbeddingCache, WidgetLock. Conditional log level: Debug in dev, Info in release.
+
+### error.rs — Error System
+- **Purpose:** Unified error handling for the entire backend.
+- **Exports:** \`HadronError\` enum (20+ variants), \`CommandResult<T>\` type.
+- **Key Logic:** Covers Database, IO, Security, AI, Parse, Http, Jira, Keeper, Config, Validation errors. Implements Serialize for Tauri IPC. \`to_ipc_string()\` sanitizes security errors. Auto-converts from rusqlite, reqwest, serde_json, tauri errors.
+
+### database.rs — SQLite Wrapper
+- **Purpose:** All database operations (50+ methods).
+- **Key Logic:** Connection protected by parking_lot::Mutex (never poisons). WAL mode for concurrent reads. FTS5 with weighted BM25 ranking. Soft deletes via \`deleted_at\`. Parameterized queries for SQL injection prevention. Tables include: analyses, translations, tags, crash_signatures, jira_links, chat_sessions, gold_analyses, release_notes, and more.
+
+### ai_service.rs — Multi-Provider AI
+- **Purpose:** AI provider abstraction layer.
+- **Key Logic:** Supports 4 providers with provider-specific request/response formats. OpenAI: JSON mode + tool calling. Anthropic: tool use + streaming. Z.ai: OpenAI-compatible. llama.cpp: local streaming. Cost estimation per provider/model. Token budget management for large crash logs. Parses tool calls from responses.
+
+### chat_commands.rs — Agentic Loop
+- **Purpose:** Ask Hadron chat with tool calling.
+- **Key Logic:** Builds system prompt with 15 tool definitions. Agent loop (max 8 iterations): send to AI > parse tool calls > execute tools > append results > repeat. Streaming via Tauri events. RAG context injection. Citation extraction and validation. Evidence synthesis using XML source tags.
+
+---
+
+## Backend — Parser
+
+### parser/crash_file.rs
+- **Purpose:** Main crash log parser for WCR and text formats.
+- **Key Logic:** Splits crash logs by section headers. Delegates to 9 section parsers: header, exception, stack_trace, context, environment, database, processes, memory, windows. Returns \`CrashFile\` struct with all parsed sections.
+
+---
+
+## Backend — Pattern Matching
+
+### patterns/engine.rs
+- **Purpose:** Crash pattern matching orchestrator.
+- **Key Logic:** Iterates 30+ patterns (built-in + custom) against parsed CrashFile. Each pattern has multiple matchers (exception, stack_top, context, database). Match strength scored 0.0-1.0. Version filtering supported. Built-in patterns: NIL_RECEIVER, MESSAGE_NOT_UNDERSTOOD, SUBSCRIPTION_OUT_OF_BOUNDS, DEADLOCK, DATABASE_TIMEOUT, MEMORY_PRESSURE, etc.
+
+---
+
+## Backend — Retrieval/RAG
+
+### retrieval/hybrid_analysis.rs — FTS5 Search
+- **Purpose:** Full-text search with AI-generated query variants.
+- **Key Logic:** Uses AI to generate alternative queries for broader recall. Runs multiple FTS5 searches in parallel. Deduplicates and scores results. Sanitizes FTS5 operators to prevent injection.
+
+### retrieval/hybrid_kb.rs — Knowledge Base
+- **Purpose:** Multi-source knowledge base retrieval.
+- **Key Logic:** Searches OpenSearch using both KNN (vector) and BM25 (text). Includes release notes indices. Fuses results via RRF. Customer-specific filtering.
+
+### retrieval/rrf.rs — Rank Fusion
+- **Purpose:** Merge ranked results from heterogeneous sources.
+- **Key Logic:** Reciprocal Rank Fusion: \`score = sum(1/(k + rank))\` across all source lists. Normalizes dissimilar scoring systems.
+
+### retrieval/citation.rs — Citation Validation
+- **Purpose:** Extract and validate citations in LLM responses.
+- **Key Logic:** Extracts markdown links. Validates against tool results. Detects hallucinated references. Generates numbered reference lists.
+
+---
+
+## Backend — External Services
+
+### jira_service.rs
+- **Purpose:** JIRA Cloud REST API v2/v3 client.
+- **Key Logic:** Basic Auth (email + token). Project listing, issue creation, JQL search with pagination, fix versions, comments.
+
+### sentry_service.rs
+- **Purpose:** Sentry REST API client.
+- **Key Logic:** Bearer token auth. Issues, events, project listing. Org-level and project-level queries.
+
+### keeper_service.rs
+- **Purpose:** Keeper Secrets Manager integration.
+- **Key Logic:** C FFI SDK wrapper. Retrieves API keys from vault. Thread-safe singleton. Graceful fallback when unavailable.
+
+---
+
+## Backend — Export
+
+### export/generators/
+- **Purpose:** Multi-format report generation.
+- **Key Logic:** 6 generators: HTML (template-based), Interactive HTML (collapsible sections), Markdown, JSON, TXT, XLSX. All support audience-aware content (technical, management, executive). PII sanitization via \`sanitizer.rs\`.
+
+---
+
+## Python Modules (Optional)
+
+### python/rag/ — Vector Search
+- **Purpose:** Chroma-based vector retrieval + BM25 hybrid search.
+- **Key Logic:** OpenAI embeddings (text-embedding-3-small, 1536d) with local fallback via llama.cpp. 500-token chunks with 50-token overlap. Hybrid scoring: 70% vector + 30% BM25. JSON IPC via stdin/stdout for Tauri subprocess calls.
+
+### python/offline/ — Offline Analysis
+- **Purpose:** Fully offline crash analysis via llama.cpp.
+- **Key Logic:** Connects to local llama-server (OpenAI-compatible API). Three modes: DISABLED, HYBRID, FULL. Requires 16GB RAM, 8GB VRAM.
+
+### python/training/ — Fine-Tuning
+- **Purpose:** QLoRA fine-tuning pipeline.
+- **Key Logic:** 4-bit quantization of Llama-3.1-8B-Instruct. QLoRA: r=16, alpha=32. Training: 3 epochs, batch 4, lr=2e-4. Exports to GGUF for llama.cpp.
+`,
+
+  troubleshooting: `# Help & Troubleshooting
+
+Quick solutions to common problems in Hadron ${APP_VERSION}.
 
 ---
 
@@ -176,6 +856,7 @@ Quick solutions to common problems in Hadron 4.0.
 | \`Ctrl+H\` | Open History |
 | \`Ctrl+,\` | Open Settings |
 | \`Ctrl+Y\` | Open Console Viewer |
+| \`Alt+H\` | Toggle Widget |
 | \`Esc\` | Close current panel/modal |
 
 ---
@@ -249,6 +930,15 @@ Core features (parsing, AI analysis, JIRA, Sentry) work without Python. Python i
 
 ---
 
+## Keeper Integration Not Working
+
+1. Verify Settings > Keeper Integration:
+   - **One-Time Access Token**: Must include region prefix (e.g., \`US:xxxx\`)
+   - Token is single-use — generate a new one if it fails
+2. Click **Test Connection**
+
+---
+
 ## Ask Hadron Not Responding
 
 1. Ensure an AI provider is configured and working (test with a crash analysis first)
@@ -258,11 +948,33 @@ Core features (parsing, AI analysis, JIRA, Sentry) work without Python. Python i
 
 ---
 
+## Widget Not Appearing
+
+1. Check Settings > Hover Button is **enabled**
+2. The widget may be off-screen — reset position: close Hadron, delete localStorage, reopen
+3. Try the \`Alt+H\` hotkey to toggle visibility
+
+---
+
 ## Slow Performance
 
 1. **Reduce History Size** — Settings > Cleanup Old Records
 2. **Use Quick Analysis** for initial triage
 3. Large crash logs (>1MB) are automatically truncated
+4. Run **Settings > Database Administration > Compact Database** periodically
+
+---
+
+## Export Issues
+
+| Format | Use Case |
+|--------|----------|
+| **Markdown** | Documentation, wikis, GitHub issues |
+| **HTML** | Browser viewing, email sharing |
+| **Interactive HTML** | Collapsible sections, self-contained reports |
+| **JSON** | Integrations, automation pipelines |
+| **TXT** | Plain text for email/chat |
+| **XLSX** | Spreadsheets, management reporting |
 
 ---
 
@@ -273,6 +985,7 @@ Press \`Ctrl+Y\` to see detailed logs:
 - Parsing progress and errors
 - AI token usage and cost estimates
 - Tool execution details (Ask Hadron)
+- Retrieval diagnostics (RAG + KB)
 
 ---
 
@@ -285,163 +998,9 @@ Press \`Ctrl+Y\` to see detailed logs:
 
 ---
 
-## Export Formats
-
-| Format | Use Case |
-|--------|----------|
-| **Markdown** | Documentation, wikis, GitHub issues |
-| **HTML** | Browser viewing, email sharing |
-| **JSON** | Integrations, automation |
-
----
-
 ## Report a Bug
 
-Include: Hadron version (shown in footer), OS, steps to reproduce, and Console logs.
-`,
-
-  developer: `# Hadron Developer Guide
-
-## What is Hadron?
-
-Hadron is an **AI-powered support assistant** for the WHATS'ON broadcast management system. It analyzes crash logs, connects to JIRA and Sentry, provides an agentic AI chatbot, and generates release notes.
-
----
-
-## Architecture
-
-Hadron uses a **hybrid architecture** with three layers:
-
-| Layer | Technology | Role |
-|-------|------------|------|
-| **Frontend** | React 18 + TypeScript | UI (61 components), state management, services |
-| **Backend** | Rust + Tauri 2 | Parsing, AI calls, database, integrations |
-| **Scripts** | Python 3.10+ | Translation, RAG, training (optional) |
-
-Communication: Frontend <-> Backend via **Tauri IPC** (\`invoke()\`).
-
----
-
-## Directory Structure
-
-\`\`\`
-hadron-desktop/
-src/                        # Frontend (React + TypeScript)
-  components/               # 61 UI components
-  hooks/                    # React hooks
-  services/                 # API wrappers, cache, circuit breaker
-  types/                    # TypeScript type definitions
-  App.tsx                   # Main orchestrator
-
-src-tauri/src/              # Backend (Rust)
-  main.rs                   # Entry point, command registration
-  commands.rs               # Tauri commands (analysis, export, DB)
-  chat_commands.rs          # Ask Hadron agentic loop
-  chat_tools.rs             # 15 tool definitions + executors
-  ai_service.rs             # Multi-provider AI (OpenAI, Anthropic, Z.ai, llama.cpp)
-  database.rs               # SQLite CRUD (15+ tables)
-  migrations.rs             # 10 schema migrations
-  sentry_service.rs         # Sentry API + pattern detection
-  jira_service.rs           # JIRA REST API v3
-  release_notes_service.rs  # Release notes generation
-  parser/                   # Crash log parsing engine
-  patterns/                 # Pattern matching (TOML-driven)
-  data/patterns/            # 4 TOML pattern files
-
-python/                     # Optional Python modules
-  api/                      # FastAPI server
-  rag/                      # Chroma + embeddings
-  offline/                  # llama.cpp integration
-  training/                 # QLoRA fine-tuning
-\`\`\`
-
----
-
-## Key Backend Modules
-
-| Module | Purpose |
-|--------|---------|
-| \`ai_service.rs\` | 4 AI providers with ProviderConfig abstraction (AuthStyle, ResponseStyle, CostCalculator) |
-| \`chat_commands.rs\` | Agentic tool-calling loop (max 8 iterations per message) |
-| \`chat_tools.rs\` | 15 tools: search_analyses, search_kb, search_jira, create_jira_ticket, find_similar_crashes, etc. |
-| \`database.rs\` | SQLite with FTS5 (BM25 ranking), 10 migrations, 15+ tables |
-| \`sentry_service.rs\` | Sentry issue fetching, event details, pattern detection (Deadlock, N+1, Memory Leak, Unhandled Promise) |
-| \`jira_service.rs\` | JIRA search, ticket creation, fix version listing |
-| \`release_notes_service.rs\` | AI-generated release notes with draft/review/approve/publish lifecycle |
-| \`parser/\` | Extracts header, exception, stack trace, memory, database, context from crash logs |
-| \`patterns/\` | TOML-driven pattern matching (null_errors, collection_errors, database_errors, whatson_specific) |
-
----
-
-## Key Frontend Services
-
-| Service | Purpose |
-|---------|---------|
-| \`api.ts\` | Tauri invoke wrappers for all backend commands |
-| \`chat.ts\` | Ask Hadron chat session management |
-| \`jira.ts\` | JIRA integration helpers |
-| \`circuit-breaker.ts\` | Resilience: auto-failover after 3 consecutive failures |
-| \`cache.ts\` | In-memory caching |
-
----
-
-## Development Setup
-
-**Prerequisites:** Node.js 18+, Rust stable, Python 3.10+ (optional)
-
-\`\`\`bash
-npm install                        # Frontend deps
-pip install -r python/requirements.txt  # Optional Python deps
-npm run tauri dev                  # Dev mode with hot reload
-\`\`\`
-
-**Build:** \`npm run tauri build\`
-
-**Test:**
-\`\`\`bash
-npm run test          # Vitest unit tests
-npm run test:e2e      # Playwright E2E tests
-cd src-tauri && cargo test  # Rust tests
-\`\`\`
-
----
-
-## Adding a New Tauri Command
-
-1. Define in Rust:
-\`\`\`rust
-#[tauri::command]
-pub async fn my_command(input: String) -> Result<String, String> {
-    Ok("result".to_string())
-}
-\`\`\`
-
-2. Register in \`main.rs\` invoke handler
-3. Call from frontend: \`invoke<string>('my_command', { input })\`
-
----
-
-## Adding a Chat Tool (Ask Hadron)
-
-1. Add tool definition to \`get_tool_definitions()\` in \`chat_tools.rs\`
-2. Add executor match arm in \`execute_tool()\`
-3. Add tool label in \`AskHadronView.tsx\` for the activity indicator
-
----
-
-## Code Style
-
-- **Rust**: \`rustfmt\` + \`cargo clippy\`
-- **TypeScript**: Explicit types, avoid \`any\`, functional components with hooks
-- **Comments**: Document "why", not "what"
-
----
-
-## Further Reading
-
-- [Tauri v2 Docs](https://tauri.app/v2/guides/)
-- [React Docs](https://react.dev/)
-- [Rust Book](https://doc.rust-lang.org/book/)
+Include: Hadron version (shown in header), OS, steps to reproduce, and Console logs (\`Ctrl+Y\`).
 `,
 };
 
@@ -500,9 +1059,9 @@ export default function DocumentationViewer({
         <div className="flex-1 overflow-y-auto">
           {showSelector ? (
             /* Document Selector */
-            <div className="p-6 space-y-4">
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Choose a guide to get help with Hadron:
+            <div className="p-6 space-y-3">
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                Choose a section:
               </p>
               {docSections.map((doc) => (
                 <button
@@ -526,7 +1085,7 @@ export default function DocumentationViewer({
               ))}
 
               {/* External Links */}
-              <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
                   External Resources
                 </h3>
@@ -603,6 +1162,9 @@ export default function DocumentationViewer({
         <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
           <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
             Press <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs">Esc</kbd> to close
+            {!showSelector && (
+              <> &middot; <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs cursor-pointer" onClick={handleBack}>Back</kbd> to menu</>
+            )}
           </p>
         </div>
       </div>
