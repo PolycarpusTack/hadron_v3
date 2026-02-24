@@ -43,7 +43,7 @@ interface JiraProjectFeedProps {
   onAnalysisComplete: (analysis: Analysis) => void;
 }
 
-const DEFAULT_STATUSES = ["Open", "In Progress", "To Do", "Reopened", "Bug", "Backlog"];
+const DEFAULT_STATUSES = ["Open", "In Progress", "To Do", "Reopened", "Backlog"];
 const MAX_PROJECTS = 5;
 
 export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedProps) {
@@ -97,11 +97,22 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
 
       const jql = `(${projectConditions.join(" OR ")}) ORDER BY updated DESC`;
 
-      const result = await fetchJiraIssues({
+      let result = await fetchJiraIssues({
         jql,
         maxResults: 50,
         includeComments: true,
       });
+
+      // If the JQL failed (e.g. invalid status names), retry without status filter
+      if (!result.success && result.errors.some((e) => e.toLowerCase().includes("invalid jql"))) {
+        const fallbackConditions = watched.map((wp) => `project = ${wp.key}`);
+        const fallbackJql = `(${fallbackConditions.join(" OR ")}) ORDER BY updated DESC`;
+        result = await fetchJiraIssues({
+          jql: fallbackJql,
+          maxResults: 50,
+          includeComments: true,
+        });
+      }
 
       if (result.success) {
         setIssues(result.issues);

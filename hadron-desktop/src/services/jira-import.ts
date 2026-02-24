@@ -495,19 +495,21 @@ function mapLinkType(
 function normalizeLinks(
   issueLinks: JiraIssue["fields"]["issuelinks"]
 ): LinkedIssue[] {
-  return (issueLinks || []).map(link => {
-    const isInward = !!link.inwardIssue;
-    const linkedKey = isInward ? link.inwardIssue!.key : link.outwardIssue!.key;
-    const linkedSummary = isInward
-      ? link.inwardIssue?.fields?.summary
-      : link.outwardIssue?.fields?.summary;
+  return (issueLinks || [])
+    .filter(link => link.inwardIssue || link.outwardIssue)
+    .map(link => {
+      const isInward = !!link.inwardIssue;
+      const linkedKey = isInward ? link.inwardIssue!.key : link.outwardIssue!.key;
+      const linkedSummary = isInward
+        ? link.inwardIssue?.fields?.summary
+        : link.outwardIssue?.fields?.summary;
 
-    return {
-      key: linkedKey,
-      type: mapLinkType(link.type.name, isInward),
-      summary: linkedSummary,
-    };
-  });
+      return {
+        key: linkedKey,
+        type: mapLinkType(link.type.name, isInward),
+        summary: linkedSummary,
+      };
+    });
 }
 
 /**
