@@ -1887,7 +1887,11 @@ pub async fn search_analyses(
     log::debug!("cmd: search_analyses");
     let db = Arc::clone(&db);
     tauri::async_runtime::spawn_blocking(move || {
-        db.search_analyses(&query, severity_filter.as_deref())
+        let sanitized = crate::retrieval::hybrid_analysis::sanitize_fts5_query(&query);
+        if sanitized.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        db.search_analyses(&sanitized, severity_filter.as_deref())
     })
     .await
     .map_err(|e| format!("Task error: {}", e))?

@@ -75,7 +75,7 @@ pub async fn resize_widget(app: AppHandle, width: f64, height: f64) -> CommandRe
     log::debug!("cmd: resize_widget");
     if width < MIN_WIDGET_DIMENSION || width > MAX_WIDGET_WIDTH
         || height < MIN_WIDGET_DIMENSION || height > MAX_WIDGET_HEIGHT
-        || width.is_nan() || height.is_nan()
+        || width.is_nan() || height.is_nan() || width.is_infinite() || height.is_infinite()
     {
         return Err(HadronError::Validation(
             format!("Invalid widget dimensions: {}x{}", width, height),
@@ -90,8 +90,6 @@ pub async fn resize_widget(app: AppHandle, width: f64, height: f64) -> CommandRe
 /// Show the main window and bring it to focus
 #[tauri::command]
 pub async fn focus_main_window(app: AppHandle) -> CommandResult<()> {
-    let wl = app.state::<WidgetLock>();
-    let _guard = wl.0.lock();
     log::debug!("cmd: focus_main_window");
     let main = app
         .get_webview_window(MAIN_LABEL)
@@ -131,6 +129,11 @@ pub async fn move_widget(app: AppHandle, x: f64, y: f64) -> CommandResult<()> {
     let wl = app.state::<WidgetLock>();
     let _guard = wl.0.lock();
     log::debug!("cmd: move_widget");
+    if x.is_nan() || x.is_infinite() || y.is_nan() || y.is_infinite() {
+        return Err(HadronError::Validation(
+            format!("Invalid widget position: ({}, {})", x, y),
+        ));
+    }
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
     widget.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }))?;
@@ -140,8 +143,6 @@ pub async fn move_widget(app: AppHandle, x: f64, y: f64) -> CommandResult<()> {
 /// Check if the main window is currently visible and focused
 #[tauri::command]
 pub async fn is_main_window_visible(app: AppHandle) -> CommandResult<bool> {
-    let wl = app.state::<WidgetLock>();
-    let _guard = wl.0.lock();
     log::debug!("cmd: is_main_window_visible");
     let main = app.get_webview_window(MAIN_LABEL);
     match main {

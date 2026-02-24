@@ -77,16 +77,13 @@ export default function WidgetApp() {
 
   // Restore saved position on mount
   useEffect(() => {
-    const restorePosition = async () => {
-      try {
-        const saved = localStorage.getItem(POSITION_STORAGE_KEY);
-        if (saved) {
-          const { x, y } = JSON.parse(saved);
-          await invoke("move_widget", { x, y });
-        }
-      } catch { /* ignore */ }
-    };
-    restorePosition();
+    withWidgetLock(async () => {
+      const saved = localStorage.getItem(POSITION_STORAGE_KEY);
+      if (saved) {
+        const { x, y } = JSON.parse(saved);
+        await invoke("move_widget", { x, y });
+      }
+    }).catch(() => {});
   }, []);
 
   // Track whether hover button feature is enabled
@@ -97,7 +94,7 @@ export default function WidgetApp() {
     const unlisten = listen<{ enabled: boolean }>("settings:hover-button-changed", (event) => {
       hoverEnabledRef.current = event.payload.enabled;
       if (!event.payload.enabled) {
-        invoke("hide_widget").catch(() => {});
+        withWidgetLock(async () => { await invoke("hide_widget"); }).catch(() => {});
       }
     });
     return () => { unlisten.then(fn => fn()); };

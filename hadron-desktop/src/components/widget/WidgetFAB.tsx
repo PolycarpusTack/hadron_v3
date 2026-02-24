@@ -29,20 +29,6 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
   const fabRef = useRef<HTMLButtonElement>(null);
   const isDragging = useRef(false);
 
-  useEffect(() => {
-    if (!showMenu) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        menuRef.current && !menuRef.current.contains(e.target as Node) &&
-        fabRef.current && !fabRef.current.contains(e.target as Node)
-      ) {
-        closeMenu();
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showMenu]);
-
   const closeMenu = useCallback(() => {
     setShowMenu(false);
     return withWidgetLock(async () => {
@@ -56,6 +42,20 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
     });
   }, []);
 
+  useEffect(() => {
+    if (!showMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        menuRef.current && !menuRef.current.contains(e.target as Node) &&
+        fabRef.current && !fabRef.current.contains(e.target as Node)
+      ) {
+        closeMenu();
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showMenu, closeMenu]);
+
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     withWidgetLock(async () => {
@@ -66,9 +66,9 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
         const dy = MENU_SIZE.height - FAB_SIZE.height;
         await invoke("move_widget", { x: pos.x - dx, y: pos.y - dy });
         await invoke("resize_widget", MENU_SIZE);
+        setShowMenu(true);
       } catch { /* ignore */ }
-      setShowMenu(true);
-    });
+    }).catch(() => {});
   }, []);
 
   const handleSelect = async (prefix: string) => {
@@ -118,10 +118,14 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
     const cleanup = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
     };
+
+    const onCancel = () => { cleanup(); };
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
   }, [onClick, onDragEnd]);
 
   return (

@@ -54,7 +54,7 @@ export default function AnalyticsDashboard({ statistics }: AnalyticsDashboardPro
 
         {/* Severity bars */}
         <div className="space-y-2">
-          {statistics.severity_breakdown
+          {[...statistics.severity_breakdown]
             .sort((a, b) => b[1] - a[1]) // Sort by count descending
             .map(([severity, count]) => {
               const percentage = totalAnalyses > 0 ? (count / totalAnalyses) * 100 : 0;

@@ -441,7 +441,7 @@ impl Database {
         let conn = self.lock_conn();
 
         let sql = format!(
-            "SELECT {} FROM analyses WHERE is_favorite = 1 AND deleted_at IS NULL ORDER BY analyzed_at DESC",
+            "SELECT {} FROM analyses WHERE is_favorite = 1 AND deleted_at IS NULL ORDER BY analyzed_at DESC LIMIT 500",
             Self::ANALYSIS_SELECT_COLS
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -1470,7 +1470,7 @@ impl Database {
     pub fn get_archived_analyses(&self) -> Result<Vec<Analysis>> {
         let conn = self.lock_conn();
         let sql = format!(
-            "SELECT {} FROM analyses WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+            "SELECT {} FROM analyses WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT 500",
             Self::ANALYSIS_SELECT_COLS
         );
         let mut stmt = conn.prepare(&sql)?;

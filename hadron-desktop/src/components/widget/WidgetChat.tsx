@@ -105,13 +105,11 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
             rafRef.current = null;
           });
         }
-      }, reqId),
+      }, reqId).then(unsub => { unsubStreamRef.current = unsub; return unsub; }),
       subscribeToChatFinalContent((event) => {
         finalContent = event.content;
-      }, reqId),
+      }, reqId).then(unsub => { unsubFinalRef.current = unsub; return unsub; }),
     ]);
-    unsubStreamRef.current = unsubStream;
-    unsubFinalRef.current = unsubFinal;
 
     try {
       await sendChatMessage([...messagesRef.current, userMsg], {
