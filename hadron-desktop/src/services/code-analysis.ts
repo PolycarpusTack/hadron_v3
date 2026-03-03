@@ -92,6 +92,20 @@ const DEFAULT_SCORES: CodeQualityScores = {
   bestPractices: 50,
 };
 
+function clampScores(raw: unknown): CodeQualityScores {
+  const defaults = { overall: 50, security: 50, performance: 50, maintainability: 50, bestPractices: 50 };
+  if (!raw || typeof raw !== "object") return defaults;
+  const r = raw as Record<string, unknown>;
+  const clamp = (v: unknown) => Math.max(0, Math.min(100, Number(v) || 50));
+  return {
+    overall:         clamp(r.overall),
+    security:        clamp(r.security),
+    performance:     clamp(r.performance),
+    maintainability: clamp(r.maintainability),
+    bestPractices:   clamp(r.bestPractices),
+  };
+}
+
 export function parseCodeAnalysisResponse(response: string): CodeAnalysisResult {
   const jsonMatch = response.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
@@ -132,7 +146,7 @@ export function parseCodeAnalysisResponse(response: string): CodeAnalysisResult 
       quality: String(section.quality || ""),
     })),
     optimizedCode: parsed.optimizedCode || null,
-    qualityScores: parsed.qualityScores || DEFAULT_SCORES,
+    qualityScores: clampScores(parsed.qualityScores),
     glossary: parsed.glossary || [],
   };
 }
