@@ -44,6 +44,23 @@ interface CodeAnalyzerViewProps {
 }
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+const MAX_FILE_SIZE_BYTES = 200_000; // ~200 KB — warn before hitting Rust's 1 MB hard cap
+
+function warnIfLargeFile(file: File): boolean {
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    return window.confirm(
+      `"${file.name}" is ${(file.size / 1024).toFixed(0)} KB. ` +
+      `Large files may exceed AI context limits and produce incomplete results. ` +
+      `Continue anyway?`
+    );
+  }
+  return true;
+}
+
+// ============================================================================
 // Language Detection
 // ============================================================================
 
@@ -866,6 +883,7 @@ export default function CodeAnalyzerView({
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) {
+      if (!warnIfLargeFile(file)) return;
       const reader = new FileReader();
       reader.onload = (event) => {
         const content = event.target?.result as string;
@@ -880,6 +898,7 @@ export default function CodeAnalyzerView({
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!warnIfLargeFile(file)) return;
       const reader = new FileReader();
       reader.onload = (event) => {
         const content = event.target?.result as string;
