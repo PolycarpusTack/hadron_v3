@@ -929,15 +929,22 @@ export default function CodeAnalyzerView({
                         className="px-3 py-1 bg-gray-900 border border-gray-700 rounded text-sm text-gray-200"
                       >
                         <option>Auto-detect</option>
-                        <option>SQL</option>
-                        <option>React</option>
-                        <option>TypeScript</option>
-                        <option>JavaScript</option>
-                        <option>Smalltalk</option>
-                        <option>Python</option>
-                        <option>Rust</option>
+                        <option>CSS</option>
                         <option>Go</option>
+                        <option>HTML</option>
+                        <option>Java</option>
+                        <option>JavaScript</option>
+                        <option>JSON</option>
+                        <option>Markdown</option>
+                        <option>Python</option>
+                        <option>React</option>
+                        <option>Ruby</option>
+                        <option>Rust</option>
+                        <option>Smalltalk</option>
+                        <option>SQL</option>
+                        <option>TypeScript</option>
                         <option>XML</option>
+                        <option>YAML</option>
                         <option>Plaintext</option>
                       </select>
                       <input
