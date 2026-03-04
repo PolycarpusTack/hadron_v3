@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Loader2,
   Zap,
+  Microscope,
   Tag,
   Clock,
   User,
@@ -27,6 +28,8 @@ import JiraImportService, { type NormalizedIssue } from "../../services/jira-imp
 import { analyzeJiraTicket, getAnalysisById, getStoredApiKey } from "../../services/api";
 import { getStoredModel, getStoredProvider } from "../../services/api";
 import type { Analysis } from "../../services/api";
+import { analyzeJiraTicketDeep, type JiraDeepResult } from "../../services/api";
+import JiraAnalysisReport from "./JiraAnalysisReport";
 import { getStatusColor, getPriorityColor, formatRelativeTime } from "./jiraHelpers";
 import { isKBEnabled, getOpenSearchConfig } from "../../services/opensearch";
 import { isRagAvailable } from "../../services/rag";
@@ -42,6 +45,11 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
   const [error, setError] = useState<string | null>(null);
   const [issue, setIssue] = useState<NormalizedIssue | null>(null);
   const [showFullDescription, setShowFullDescription] = useState(false);
+  const [deepAnalyzing, setDeepAnalyzing] = useState(false);
+  const [deepResult, setDeepResult] = useState<{
+    id: number;
+    result: JiraDeepResult;
+  } | null>(null);
 
   async function handleFetch() {
     const trimmed = input.trim();
@@ -132,6 +140,43 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
     }
   }
 
+  async function handleDeepAnalyze() {
+    if (!issue) return;
+
+    const apiKey = await getStoredApiKey();
+    if (!apiKey) {
+      setError("No API key configured. Set one in Settings.");
+      return;
+    }
+
+    setDeepAnalyzing(true);
+    setDeepResult(null);
+    setError(null);
+
+    try {
+      const commentTexts = issue.comments.map((c) => c.body);
+      const response = await analyzeJiraTicketDeep(
+        issue.key,
+        issue.summary,
+        issue.descriptionPlaintext || "",
+        issue.issueType || "Unknown",
+        issue.priority || undefined,
+        issue.status || undefined,
+        issue.components,
+        issue.labels,
+        commentTexts,
+        apiKey,
+        getStoredModel(),
+        getStoredProvider(),
+      );
+      setDeepResult({ id: response.id, result: response.result });
+    } catch (err) {
+      setError(`Deep analysis failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDeepAnalyzing(false);
+    }
+  }
+
   function handleReset() {
     setIssue(null);
     setInput("");
@@ -184,6 +229,19 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
           <div>
             <p className="text-sm text-sky-300 font-medium">Analyzing {issue?.key}...</p>
             <p className="text-xs text-gray-400">Running AI analysis on ticket content</p>
+          </div>
+        </div>
+      )}
+      {deepAnalyzing && (
+        <div className="flex items-center gap-3 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+          <Loader2 className="w-5 h-5 text-purple-400 animate-spin" />
+          <div>
+            <p className="text-sm text-purple-300 font-medium">
+              Deep analyzing {issue?.key}...
+            </p>
+            <p className="text-xs text-gray-400">
+              Running JIRA-specific analysis with structured output
+            </p>
           </div>
         </div>
       )}
@@ -318,17 +376,47 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
             >
               Clear & start over
             </Button>
-            <Button
-              onClick={handleAnalyze}
-              loading={analyzing}
-              size="lg"
-              icon={<Zap />}
-              className="bg-sky-600 hover:bg-sky-700 font-semibold px-5"
-            >
-              {analyzing ? "Analyzing..." : "Analyze with AI"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleAnalyze}
+                loading={analyzing}
+                size="lg"
+                icon={<Zap />}
+                className="bg-sky-600 hover:bg-sky-700 font-semibold px-5"
+                disabled={deepAnalyzing}
+              >
+                {analyzing ? "Analyzing..." : "Analyze with AI"}
+              </Button>
+              <Button
+                onClick={handleDeepAnalyze}
+                loading={deepAnalyzing}
+                size="lg"
+                icon={<Microscope />}
+                className="bg-purple-700 hover:bg-purple-600 font-semibold px-5"
+                disabled={analyzing}
+              >
+                {deepAnalyzing ? "Deep Analyzing..." : "Deep Analyze"}
+              </Button>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* Deep Analysis Report */}
+      {deepResult && !deepAnalyzing && issue && (
+        <JiraAnalysisReport
+          analysisId={deepResult.id}
+          jiraKey={issue.key}
+          result={deepResult.result}
+          onViewInHistory={async (id) => {
+            try {
+              const fullAnalysis = await getAnalysisById(id);
+              onAnalysisComplete(fullAnalysis);
+            } catch {
+              // Navigation failed — report is still shown inline
+            }
+          }}
+        />
       )}
 
       {/* Empty state */}
