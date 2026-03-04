@@ -11,6 +11,7 @@ mod database;
 mod error;
 mod export;
 mod jira_service;
+mod jira_deep_analysis;
 mod keeper_service;
 mod release_notes_service;
 mod sentry_service;
@@ -246,7 +247,9 @@ fn main() {
             list_jira_projects,
             create_jira_ticket,
             search_jira_issues,
+            search_jira_issues_next_page,
             post_jira_comment,
+            commands::jira::analyze_jira_ticket_deep,
             // JIRA Ticket Linking (Phase 3)
             link_jira_to_analysis,
             unlink_jira_from_analysis,
