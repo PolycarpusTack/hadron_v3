@@ -240,14 +240,14 @@ impl Database {
     pub fn get_analysis_by_id(&self, id: i64) -> Result<Analysis> {
         let conn = self.lock_conn();
 
-        // Update view tracking
+        // Update view tracking — only for non-deleted records
         conn.execute(
-            "UPDATE analyses SET last_viewed_at = datetime('now'), view_count = view_count + 1 WHERE id = ?1",
+            "UPDATE analyses SET last_viewed_at = datetime('now'), view_count = view_count + 1 WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
         )?;
 
         conn.query_row(
-            &format!("SELECT {} FROM analyses WHERE id = ?1", Self::ANALYSIS_SELECT_COLS),
+            &format!("SELECT {} FROM analyses WHERE id = ?1 AND deleted_at IS NULL", Self::ANALYSIS_SELECT_COLS),
             params![id],
             Self::map_row_to_analysis,
         )
@@ -422,7 +422,7 @@ impl Database {
         let conn = self.lock_conn();
 
         let current: i32 = conn.query_row(
-            "SELECT is_favorite FROM analyses WHERE id = ?1",
+            "SELECT is_favorite FROM analyses WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
             |row| row.get(0),
         )?;
@@ -3720,5 +3720,32 @@ impl Database {
             params![customer, won_version, chrono::Utc::now().timestamp_millis(), session_id],
         )?;
         Ok(())
+    }
+
+    // ── JIRA Assist: ticket_briefs ────────────────────────────────────────────
+
+    pub fn get_ticket_brief(&self, jira_key: &str) -> Result<Option<crate::ticket_briefs::TicketBrief>> {
+        let conn = self.lock_conn();
+        crate::ticket_briefs::get_ticket_brief(&conn, jira_key)
+    }
+
+    pub fn upsert_ticket_brief(&self, brief: &crate::ticket_briefs::TicketBrief) -> Result<()> {
+        let conn = self.lock_conn();
+        crate::ticket_briefs::upsert_ticket_brief(&conn, brief)
+    }
+
+    pub fn delete_ticket_brief(&self, jira_key: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        crate::ticket_briefs::delete_ticket_brief(&conn, jira_key)
+    }
+
+    pub fn update_engineer_feedback(
+        &self,
+        jira_key: &str,
+        rating: Option<i64>,
+        notes: Option<String>,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        crate::ticket_briefs::update_engineer_feedback(&conn, jira_key, rating, notes)
     }
 }
