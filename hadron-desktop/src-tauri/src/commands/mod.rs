@@ -17,5 +17,6 @@ pub mod performance;
 // New feature modules
 pub mod gold_answers;
 pub mod jira;
+pub mod jira_assist;
 pub mod release_notes;
 pub mod summaries;

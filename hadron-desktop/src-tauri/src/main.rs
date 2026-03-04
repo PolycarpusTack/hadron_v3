@@ -384,6 +384,9 @@ fn main() {
             widget_commands::get_widget_position,
             widget_commands::move_widget,
             widget_commands::is_main_window_visible,
+            // JIRA Assist
+            commands::jira_assist::get_ticket_brief,
+            commands::jira_assist::delete_ticket_brief,
         ])
         .on_window_event(|window, event| {
             match event {
