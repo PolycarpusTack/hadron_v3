@@ -12,6 +12,7 @@ mod error;
 mod export;
 mod jira_service;
 mod jira_deep_analysis;
+mod jira_poller;
 mod keeper_service;
 mod release_notes_service;
 mod sentry_service;
