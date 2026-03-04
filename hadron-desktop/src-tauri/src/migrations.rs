@@ -6,7 +6,7 @@
 use rusqlite::{Connection, Result};
 
 /// Current schema version. Increment when adding new migrations.
-pub const CURRENT_SCHEMA_VERSION: i32 = 13;
+pub const CURRENT_SCHEMA_VERSION: i32 = 14;
 
 /// Migration function type
 type MigrationFn = fn(&Connection) -> Result<()>;
@@ -84,6 +84,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 13,
         name: "canonicalize_jira_type",
         up: migration_013_canonicalize_jira_type,
+    },
+    Migration {
+        version: 14,
+        name: "jira_assist_tables",
+        up: migration_014_jira_assist_tables,
     },
 ];
 
@@ -1072,6 +1077,39 @@ fn migration_013_canonicalize_jira_type(conn: &Connection) -> Result<()> {
     conn.execute(
         "UPDATE analyses SET analysis_type = 'jira' WHERE analysis_type = 'jira_ticket'",
         [],
+    )?;
+    Ok(())
+}
+
+fn migration_014_jira_assist_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS ticket_briefs (
+            jira_key         TEXT PRIMARY KEY,
+            title            TEXT NOT NULL,
+            customer         TEXT,
+            severity         TEXT,
+            category         TEXT,
+            tags             TEXT,
+            triage_json      TEXT,
+            brief_json       TEXT,
+            posted_to_jira   INTEGER NOT NULL DEFAULT 0,
+            posted_at        TEXT,
+            engineer_rating  INTEGER,
+            engineer_notes   TEXT,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS ticket_embeddings (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            jira_key     TEXT NOT NULL REFERENCES ticket_briefs(jira_key) ON DELETE CASCADE,
+            embedding    BLOB NOT NULL,
+            source_text  TEXT NOT NULL,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ticket_embeddings_jira_key
+            ON ticket_embeddings(jira_key);",
     )?;
     Ok(())
 }
