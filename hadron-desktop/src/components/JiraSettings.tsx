@@ -515,6 +515,54 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
           Enable JIRA integration to create tickets directly from crash analysis results.
         </p>
       )}
+
+      {/* JIRA Assist (Beta) */}
+      <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+        <div className="flex items-center gap-2 mb-3">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            JIRA Assist
+          </h3>
+          <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 font-medium">
+            Beta
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          Auto-triage, investigation briefs, and duplicate detection for your JIRA tickets.
+          Background polling is coming in Phase 2.
+        </p>
+
+        {/* JQL Filter — greyed out, Phase 2 */}
+        <div className="mb-3 opacity-50 cursor-not-allowed" title="Available in Phase 2">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+            Auto-Triage JQL Filter
+          </label>
+          <input
+            type="text"
+            disabled
+            placeholder='project = "MYPROJ" AND created >= -7d'
+            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+          />
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            JQL filter for tickets to auto-triage on a schedule (Phase 2)
+          </p>
+        </div>
+
+        {/* Poll Interval — greyed out, Phase 2 */}
+        <div className="opacity-50 cursor-not-allowed" title="Available in Phase 2">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+            Poll Interval (minutes)
+          </label>
+          <input
+            type="number"
+            disabled
+            placeholder="30"
+            className="w-24 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+          />
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            How often to check for new tickets (Phase 2)
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
