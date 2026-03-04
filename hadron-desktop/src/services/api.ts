@@ -183,6 +183,87 @@ export async function analyzeJiraTicket(
   });
 }
 
+// ─── JIRA Deep Analysis types ─────────────────────────────────────────────────
+
+export interface JiraDeepTicketQuality {
+  score: number;       // 0–100
+  verdict: string;     // "Good" | "Needs Work" | "Poor"
+  strengths: string[];
+  gaps: string[];
+}
+
+export interface JiraDeepTechnical {
+  root_cause: string;
+  affected_areas: string[];
+  error_type: string;
+  severity_estimate: string;
+  confidence: string;
+  confidence_rationale: string;
+}
+
+export interface JiraDeepRecommendedAction {
+  priority: string;  // "Immediate" | "Short-term" | "Long-term"
+  action: string;
+  rationale: string;
+}
+
+export interface JiraDeepRisk {
+  user_impact: string;
+  blast_radius: string;
+  urgency: string;
+  do_nothing_risk: string;
+}
+
+export interface JiraDeepResult {
+  plain_summary: string;
+  quality: JiraDeepTicketQuality;
+  technical: JiraDeepTechnical;
+  open_questions: string[];
+  recommended_actions: JiraDeepRecommendedAction[];
+  risk: JiraDeepRisk;
+}
+
+export interface JiraDeepAnalysisResponse {
+  id: number;
+  result: JiraDeepResult;
+}
+
+/**
+ * Run dedicated JIRA deep analysis with JIRA-specific prompt and structured output.
+ * Stores result in DB with analysis_type = "jira_deep".
+ */
+export async function analyzeJiraTicketDeep(
+  jiraKey: string,
+  summary: string,
+  description: string,
+  issueType: string,
+  priority: string | undefined,
+  status: string | undefined,
+  components: string[],
+  labels: string[],
+  comments: string[],
+  apiKey: string,
+  model?: string,
+  provider?: string,
+): Promise<JiraDeepAnalysisResponse> {
+  return invoke<JiraDeepAnalysisResponse>("analyze_jira_ticket_deep", {
+    request: {
+      jira_key: jiraKey,
+      summary,
+      description,
+      issue_type: issueType,
+      priority,
+      status,
+      components,
+      labels,
+      comments,
+      api_key: apiKey,
+      model: model ?? getStoredModel(),
+      provider: provider ?? getStoredProvider(),
+    },
+  });
+}
+
 /**
  * Translate technical content to plain language
  * Invalidates translation cache after successful translation
