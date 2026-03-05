@@ -7,6 +7,7 @@
 //! commands/jira.rs (deep analysis only) or commands_legacy.rs (old JIRA).
 
 use super::common::DbState;
+use crate::jira_triage::{JiraTriageRequest, JiraTriageResult};
 use crate::ticket_briefs::TicketBrief;
 use std::sync::Arc;
 
@@ -41,4 +42,54 @@ pub async fn delete_ticket_brief(
     })
     .await
     .map_err(|e| format!("Task error: {}", e))?
+}
+
+/// Triage a JIRA ticket with AI — classify severity, category, customer impact, and tags.
+/// Upserts the result into ticket_briefs so it persists across sessions.
+#[tauri::command]
+pub async fn triage_jira_ticket(
+    request: JiraTriageRequest,
+    db: DbState<'_>,
+) -> Result<JiraTriageResult, String> {
+    log::debug!("cmd: triage_jira_ticket key={}", request.jira_key);
+
+    // Capture fields needed after request is moved into run_jira_triage
+    let jira_key = request.jira_key.clone();
+    let title = request.title.clone();
+
+    let result = crate::jira_triage::run_jira_triage(request).await?;
+
+    // Persist to ticket_briefs (upsert — creates row if absent, updates if present)
+    let db = Arc::clone(&db);
+    let result_clone = result.clone();
+    let tags_json = serde_json::to_string(&result_clone.tags)
+        .unwrap_or_else(|_| "[]".to_string());
+    let triage_json = serde_json::to_string(&result_clone)
+        .map_err(|e| format!("Serialization error: {}", e))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let brief = TicketBrief {
+            jira_key: jira_key.clone(),
+            title,
+            customer: None,
+            severity: Some(result_clone.severity.clone()),
+            category: Some(result_clone.category.clone()),
+            tags: Some(tags_json),
+            triage_json: Some(triage_json),
+            brief_json: None,
+            posted_to_jira: false,
+            posted_at: None,
+            engineer_rating: None,
+            engineer_notes: None,
+            // created_at / updated_at are set by the DB DEFAULT — use empty placeholder
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        db.upsert_ticket_brief(&brief)
+            .map_err(|e| format!("Database error: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))??;
+
+    Ok(result)
 }

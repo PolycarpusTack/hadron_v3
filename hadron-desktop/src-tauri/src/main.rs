@@ -12,6 +12,7 @@ mod error;
 mod export;
 mod jira_service;
 mod jira_deep_analysis;
+mod jira_triage;
 mod jira_poller;
 mod keeper_service;
 mod release_notes_service;
@@ -387,6 +388,7 @@ fn main() {
             // JIRA Assist
             commands::jira_assist::get_ticket_brief,
             commands::jira_assist::delete_ticket_brief,
+            commands::jira_assist::triage_jira_ticket,
         ])
         .on_window_event(|window, event| {
             match event {
