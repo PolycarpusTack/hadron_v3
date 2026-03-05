@@ -31,6 +31,51 @@ export interface JiraTriageResult {
   rationale: string;
 }
 
+// ─── Brief types (re-export deep analysis types inline to avoid cross-service imports) ───
+
+export interface JiraDeepTicketQuality {
+  score: number;
+  verdict: string;
+  strengths: string[];
+  gaps: string[];
+}
+
+export interface JiraDeepTechnical {
+  root_cause: string;
+  affected_areas: string[];
+  error_type: string;
+  severity_estimate: string;
+  confidence: string;
+  confidence_rationale: string;
+}
+
+export interface JiraDeepRecommendedAction {
+  priority: string;
+  action: string;
+  rationale: string;
+}
+
+export interface JiraDeepRisk {
+  user_impact: string;
+  blast_radius: string;
+  urgency: string;
+  do_nothing_risk: string;
+}
+
+export interface JiraDeepAnalysis {
+  plain_summary: string;
+  quality: JiraDeepTicketQuality;
+  technical: JiraDeepTechnical;
+  open_questions: string[];
+  recommended_actions: JiraDeepRecommendedAction[];
+  risk: JiraDeepRisk;
+}
+
+export interface JiraBriefResult {
+  triage: JiraTriageResult;
+  analysis: JiraDeepAnalysis;
+}
+
 /** Fetch a stored ticket brief by JIRA key. Returns null if not yet generated. */
 export async function getTicketBrief(jiraKey: string): Promise<TicketBrief | null> {
   return invoke<TicketBrief | null>("get_ticket_brief", { jiraKey });
@@ -70,6 +115,39 @@ export async function triageJiraTicket(params: {
       api_key: params.apiKey,
       model: params.model,
       provider: params.provider,
+    },
+  });
+}
+
+/** Generate a full investigation brief (triage + deep analysis in parallel). */
+export async function generateTicketBrief(params: {
+  jiraKey: string;
+  title: string;
+  description: string;
+  issueType: string;
+  priority?: string;
+  status?: string;
+  components: string[];
+  labels: string[];
+  comments: string[];
+  apiKey: string;
+  model: string;
+  provider: string;
+}): Promise<JiraBriefResult> {
+  return invoke<JiraBriefResult>("generate_ticket_brief", {
+    request: {
+      jira_key:    params.jiraKey,
+      title:       params.title,
+      description: params.description,
+      issue_type:  params.issueType,
+      priority:    params.priority,
+      status:      params.status,
+      components:  params.components,
+      labels:      params.labels,
+      comments:    params.comments,
+      api_key:     params.apiKey,
+      model:       params.model,
+      provider:    params.provider,
     },
   });
 }
