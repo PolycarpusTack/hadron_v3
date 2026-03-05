@@ -161,7 +161,7 @@ fn parse_triage_result(raw: &str) -> Result<JiraTriageResult, String> {
         format!(
             "Failed to parse triage JSON: {}. Raw (first 400 chars): {}",
             e,
-            &raw[..raw.len().min(400)]
+            truncate_chars(raw, 400)
         )
     })
 }
