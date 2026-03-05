@@ -22,6 +22,7 @@ import {
   FileText,
   CheckCircle2,
   AlertTriangle,
+  ShieldAlert,
 } from "lucide-react";
 import Button from "../ui/Button";
 import JiraImportService, { type NormalizedIssue } from "../../services/jira-import";
@@ -30,6 +31,8 @@ import { getStoredModel, getStoredProvider } from "../../services/api";
 import type { Analysis } from "../../services/api";
 import { analyzeJiraTicketDeep, type JiraDeepResult } from "../../services/api";
 import JiraAnalysisReport from "./JiraAnalysisReport";
+import { triageJiraTicket, getTicketBrief, type JiraTriageResult } from "../../services/jira-assist";
+import TriageBadgePanel from "./TriageBadgePanel";
 import { getStatusColor, getPriorityColor, formatRelativeTime } from "./jiraHelpers";
 import { isKBEnabled, getOpenSearchConfig } from "../../services/opensearch";
 import { isRagAvailable } from "../../services/rag";
@@ -50,6 +53,9 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
     id: number;
     result: JiraDeepResult;
   } | null>(null);
+  const [triaging, setTriaging] = useState(false);
+  const [triageResult, setTriageResult] = useState<JiraTriageResult | null>(null);
+  const [triageFromCache, setTriageFromCache] = useState(false);
 
   async function handleFetch() {
     const trimmed = input.trim();
@@ -70,6 +76,19 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
       const result = await JiraImportService.fetchSingleIssue(key);
       if (result.success && result.issue) {
         setIssue(result.issue);
+        // Load any previously stored triage for this ticket
+        setTriageResult(null);
+        setTriageFromCache(false);
+        try {
+          const brief = await getTicketBrief(result.issue.key);
+          if (brief?.triage_json) {
+            const parsed: JiraTriageResult = JSON.parse(brief.triage_json);
+            setTriageResult(parsed);
+            setTriageFromCache(true);
+          }
+        } catch {
+          // No stored triage — that's fine
+        }
       } else {
         setError(result.error || "Failed to fetch issue");
       }
@@ -177,11 +196,50 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
     }
   }
 
+  async function handleTriage() {
+    if (!issue) return;
+
+    const apiKey = await getStoredApiKey();
+    if (!apiKey) {
+      setError("No API key configured. Set one in Settings.");
+      return;
+    }
+
+    setTriaging(true);
+    setError(null);
+
+    try {
+      const commentTexts = issue.comments.map((c) => c.body);
+      const result = await triageJiraTicket({
+        jiraKey: issue.key,
+        title: issue.summary,
+        description: issue.descriptionPlaintext || "",
+        issueType: issue.issueType || "Unknown",
+        priority: issue.priority || undefined,
+        status: issue.status || undefined,
+        components: issue.components,
+        labels: issue.labels,
+        comments: commentTexts,
+        apiKey,
+        model: getStoredModel(),
+        provider: getStoredProvider(),
+      });
+      setTriageResult(result);
+      setTriageFromCache(false);
+    } catch (err) {
+      setError(`Triage failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTriaging(false);
+    }
+  }
+
   function handleReset() {
     setIssue(null);
     setInput("");
     setError(null);
     setShowFullDescription(false);
+    setTriageResult(null);
+    setTriageFromCache(false);
   }
 
   return (
@@ -242,6 +300,15 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
             <p className="text-xs text-gray-400">
               Running JIRA-specific analysis with structured output
             </p>
+          </div>
+        </div>
+      )}
+      {triaging && (
+        <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+          <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
+          <div>
+            <p className="text-sm text-amber-300 font-medium">Triaging {issue?.key}...</p>
+            <p className="text-xs text-gray-400">Classifying severity, category, and impact</p>
           </div>
         </div>
       )}
@@ -378,12 +445,22 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
             </Button>
             <div className="flex items-center gap-2">
               <Button
+                onClick={handleTriage}
+                loading={triaging}
+                size="lg"
+                icon={<ShieldAlert />}
+                className="bg-amber-700 hover:bg-amber-600 font-semibold px-5"
+                disabled={analyzing || deepAnalyzing}
+              >
+                {triaging ? "Triaging..." : "Triage"}
+              </Button>
+              <Button
                 onClick={handleAnalyze}
                 loading={analyzing}
                 size="lg"
                 icon={<Zap />}
                 className="bg-sky-600 hover:bg-sky-700 font-semibold px-5"
-                disabled={deepAnalyzing}
+                disabled={deepAnalyzing || triaging}
               >
                 {analyzing ? "Analyzing..." : "Analyze with AI"}
               </Button>
@@ -393,13 +470,18 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
                 size="lg"
                 icon={<Microscope />}
                 className="bg-purple-700 hover:bg-purple-600 font-semibold px-5"
-                disabled={analyzing}
+                disabled={analyzing || triaging}
               >
                 {deepAnalyzing ? "Deep Analyzing..." : "Deep Analyze"}
               </Button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Triage Badge Panel */}
+      {triageResult && !triaging && issue && (
+        <TriageBadgePanel result={triageResult} fromCache={triageFromCache} />
       )}
 
       {/* Deep Analysis Report */}
