@@ -172,6 +172,7 @@ interface JiraSearchResponse {
   total: number;
   startAt: number;
   maxResults: number;
+  nextPageToken?: string;
 }
 
 // ============================================================================
@@ -621,6 +622,8 @@ export interface ImportOptions {
   minRelevanceScore?: number;
   /** Include comments */
   includeComments?: boolean;
+  /** Cursor token for fetching the next page (from a previous ImportResult) */
+  nextPageToken?: string;
 }
 
 export interface ImportResult {
@@ -630,6 +633,8 @@ export interface ImportResult {
   issues: NormalizedIssue[];
   errors: string[];
   duration: number;
+  /** Cursor token for the next page, if more results are available */
+  nextPageToken?: string;
 }
 
 // ============================================================================
@@ -741,7 +746,7 @@ export async function fetchJiraIssues(options: ImportOptions = {}): Promise<Impo
     const maxResults = options.maxResults || JIRA_CONFIG.defaultPageSize;
     const includeComments = options.includeComments !== false;
 
-    logger.info("Fetching JIRA issues", { jql, maxResults });
+    logger.info("Fetching JIRA issues", { jql, maxResults, nextPageToken: options.nextPageToken });
 
     // Check API health before making request
     const apiHealth = getJiraApiHealth();
@@ -756,16 +761,26 @@ export async function fetchJiraIssues(options: ImportOptions = {}): Promise<Impo
       };
     }
 
-    // Call Rust backend to fetch issues with rate limiting and retry
+    // Call Rust backend — use cursor command when fetching subsequent pages
     const response = await executeWithResilience(() =>
-      invoke<JiraSearchResponse>("search_jira_issues", {
-        baseUrl: config.baseUrl,
-        email: config.email,
-        apiToken,
-        jql,
-        maxResults,
-        includeComments,
-      })
+      options.nextPageToken
+        ? invoke<JiraSearchResponse>("search_jira_issues_next_page", {
+            baseUrl: config.baseUrl,
+            email: config.email,
+            apiToken,
+            jql,
+            maxResults,
+            includeComments,
+            nextPageToken: options.nextPageToken,
+          })
+        : invoke<JiraSearchResponse>("search_jira_issues", {
+            baseUrl: config.baseUrl,
+            email: config.email,
+            apiToken,
+            jql,
+            maxResults,
+            includeComments,
+          })
     );
 
     // Normalize issues
@@ -786,7 +801,8 @@ export async function fetchJiraIssues(options: ImportOptions = {}): Promise<Impo
 
     logger.info("JIRA import complete", {
       totalFetched: response.issues.length,
-      totalImported: issues.length
+      totalImported: issues.length,
+      hasNextPage: !!response.nextPageToken,
     });
 
     return {
@@ -796,6 +812,7 @@ export async function fetchJiraIssues(options: ImportOptions = {}): Promise<Impo
       issues,
       errors,
       duration: Date.now() - startTime,
+      nextPageToken: response.nextPageToken,
     };
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : String(e);

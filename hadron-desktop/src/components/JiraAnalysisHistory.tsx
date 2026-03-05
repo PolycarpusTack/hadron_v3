@@ -19,24 +19,10 @@ import { getAnalysesFiltered } from "../services/api";
 import type { Analysis } from "../services/api";
 import { useDebounce } from "../hooks/useDebounce";
 import { getSeverityBadgeClasses } from "../utils/severity";
+import { formatRelativeTime } from "./jira/jiraHelpers";
 
 interface JiraAnalysisHistoryProps {
   onViewAnalysis: (analysis: Analysis) => void;
-}
-
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
 }
 
 export default function JiraAnalysisHistory({
@@ -47,6 +33,7 @@ export default function JiraAnalysisHistory({
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"date" | "severity" | "cost">("date");
+  // "cost" = AI token cost (not business cost/story points)
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   const debouncedSearch = useDebounce(searchQuery, 300);
@@ -100,7 +87,7 @@ export default function JiraAnalysisHistory({
           >
             <option value="date">Date</option>
             <option value="severity">Severity</option>
-            <option value="cost">Cost</option>
+            <option value="cost">AI Cost</option>
           </select>
           <button
             onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
@@ -146,7 +133,7 @@ export default function JiraAnalysisHistory({
           <Clock className="w-8 h-8 mx-auto mb-3 opacity-50" />
           <p>No JIRA analyses yet</p>
           <p className="text-xs mt-1">
-            Analyze a JIRA ticket from the Import tab to see it here
+            Analyze a JIRA ticket from the Analyze Ticket tab to see it here
           </p>
         </div>
       )}

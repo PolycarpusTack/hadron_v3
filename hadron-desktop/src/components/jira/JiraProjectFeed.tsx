@@ -3,7 +3,7 @@
  * Tab 2: Configure up to 5 JIRA projects with status filters, browse matching tickets.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import {
   Plus,
@@ -26,9 +26,11 @@ import {
   listJiraProjects,
   type JiraProjectInfo,
 } from "../../services/jira";
-import { fetchJiraIssues, type NormalizedIssue } from "../../services/jira-import";
+import JiraImportService, { fetchJiraIssues, type NormalizedIssue } from "../../services/jira-import";
 import { analyzeJiraTicket, getAnalysisById, getStoredApiKey, getStoredModel, getStoredProvider } from "../../services/api";
 import type { Analysis } from "../../services/api";
+import { isKBEnabled, getOpenSearchConfig } from "../../services/opensearch";
+import { isRagAvailable } from "../../services/rag";
 import {
   getWatchedProjects,
   saveWatchedProjects,
@@ -46,6 +48,13 @@ interface JiraProjectFeedProps {
 const DEFAULT_STATUSES = ["Open", "In Progress", "To Do", "Reopened", "Backlog"];
 const MAX_PROJECTS = 5;
 
+/** Strip non-alphanumeric (except underscore) and uppercase — mirrors backend sanitizeProjectKey */
+function sanitizeProjectKey(key: string): string {
+  return key.replace(/[^A-Z0-9_]/gi, "").toUpperCase().slice(0, 20);
+}
+
+const FEED_PAGE_SIZE = 50;
+
 export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedProps) {
   // Config state
   const [watched, setWatched] = useState<WatchedProject[]>(getWatchedProjects());
@@ -53,19 +62,34 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
   const [availableProjects, setAvailableProjects] = useState<JiraProjectInfo[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [addProjectKey, setAddProjectKey] = useState("");
+  const [addProjectKeyError, setAddProjectKeyError] = useState<string | null>(null);
   const [newStatuses, setNewStatuses] = useState<string[]>([...DEFAULT_STATUSES]);
   const [statusInput, setStatusInput] = useState("");
 
   // Feed state
   const [issues, setIssues] = useState<NormalizedIssue[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 300);
-  const [analyzingKey, setAnalyzingKey] = useState<string | null>(null);
+  // Fix #1: use a Set so multiple rows can be analyzed concurrently without stomping each other
+  const [analyzingKeys, setAnalyzingKeys] = useState<Set<string>>(new Set());
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
+  const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
+  // Fix #7: last-refreshed timestamp
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  // Current JQL — stored in a ref so loadIssues can read it without being a dep
+  const currentJqlRef = useRef<string>("");
 
-  // Load available projects on mount
+  // Fix #3: separate "reload trigger" from config edits.
+  // loadIssues only runs when this counter increments — NOT on every status tag change.
+  const [reloadTrigger, setReloadTrigger] = useState(0);
+  // Keep watched in a ref so loadIssues (which depends only on reloadTrigger) sees the latest value
+  const watchedRef = useRef(watched);
+  watchedRef.current = watched;
+
+  // Load available projects from cache on mount
   useEffect(() => {
     const cached = getCachedJiraProjects();
     if (cached.projects.length > 0) {
@@ -78,44 +102,47 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
     if (watched.length === 0) setShowConfig(true);
   }, [watched.length]);
 
-  // Fetch issues when watched projects change
+  /** Build the feed JQL from the current watched list */
+  function buildFeedJql(watchedProjects: WatchedProject[]): string {
+    const projectConditions = watchedProjects.map((wp) => {
+      const statusList = wp.statuses.map((s) => `"${s}"`).join(", ");
+      return `(project = ${wp.key}${statusList ? ` AND status IN (${statusList})` : ""})`;
+    });
+    return `(${projectConditions.join(" OR ")}) ORDER BY updated DESC`;
+  }
+
+  // Fix #3: loadIssues only re-created when reloadTrigger changes, not on status edits
   const loadIssues = useCallback(async () => {
-    if (watched.length === 0) {
+    const currentWatched = watchedRef.current;
+    if (currentWatched.length === 0) {
       setIssues([]);
+      setNextPageToken(undefined);
       return;
     }
 
     setLoading(true);
     setError(null);
+    setNextPageToken(undefined);
+
+    const jql = buildFeedJql(currentWatched);
+    currentJqlRef.current = jql;
 
     try {
-      // Build JQL for watched projects with their status filters
-      const projectConditions = watched.map((wp) => {
-        const statusList = wp.statuses.map((s) => `"${s}"`).join(", ");
-        return `(project = ${wp.key}${statusList ? ` AND status IN (${statusList})` : ""})`;
-      });
-
-      const jql = `(${projectConditions.join(" OR ")}) ORDER BY updated DESC`;
-
-      let result = await fetchJiraIssues({
-        jql,
-        maxResults: 50,
-        includeComments: true,
-      });
+      // Fix #5: load without comments for the browsing view; fetch comments on-demand at analyze time
+      let result = await fetchJiraIssues({ jql, maxResults: FEED_PAGE_SIZE, includeComments: false });
 
       // If the JQL failed (e.g. invalid status names), retry without status filter
       if (!result.success && result.errors.some((e) => e.toLowerCase().includes("invalid jql"))) {
-        const fallbackConditions = watched.map((wp) => `project = ${wp.key}`);
+        const fallbackConditions = currentWatched.map((wp) => `project = ${wp.key}`);
         const fallbackJql = `(${fallbackConditions.join(" OR ")}) ORDER BY updated DESC`;
-        result = await fetchJiraIssues({
-          jql: fallbackJql,
-          maxResults: 50,
-          includeComments: true,
-        });
+        currentJqlRef.current = fallbackJql;
+        result = await fetchJiraIssues({ jql: fallbackJql, maxResults: FEED_PAGE_SIZE, includeComments: false });
       }
 
       if (result.success) {
         setIssues(result.issues);
+        setNextPageToken(result.nextPageToken);
+        setLastRefreshed(new Date());
       } else {
         setError(result.errors.join(", ") || "Failed to fetch issues");
       }
@@ -124,36 +151,69 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
     } finally {
       setLoading(false);
     }
-  }, [watched]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadTrigger]);
 
   useEffect(() => {
-    if (watched.length > 0) loadIssues();
+    if (watchedRef.current.length > 0) loadIssues();
   }, [loadIssues]);
 
-  // Refresh available projects from JIRA
+  // Fix #6: load the next page and append to the existing list
+  async function handleLoadMore() {
+    if (!nextPageToken || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await fetchJiraIssues({
+        jql: currentJqlRef.current,
+        maxResults: FEED_PAGE_SIZE,
+        includeComments: false,
+        nextPageToken,
+      });
+      if (result.success) {
+        setIssues((prev) => [...prev, ...result.issues]);
+        setNextPageToken(result.nextPageToken);
+      } else {
+        setError(result.errors.join(", ") || "Failed to load more issues");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load more issues");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  // Refresh available projects from JIRA (Fix #2: listJiraProjects now throws on API errors)
   async function handleRefreshProjects() {
     setProjectsLoading(true);
+    setError(null);
     try {
       const fetched = await listJiraProjects();
       setAvailableProjects(fetched);
-    } catch {
-      // silent — cached projects are shown
+    } catch (err) {
+      setError(`Failed to refresh projects: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setProjectsLoading(false);
     }
   }
 
-  // Add a project to the watch list
+  // Fix #4: validate and sanitize project key before storing
   function handleAddProject() {
-    const key = addProjectKey.toUpperCase().trim();
-    if (!key) return;
+    const sanitized = sanitizeProjectKey(addProjectKey);
+    if (!sanitized) {
+      setAddProjectKeyError("Project key must contain letters or digits only (e.g. PROJ).");
+      return;
+    }
     if (watched.length >= MAX_PROJECTS) return;
-    if (watched.some((w) => w.key === key)) return;
+    if (watched.some((w) => w.key === sanitized)) {
+      setAddProjectKeyError(`${sanitized} is already in your watch list.`);
+      return;
+    }
 
-    const matchedProject = availableProjects.find((p) => p.key === key);
+    setAddProjectKeyError(null);
+    const matchedProject = availableProjects.find((p) => p.key === sanitized);
     const project: WatchedProject = {
-      key,
-      name: matchedProject?.name || key,
+      key: sanitized,
+      name: matchedProject?.name || sanitized,
       statuses: [...newStatuses],
     };
 
@@ -161,22 +221,24 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
     setWatched(updated);
     saveWatchedProjects(updated);
     setAddProjectKey("");
+    // Trigger a feed reload because a new project was added
+    setReloadTrigger((t) => t + 1);
   }
 
-  // Remove a project from the watch list
+  // Remove a project — triggers feed reload
   function handleRemoveProject(key: string) {
     const updated = watched.filter((w) => w.key !== key);
     setWatched(updated);
     saveWatchedProjects(updated);
+    setReloadTrigger((t) => t + 1);
   }
 
-  // Update statuses for a specific project
+  // Fix #3: status edits save to storage but do NOT trigger a feed reload
   function handleUpdateStatuses(key: string, statuses: string[]) {
-    const updated = watched.map((w) =>
-      w.key === key ? { ...w, statuses } : w
-    );
+    const updated = watched.map((w) => (w.key === key ? { ...w, statuses } : w));
     setWatched(updated);
     saveWatchedProjects(updated);
+    // NOTE: intentionally no setReloadTrigger here — user must click Refresh to apply new filters
   }
 
   // Toggle issue expansion
@@ -189,7 +251,7 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
     });
   }
 
-  // Analyze a specific ticket
+  // Analyze a ticket. Fix #1: track per-key analyzing state (Set). Fix #5: fetch comments on-demand.
   async function handleAnalyze(issue: NormalizedIssue) {
     const apiKey = await getStoredApiKey();
     if (!apiKey) {
@@ -197,30 +259,63 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
       return;
     }
 
-    setAnalyzingKey(issue.key);
+    setAnalyzingKeys((prev) => new Set(prev).add(issue.key));
     setError(null);
 
     try {
-      const commentTexts = issue.comments.map((c) => c.body);
+      // Fix #5: fetch the full issue (with comments) only when the user asks to analyze
+      let issueWithComments = issue;
+      if (issue.comments.length === 0) {
+        const fetched = await JiraImportService.fetchSingleIssue(issue.key);
+        if (fetched.success && fetched.issue) {
+          issueWithComments = fetched.issue;
+        }
+      }
+
+      const commentTexts = issueWithComments.comments.map((c) => c.body);
+
+      let useRag = false;
+      try { useRag = await isRagAvailable(); } catch { /* continue without */ }
+
+      let kbOptions: { useKB?: boolean; customer?: string; wonVersion?: string; kbMode?: string } | undefined;
+      try {
+        const kbEnabled = await isKBEnabled();
+        if (kbEnabled) {
+          const kbConfig = await getOpenSearchConfig();
+          kbOptions = {
+            useKB: true,
+            customer: kbConfig.defaultCustomer || undefined,
+            wonVersion: kbConfig.defaultVersion || undefined,
+            kbMode: kbConfig.mode === "both" ? "remote" : kbConfig.mode,
+          };
+        }
+      } catch { /* continue without KB */ }
+
       const result = await analyzeJiraTicket(
-        issue.key,
-        issue.summary,
-        issue.descriptionPlaintext || "",
+        issueWithComments.key,
+        issueWithComments.summary,
+        issueWithComments.descriptionPlaintext || "",
         commentTexts,
-        issue.priority || undefined,
-        issue.status || undefined,
-        issue.components,
-        issue.labels,
+        issueWithComments.priority || undefined,
+        issueWithComments.status || undefined,
+        issueWithComments.components,
+        issueWithComments.labels,
         apiKey,
         getStoredModel(),
         getStoredProvider(),
+        useRag || undefined,
+        kbOptions,
       );
       const fullAnalysis = await getAnalysisById(result.id);
       onAnalysisComplete(fullAnalysis);
     } catch (err) {
       setError(`Failed to analyze ${issue.key}: ${err instanceof Error ? err.message : err}`);
     } finally {
-      setAnalyzingKey(null);
+      setAnalyzingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(issue.key);
+        return next;
+      });
     }
   }
 
@@ -284,12 +379,15 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
                       type="text"
                       list="jira-projects-feed"
                       value={addProjectKey}
-                      onChange={(e) => setAddProjectKey(e.target.value.toUpperCase())}
+                      onChange={(e) => {
+                        setAddProjectKey(e.target.value.toUpperCase());
+                        setAddProjectKeyError(null);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") handleAddProject();
                       }}
                       placeholder="Project key (e.g., CRASH)"
-                      className="w-full bg-gray-900 border border-gray-600 rounded-lg pl-10 pr-3 py-2 text-sm focus:outline-none focus:border-sky-500 uppercase"
+                      className={`w-full bg-gray-900 border rounded-lg pl-10 pr-3 py-2 text-sm focus:outline-none uppercase ${addProjectKeyError ? "border-red-500 focus:border-red-400" : "border-gray-600 focus:border-sky-500"}`}
                     />
                     <datalist id="jira-projects-feed">
                       {availableProjects
@@ -318,6 +416,12 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
                     <RefreshCw className={`w-4 h-4 text-gray-400 ${projectsLoading ? "animate-spin" : ""}`} />
                   </button>
                 </div>
+                {addProjectKeyError && (
+                  <p className="text-xs text-red-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                    {addProjectKeyError}
+                  </p>
+                )}
 
                 {/* Default statuses for new projects */}
                 <div className="text-xs text-gray-500">
@@ -364,28 +468,38 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
 
       {/* Feed Controls */}
       {watched.length > 0 && (
-        <div className="flex items-center gap-3">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter tickets..."
-              className="w-full bg-gray-800 border border-gray-600 rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-sky-500"
-            />
+        <div className="space-y-1">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter tickets..."
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-sky-500"
+              />
+            </div>
+            <button
+              onClick={() => setReloadTrigger((t) => t + 1)}
+              disabled={loading}
+              className="p-1.5 hover:bg-gray-700 rounded-lg transition disabled:opacity-50"
+              title="Refresh feed"
+            >
+              <RefreshCw className={`w-4 h-4 text-gray-400 ${loading ? "animate-spin" : ""}`} />
+            </button>
+            <span className="text-xs text-gray-500 whitespace-nowrap">
+              {filteredIssues.length} ticket{filteredIssues.length !== 1 ? "s" : ""}
+            </span>
           </div>
-          <button
-            onClick={loadIssues}
-            disabled={loading}
-            className="p-1.5 hover:bg-gray-700 rounded-lg transition disabled:opacity-50"
-            title="Refresh feed"
-          >
-            <RefreshCw className={`w-4 h-4 text-gray-400 ${loading ? "animate-spin" : ""}`} />
-          </button>
-          <span className="text-xs text-gray-500">
-            {filteredIssues.length} ticket{filteredIssues.length !== 1 ? "s" : ""}
-          </span>
+          {/* Fix #7: last refreshed timestamp */}
+          {lastRefreshed && (
+            <p className="text-xs text-gray-600">
+              Updated {formatRelativeTime(lastRefreshed.toISOString())}
+              {" · "}
+              <span className="text-gray-700 italic">Status filter changes require a manual refresh</span>
+            </p>
+          )}
         </div>
       )}
 
@@ -437,9 +551,32 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
               expanded={expandedIssues.has(issue.id)}
               onToggle={() => toggleExpanded(issue.id)}
               onAnalyze={() => handleAnalyze(issue)}
-              analyzing={analyzingKey === issue.key}
+              analyzing={analyzingKeys.has(issue.key)}
             />
           ))}
+        </div>
+      )}
+
+      {/* Fix #6: Load More — only shown when backend has more results and no search filter active */}
+      {!debouncedSearch && nextPageToken && (
+        <div className="flex justify-center pt-2">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-300 transition disabled:opacity-50"
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                Load more tickets
+              </>
+            )}
+          </button>
         </div>
       )}
     </div>
@@ -588,8 +725,7 @@ function FeedIssueRow({ issue, expanded, onToggle, onAnalyze, analyzing }: FeedI
           {/* Description excerpt */}
           {issue.descriptionPlaintext && (
             <div className="text-sm text-gray-400 whitespace-pre-wrap line-clamp-4">
-              {issue.descriptionPlaintext.substring(0, 400)}
-              {issue.descriptionPlaintext.length > 400 && "..."}
+              {issue.descriptionPlaintext}
             </div>
           )}
 

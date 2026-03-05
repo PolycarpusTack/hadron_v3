@@ -361,30 +361,28 @@ export async function testJiraConnection(): Promise<{ success: boolean; message:
 }
 
 /**
- * List available JIRA projects (for autocomplete)
+ * List available JIRA projects (for autocomplete).
+ * Returns [] when config is incomplete (expected case).
+ * Throws on API/network errors so callers can surface them.
  */
 export async function listJiraProjects(): Promise<JiraProjectInfo[]> {
-  try {
-    const config = await getJiraConfig();
-    const apiToken = await getApiKey("jira");
+  const config = await getJiraConfig();
+  const apiToken = await getApiKey("jira");
 
-    if (!config.baseUrl || !config.email || !apiToken) {
-      return [];
-    }
-
-    const result = await invoke<JiraProjectInfo[]>("list_jira_projects", {
-      baseUrl: config.baseUrl,
-      email: config.email,
-      apiToken,
-    });
-
-    const projects = result || [];
-    cacheJiraProjects(projects);
-    return projects;
-  } catch (error) {
-    logger.error("Failed to list JIRA projects", { error });
-    return [];
+  if (!config.baseUrl || !config.email || !apiToken) {
+    return []; // Config not set up yet — not an error
   }
+
+  // Let invoke errors propagate; callers must handle them
+  const result = await invoke<JiraProjectInfo[]>("list_jira_projects", {
+    baseUrl: config.baseUrl,
+    email: config.email,
+    apiToken,
+  });
+
+  const projects = result || [];
+  cacheJiraProjects(projects);
+  return projects;
 }
 
 /**

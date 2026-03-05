@@ -122,18 +122,16 @@ export default function JiraAnalyzerView({ onAnalysisComplete }: JiraAnalyzerVie
         </nav>
       </div>
 
-      {/* Tab Content */}
-      {activeTab === "analyze" && (
+      {/* Tab Content — kept mounted to preserve local state across tab switches */}
+      <div className={activeTab !== "analyze" ? "hidden" : ""}>
         <JiraTicketAnalyzer onAnalysisComplete={handleAnalysisComplete} />
-      )}
-
-      {activeTab === "feed" && (
+      </div>
+      <div className={activeTab !== "feed" ? "hidden" : ""}>
         <JiraProjectFeed onAnalysisComplete={handleAnalysisComplete} />
-      )}
-
-      {activeTab === "history" && (
+      </div>
+      <div className={activeTab !== "history" ? "hidden" : ""}>
         <JiraAnalysisHistory onViewAnalysis={handleAnalysisComplete} />
-      )}
+      </div>
     </div>
   );
 }
