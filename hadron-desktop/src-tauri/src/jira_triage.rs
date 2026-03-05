@@ -79,15 +79,18 @@ Be direct. If the ticket is vague, lower your confidence and explain why.
 // ─── Core function ────────────────────────────────────────────────────────────
 
 pub async fn run_jira_triage(req: JiraTriageRequest) -> Result<JiraTriageResult, String> {
-    use crate::ai_service::{call_anthropic, call_llamacpp, call_openai, call_zai};
+    use crate::ai_service::{call_openai_raw, call_anthropic_raw, call_zai_raw};
 
     let user_prompt = build_prompt(&req);
 
-    let raw = match req.provider.to_lowercase().as_str() {
-        "openai"    => call_openai(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model).await?,
-        "anthropic" => call_anthropic(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model).await?,
-        "zai"       => call_zai(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model).await?,
-        "llamacpp"  => call_llamacpp(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.model).await?,
+    // Use the *_raw variants which return raw string content — we parse it ourselves
+    // into JiraTriageResult (different schema from the standard AnalysisResult).
+    // llamacpp is not supported for structured JIRA triage.
+    let raw: String = match req.provider.to_lowercase().as_str() {
+        "openai"    => call_openai_raw(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model, 1024).await?,
+        "anthropic" => call_anthropic_raw(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model).await?,
+        "zai"       => call_zai_raw(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model).await?,
+        "llamacpp"  => return Err("JIRA triage requires a cloud AI provider (OpenAI, Anthropic, or Z.ai). llamacpp is not supported.".to_string()),
         p           => return Err(format!("Unknown AI provider: {}", p)),
     };
 
@@ -114,7 +117,7 @@ fn build_prompt(req: &JiraTriageRequest) -> String {
         parts.push("\nDESCRIPTION: (empty)".to_string());
     } else {
         let desc = if req.description.len() > 2000 {
-            format!("{}… (truncated)", &req.description[..2000])
+            format!("{}… (truncated)", truncate_chars(&req.description, 2000))
         } else {
             req.description.clone()
         };
@@ -124,7 +127,11 @@ fn build_prompt(req: &JiraTriageRequest) -> String {
     if !req.comments.is_empty() {
         let recent: Vec<String> = req.comments.iter().rev().take(5).enumerate()
             .map(|(i, c)| {
-                let body = if c.len() > 500 { format!("{}…", &c[..500]) } else { c.clone() };
+                let body = if c.len() > 500 {
+                    format!("{}…", truncate_chars(c, 500))
+                } else {
+                    c.to_string()
+                };
                 format!("[Comment {}] {}", i + 1, body)
             })
             .collect();
@@ -132,6 +139,14 @@ fn build_prompt(req: &JiraTriageRequest) -> String {
     }
 
     parts.join("\n")
+}
+
+/// Truncate a string to at most `max_chars` Unicode scalar values.
+fn truncate_chars(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_pos, _)) => &s[..byte_pos],
+        None => s,
+    }
 }
 
 fn parse_triage_result(raw: &str) -> Result<JiraTriageResult, String> {
