@@ -60,7 +60,7 @@ pub async fn run_jira_brief(req: JiraBriefRequest) -> Result<JiraBriefResult, St
 
     let deep_req = JiraDeepRequest {
         jira_key:    req.jira_key,
-        summary:     req.title,
+        summary:     req.title,           // JiraDeepRequest uses "summary" for what we call "title"
         description: req.description,
         issue_type:  req.issue_type,
         priority:    req.priority,
