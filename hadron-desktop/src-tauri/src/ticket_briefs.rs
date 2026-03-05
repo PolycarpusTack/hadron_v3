@@ -98,6 +98,54 @@ pub fn get_ticket_brief(conn: &Connection, jira_key: &str) -> Result<Option<Tick
     }
 }
 
+/// Fetch multiple briefs by JIRA keys in a single query.
+/// Returns only keys that have a stored brief (missing keys are omitted).
+pub fn get_briefs_batch(conn: &Connection, jira_keys: &[String]) -> Result<Vec<TicketBrief>> {
+    if jira_keys.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders: Vec<&str> = jira_keys.iter().map(|_| "?").collect();
+    let sql = format!(
+        "SELECT jira_key, title, customer, severity, category, tags,
+                triage_json, brief_json, posted_to_jira, posted_at,
+                engineer_rating, engineer_notes, created_at, updated_at
+         FROM ticket_briefs WHERE jira_key IN ({})",
+        placeholders.join(", ")
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let params: Vec<&dyn rusqlite::types::ToSql> = jira_keys
+        .iter()
+        .map(|k| k as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = stmt.query_map(params.as_slice(), |row| {
+        Ok(TicketBrief {
+            jira_key:        row.get(0)?,
+            title:           row.get(1)?,
+            customer:        row.get(2)?,
+            severity:        row.get(3)?,
+            category:        row.get(4)?,
+            tags:            row.get(5)?,
+            triage_json:     row.get(6)?,
+            brief_json:      row.get(7)?,
+            posted_to_jira:  row.get::<_, i64>(8)? != 0,
+            posted_at:       row.get(9)?,
+            engineer_rating: row.get(10)?,
+            engineer_notes:  row.get(11)?,
+            created_at:      row.get(12)?,
+            updated_at:      row.get(13)?,
+        })
+    })?;
+
+    let mut briefs = Vec::new();
+    for row in rows {
+        briefs.push(row?);
+    }
+    Ok(briefs)
+}
+
 /// Delete a brief and its embeddings (CASCADE handles ticket_embeddings).
 pub fn delete_ticket_brief(conn: &Connection, jira_key: &str) -> Result<()> {
     conn.execute(

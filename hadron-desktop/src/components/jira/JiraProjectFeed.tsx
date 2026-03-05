@@ -39,6 +39,14 @@ import {
   getPriorityColor,
   formatRelativeTime,
 } from "./jiraHelpers";
+import {
+  getTicketBriefsBatch,
+  triageJiraTicket,
+  type TicketBrief,
+  SEVERITY_BADGE,
+  CATEGORY_COLORS,
+  parseTags,
+} from "../../services/jira-assist";
 import { useDebounce } from "../../hooks/useDebounce";
 
 interface JiraProjectFeedProps {
@@ -77,6 +85,15 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
   const [analyzingKeys, setAnalyzingKeys] = useState<Set<string>>(new Set());
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
   const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
+  // JIRA Assist: triage data for badges
+  const [briefsMap, setBriefsMap] = useState<Map<string, TicketBrief>>(new Map());
+  // Batch triage state
+  const [triageProgress, setTriageProgress] = useState<{ current: number; total: number; key: string } | null>(null);
+  const triageCancelledRef = useRef(false);
+  const [showTriageConfirm, setShowTriageConfirm] = useState(false);
+  // Feed filters
+  const [filterTriagedOnly, setFilterTriagedOnly] = useState(false);
+  const [filterSeverity, setFilterSeverity] = useState("All");
   // Fix #7: last-refreshed timestamp
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   // Current JQL — stored in a ref so loadIssues can read it without being a dep
@@ -143,6 +160,7 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
         setIssues(result.issues);
         setNextPageToken(result.nextPageToken);
         setLastRefreshed(new Date());
+        loadBriefs(result.issues);
       } else {
         setError(result.errors.join(", ") || "Failed to fetch issues");
       }
@@ -153,6 +171,22 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadTrigger]);
+
+  // Load triage briefs for a set of issues (for badge display)
+  async function loadBriefs(issueList: NormalizedIssue[]) {
+    if (issueList.length === 0) return;
+    try {
+      const keys = issueList.map((i) => i.key);
+      const briefs = await getTicketBriefsBatch(keys);
+      setBriefsMap((prev) => {
+        const next = new Map(prev);
+        for (const b of briefs) next.set(b.jira_key, b);
+        return next;
+      });
+    } catch {
+      // Non-critical — badges just won't show
+    }
+  }
 
   useEffect(() => {
     if (watchedRef.current.length > 0) loadIssues();
@@ -172,6 +206,7 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
       if (result.success) {
         setIssues((prev) => [...prev, ...result.issues]);
         setNextPageToken(result.nextPageToken);
+        loadBriefs(result.issues);
       } else {
         setError(result.errors.join(", ") || "Failed to load more issues");
       }
@@ -319,17 +354,99 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
     }
   }
 
-  // Filter issues by search
-  const filteredIssues = debouncedSearch
-    ? issues.filter((issue) => {
-        const q = debouncedSearch.toLowerCase();
-        return (
+  // Batch triage — sequential with cancel support
+  async function handleBatchTriage(retriageAll: boolean, visibleIssues: NormalizedIssue[]) {
+    setShowTriageConfirm(false);
+    const apiKey = await getStoredApiKey();
+    if (!apiKey) {
+      setError("No API key configured. Set one in Settings.");
+      return;
+    }
+
+    const ticketsToTriage = retriageAll
+      ? visibleIssues
+      : visibleIssues.filter((i) => !briefsMap.has(i.key));
+
+    if (ticketsToTriage.length === 0) return;
+
+    triageCancelledRef.current = false;
+    const model = getStoredModel();
+    const provider = getStoredProvider();
+
+    for (let i = 0; i < ticketsToTriage.length; i++) {
+      if (triageCancelledRef.current) break;
+      const issue = ticketsToTriage[i];
+      setTriageProgress({ current: i + 1, total: ticketsToTriage.length, key: issue.key });
+
+      try {
+        const result = await triageJiraTicket({
+          jiraKey: issue.key,
+          title: issue.summary,
+          description: issue.descriptionPlaintext || "",
+          issueType: issue.issueType || "Bug",
+          priority: issue.priority || undefined,
+          status: issue.status || undefined,
+          components: issue.components,
+          labels: issue.labels,
+          comments: issue.comments.map((c) => c.body),
+          apiKey,
+          model,
+          provider,
+        });
+        // Update briefsMap incrementally
+        setBriefsMap((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(issue.key);
+          next.set(issue.key, {
+            jira_key: issue.key,
+            title: issue.summary,
+            customer: existing?.customer ?? null,
+            severity: result.severity,
+            category: result.category,
+            tags: JSON.stringify(result.tags),
+            triage_json: JSON.stringify(result),
+            brief_json: existing?.brief_json ?? null,
+            posted_to_jira: existing?.posted_to_jira ?? false,
+            posted_at: existing?.posted_at ?? null,
+            engineer_rating: existing?.engineer_rating ?? null,
+            engineer_notes: existing?.engineer_notes ?? null,
+            created_at: existing?.created_at ?? new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+          return next;
+        });
+      } catch (err) {
+        setError(`Triage failed for ${issue.key}: ${err instanceof Error ? err.message : err}`);
+        break;
+      }
+    }
+    setTriageProgress(null);
+  }
+
+  // Filter issues by search + triage filters
+  const filteredIssues = (() => {
+    let filtered = issues;
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      filtered = filtered.filter(
+        (issue) =>
           issue.key.toLowerCase().includes(q) ||
           issue.summary.toLowerCase().includes(q) ||
-          issue.descriptionPlaintext.toLowerCase().includes(q)
-        );
-      })
-    : issues;
+          issue.descriptionPlaintext.toLowerCase().includes(q),
+      );
+    }
+    if (filterTriagedOnly) {
+      filtered = filtered.filter((i) => briefsMap.has(i.key));
+    }
+    if (filterSeverity !== "All") {
+      filtered = filtered.filter((i) => briefsMap.get(i.key)?.severity === filterSeverity);
+    }
+    return filtered;
+  })();
+
+  // Counts for confirmation dialog
+  const alreadyTriagedCount = filteredIssues.filter((i) => briefsMap.has(i.key)).length;
+  const untriagedCount = filteredIssues.length - alreadyTriagedCount;
 
   return (
     <div className="space-y-4">
@@ -468,7 +585,7 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
 
       {/* Feed Controls */}
       {watched.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-2">
           <div className="flex items-center gap-3">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
@@ -488,17 +605,100 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
             >
               <RefreshCw className={`w-4 h-4 text-gray-400 ${loading ? "animate-spin" : ""}`} />
             </button>
+            <button
+              onClick={() => setShowTriageConfirm(true)}
+              disabled={!!triageProgress || filteredIssues.length === 0}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-xs text-white transition whitespace-nowrap"
+              title="Triage all visible tickets with AI"
+            >
+              <Zap className="w-3 h-3" />
+              Triage All
+            </button>
             <span className="text-xs text-gray-500 whitespace-nowrap">
               {filteredIssues.length} ticket{filteredIssues.length !== 1 ? "s" : ""}
             </span>
           </div>
-          {/* Fix #7: last refreshed timestamp */}
-          {lastRefreshed && (
-            <p className="text-xs text-gray-600">
-              Updated {formatRelativeTime(lastRefreshed.toISOString())}
-              {" · "}
-              <span className="text-gray-700 italic">Status filter changes require a manual refresh</span>
-            </p>
+
+          {/* Filters row */}
+          <div className="flex items-center gap-3 text-xs">
+            <label className="flex items-center gap-1.5 text-gray-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={filterTriagedOnly}
+                onChange={(e) => setFilterTriagedOnly(e.target.checked)}
+                className="rounded border-gray-600 bg-gray-800 text-sky-500 focus:ring-sky-500 focus:ring-offset-0 w-3.5 h-3.5"
+              />
+              Triaged only
+            </label>
+            <label className="flex items-center gap-1.5 text-gray-400">
+              Severity:
+              <select
+                value={filterSeverity}
+                onChange={(e) => setFilterSeverity(e.target.value)}
+                className="bg-gray-800 border border-gray-600 rounded px-1.5 py-0.5 text-xs text-gray-300 focus:outline-none focus:border-sky-500"
+              >
+                <option value="All">All</option>
+                <option value="Critical">Critical</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </label>
+            {/* Fix #7: last refreshed timestamp */}
+            {lastRefreshed && (
+              <span className="text-gray-600 ml-auto">
+                Updated {formatRelativeTime(lastRefreshed.toISOString())}
+              </span>
+            )}
+          </div>
+
+          {/* Triage progress bar */}
+          {triageProgress && (
+            <div className="flex items-center gap-3 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <Loader2 className="w-4 h-4 text-amber-400 animate-spin flex-shrink-0" />
+              <span className="text-sm text-amber-300 flex-1">
+                Triaging {triageProgress.current}/{triageProgress.total} ({triageProgress.key})...
+              </span>
+              <button
+                onClick={() => { triageCancelledRef.current = true; }}
+                className="px-2 py-0.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {/* Triage confirmation dialog */}
+          {showTriageConfirm && (
+            <div className="px-3 py-3 bg-gray-800 border border-gray-600 rounded-lg space-y-2">
+              <p className="text-sm text-gray-300">
+                {alreadyTriagedCount > 0
+                  ? `${alreadyTriagedCount} of ${filteredIssues.length} tickets already triaged.`
+                  : `Triage ${filteredIssues.length} visible tickets?`}
+              </p>
+              <div className="flex gap-2">
+                {untriagedCount > 0 && (
+                  <button
+                    onClick={() => handleBatchTriage(false, filteredIssues)}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 rounded text-xs text-white transition"
+                  >
+                    Triage {untriagedCount} remaining
+                  </button>
+                )}
+                <button
+                  onClick={() => handleBatchTriage(true, filteredIssues)}
+                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs text-gray-300 transition"
+                >
+                  Re-triage all {filteredIssues.length}
+                </button>
+                <button
+                  onClick={() => setShowTriageConfirm(false)}
+                  className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-300 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -548,6 +748,7 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
             <FeedIssueRow
               key={issue.id}
               issue={issue}
+              brief={briefsMap.get(issue.key)}
               expanded={expandedIssues.has(issue.id)}
               onToggle={() => toggleExpanded(issue.id)}
               onAnalyze={() => handleAnalyze(issue)}
@@ -558,7 +759,7 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
       )}
 
       {/* Fix #6: Load More — only shown when backend has more results and no search filter active */}
-      {!debouncedSearch && nextPageToken && (
+      {!debouncedSearch && !filterTriagedOnly && filterSeverity === "All" && nextPageToken && (
         <div className="flex justify-center pt-2">
           <button
             onClick={handleLoadMore}
@@ -654,13 +855,14 @@ function WatchedProjectRow({ project, onRemove, onUpdateStatuses }: WatchedProje
 
 interface FeedIssueRowProps {
   issue: NormalizedIssue;
+  brief?: TicketBrief;
   expanded: boolean;
   onToggle: () => void;
   onAnalyze: () => void;
   analyzing: boolean;
 }
 
-function FeedIssueRow({ issue, expanded, onToggle, onAnalyze, analyzing }: FeedIssueRowProps) {
+function FeedIssueRow({ issue, brief, expanded, onToggle, onAnalyze, analyzing }: FeedIssueRowProps) {
   return (
     <div className="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
       <div
@@ -672,6 +874,11 @@ function FeedIssueRow({ issue, expanded, onToggle, onAnalyze, analyzing }: FeedI
           <span className={`text-xs px-1.5 py-0.5 rounded ${getStatusColor(issue.status)}`}>
             {issue.status}
           </span>
+          {brief?.severity && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${SEVERITY_BADGE[brief.severity] ?? "bg-gray-500/20 text-gray-300 border-gray-500/40"}`}>
+              {brief.severity}
+            </span>
+          )}
         </div>
 
         <span className="flex-1 truncate text-sm">{issue.summary}</span>
@@ -717,6 +924,25 @@ function FeedIssueRow({ issue, expanded, onToggle, onAnalyze, analyzing }: FeedI
                   className="px-2 py-0.5 bg-gray-700 rounded text-xs text-gray-300"
                 >
                   {label}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Triage badges (from JIRA Assist) */}
+          {brief?.severity && (
+            <div className="flex flex-wrap gap-1.5">
+              <span className={`text-xs px-2 py-0.5 rounded-full border ${SEVERITY_BADGE[brief.severity] ?? ""}`}>
+                {brief.severity}
+              </span>
+              {brief.category && (
+                <span className={`text-xs px-2 py-0.5 rounded-full border ${CATEGORY_COLORS[brief.category] ?? "bg-gray-500/15 text-gray-300 border-gray-500/30"}`}>
+                  {brief.category}
+                </span>
+              )}
+              {parseTags(brief.tags).map((tag) => (
+                <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400 border border-gray-600/50">
+                  {tag}
                 </span>
               ))}
             </div>

@@ -389,6 +389,7 @@ fn main() {
             widget_commands::is_main_window_visible,
             // JIRA Assist
             commands::jira_assist::get_ticket_brief,
+            commands::jira_assist::get_ticket_briefs_batch,
             commands::jira_assist::delete_ticket_brief,
             commands::jira_assist::triage_jira_ticket,
             commands::jira_assist::generate_ticket_brief,

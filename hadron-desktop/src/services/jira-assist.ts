@@ -53,6 +53,12 @@ export async function getTicketBrief(jiraKey: string): Promise<TicketBrief | nul
   return invoke<TicketBrief | null>("get_ticket_brief", { jiraKey });
 }
 
+/** Fetch multiple ticket briefs in a single query. Returns only keys that have stored briefs. */
+export async function getTicketBriefsBatch(jiraKeys: string[]): Promise<TicketBrief[]> {
+  if (jiraKeys.length === 0) return [];
+  return invoke<TicketBrief[]>("get_ticket_briefs_batch", { jiraKeys });
+}
+
 /** Delete a ticket brief and its embeddings. */
 export async function deleteTicketBrief(jiraKey: string): Promise<void> {
   return invoke<void>("delete_ticket_brief", { jiraKey });
