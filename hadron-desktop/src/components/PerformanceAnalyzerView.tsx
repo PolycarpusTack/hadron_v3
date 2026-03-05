@@ -7,7 +7,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core"; // used by analyze_performance_trace and get_file_stats
 import logger from "../services/logger";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
 import Button from "./ui/Button";
@@ -234,31 +234,28 @@ function FileUpload({
   onFilesSelected,
   files,
   onRemoveFile,
-  isAnalyzing
+  isAnalyzing,
+  onError,
 }: {
   onFilesSelected: (files: FileInfo[]) => void;
   files: FileInfo[];
   onRemoveFile: (index: number) => void;
   isAnalyzing: boolean;
+  onError: (msg: string) => void;
 }) {
-  const [isDragging, setIsDragging] = useState(false);
+  const [dropRejected, setDropRejected] = useState(false);
 
-  const handleDrag = useCallback((e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setIsDragging(true);
-    } else if (e.type === 'dragleave') {
-      setIsDragging(false);
-    }
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(false);
-    // Show message to use file picker instead (Tauri limitation)
-    alert("Please use the file picker button below instead of drag & drop.\n\nThis ensures proper file path handling in Tauri.");
+    // Tauri doesn't expose file paths via HTML5 drag-drop — show inline hint
+    setDropRejected(true);
+    setTimeout(() => setDropRejected(false), 4000);
   }, []);
 
   const handleSelectFile = async () => {
@@ -284,13 +281,12 @@ function FileUpload({
       const fileInfos: FileInfo[] = await Promise.all(
         paths.map(async (path) => {
           const name = path.split(/[/\\]/).pop() || path;
-          // Try to get file size from Tauri
           let size = 0;
           try {
             const stats = await invoke<{ size: number }>("get_file_stats", { path });
             size = stats.size;
           } catch {
-            // Ignore if we can't get stats
+            // Size is optional — not worth blocking on
           }
           return { path, name, size };
         })
@@ -299,24 +295,18 @@ function FileUpload({
       onFilesSelected(fileInfos);
     } catch (error) {
       logger.error('File selection failed', { error: error instanceof Error ? error.message : String(error) });
-      alert("Failed to select file. Please try again.");
+      onError('Failed to open file picker. Please try again.');
     }
   };
 
   return (
     <div className="space-y-4">
       <div
-        onDragEnter={handleDrag}
-        onDragLeave={handleDrag}
-        onDragOver={handleDrag}
+        onDragOver={handleDragOver}
         onDrop={handleDrop}
-        className={`border-2 border-dashed rounded-lg p-12 text-center transition-all ${
-          isDragging
-            ? 'border-blue-500 bg-blue-500/10 scale-105'
-            : 'border-gray-600 hover:border-gray-500'
-        } ${isAnalyzing ? 'opacity-50 pointer-events-none' : ''}`}
+        className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors border-gray-600 hover:border-gray-500 ${isAnalyzing ? 'opacity-50 pointer-events-none' : ''}`}
       >
-        <Upload size={48} className={`mx-auto mb-4 ${isDragging ? 'text-blue-400' : 'text-gray-400'}`} />
+        <Upload size={48} className="mx-auto mb-4 text-gray-400" />
         <p className="text-xl font-semibold text-white mb-2">
           Select one or more performance trace files
         </p>
@@ -334,8 +324,13 @@ function FileUpload({
           Choose File
         </Button>
         <p className="text-gray-500 text-sm mt-4">
-          Supports .log and .txt files - batch upload supported
+          Supports .log and .txt files · batch upload supported
         </p>
+        {dropRejected && (
+          <p className="text-yellow-400 text-sm mt-3">
+            Drag & drop isn't available in desktop mode — use the Choose File button above.
+          </p>
+        )}
       </div>
 
       {files.length > 0 && (
@@ -443,6 +438,9 @@ function AnalysisResultView({ result }: { result: PerformanceAnalysisResult }) {
 
       {/* Process Distribution */}
       <CollapsibleSection title="Process Distribution" icon={GitBranch}>
+        {result.processes.length === 0 ? (
+          <p className="text-sm text-gray-500">Process distribution data not found in this trace.</p>
+        ) : null}
         <div className="space-y-3">
           {result.processes.map((proc, i) => (
             <div key={i} className="flex items-center gap-4">
@@ -466,34 +464,43 @@ function AnalysisResultView({ result }: { result: PerformanceAnalysisResult }) {
 
       {/* Top Methods (Totals) */}
       <CollapsibleSection title="Top Methods by Self-Time" icon={List}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700">
-                <th className="text-left py-2 px-3 font-medium text-gray-400">Method</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-400">Category</th>
-                <th className="text-right py-2 px-3 font-medium text-gray-400">Self-Time</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-400 w-32">Distribution</th>
-              </tr>
-            </thead>
-            <tbody>
-              {result.top_methods.map((method, i) => (
-                <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30">
-                  <td className="py-2 px-3 font-mono text-xs text-gray-200 max-w-xs truncate" title={method.method}>
-                    {method.method}
-                  </td>
-                  <td className="py-2 px-3">
-                    <CategoryBadge category={method.category} />
-                  </td>
-                  <td className="py-2 px-3 text-right font-medium text-white">{method.percentage.toFixed(1)}%</td>
-                  <td className="py-2 px-3">
-                    <ProgressBar value={method.percentage} max={15} color={getColorForPercentage(method.percentage)} height="h-1.5" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {result.top_methods.length === 0 ? (
+          <p className="text-sm text-gray-500">No method data available in this trace.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            {(() => {
+              const maxPct = Math.max(...result.top_methods.map(m => m.percentage), 1);
+              return (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="text-left py-2 px-3 font-medium text-gray-400">Method</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-400">Category</th>
+                      <th className="text-right py-2 px-3 font-medium text-gray-400">Self-Time</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-400 w-32">Distribution</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.top_methods.map((method, i) => (
+                      <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                        <td className="py-2 px-3 font-mono text-xs text-gray-200 max-w-xs truncate" title={method.method}>
+                          {method.method}
+                        </td>
+                        <td className="py-2 px-3">
+                          <CategoryBadge category={method.category} />
+                        </td>
+                        <td className="py-2 px-3 text-right font-medium text-white">{method.percentage.toFixed(1)}%</td>
+                        <td className="py-2 px-3">
+                          <ProgressBar value={method.percentage} max={maxPct} color={getColorForPercentage(method.percentage)} height="h-1.5" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
+          </div>
+        )}
       </CollapsibleSection>
 
       {/* Detected Patterns */}
@@ -503,16 +510,21 @@ function AnalysisResultView({ result }: { result: PerformanceAnalysisResult }) {
         badge={<span className="ml-2 px-2 py-0.5 text-xs bg-blue-900/30 text-blue-400 rounded-full">{result.patterns.length} found</span>}
       >
         <div className="space-y-3">
+          {result.patterns.length === 0 && (
+            <p className="text-sm text-gray-500">No significant patterns detected.</p>
+          )}
           {result.patterns.map((pattern, i) => (
             <div key={i} className={`p-4 rounded-lg border ${
-              pattern.severity === 'high' ? 'bg-orange-900/20 border-orange-500/30' :
+              pattern.severity === 'critical' ? 'bg-red-900/20 border-red-500/30' :
+              pattern.severity === 'high' || pattern.severity === 'warning' ? 'bg-orange-900/20 border-orange-500/30' :
               pattern.severity === 'medium' ? 'bg-yellow-900/20 border-yellow-500/30' :
               pattern.severity === 'low' ? 'bg-blue-900/20 border-blue-500/30' :
               'bg-gray-700/30 border-gray-600'
             }`}>
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  {pattern.severity === 'high' && <AlertTriangle size={18} className="text-orange-400" />}
+                  {(pattern.severity === 'critical') && <AlertTriangle size={18} className="text-red-400" />}
+                  {(pattern.severity === 'high' || pattern.severity === 'warning') && <AlertTriangle size={18} className="text-orange-400" />}
                   {pattern.severity === 'medium' && <AlertCircle size={18} className="text-yellow-400" />}
                   {pattern.severity === 'low' && <Info size={18} className="text-blue-400" />}
                   {pattern.severity === 'info' && <Info size={18} className="text-gray-400" />}
@@ -606,6 +618,7 @@ export default function PerformanceAnalyzerView() {
   const [analysisResults, setAnalysisResults] = useState<PerformanceAnalysisResult[]>([]);
   const [activeTab, setActiveTab] = useState(0);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 });
+  const [error, setError] = useState<string | null>(null);
 
   const handleFilesSelected = (newFiles: FileInfo[]) => {
     setFiles(prev => [...prev, ...newFiles]);
@@ -689,28 +702,24 @@ export default function PerformanceAnalyzerView() {
     setActiveTab(0);
   };
 
-  const handleExport = async (format: 'pdf' | 'json') => {
+  const handleExport = () => {
     const result = analysisResults[activeTab];
     if (!result) return;
 
     try {
-      if (format === 'json') {
-        const json = JSON.stringify(result, null, 2);
-        await invoke("save_export_file", {
-          content: json,
-          filename: `${result.filename.replace('.log', '')}_analysis.json`,
-          format: 'json'
-        });
-      } else {
-        // PDF export would be handled by backend
-        await invoke("export_performance_report", {
-          result,
-          format: 'pdf'
-        });
-      }
+      const json = JSON.stringify(result, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${result.filename.replace(/\.(log|txt)$/i, '')}_analysis.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (error) {
-      logger.error('Export failed', { format, error });
-      alert(`Failed to export ${format.toUpperCase()}. Please try again.`);
+      logger.error('Export failed', { error });
+      setError('Failed to export JSON. Please try again.');
     }
   };
 
@@ -731,7 +740,16 @@ export default function PerformanceAnalyzerView() {
                 files={files}
                 onRemoveFile={handleRemoveFile}
                 isAnalyzing={isAnalyzing}
+                onError={setError}
               />
+
+              {error && (
+                <div className="flex items-center gap-3 bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+                  <AlertTriangle size={18} className="text-red-400 flex-shrink-0" />
+                  <p className="text-red-300 text-sm flex-1">{error}</p>
+                  <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-lg leading-none">✕</button>
+                </div>
+              )}
 
               {files.length > 0 && (
                 <div className="flex justify-center">
@@ -834,8 +852,15 @@ export default function PerformanceAnalyzerView() {
 
           {/* Export options */}
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
+            {error && (
+              <div className="flex items-center gap-2 text-red-400 text-sm mr-auto">
+                <AlertTriangle size={16} />
+                <span>{error}</span>
+                <button onClick={() => setError(null)} className="hover:text-red-300">✕</button>
+              </div>
+            )}
             <Button
-              onClick={() => handleExport('json')}
+              onClick={handleExport}
               variant="ghost"
               icon={<Download size={18} />}
               className="border border-gray-600"

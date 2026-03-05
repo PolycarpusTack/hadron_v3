@@ -483,16 +483,6 @@ fn parse_processes(lines: &[&str]) -> Vec<ProcessInfo> {
         }
     }
 
-    // If no processes found, add default entries
-    if processes.is_empty() {
-        processes.push(ProcessInfo {
-            name: "Main Process".to_string(),
-            priority: "50".to_string(),
-            percentage: 85.0,
-            status: "normal".to_string(),
-        });
-    }
-
     processes
 }
 

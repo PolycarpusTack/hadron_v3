@@ -73,6 +73,24 @@ pub fn install_panic_hook() {
 
         // Also write to stderr as a fallback
         eprintln!("{}", content);
+
+        // Auto-restart for the known tao Windows event-loop re-entrancy bug.
+        // https://github.com/tauri-apps/tao/issues/1140
+        // Triggered by device changes (Bluetooth, VPN, USB) during a paint cycle.
+        // Safe to restart: the panic is in the UI layer; SQLite WAL survives unclean exit.
+        let is_tao_paint_bug = panic_info
+            .location()
+            .map(|l| l.file().contains("tao") && l.file().contains("event_loop"))
+            .unwrap_or(false)
+            || panic_info.to_string().contains("flush_paint_messages");
+
+        if is_tao_paint_bug {
+            if let Ok(exe) = std::env::current_exe() {
+                let _ = std::process::Command::new(&exe)
+                    .args(std::env::args().skip(1))
+                    .spawn();
+            }
+        }
     }));
 }
 

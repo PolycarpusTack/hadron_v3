@@ -75,6 +75,13 @@ uuid = { version = "1.6", features = ["v4"] }
 # XLSX export support
 rust_xlsxwriter = "0.79"
 
+# Patch tao to fix the flush_paint_messages assertion panic on Windows.
+# Triggered by re-entrant WM_PAINT during device-change events (Bluetooth, VPN, USB).
+# Remove this block once the fix is released in an official tao version.
+# Upstream issue: https://github.com/tauri-apps/tao/issues/1140
+[patch.crates-io]
+tao = { git = "https://github.com/PolycarpusTack/tao", rev = "943f900264bde9e74b5b3c43afabd2df6e1fe0f2" }
+
 [profile.dev]
 # Keep debug builds lightweight to avoid rustc OOM on Windows while iterating.
 debug = 0

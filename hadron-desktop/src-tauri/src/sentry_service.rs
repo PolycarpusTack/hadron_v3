@@ -18,7 +18,10 @@ static SENTRY_CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
-        .expect("Failed to build Sentry HTTP client - check TLS backend")
+        .unwrap_or_else(|e| {
+            log::error!("Failed to build Sentry HTTP client (TLS init): {}. Using default client.", e);
+            Client::new()
+        })
 });
 
 // ============================================================================

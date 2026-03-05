@@ -473,14 +473,39 @@ function WalkthroughTab({ sections }: { sections: WalkthroughSection[] }) {
 function IssuesTab({
   issues,
   highlightIssueId,
+  externalSeverityFilter,
 }: {
   issues: CodeIssue[];
   highlightIssueId?: number;
+  externalSeverityFilter?: string | null;
 }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set(highlightIssueId ? [highlightIssueId] : []));
   const [severityFilter, setSeverityFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
+  const issueRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync external severity filter driven from Quality tab
+  useEffect(() => {
+    if (externalSeverityFilter != null) {
+      setSeverityFilter(externalSeverityFilter);
+    }
+  }, [externalSeverityFilter]);
+
+  // Respond to programmatic navigation (e.g. clicking a critical issue in Overview)
+  useEffect(() => {
+    if (highlightIssueId === undefined) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add(highlightIssueId);
+      return next;
+    });
+    // Scroll the issue into view after state settles
+    requestAnimationFrame(() => {
+      issueRefs.current[highlightIssueId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }, [highlightIssueId]);
 
   const toggleIssue = (id: number) => {
     setExpanded((prev) => {
@@ -497,7 +522,8 @@ function IssuesTab({
   const copyFix = (issue: CodeIssue) => {
     navigator.clipboard.writeText(issue.fix);
     setCopied(issue.id);
-    setTimeout(() => setCopied(null), 2000);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => setCopied(null), 2000);
   };
 
   const filteredIssues = issues.filter((issue) => {
@@ -506,11 +532,11 @@ function IssuesTab({
     return true;
   });
 
-  // Sort by severity
-  const sortedIssues = [...filteredIssues].sort((a, b) => {
-    const order = { critical: 0, high: 1, medium: 2, low: 3 };
-    return order[a.severity] - order[b.severity];
-  });
+  // Sort by severity — nullish fallback prevents NaN if AI returns an unexpected value
+  const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  const sortedIssues = [...filteredIssues].sort(
+    (a, b) => (severityOrder[a.severity] ?? 4) - (severityOrder[b.severity] ?? 4)
+  );
 
   return (
     <div className="space-y-4">
@@ -548,7 +574,11 @@ function IssuesTab({
 
       {/* Issues */}
       {sortedIssues.map((issue) => (
-        <div key={issue.id} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <div
+          key={issue.id}
+          ref={(el) => { issueRefs.current[issue.id] = el; }}
+          className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+        >
           <div
             onClick={() => toggleIssue(issue.id)}
             className={`px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center justify-between ${
@@ -641,7 +671,7 @@ function IssuesTab({
 
       {sortedIssues.length === 0 && (
         <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-          No issues match the current filters.
+          {severityFilter || categoryFilter ? "No issues match the current filters." : "No issues found."}
         </div>
       )}
     </div>
@@ -651,12 +681,14 @@ function IssuesTab({
 // Optimized Tab
 function OptimizedTab({ code }: { code: string | null }) {
   const [copied, setCopied] = useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const copyCode = () => {
     if (code) {
       navigator.clipboard.writeText(code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -670,25 +702,6 @@ function OptimizedTab({ code }: { code: string | null }) {
 
   return (
     <div className="space-y-4">
-      {/* Improvements Made */}
-      <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4">
-        <h3 className="font-semibold text-green-800 dark:text-green-300 mb-3 flex items-center gap-2">
-          <Check className="w-5 h-5" />
-          Improvements Applied
-        </h3>
-        <div className="flex flex-wrap gap-2">
-          <span className="px-2 py-1 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 rounded text-sm flex items-center gap-1">
-            <Shield className="w-4 h-4" /> Security
-          </span>
-          <span className="px-2 py-1 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 rounded text-sm flex items-center gap-1">
-            <Zap className="w-4 h-4" /> Performance
-          </span>
-          <span className="px-2 py-1 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 rounded text-sm flex items-center gap-1">
-            <Check className="w-4 h-4" /> Best Practices
-          </span>
-        </div>
-      </div>
-
       {/* Optimized Code */}
       <div className="bg-gray-900 rounded-xl overflow-hidden">
         <div className="px-4 py-3 bg-gray-800 flex items-center justify-between">
@@ -708,7 +721,15 @@ function OptimizedTab({ code }: { code: string | null }) {
 }
 
 // Quality Tab
-function QualityTab({ scores, issues }: { scores: CodeQualityScores; issues: CodeIssue[] }) {
+function QualityTab({
+  scores,
+  issues,
+  onFilterToSeverity,
+}: {
+  scores: CodeQualityScores;
+  issues: CodeIssue[];
+  onFilterToSeverity: (severity: string) => void;
+}) {
   const issuesBySeverity = {
     critical: issues.filter((i) => i.severity === "critical").length,
     high: issues.filter((i) => i.severity === "high").length,
@@ -767,26 +788,29 @@ function QualityTab({ scores, issues }: { scores: CodeQualityScores; issues: Cod
         </div>
       </div>
 
-      {/* Issue Breakdown */}
+      {/* Issue Breakdown — each card navigates to Issues tab filtered to that severity */}
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
-        <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-4">Issue Breakdown</h3>
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-1">Issue Breakdown</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Click a count to view filtered issues</p>
         <div className="grid grid-cols-4 gap-4">
-          <div className="text-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
-            <div className="text-2xl font-bold text-red-600 dark:text-red-400">{issuesBySeverity.critical}</div>
-            <p className="text-sm text-red-700 dark:text-red-400">Critical</p>
-          </div>
-          <div className="text-center p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
-            <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">{issuesBySeverity.high}</div>
-            <p className="text-sm text-orange-700 dark:text-orange-400">High</p>
-          </div>
-          <div className="text-center p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
-            <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{issuesBySeverity.medium}</div>
-            <p className="text-sm text-yellow-700 dark:text-yellow-400">Medium</p>
-          </div>
-          <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{issuesBySeverity.low}</div>
-            <p className="text-sm text-blue-700 dark:text-blue-400">Low</p>
-          </div>
+          {(
+            [
+              { key: "critical", label: "Critical", count: issuesBySeverity.critical, bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-600 dark:text-red-400", sub: "text-red-700 dark:text-red-400" },
+              { key: "high",     label: "High",     count: issuesBySeverity.high,     bg: "bg-orange-50 dark:bg-orange-900/20", text: "text-orange-600 dark:text-orange-400", sub: "text-orange-700 dark:text-orange-400" },
+              { key: "medium",   label: "Medium",   count: issuesBySeverity.medium,   bg: "bg-yellow-50 dark:bg-yellow-900/20", text: "text-yellow-600 dark:text-yellow-400", sub: "text-yellow-700 dark:text-yellow-400" },
+              { key: "low",      label: "Low",      count: issuesBySeverity.low,      bg: "bg-blue-50 dark:bg-blue-900/20", text: "text-blue-600 dark:text-blue-400", sub: "text-blue-700 dark:text-blue-400" },
+            ] as const
+          ).map(({ key, label, count, bg, text, sub }) => (
+            <button
+              key={key}
+              onClick={() => count > 0 && onFilterToSeverity(key)}
+              disabled={count === 0}
+              className={`text-center p-4 ${bg} rounded-lg transition ${count > 0 ? "hover:opacity-80 cursor-pointer" : "opacity-60 cursor-default"}`}
+            >
+              <div className={`text-2xl font-bold ${text}`}>{count}</div>
+              <p className={`text-sm ${sub}`}>{label}</p>
+            </button>
+          ))}
         </div>
       </div>
     </div>
@@ -794,7 +818,26 @@ function QualityTab({ scores, issues }: { scores: CodeQualityScores; issues: Cod
 }
 
 // Learn Tab
-function LearnTab({ glossary }: { glossary: GlossaryTerm[] }) {
+function LearnTab({
+  glossary,
+  hasOptimizedCode,
+  criticalCount,
+}: {
+  glossary: GlossaryTerm[];
+  hasOptimizedCode: boolean;
+  criticalCount: number;
+}) {
+  const steps: string[] = [];
+  if (criticalCount > 0) {
+    steps.push(`Address the ${criticalCount} critical issue${criticalCount > 1 ? "s" : ""} first — they represent the highest risk`);
+  }
+  steps.push("Review all High and Medium severity issues in the Issues tab");
+  if (hasOptimizedCode) {
+    steps.push("Apply the optimized code suggestions after reviewing and testing the changes");
+  }
+  steps.push("Add unit tests covering the edge cases identified in the walkthrough");
+  steps.push("Use the walkthrough notes as a starting point for inline code documentation");
+
   return (
     <div className="space-y-6">
       {/* Glossary */}
@@ -804,12 +847,16 @@ function LearnTab({ glossary }: { glossary: GlossaryTerm[] }) {
           Glossary
         </h3>
         <div className="space-y-3">
-          {glossary.map((item, idx) => (
-            <div key={idx} className="border-b border-gray-100 dark:border-gray-700 pb-3 last:border-0 last:pb-0">
-              <dt className="font-medium text-gray-800 dark:text-gray-200">{item.term}</dt>
-              <dd className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.definition}</dd>
-            </div>
-          ))}
+          {glossary.length > 0 ? (
+            glossary.map((item, idx) => (
+              <div key={idx} className="border-b border-gray-100 dark:border-gray-700 pb-3 last:border-0 last:pb-0">
+                <dt className="font-medium text-gray-800 dark:text-gray-200">{item.term}</dt>
+                <dd className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.definition}</dd>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No glossary terms identified for this code.</p>
+          )}
         </div>
       </div>
 
@@ -819,12 +866,11 @@ function LearnTab({ glossary }: { glossary: GlossaryTerm[] }) {
           <Lightbulb className="w-5 h-5" />
           Next Steps
         </h3>
-        <ul className="space-y-2 text-sm text-blue-700 dark:text-blue-400">
-          <li>1. Review and address Critical and High severity issues first</li>
-          <li>2. Apply the optimized code suggestions after testing</li>
-          <li>3. Add unit tests covering the identified edge cases</li>
-          <li>4. Consider the walkthrough notes for code documentation</li>
-        </ul>
+        <ol className="space-y-2 text-sm text-blue-700 dark:text-blue-400 list-none">
+          {steps.map((step, idx) => (
+            <li key={idx}>{idx + 1}. {step}</li>
+          ))}
+        </ol>
       </div>
     </div>
   );
@@ -848,6 +894,7 @@ export default function CodeAnalyzerView({
   const [filename, setFilename] = useState("code.txt");
   const [language, setLanguage] = useState("Auto-detect");
   const [highlightIssueId, setHighlightIssueId] = useState<number | undefined>();
+  const [issuesSeverityFilter, setIssuesSeverityFilter] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Restore input if we have it in state
@@ -863,6 +910,8 @@ export default function CodeAnalyzerView({
     if (!input.trim()) return;
 
     const detectedLang = language === "Auto-detect" ? detectLanguage(input, filename) : language;
+    // Reflect the resolved language back into the dropdown so it doesn't stay on "Auto-detect"
+    if (language === "Auto-detect") setLanguage(detectedLang);
     onSetInput({ content: input, filename, language: detectedLang });
 
     try {
@@ -899,6 +948,8 @@ export default function CodeAnalyzerView({
     const file = e.target.files?.[0];
     if (file) {
       if (!warnIfLargeFile(file)) return;
+      // Reset so the browser fires onChange again if the same file is selected next time
+      e.target.value = "";
       const reader = new FileReader();
       reader.onload = (event) => {
         const content = event.target?.result as string;
@@ -911,7 +962,16 @@ export default function CodeAnalyzerView({
   };
 
   const navigateToIssue = (issueId: number) => {
-    setHighlightIssueId(issueId);
+    // Reset to undefined first so the prop always changes, even for repeated clicks
+    // on the same issue. The rAF gives React one frame to propagate the reset before
+    // re-setting the new value.
+    setHighlightIssueId(undefined);
+    onTabChange("issues");
+    requestAnimationFrame(() => setHighlightIssueId(issueId));
+  };
+
+  const navigateToFilteredIssues = (severity: string) => {
+    setIssuesSeverityFilter(severity);
     onTabChange("issues");
   };
 
@@ -1111,21 +1171,30 @@ export default function CodeAnalyzerView({
               ))}
             </div>
 
-            <div className="p-6 max-h-[600px] overflow-y-auto">
-              {activeTab === "overview" && (
+            {/* All tab panels stay mounted to preserve filter/expand state — toggled via CSS only */}
+            <div className="p-6 max-h-[calc(100vh-280px)] overflow-y-auto">
+              <div className={activeTab !== "overview" ? "hidden" : ""}>
                 <OverviewTab result={analysisResult} onNavigateToIssue={navigateToIssue} />
-              )}
-              {activeTab === "walkthrough" && <WalkthroughTab sections={analysisResult.walkthrough} />}
-              {activeTab === "issues" && (
-                <IssuesTab issues={analysisResult.issues} highlightIssueId={highlightIssueId} />
-              )}
-              {activeTab === "optimized" && (
+              </div>
+              <div className={activeTab !== "walkthrough" ? "hidden" : ""}>
+                <WalkthroughTab sections={analysisResult.walkthrough} />
+              </div>
+              <div className={activeTab !== "issues" ? "hidden" : ""}>
+                <IssuesTab issues={analysisResult.issues} highlightIssueId={highlightIssueId} externalSeverityFilter={issuesSeverityFilter} />
+              </div>
+              <div className={activeTab !== "optimized" ? "hidden" : ""}>
                 <OptimizedTab code={analysisResult.optimizedCode} />
-              )}
-              {activeTab === "quality" && (
-                <QualityTab scores={analysisResult.qualityScores} issues={analysisResult.issues} />
-              )}
-              {activeTab === "learn" && <LearnTab glossary={analysisResult.glossary} />}
+              </div>
+              <div className={activeTab !== "quality" ? "hidden" : ""}>
+                <QualityTab scores={analysisResult.qualityScores} issues={analysisResult.issues} onFilterToSeverity={navigateToFilteredIssues} />
+              </div>
+              <div className={activeTab !== "learn" ? "hidden" : ""}>
+                <LearnTab
+                  glossary={analysisResult.glossary}
+                  hasOptimizedCode={analysisResult.optimizedCode !== null}
+                  criticalCount={analysisResult.issues.filter((i) => i.severity === "critical").length}
+                />
+              </div>
             </div>
           </div>
         </>

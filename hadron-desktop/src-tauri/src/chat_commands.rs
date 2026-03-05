@@ -400,6 +400,22 @@ fn retrieve_fts_context(db: &Database, query: &str) -> (String, usize) {
 // Tauri Commands
 // ============================================================================
 
+/// RAII guard that unregisters a Tauri event listener on drop.
+///
+/// Ensures the listener is removed on every exit path from an async command —
+/// including `return` statements, `?` propagation, and panics — so listeners
+/// never accumulate across failed or cancelled requests.
+struct UnlistenGuard {
+    app: AppHandle,
+    id: tauri::EventId,
+}
+
+impl Drop for UnlistenGuard {
+    fn drop(&mut self) {
+        self.app.unlisten(self.id);
+    }
+}
+
 /// Run a closure on a dedicated OS thread outside the tokio runtime.
 /// Needed because the Keeper SDK uses `reqwest::blocking` internally.
 async fn run_off_runtime<F, T>(f: F) -> Result<T, String>
@@ -439,6 +455,8 @@ pub async fn chat_send(
             }
         }
     });
+    // Guard ensures unlisten is called on every return path, including `?` propagation
+    let _unlisten_guard = UnlistenGuard { app: app.clone(), id: cancel_listener };
 
     // Resolve API key: prefer Keeper secret, fall back to the direct key
     let resolved_api_key: Zeroizing<String> = if let Some(ref keeper_uid) = request.keeper_secret_uid {
@@ -639,7 +657,6 @@ pub async fn chat_send(
     for iteration in 0..MAX_AGENT_ITERATIONS {
         // Check for cancellation between iterations
         if cancelled.load(Ordering::Relaxed) {
-            app.unlisten(cancel_listener);
             return Err("Request cancelled by user".to_string());
         }
 
@@ -688,7 +705,6 @@ pub async fn chat_send(
                 let final_text = extract_text_from_response(&response, &request.provider);
                 emit_text_as_stream(&app, &final_text, request_id.as_deref()).await;
                 let est_tokens = (final_text.len() as f64 / 4.0) as i32;
-                app.unlisten(cancel_listener);
                 return Ok(ChatResponse {
                     content: final_text,
                     tokens_used: est_tokens,
@@ -789,7 +805,6 @@ pub async fn chat_send(
                 let (base_content, base_tokens, base_cost) = match base_result {
                     Ok(resp) => (resp.content, resp.tokens_used, resp.cost),
                     Err(e) => {
-                        app.unlisten(cancel_listener);
                         return Err(format!("BASE synthesis failed: {}", e));
                     }
                 };
@@ -880,7 +895,6 @@ pub async fn chat_send(
                             extract_text_from_response(&response, &request.provider);
                         emit_text_as_stream(&app, &final_text, request_id.as_deref()).await;
                         let est_tokens = (final_text.len() as f64 / 4.0) as i32;
-                        app.unlisten(cancel_listener);
                         return Ok(ChatResponse {
                             content: final_text,
                             tokens_used: est_tokens,
@@ -928,7 +942,6 @@ pub async fn chat_send(
                 );
             }
 
-            app.unlisten(cancel_listener);
             return Ok(ChatResponse {
                 content: processed.content,
                 tokens_used: final_tokens,
@@ -947,7 +960,6 @@ pub async fn chat_send(
             emit_text_as_stream(&app, &final_text, request_id.as_deref()).await;
 
             let est_tokens = (final_text.len() as f64 / 4.0) as i32;
-            app.unlisten(cancel_listener);
             return Ok(ChatResponse {
                 content: final_text,
                 tokens_used: est_tokens,
@@ -1119,7 +1131,6 @@ pub async fn chat_send(
         let (base_content, base_tokens, base_cost) = match base_result {
             Ok(resp) => (resp.content, resp.tokens_used, resp.cost),
             Err(e) => {
-                app.unlisten(cancel_listener);
                 return Err(format!("BASE synthesis failed: {}", e));
             }
         };
@@ -1262,7 +1273,6 @@ pub async fn chat_send(
         );
     }
 
-    app.unlisten(cancel_listener);
     Ok(ChatResponse {
         content: processed.content,
         tokens_used: final_tokens_b,

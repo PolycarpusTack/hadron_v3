@@ -199,18 +199,22 @@ fn extract_business_objects(ctx: &ContextArguments) -> Vec<BusinessObject> {
 
                 // Extract channel if present
                 if let Some(caps) = CHANNEL.captures(&nv.value) {
-                    props.insert(
-                        "channel".to_string(),
-                        serde_json::Value::String(caps.get(1).expect("regex has capture group 1").as_str().to_string()),
-                    );
+                    if let Some(m) = caps.get(1) {
+                        props.insert(
+                            "channel".to_string(),
+                            serde_json::Value::String(m.as_str().to_string()),
+                        );
+                    }
                 }
 
                 // Extract date if present
                 if let Some(caps) = SCHEDULE_DATE.captures(&nv.value) {
-                    props.insert(
-                        "date".to_string(),
-                        serde_json::Value::String(caps.get(1).expect("regex has capture group 1").as_str().to_string()),
-                    );
+                    if let Some(m) = caps.get(1) {
+                        props.insert(
+                            "date".to_string(),
+                            serde_json::Value::String(m.as_str().to_string()),
+                        );
+                    }
                 }
 
                 objects.push(BusinessObject {

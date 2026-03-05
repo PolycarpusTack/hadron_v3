@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -58,11 +58,13 @@ pub async fn run_python_translation(
     #[cfg(target_os = "windows")]
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    let mut cmd = Command::new("python");
+    let mut cmd = tokio::process::Command::new("python");
     cmd.arg(python_script.to_string_lossy().to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        // Kill child automatically if the future is dropped (e.g. on timeout)
+        .kill_on_drop(true);
 
     // Hide console window on Windows
     #[cfg(target_os = "windows")]
@@ -76,42 +78,24 @@ pub async fn run_python_translation(
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(stdin_json.as_bytes())
+            .await
             .map_err(|e| format!("Failed to write to Python stdin: {}", e))?;
-        // stdin is dropped here, closing the pipe
+        // stdin dropped here, closing the pipe and signalling EOF to the child
     }
 
-    // Wait for process with timeout
-    let output = tokio::task::spawn_blocking(move || {
-        // Use wait_with_output but with a timeout mechanism
-        let start = std::time::Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => {
-                    // Process finished, get output
-                    return child.wait_with_output();
-                }
-                Ok(None) => {
-                    // Still running, check timeout
-                    if start.elapsed() > Duration::from_secs(PYTHON_TIMEOUT_SECS) {
-                        if let Err(e) = child.kill() {
-                            log::warn!("Failed to kill timed-out Python process: {}", e);
-                        }
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            format!(
-                                "Python process timed out after {} seconds",
-                                PYTHON_TIMEOUT_SECS
-                            ),
-                        ));
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    })
+    // Wait for process with timeout. kill_on_drop(true) ensures the child is
+    // killed if the future is cancelled when the timeout fires.
+    let output = tokio::time::timeout(
+        Duration::from_secs(PYTHON_TIMEOUT_SECS),
+        child.wait_with_output(),
+    )
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
+    .map_err(|_| {
+        format!(
+            "Python process timed out after {} seconds",
+            PYTHON_TIMEOUT_SECS
+        )
+    })?
     .map_err(|e| format!("Python process error: {}", e))?;
 
     if !output.status.success() {

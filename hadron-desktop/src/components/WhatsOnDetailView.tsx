@@ -17,12 +17,14 @@ import {
   Database,
   HardDrive,
   Layers,
+  Loader2,
 } from "lucide-react";
 import type { Analysis } from "../services/api";
 import { parseWhatsOnAnalysis, getSeverityColor } from "../utils/whatsOnParser";
 import JiraTicketModal from "./JiraTicketModal";
 import { isJiraEnabled } from "../services/jira";
 import Button from "./ui/Button";
+import { generateAnnotatedWcrDocx } from "../utils/generateAnnotatedWcrDocx";
 
 // Intelligence Platform Components
 import { FeedbackButtons } from "./FeedbackButtons";
@@ -67,6 +69,7 @@ export default function WhatsOnDetailView({ analysis, onBack }: WhatsOnDetailVie
   const [jiraEnabled, setJiraEnabled] = useState(false);
   const [isGold, setIsGold] = useState(false);
   const [editableRootCause, setEditableRootCause] = useState<string | null>(null);
+  const [isExportingWcr, setIsExportingWcr] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Parse the WHATS'ON enhanced analysis data
@@ -93,6 +96,26 @@ export default function WhatsOnDetailView({ analysis, onBack }: WhatsOnDetailVie
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
+
+  const handleExportAnnotatedWcr = async () => {
+    if (!enhancedData) return;
+    setIsExportingWcr(true);
+    try {
+      const blob = await generateAnnotatedWcrDocx(enhancedData, analysis);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${analysis.filename.replace(/\.(txt|log)$/i, "")}-annotated-wcr.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      logger.error("Annotated WCR export failed", { error: String(err) });
+    } finally {
+      setIsExportingWcr(false);
+    }
+  };
 
   const handleCopyToClipboard = () => {
     const text = enhancedData
@@ -290,6 +313,16 @@ ${analysis.root_cause}
           </Button>
           <Button variant="primary" onClick={handleExportMarkdown} icon={<Download />}>
             Export Markdown
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={handleExportAnnotatedWcr}
+            disabled={isExportingWcr}
+            loading={isExportingWcr}
+            icon={isExportingWcr ? <Loader2 className="animate-spin" /> : <Download />}
+            title="Export annotated Word document (.docx) with colour-coded crash annotations"
+          >
+            {isExportingWcr ? "Exporting…" : "Export Annotated WCR"}
           </Button>
           {jiraEnabled && (
             <Button
