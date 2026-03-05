@@ -33,6 +33,7 @@ mod deep_scan;
 mod evidence_extractor;
 mod token_budget;
 mod ticket_briefs;
+mod ticket_embeddings;
 mod widget_commands;
 
 use commands::*;

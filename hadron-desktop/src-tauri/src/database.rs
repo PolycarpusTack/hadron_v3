@@ -3748,4 +3748,37 @@ impl Database {
         let conn = self.lock_conn();
         crate::ticket_briefs::update_engineer_feedback(&conn, jira_key, rating, notes)
     }
+
+    // ── JIRA Assist: ticket_embeddings ─────────────────────────────────────────
+
+    pub fn upsert_ticket_embedding(
+        &self,
+        jira_key: &str,
+        embedding: &[f64],
+        source_text: &str,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        crate::ticket_embeddings::upsert_embedding(&conn, jira_key, embedding, source_text)
+    }
+
+    pub fn has_ticket_embedding(&self, jira_key: &str) -> Result<bool> {
+        let conn = self.lock_conn();
+        crate::ticket_embeddings::has_embedding(&conn, jira_key)
+    }
+
+    pub fn get_ticket_embedding(&self, jira_key: &str) -> Result<Option<Vec<f64>>> {
+        let conn = self.lock_conn();
+        crate::ticket_embeddings::get_embedding_for_ticket(&conn, jira_key)
+    }
+
+    pub fn find_similar_tickets(
+        &self,
+        query_embedding: &[f64],
+        exclude_key: &str,
+        threshold: f64,
+        limit: usize,
+    ) -> Result<Vec<crate::ticket_embeddings::SimilarTicketMatch>> {
+        let conn = self.lock_conn();
+        crate::ticket_embeddings::find_similar(&conn, query_embedding, exclude_key, threshold, limit)
+    }
 }
