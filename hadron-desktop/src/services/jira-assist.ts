@@ -22,6 +22,15 @@ export interface TicketBrief {
   updated_at: string;
 }
 
+export interface JiraTriageResult {
+  severity: string;        // "Critical" | "High" | "Medium" | "Low"
+  category: string;        // "Bug" | "Feature" | "Infrastructure" | "UX" | "Performance" | "Security"
+  customer_impact: string;
+  tags: string[];
+  confidence: string;      // "High" | "Medium" | "Low"
+  rationale: string;
+}
+
 /** Fetch a stored ticket brief by JIRA key. Returns null if not yet generated. */
 export async function getTicketBrief(jiraKey: string): Promise<TicketBrief | null> {
   return invoke<TicketBrief | null>("get_ticket_brief", { jiraKey });
@@ -30,6 +39,39 @@ export async function getTicketBrief(jiraKey: string): Promise<TicketBrief | nul
 /** Delete a ticket brief and its embeddings. */
 export async function deleteTicketBrief(jiraKey: string): Promise<void> {
   return invoke<void>("delete_ticket_brief", { jiraKey });
+}
+
+/** Run AI triage on a JIRA ticket and persist the result. */
+export async function triageJiraTicket(params: {
+  jiraKey: string;
+  title: string;
+  description: string;
+  issueType: string;
+  priority?: string;
+  status?: string;
+  components: string[];
+  labels: string[];
+  comments: string[];
+  apiKey: string;
+  model: string;
+  provider: string;
+}): Promise<JiraTriageResult> {
+  return invoke<JiraTriageResult>("triage_jira_ticket", {
+    request: {
+      jira_key: params.jiraKey,
+      title: params.title,
+      description: params.description,
+      issue_type: params.issueType,
+      priority: params.priority,
+      status: params.status,
+      components: params.components,
+      labels: params.labels,
+      comments: params.comments,
+      api_key: params.apiKey,
+      model: params.model,
+      provider: params.provider,
+    },
+  });
 }
 
 /** Parse tags JSON string to array. Returns [] on parse failure. */
@@ -48,4 +90,29 @@ export const SEVERITY_COLORS: Record<string, string> = {
   High:     "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   Medium:   "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
   Low:      "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+};
+
+/** Category → Tailwind color class for badges (dark-mode friendly). */
+export const CATEGORY_COLORS: Record<string, string> = {
+  Bug:            "bg-red-500/15 text-red-300 border-red-500/30",
+  Feature:        "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  Infrastructure: "bg-gray-500/15 text-gray-300 border-gray-500/30",
+  UX:             "bg-pink-500/15 text-pink-300 border-pink-500/30",
+  Performance:    "bg-orange-500/15 text-orange-300 border-orange-500/30",
+  Security:       "bg-purple-500/15 text-purple-300 border-purple-500/30",
+};
+
+/** Severity → Tailwind color class (dark-mode, for use in TriageBadgePanel). */
+export const SEVERITY_BADGE: Record<string, string> = {
+  Critical: "bg-red-500/20 text-red-300 border-red-500/40",
+  High:     "bg-orange-500/20 text-orange-300 border-orange-500/40",
+  Medium:   "bg-yellow-500/20 text-yellow-300 border-yellow-500/40",
+  Low:      "bg-green-500/20 text-green-300 border-green-500/40",
+};
+
+/** Confidence → Tailwind text color. */
+export const CONFIDENCE_COLOR: Record<string, string> = {
+  High:   "text-green-400",
+  Medium: "text-yellow-400",
+  Low:    "text-red-400",
 };
