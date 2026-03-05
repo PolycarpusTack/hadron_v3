@@ -81,31 +81,25 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
       const result = await JiraImportService.fetchSingleIssue(key);
       if (result.success && result.issue) {
         setIssue(result.issue);
-        // Load any previously stored triage for this ticket
+        // Load any previously stored triage + brief for this ticket (single DB call)
         setTriageResult(null);
         setTriageFromCache(false);
-        try {
-          const brief = await getTicketBrief(result.issue.key);
-          if (brief?.triage_json) {
-            const parsed: JiraTriageResult = JSON.parse(brief.triage_json);
-            setTriageResult(parsed);
-            setTriageFromCache(true);
-          }
-        } catch {
-          // No stored triage — that's fine
-        }
-        // Load any previously stored brief
         setBriefResult(null);
         setBriefFromCache(false);
         try {
-          const brief = await getTicketBrief(result.issue.key);
-          if (brief?.brief_json) {
-            const parsed: JiraBriefResult = JSON.parse(brief.brief_json);
+          const stored = await getTicketBrief(result.issue.key);
+          if (stored?.triage_json) {
+            const parsed: JiraTriageResult = JSON.parse(stored.triage_json);
+            setTriageResult(parsed);
+            setTriageFromCache(true);
+          }
+          if (stored?.brief_json) {
+            const parsed: JiraBriefResult = JSON.parse(stored.brief_json);
             setBriefResult(parsed);
             setBriefFromCache(true);
           }
         } catch {
-          // No stored brief — that's fine
+          // No stored data — that's fine
         }
       } else {
         setError(result.error || "Failed to fetch issue");
