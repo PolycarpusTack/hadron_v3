@@ -8,15 +8,19 @@ import { useState, type ReactNode } from "react";
 import {
   FileText, ShieldAlert, AlertCircle, HelpCircle,
   List, Shield, CheckCircle2, AlertTriangle, ChevronDown,
-  ChevronUp, Users, Brain,
+  ChevronUp, Users, Brain, Search, Loader2,
 } from "lucide-react";
 import type { JiraBriefResult } from "../../services/jira-assist";
 import {
   SEVERITY_BADGE, CATEGORY_COLORS, CONFIDENCE_COLOR,
+  findSimilarTickets, type SimilarTicket,
 } from "../../services/jira-assist";
+import { getStoredApiKey } from "../../services/api";
 
 interface TicketBriefPanelProps {
   jiraKey: string;
+  title: string;
+  description: string;
   result: JiraBriefResult;
   /** When true shows a subtle "loaded from DB" indicator */
   fromCache?: boolean;
@@ -24,9 +28,12 @@ interface TicketBriefPanelProps {
 
 type BriefTab = "brief" | "analysis";
 
-export default function TicketBriefPanel({ jiraKey, result, fromCache }: TicketBriefPanelProps) {
+export default function TicketBriefPanel({ jiraKey, title, description, result, fromCache }: TicketBriefPanelProps) {
   const [tab, setTab] = useState<BriefTab>("brief");
   const [checkedActions, setCheckedActions] = useState<Set<number>>(new Set());
+  const [similarTickets, setSimilarTickets] = useState<SimilarTicket[]>([]);
+  const [searchingSimilar, setSearchingSimilar] = useState(false);
+  const [similarError, setSimilarError] = useState<string | null>(null);
 
   function toggleAction(i: number) {
     setCheckedActions((prev) => {
@@ -34,6 +41,29 @@ export default function TicketBriefPanel({ jiraKey, result, fromCache }: TicketB
       if (next.has(i)) next.delete(i); else next.add(i);
       return next;
     });
+  }
+
+  async function handleFindSimilar() {
+    setSearchingSimilar(true);
+    setSimilarError(null);
+    try {
+      const apiKey = await getStoredApiKey();
+      if (!apiKey) {
+        setSimilarError("No API key configured. Set one in Settings.");
+        return;
+      }
+      const results = await findSimilarTickets({
+        jiraKey,
+        title,
+        description,
+        apiKey,
+      });
+      setSimilarTickets(results);
+    } catch (err) {
+      setSimilarError(`Search failed: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setSearchingSimilar(false);
+    }
   }
 
   const severityClass  = SEVERITY_BADGE[result.triage.severity]   ?? "bg-gray-500/15 text-gray-300 border-gray-500/30";
@@ -174,6 +204,73 @@ export default function TicketBriefPanel({ jiraKey, result, fromCache }: TicketB
             </div>
             <p className="text-sm text-gray-400 italic leading-relaxed">{result.triage.rationale}</p>
           </Section>
+
+          {/* Similar Tickets */}
+          <div className="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
+            <div className="px-4 py-2.5 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-medium text-white">
+                <Search className="w-4 h-4 text-cyan-400" />
+                Similar Tickets
+              </div>
+              <button
+                onClick={handleFindSimilar}
+                disabled={searchingSimilar}
+                className="text-xs px-3 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-medium disabled:opacity-50 transition flex items-center gap-1.5"
+              >
+                {searchingSimilar && <Loader2 className="w-3 h-3 animate-spin" />}
+                {searchingSimilar ? "Searching..." : "Find Similar"}
+              </button>
+            </div>
+
+            {similarError && (
+              <div className="px-4 pb-3">
+                <p className="text-xs text-red-400">{similarError}</p>
+              </div>
+            )}
+
+            {similarTickets.length > 0 && (
+              <div className="px-4 pb-4 space-y-2">
+                {similarTickets.map((ticket) => (
+                  <div
+                    key={ticket.jira_key}
+                    className="flex items-center justify-between p-2.5 rounded-lg border border-gray-700 bg-gray-800/40"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs font-mono text-cyan-400 font-semibold">
+                          {ticket.jira_key}
+                        </span>
+                        {ticket.severity && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                            SEVERITY_BADGE[ticket.severity] ?? "bg-gray-700 text-gray-300"
+                          }`}>
+                            {ticket.severity}
+                          </span>
+                        )}
+                        {ticket.category && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                            CATEGORY_COLORS[ticket.category] ?? "bg-gray-500/15 text-gray-300 border-gray-500/30"
+                          }`}>
+                            {ticket.category}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-300 truncate">{ticket.title}</p>
+                    </div>
+                    <span className="text-xs font-semibold text-cyan-300 ml-3 flex-shrink-0">
+                      {Math.round(ticket.similarity * 100)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!searchingSimilar && similarTickets.length === 0 && !similarError && (
+              <div className="px-4 pb-3">
+                <p className="text-xs text-gray-500">Click "Find Similar" to search for duplicate or related tickets.</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

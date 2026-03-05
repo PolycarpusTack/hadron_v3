@@ -1,7 +1,7 @@
 /**
- * JIRA Assist API functions — Sprints 1-3.
+ * JIRA Assist API functions — Sprints 1-4.
  * Sprint 1: read-only DB access. Sprint 2: AI triage. Sprint 3: Investigation brief.
- * Sprint 4+: duplicate detection, JIRA round-trip, project feed integration.
+ * Sprint 4: duplicate detection. Sprint 5+: JIRA round-trip, project feed integration.
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -121,6 +121,35 @@ export async function generateTicketBrief(params: {
       model:       params.model,
       provider:    params.provider,
     },
+  });
+}
+
+// ─── Similar Tickets (Sprint 4) ─────────────────────────────────────────────
+
+export interface SimilarTicket {
+  jira_key: string;
+  title: string;
+  similarity: number;
+  severity: string | null;
+  category: string | null;
+}
+
+/** Find semantically similar tickets using embedding cosine similarity. */
+export async function findSimilarTickets(params: {
+  jiraKey: string;
+  title: string;
+  description: string;
+  apiKey: string;
+  threshold?: number;
+  limit?: number;
+}): Promise<SimilarTicket[]> {
+  return invoke<SimilarTicket[]>("find_similar_tickets", {
+    jiraKey: params.jiraKey,
+    title: params.title,
+    description: params.description,
+    apiKey: params.apiKey,
+    threshold: params.threshold,
+    limit: params.limit,
   });
 }
 

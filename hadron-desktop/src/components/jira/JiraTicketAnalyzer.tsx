@@ -561,6 +561,8 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
       {briefResult && !briefing && issue && (
         <TicketBriefPanel
           jiraKey={issue.key}
+          title={issue.summary}
+          description={issue.descriptionPlaintext || ""}
           result={briefResult}
           fromCache={briefFromCache}
         />
