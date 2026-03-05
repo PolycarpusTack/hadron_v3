@@ -9,11 +9,13 @@ import {
   FileText, ShieldAlert, AlertCircle, HelpCircle,
   List, Shield, CheckCircle2, AlertTriangle, ChevronDown,
   ChevronUp, Users, Brain, Search, Loader2,
+  Send, Star, MessageSquare,
 } from "lucide-react";
 import type { JiraBriefResult } from "../../services/jira-assist";
 import {
   SEVERITY_BADGE, CATEGORY_COLORS, CONFIDENCE_COLOR,
   findSimilarTickets, type SimilarTicket,
+  postBriefToJira, submitEngineerFeedback,
 } from "../../services/jira-assist";
 import { getStoredApiKey } from "../../services/api";
 
@@ -24,16 +26,42 @@ interface TicketBriefPanelProps {
   result: JiraBriefResult;
   /** When true shows a subtle "loaded from DB" indicator */
   fromCache?: boolean;
+  // Sprint 5: JIRA round-trip + engineer feedback
+  briefJson: string | null;
+  postedToJira: boolean;
+  postedAt: string | null;
+  engineerRating: number | null;
+  engineerNotes: string | null;
+  jiraBaseUrl: string;
+  jiraEmail: string;
+  jiraApiToken: string;
+  onBriefUpdated?: () => void;
 }
 
 type BriefTab = "brief" | "analysis";
 
-export default function TicketBriefPanel({ jiraKey, title, description, result, fromCache }: TicketBriefPanelProps) {
+export default function TicketBriefPanel({
+  jiraKey, title, description, result, fromCache,
+  briefJson, postedToJira, postedAt, engineerRating, engineerNotes,
+  jiraBaseUrl, jiraEmail, jiraApiToken, onBriefUpdated,
+}: TicketBriefPanelProps) {
   const [tab, setTab] = useState<BriefTab>("brief");
   const [checkedActions, setCheckedActions] = useState<Set<number>>(new Set());
   const [similarTickets, setSimilarTickets] = useState<SimilarTicket[]>([]);
   const [searchingSimilar, setSearchingSimilar] = useState(false);
   const [similarError, setSimilarError] = useState<string | null>(null);
+
+  // Sprint 5: Post to JIRA
+  const [posting, setPosting] = useState(false);
+  const [posted, setPosted] = useState(postedToJira);
+  const [postDate, setPostDate] = useState(postedAt);
+  const [postError, setPostError] = useState<string | null>(null);
+
+  // Sprint 5: Engineer feedback
+  const [rating, setRating] = useState<number | null>(engineerRating);
+  const [notes, setNotes] = useState(engineerNotes ?? "");
+  const [showNotes, setShowNotes] = useState(false);
+  const [savingFeedback, setSavingFeedback] = useState(false);
 
   function toggleAction(i: number) {
     setCheckedActions((prev) => {
@@ -66,6 +94,54 @@ export default function TicketBriefPanel({ jiraKey, title, description, result, 
     }
   }
 
+  async function handlePostToJira() {
+    if (!briefJson || posted) return;
+    if (!confirm(`Post investigation brief for ${jiraKey} to JIRA as a comment?`)) return;
+
+    setPosting(true);
+    setPostError(null);
+    try {
+      await postBriefToJira({
+        jiraKey,
+        briefJson,
+        baseUrl: jiraBaseUrl,
+        email: jiraEmail,
+        apiToken: jiraApiToken,
+      });
+      setPosted(true);
+      setPostDate(new Date().toISOString());
+      onBriefUpdated?.();
+    } catch (err) {
+      setPostError(`Post failed: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  async function handleRating(star: number) {
+    const newRating = star === rating ? null : star;
+    setRating(newRating);
+    setSavingFeedback(true);
+    try {
+      await submitEngineerFeedback({ jiraKey, rating: newRating, notes: notes || null });
+    } catch {
+      // Optimistic — silently fail
+    } finally {
+      setSavingFeedback(false);
+    }
+  }
+
+  async function handleSaveNotes() {
+    setSavingFeedback(true);
+    try {
+      await submitEngineerFeedback({ jiraKey, rating, notes: notes || null });
+    } catch {
+      // Silently fail
+    } finally {
+      setSavingFeedback(false);
+    }
+  }
+
   const severityClass  = SEVERITY_BADGE[result.triage.severity]   ?? "bg-gray-500/15 text-gray-300 border-gray-500/30";
   const categoryClass  = CATEGORY_COLORS[result.triage.category]  ?? "bg-gray-500/15 text-gray-300 border-gray-500/30";
   const confidenceClass = CONFIDENCE_COLOR[result.triage.confidence] ?? "text-gray-400";
@@ -82,23 +158,97 @@ export default function TicketBriefPanel({ jiraKey, title, description, result, 
           )}
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex gap-1 bg-gray-900 rounded-lg p-0.5">
-          {(["brief", "analysis"] as BriefTab[]).map((t) => (
+        <div className="flex items-center gap-3">
+          {/* Post to JIRA */}
+          {posted ? (
+            <span className="text-xs text-green-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" />
+              Posted{postDate && ` · ${new Date(postDate).toLocaleDateString()}`}
+            </span>
+          ) : (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-3 py-1 text-xs rounded-md transition capitalize ${
-                tab === t
-                  ? "bg-indigo-600 text-white font-medium"
-                  : "text-gray-400 hover:text-gray-200"
-              }`}
+              onClick={handlePostToJira}
+              disabled={posting || !briefJson}
+              className="text-xs px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50 transition flex items-center gap-1.5"
             >
-              {t === "brief" ? "Brief" : "Analysis"}
+              {posting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+              {posting ? "Posting..." : "Post to JIRA"}
             </button>
-          ))}
+          )}
+
+          {/* Tab switcher */}
+          <div className="flex gap-1 bg-gray-900 rounded-lg p-0.5">
+            {(["brief", "analysis"] as BriefTab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-3 py-1 text-xs rounded-md transition capitalize ${
+                  tab === t
+                    ? "bg-indigo-600 text-white font-medium"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                {t === "brief" ? "Brief" : "Analysis"}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* Engineer Feedback + Post Error */}
+      <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-4">
+        <div className="flex items-center gap-1">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              onClick={() => handleRating(star)}
+              className="p-0.5 transition"
+              title={`Rate ${star}/5`}
+            >
+              <Star
+                className={`w-4 h-4 ${
+                  rating && star <= rating
+                    ? "text-yellow-400 fill-yellow-400"
+                    : "text-gray-600 hover:text-yellow-400"
+                }`}
+              />
+            </button>
+          ))}
+          {rating && <span className="text-xs text-gray-500 ml-1">{rating}/5</span>}
+        </div>
+
+        <button
+          onClick={() => setShowNotes(!showNotes)}
+          className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 transition"
+        >
+          <MessageSquare className="w-3 h-3" />
+          {notes ? "Edit notes" : "Add notes"}
+        </button>
+
+        {postError && <span className="text-xs text-red-400 ml-auto">{postError}</span>}
+      </div>
+
+      {/* Notes input */}
+      {showNotes && (
+        <div className="px-4 py-2 border-b border-gray-700">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Engineer notes about this brief..."
+            rows={2}
+            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 placeholder-gray-600 resize-none focus:outline-none focus:border-gray-500"
+          />
+          <div className="flex justify-end mt-1">
+            <button
+              onClick={handleSaveNotes}
+              disabled={savingFeedback}
+              className="text-xs px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium disabled:opacity-50 transition"
+            >
+              {savingFeedback ? "Saving..." : "Save Notes"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Brief tab */}
       {tab === "brief" && (

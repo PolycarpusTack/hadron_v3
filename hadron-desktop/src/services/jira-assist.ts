@@ -1,7 +1,7 @@
 /**
- * JIRA Assist API functions — Sprints 1-4.
+ * JIRA Assist API functions — Sprints 1-5.
  * Sprint 1: read-only DB access. Sprint 2: AI triage. Sprint 3: Investigation brief.
- * Sprint 4: duplicate detection. Sprint 5+: JIRA round-trip, project feed integration.
+ * Sprint 4: duplicate detection. Sprint 5: JIRA round-trip + engineer feedback.
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -150,6 +150,38 @@ export async function findSimilarTickets(params: {
     apiKey: params.apiKey,
     threshold: params.threshold,
     limit: params.limit,
+  });
+}
+
+// ─── JIRA Round-Trip (Sprint 5) ─────────────────────────────────────────────
+
+/** Post a condensed investigation brief to JIRA as a wiki-markup comment. */
+export async function postBriefToJira(params: {
+  jiraKey: string;
+  briefJson: string;
+  baseUrl: string;
+  email: string;
+  apiToken: string;
+}): Promise<void> {
+  return invoke<void>("post_brief_to_jira", {
+    jiraKey: params.jiraKey,
+    briefJson: params.briefJson,
+    baseUrl: params.baseUrl,
+    email: params.email,
+    apiToken: params.apiToken,
+  });
+}
+
+/** Submit engineer feedback (star rating + notes) for a ticket brief. */
+export async function submitEngineerFeedback(params: {
+  jiraKey: string;
+  rating: number | null;
+  notes: string | null;
+}): Promise<void> {
+  return invoke<void>("submit_engineer_feedback", {
+    jiraKey: params.jiraKey,
+    rating: params.rating,
+    notes: params.notes,
   });
 }
 

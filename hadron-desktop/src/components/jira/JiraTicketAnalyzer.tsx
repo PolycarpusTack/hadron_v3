@@ -32,7 +32,9 @@ import { getStoredModel, getStoredProvider } from "../../services/api";
 import type { Analysis } from "../../services/api";
 import { analyzeJiraTicketDeep, type JiraDeepResult } from "../../services/api";
 import JiraAnalysisReport from "./JiraAnalysisReport";
-import { triageJiraTicket, getTicketBrief, generateTicketBrief, type JiraTriageResult, type JiraBriefResult } from "../../services/jira-assist";
+import { triageJiraTicket, getTicketBrief, generateTicketBrief, type JiraTriageResult, type JiraBriefResult, type TicketBrief } from "../../services/jira-assist";
+import { getJiraConfig } from "../../services/jira";
+import { getApiKey } from "../../services/secure-storage";
 import TriageBadgePanel from "./TriageBadgePanel";
 import TicketBriefPanel from "./TicketBriefPanel";
 import { getStatusColor, getPriorityColor, formatRelativeTime } from "./jiraHelpers";
@@ -61,6 +63,10 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
   const [briefing, setBriefing] = useState(false);
   const [briefResult, setBriefResult] = useState<JiraBriefResult | null>(null);
   const [briefFromCache, setBriefFromCache] = useState(false);
+  const [storedBrief, setStoredBrief] = useState<TicketBrief | null>(null);
+  const [jiraBaseUrl, setJiraBaseUrl] = useState("");
+  const [jiraEmail, setJiraEmail] = useState("");
+  const [jiraApiToken, setJiraApiToken] = useState("");
 
   async function handleFetch() {
     const trimmed = input.trim();
@@ -86,8 +92,10 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
         setTriageFromCache(false);
         setBriefResult(null);
         setBriefFromCache(false);
+        setStoredBrief(null);
         try {
           const stored = await getTicketBrief(result.issue.key);
+          if (stored) setStoredBrief(stored);
           if (stored?.triage_json) {
             const parsed: JiraTriageResult = JSON.parse(stored.triage_json);
             setTriageResult(parsed);
@@ -101,6 +109,16 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
         } catch {
           // No stored data — that's fine
         }
+        // Load JIRA creds for Post to JIRA feature
+        try {
+          const cfg = await getJiraConfig();
+          setJiraBaseUrl(cfg.baseUrl);
+          setJiraEmail(cfg.email);
+          const token = await getApiKey("jira");
+          setJiraApiToken(token ?? "");
+        } catch {
+          // JIRA not configured — Post button will be disabled
+        }
       } else {
         setError(result.error || "Failed to fetch issue");
       }
@@ -108,6 +126,15 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
       setError(err instanceof Error ? err.message : "Fetch failed");
     } finally {
       setFetching(false);
+    }
+  }
+
+  async function refreshBrief(jiraKey: string) {
+    try {
+      const stored = await getTicketBrief(jiraKey);
+      if (stored) setStoredBrief(stored);
+    } catch {
+      // Ignore
     }
   }
 
@@ -565,6 +592,15 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
           description={issue.descriptionPlaintext || ""}
           result={briefResult}
           fromCache={briefFromCache}
+          briefJson={storedBrief?.brief_json ?? null}
+          postedToJira={storedBrief?.posted_to_jira ?? false}
+          postedAt={storedBrief?.posted_at ?? null}
+          engineerRating={storedBrief?.engineer_rating ?? null}
+          engineerNotes={storedBrief?.engineer_notes ?? null}
+          jiraBaseUrl={jiraBaseUrl}
+          jiraEmail={jiraEmail}
+          jiraApiToken={jiraApiToken}
+          onBriefUpdated={() => refreshBrief(issue.key)}
         />
       )}
 
