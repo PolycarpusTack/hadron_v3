@@ -4,7 +4,7 @@
  * Shown after "Generate Brief" runs, or when loaded from DB on ticket fetch.
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   FileText, ShieldAlert, AlertCircle, HelpCircle,
   List, Shield, CheckCircle2, AlertTriangle, ChevronDown,
@@ -240,7 +240,7 @@ export default function TicketBriefPanel({ jiraKey, result, fromCache }: TicketB
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Section({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   const [open, setOpen] = useState(true);
   return (
     <div className="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
