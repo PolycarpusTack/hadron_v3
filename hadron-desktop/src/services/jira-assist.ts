@@ -1,6 +1,7 @@
 /**
- * JIRA Assist API functions — Sprint 1 (read-only DB access).
- * Sprint 2+ will add triage, brief generation, and post-to-JIRA.
+ * JIRA Assist API functions — Sprints 1-3.
+ * Sprint 1: read-only DB access. Sprint 2: AI triage. Sprint 3: Investigation brief.
+ * Sprint 4+: duplicate detection, JIRA round-trip, project feed integration.
  */
 
 import { invoke } from "@tauri-apps/api/core";
