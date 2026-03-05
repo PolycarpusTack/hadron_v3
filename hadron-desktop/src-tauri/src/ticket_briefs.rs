@@ -107,6 +107,17 @@ pub fn delete_ticket_brief(conn: &Connection, jira_key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Mark a ticket brief as posted to JIRA with current timestamp.
+pub fn mark_posted_to_jira(conn: &Connection, jira_key: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE ticket_briefs
+         SET posted_to_jira = 1, posted_at = datetime('now'), updated_at = datetime('now')
+         WHERE jira_key = ?1",
+        params![jira_key],
+    )?;
+    Ok(())
+}
+
 /// Update engineer feedback fields only.
 pub fn update_engineer_feedback(
     conn: &Connection,

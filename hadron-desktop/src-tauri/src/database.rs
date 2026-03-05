@@ -3749,6 +3749,11 @@ impl Database {
         crate::ticket_briefs::update_engineer_feedback(&conn, jira_key, rating, notes)
     }
 
+    pub fn mark_posted_to_jira(&self, jira_key: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        crate::ticket_briefs::mark_posted_to_jira(&conn, jira_key)
+    }
+
     // ── JIRA Assist: ticket_embeddings ─────────────────────────────────────────
 
     pub fn upsert_ticket_embedding(
