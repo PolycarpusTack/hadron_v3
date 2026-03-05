@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   ShieldAlert,
+  BookOpen,
 } from "lucide-react";
 import Button from "../ui/Button";
 import JiraImportService, { type NormalizedIssue } from "../../services/jira-import";
@@ -31,8 +32,9 @@ import { getStoredModel, getStoredProvider } from "../../services/api";
 import type { Analysis } from "../../services/api";
 import { analyzeJiraTicketDeep, type JiraDeepResult } from "../../services/api";
 import JiraAnalysisReport from "./JiraAnalysisReport";
-import { triageJiraTicket, getTicketBrief, type JiraTriageResult } from "../../services/jira-assist";
+import { triageJiraTicket, getTicketBrief, generateTicketBrief, type JiraTriageResult, type JiraBriefResult } from "../../services/jira-assist";
 import TriageBadgePanel from "./TriageBadgePanel";
+import TicketBriefPanel from "./TicketBriefPanel";
 import { getStatusColor, getPriorityColor, formatRelativeTime } from "./jiraHelpers";
 import { isKBEnabled, getOpenSearchConfig } from "../../services/opensearch";
 import { isRagAvailable } from "../../services/rag";
@@ -56,6 +58,9 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
   const [triaging, setTriaging] = useState(false);
   const [triageResult, setTriageResult] = useState<JiraTriageResult | null>(null);
   const [triageFromCache, setTriageFromCache] = useState(false);
+  const [briefing, setBriefing] = useState(false);
+  const [briefResult, setBriefResult] = useState<JiraBriefResult | null>(null);
+  const [briefFromCache, setBriefFromCache] = useState(false);
 
   async function handleFetch() {
     const trimmed = input.trim();
@@ -88,6 +93,19 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
           }
         } catch {
           // No stored triage — that's fine
+        }
+        // Load any previously stored brief
+        setBriefResult(null);
+        setBriefFromCache(false);
+        try {
+          const brief = await getTicketBrief(result.issue.key);
+          if (brief?.brief_json) {
+            const parsed: JiraBriefResult = JSON.parse(brief.brief_json);
+            setBriefResult(parsed);
+            setBriefFromCache(true);
+          }
+        } catch {
+          // No stored brief — that's fine
         }
       } else {
         setError(result.error || "Failed to fetch issue");
@@ -233,6 +251,46 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
     }
   }
 
+  async function handleGenerateBrief() {
+    if (!issue) return;
+
+    const apiKey = await getStoredApiKey();
+    if (!apiKey) {
+      setError("No API key configured. Set one in Settings.");
+      return;
+    }
+
+    setBriefing(true);
+    setError(null);
+
+    try {
+      const commentTexts = issue.comments.map((c) => c.body);
+      const result = await generateTicketBrief({
+        jiraKey:     issue.key,
+        title:       issue.summary,
+        description: issue.descriptionPlaintext || "",
+        issueType:   issue.issueType || "Unknown",
+        priority:    issue.priority || undefined,
+        status:      issue.status || undefined,
+        components:  issue.components,
+        labels:      issue.labels,
+        comments:    commentTexts,
+        apiKey,
+        model:    getStoredModel(),
+        provider: getStoredProvider(),
+      });
+      setBriefResult(result);
+      setBriefFromCache(false);
+      // Also sync triage result from the brief (brief includes a fresh triage)
+      setTriageResult(result.triage);
+      setTriageFromCache(false);
+    } catch (err) {
+      setError(`Brief generation failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBriefing(false);
+    }
+  }
+
   function handleReset() {
     setIssue(null);
     setInput("");
@@ -240,6 +298,8 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
     setShowFullDescription(false);
     setTriageResult(null);
     setTriageFromCache(false);
+    setBriefResult(null);
+    setBriefFromCache(false);
   }
 
   return (
@@ -309,6 +369,15 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
           <div>
             <p className="text-sm text-amber-300 font-medium">Triaging {issue?.key}...</p>
             <p className="text-xs text-gray-400">Classifying severity, category, and impact</p>
+          </div>
+        </div>
+      )}
+      {briefing && (
+        <div className="flex items-center gap-3 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+          <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
+          <div>
+            <p className="text-sm text-indigo-300 font-medium">Generating brief for {issue?.key}...</p>
+            <p className="text-xs text-gray-400">Running triage + deep analysis in parallel</p>
           </div>
         </div>
       )}
@@ -450,9 +519,19 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
                 size="lg"
                 icon={<ShieldAlert />}
                 className="bg-amber-700 hover:bg-amber-600 font-semibold px-5"
-                disabled={analyzing || deepAnalyzing}
+                disabled={analyzing || deepAnalyzing || briefing}
               >
                 {triaging ? "Triaging..." : "Triage"}
+              </Button>
+              <Button
+                onClick={handleGenerateBrief}
+                loading={briefing}
+                size="lg"
+                icon={<BookOpen />}
+                className="bg-indigo-700 hover:bg-indigo-600 font-semibold px-5"
+                disabled={analyzing || deepAnalyzing || triaging}
+              >
+                {briefing ? "Generating..." : "Generate Brief"}
               </Button>
               <Button
                 onClick={handleAnalyze}
@@ -460,7 +539,7 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
                 size="lg"
                 icon={<Zap />}
                 className="bg-sky-600 hover:bg-sky-700 font-semibold px-5"
-                disabled={deepAnalyzing || triaging}
+                disabled={deepAnalyzing || triaging || briefing}
               >
                 {analyzing ? "Analyzing..." : "Analyze with AI"}
               </Button>
@@ -470,7 +549,7 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
                 size="lg"
                 icon={<Microscope />}
                 className="bg-purple-700 hover:bg-purple-600 font-semibold px-5"
-                disabled={analyzing || triaging}
+                disabled={analyzing || triaging || briefing}
               >
                 {deepAnalyzing ? "Deep Analyzing..." : "Deep Analyze"}
               </Button>
@@ -482,6 +561,15 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
       {/* Triage Badge Panel */}
       {triageResult && !triaging && issue && (
         <TriageBadgePanel result={triageResult} fromCache={triageFromCache} />
+      )}
+
+      {/* Investigation Brief Panel */}
+      {briefResult && !briefing && issue && (
+        <TicketBriefPanel
+          jiraKey={issue.key}
+          result={briefResult}
+          fromCache={briefFromCache}
+        />
       )}
 
       {/* Deep Analysis Report */}
