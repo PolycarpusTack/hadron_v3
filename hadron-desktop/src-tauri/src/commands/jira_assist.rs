@@ -1,7 +1,7 @@
-//! JIRA Assist Tauri commands.
+//! JIRA Assist Tauri commands — Sprints 1-4.
 //!
 //! Sprint 1: read-only DB commands (get, delete).
-//! Sprint 2+: triage, brief generation, and post-to-JIRA commands added here.
+//! Sprint 2: AI triage. Sprint 3: investigation brief. Sprint 4: duplicate detection.
 //!
 //! NOTE: Keep ALL JIRA Assist commands in this file. Do NOT add them to
 //! commands/jira.rs (deep analysis only) or commands_legacy.rs (old JIRA).
