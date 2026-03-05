@@ -1,4 +1,4 @@
-//! JIRA Assist Tauri commands — Sprints 1-5.
+//! JIRA Assist Tauri commands — Sprints 1-7.
 //!
 //! Sprint 1: read-only DB commands (get, delete).
 //! Sprint 2: AI triage. Sprint 3: investigation brief.
@@ -10,6 +10,7 @@
 use super::common::DbState;
 use crate::jira_triage::{JiraTriageRequest, JiraTriageResult};
 use crate::jira_brief::{JiraBriefRequest, JiraBriefResult};
+use crate::jira_poller::{PollerState, PollerStatus};
 use crate::ticket_briefs::TicketBrief;
 use std::sync::Arc;
 
@@ -446,4 +447,39 @@ pub async fn submit_engineer_feedback(
     .map_err(|e| format!("Task error: {e}"))??;
 
     Ok(())
+}
+
+// ── Sprint 7: Background Poller Commands ─────────────────────────────────────
+
+/// Start the background poller. Restarts if already running.
+#[tauri::command]
+pub async fn start_poller(
+    app: tauri::AppHandle,
+    db: DbState<'_>,
+    poller: tauri::State<'_, PollerState>,
+) -> Result<(), String> {
+    log::debug!("cmd: start_poller");
+    let db = Arc::clone(&db);
+    crate::jira_poller::start_poller(app, db, &poller);
+    Ok(())
+}
+
+/// Stop the background poller.
+#[tauri::command]
+pub async fn stop_poller(
+    poller: tauri::State<'_, PollerState>,
+) -> Result<(), String> {
+    log::debug!("cmd: stop_poller");
+    crate::jira_poller::stop_poller(&poller);
+    Ok(())
+}
+
+/// Get current poller status.
+#[tauri::command]
+pub async fn get_poller_status(
+    app: tauri::AppHandle,
+    poller: tauri::State<'_, PollerState>,
+) -> Result<PollerStatus, String> {
+    log::debug!("cmd: get_poller_status");
+    Ok(crate::jira_poller::get_poller_status(&poller, &app))
 }

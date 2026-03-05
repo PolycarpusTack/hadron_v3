@@ -27,7 +27,8 @@ import {
   getCachedJiraProjects,
   type JiraConfig,
 } from "../services/jira";
-import { storeApiKey, getApiKey, deleteApiKey } from "../services/secure-storage";
+import { storeApiKey, getApiKey, deleteApiKey, getSetting, storeSetting } from "../services/secure-storage";
+import { startPoller, stopPoller, getPollerStatus, type PollerStatus } from "../services/jira-assist";
 import logger from "../services/logger";
 
 interface JiraSettingsProps {
@@ -516,53 +517,156 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
         </p>
       )}
 
-      {/* JIRA Assist (Beta) */}
-      <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
-        <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            JIRA Assist
-          </h3>
-          <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 font-medium">
-            Beta
+      {/* JIRA Assist — Background Poller */}
+      <JiraAssistPollerSettings />
+    </div>
+  );
+}
+
+// ============================================================================
+// JIRA Assist Poller Settings
+// ============================================================================
+
+function JiraAssistPollerSettings() {
+  const [jql, setJql] = useState("");
+  const [intervalMins, setIntervalMins] = useState(30);
+  const [status, setStatus] = useState<PollerStatus | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Load saved settings on mount
+  useEffect(() => {
+    (async () => {
+      const savedJql = await getSetting<string>("jira_assist_jql", "");
+      const savedInterval = await getSetting<number>("jira_assist_interval_mins", 30);
+      setJql(savedJql ?? "");
+      setIntervalMins(savedInterval ?? 30);
+      try {
+        setStatus(await getPollerStatus());
+      } catch { /* poller may not be ready */ }
+    })();
+  }, []);
+
+  // Refresh status periodically while mounted
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try { setStatus(await getPollerStatus()); } catch { /* ignore */ }
+    }, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function handleSaveAndStart() {
+    setSaving(true);
+    try {
+      await storeSetting("jira_assist_enabled", true);
+      await storeSetting("jira_assist_jql", jql);
+      await storeSetting("jira_assist_interval_mins", Math.max(5, intervalMins));
+      await startPoller();
+      setStatus(await getPollerStatus());
+    } catch (err) {
+      logger.error("Failed to start poller", { error: err });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleStop() {
+    try {
+      await storeSetting("jira_assist_enabled", false);
+      await stopPoller();
+      setStatus(await getPollerStatus());
+    } catch (err) {
+      logger.error("Failed to stop poller", { error: err });
+    }
+  }
+
+  return (
+    <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+          JIRA Assist
+        </h3>
+        <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 font-medium">
+          Beta
+        </span>
+        {status?.running && (
+          <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
+            Running
           </span>
-        </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          Auto-triage, investigation briefs, and duplicate detection for your JIRA tickets.
-          Background polling is coming in Phase 2.
-        </p>
-
-        {/* JQL Filter — greyed out, Phase 2 */}
-        <div className="mb-3 opacity-50 cursor-not-allowed" title="Available in Phase 2">
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-            Auto-Triage JQL Filter
-          </label>
-          <input
-            type="text"
-            disabled
-            placeholder='project = "MYPROJ" AND created >= -7d'
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed"
-          />
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-            JQL filter for tickets to auto-triage on a schedule (Phase 2)
-          </p>
-        </div>
-
-        {/* Poll Interval — greyed out, Phase 2 */}
-        <div className="opacity-50 cursor-not-allowed" title="Available in Phase 2">
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-            Poll Interval (minutes)
-          </label>
-          <input
-            type="number"
-            disabled
-            placeholder="30"
-            className="w-24 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed"
-          />
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-            How often to check for new tickets (Phase 2)
-          </p>
-        </div>
+        )}
       </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+        Auto-triage new JIRA tickets on a schedule. Requires JIRA and AI credentials above.
+      </p>
+
+      {/* JQL Filter */}
+      <div className="mb-3">
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+          Auto-Triage JQL Filter
+        </label>
+        <input
+          type="text"
+          value={jql}
+          onChange={(e) => setJql(e.target.value)}
+          placeholder='project = "MYPROJ" AND created >= -7d'
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:border-sky-500"
+        />
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+          JQL filter for tickets to auto-triage. The poller appends a date filter automatically.
+        </p>
+      </div>
+
+      {/* Poll Interval */}
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+          Poll Interval (minutes)
+        </label>
+        <input
+          type="number"
+          value={intervalMins}
+          onChange={(e) => setIntervalMins(Math.max(5, parseInt(e.target.value) || 5))}
+          min={5}
+          className="w-24 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:border-sky-500"
+        />
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+          Minimum 5 minutes. The poller backs off automatically on repeated errors.
+        </p>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3">
+        {!status?.running ? (
+          <button
+            onClick={handleSaveAndStart}
+            disabled={saving || !jql.trim()}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 disabled:cursor-not-allowed text-white text-sm rounded-md transition flex items-center gap-1.5"
+          >
+            {saving ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Check className="w-3.5 h-3.5" />
+            )}
+            Save &amp; Start
+          </button>
+        ) : (
+          <button
+            onClick={handleStop}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-md transition flex items-center gap-1.5"
+          >
+            <X className="w-3.5 h-3.5" />
+            Stop
+          </button>
+        )}
+      </div>
+
+      {/* Status line */}
+      {status && (status.running || status.tickets_triaged_total > 0) && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+          {status.running ? "Running" : "Stopped"}
+          {status.last_polled_at && ` · Last polled: ${status.last_polled_at}`}
+          {` · ${status.tickets_triaged_total} tickets triaged`}
+          {status.running && ` · Interval: ${status.interval_mins}m`}
+        </p>
+      )}
     </div>
   );
 }

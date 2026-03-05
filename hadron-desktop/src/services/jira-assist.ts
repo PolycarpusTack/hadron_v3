@@ -1,6 +1,7 @@
 /**
- * JIRA Assist API functions — Sprints 1-5.
+ * JIRA Assist API functions — Sprints 1-7.
  * Sprint 1: read-only DB access. Sprint 2: AI triage. Sprint 3: Investigation brief.
+ * Sprint 4: duplicate detection. Sprint 5: JIRA round-trip. Sprint 7: background poller.
  * Sprint 4: duplicate detection. Sprint 5: JIRA round-trip + engineer feedback.
  */
 
@@ -189,6 +190,30 @@ export async function submitEngineerFeedback(params: {
     rating: params.rating,
     notes: params.notes,
   });
+}
+
+// ─── Background Poller (Sprint 7) ────────────────────────────────────────────
+
+export interface PollerStatus {
+  running: boolean;
+  last_polled_at: string | null;
+  tickets_triaged_total: number;
+  interval_mins: number;
+}
+
+/** Start the background poller. Restarts if already running. */
+export async function startPoller(): Promise<void> {
+  return invoke<void>("start_poller");
+}
+
+/** Stop the background poller. */
+export async function stopPoller(): Promise<void> {
+  return invoke<void>("stop_poller");
+}
+
+/** Get current poller status. */
+export async function getPollerStatus(): Promise<PollerStatus> {
+  return invoke<PollerStatus>("get_poller_status");
 }
 
 /** Parse tags JSON string to array. Returns [] on parse failure. */

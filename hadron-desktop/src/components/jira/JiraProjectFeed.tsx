@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-shell";
 import {
   Plus,
@@ -191,6 +192,19 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
   useEffect(() => {
     if (watchedRef.current.length > 0) loadIssues();
   }, [loadIssues]);
+
+  // Listen for background poller completions — refresh badges for newly triaged tickets
+  useEffect(() => {
+    const unlisten = listen<{ triaged_count: number; keys: string[] }>(
+      "jira-assist-poll-complete",
+      (event) => {
+        const polledKeys = new Set(event.payload.keys);
+        const matchingIssues = issues.filter((i) => polledKeys.has(i.key));
+        if (matchingIssues.length > 0) loadBriefs(matchingIssues);
+      },
+    );
+    return () => { unlisten.then((fn) => fn()); };
+  }, [issues]);
 
   // Fix #6: load the next page and append to the existing list
   async function handleLoadMore() {

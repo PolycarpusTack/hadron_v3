@@ -159,12 +159,21 @@ fn main() {
                 std::env::var("HADRON_LOG_LEVEL").unwrap_or_else(|_| "<unset>".to_string())
             );
 
+            // Auto-start JIRA Assist poller if enabled in settings
+            {
+                let app_handle = app.handle().clone();
+                let db = app.state::<Arc<Database>>().inner().clone();
+                let poller_state = app.state::<jira_poller::PollerState>();
+                jira_poller::start_poller(app_handle, db, &poller_state);
+            }
+
             Ok(())
         })
         .manage(db)
         .manage(pattern_engine_state)
         .manage(embedding_cache)
         .manage(widget_commands::WidgetLock::new())
+        .manage(jira_poller::PollerState::new())
         .invoke_handler(tauri::generate_handler![
             analyze_crash_log,
             analyze_jira_ticket,
@@ -396,6 +405,9 @@ fn main() {
             commands::jira_assist::find_similar_tickets,
             commands::jira_assist::post_brief_to_jira,
             commands::jira_assist::submit_engineer_feedback,
+            commands::jira_assist::start_poller,
+            commands::jira_assist::stop_poller,
+            commands::jira_assist::get_poller_status,
         ])
         .on_window_event(|window, event| {
             match event {
