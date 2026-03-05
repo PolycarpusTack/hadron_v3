@@ -392,6 +392,7 @@ fn main() {
             commands::jira_assist::delete_ticket_brief,
             commands::jira_assist::triage_jira_ticket,
             commands::jira_assist::generate_ticket_brief,
+            commands::jira_assist::find_similar_tickets,
         ])
         .on_window_event(|window, event| {
             match event {

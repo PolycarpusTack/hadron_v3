@@ -236,3 +236,88 @@ pub async fn generate_ticket_brief(
 
     Ok(result)
 }
+
+/// Find tickets similar to the given ticket using embedding cosine similarity.
+/// If the ticket has no embedding yet, generates one on the fly.
+#[tauri::command]
+pub async fn find_similar_tickets(
+    jira_key: String,
+    title: String,
+    description: String,
+    api_key: String,
+    threshold: Option<f64>,
+    limit: Option<usize>,
+    db: DbState<'_>,
+) -> Result<Vec<crate::ticket_embeddings::SimilarTicketMatch>, String> {
+    log::debug!("cmd: find_similar_tickets key={jira_key}");
+
+    let threshold = threshold.unwrap_or(0.65);
+    let limit = limit.unwrap_or(5);
+    let db = Arc::clone(&db);
+
+    // 1. Check if we already have an embedding; if not, generate one
+    let db2 = Arc::clone(&db);
+    let jira_key2 = jira_key.clone();
+    let has_emb = tauri::async_runtime::spawn_blocking(move || {
+        db2.has_ticket_embedding(&jira_key2)
+            .map_err(|e| format!("Database error: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))??;
+
+    if !has_emb {
+        // Build source text from existing brief if available, else title+description
+        let db3 = Arc::clone(&db);
+        let jira_key3 = jira_key.clone();
+        let brief_json = tauri::async_runtime::spawn_blocking(move || {
+            db3.get_ticket_brief(&jira_key3)
+                .map_err(|e| format!("Database error: {e}"))
+        })
+        .await
+        .map_err(|e| format!("Task error: {e}"))??
+        .and_then(|b| b.brief_json);
+
+        let source_text = build_embedding_text(&title, brief_json.as_deref(), &description);
+
+        let embedding = crate::retrieval::opensearch::get_embedding(
+            &source_text,
+            &api_key,
+            EMBEDDING_MODEL,
+            EMBEDDING_DIMENSIONS,
+        )
+        .await
+        .map_err(|e| format!("Embedding generation failed: {e}"))?;
+
+        let db4 = Arc::clone(&db);
+        let jira_key4 = jira_key.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            db4.upsert_ticket_embedding(&jira_key4, &embedding, &source_text)
+                .map_err(|e| format!("Database error: {e}"))
+        })
+        .await
+        .map_err(|e| format!("Task error: {e}"))??;
+    }
+
+    // 2. Fetch the embedding
+    let db5 = Arc::clone(&db);
+    let jira_key5 = jira_key.clone();
+    let query_embedding = tauri::async_runtime::spawn_blocking(move || {
+        db5.get_ticket_embedding(&jira_key5)
+            .map_err(|e| format!("Database error: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))??
+    .ok_or_else(|| "Embedding not found after generation".to_string())?;
+
+    // 3. Search
+    let db6 = Arc::clone(&db);
+    let jira_key6 = jira_key.clone();
+    let results = tauri::async_runtime::spawn_blocking(move || {
+        db6.find_similar_tickets(&query_embedding, &jira_key6, threshold, limit)
+            .map_err(|e| format!("Database error: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))??;
+
+    Ok(results)
+}
