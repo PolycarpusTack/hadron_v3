@@ -31,49 +31,20 @@ export interface JiraTriageResult {
   rationale: string;
 }
 
-// ─── Brief types (re-export deep analysis types inline to avoid cross-service imports) ───
+// ─── Brief types — re-exported from api.ts to avoid divergence ───────────────
 
-export interface JiraDeepTicketQuality {
-  score: number;
-  verdict: string;
-  strengths: string[];
-  gaps: string[];
-}
-
-export interface JiraDeepTechnical {
-  root_cause: string;
-  affected_areas: string[];
-  error_type: string;
-  severity_estimate: string;
-  confidence: string;
-  confidence_rationale: string;
-}
-
-export interface JiraDeepRecommendedAction {
-  priority: string;
-  action: string;
-  rationale: string;
-}
-
-export interface JiraDeepRisk {
-  user_impact: string;
-  blast_radius: string;
-  urgency: string;
-  do_nothing_risk: string;
-}
-
-export interface JiraDeepAnalysis {
-  plain_summary: string;
-  quality: JiraDeepTicketQuality;
-  technical: JiraDeepTechnical;
-  open_questions: string[];
-  recommended_actions: JiraDeepRecommendedAction[];
-  risk: JiraDeepRisk;
-}
+export type {
+  JiraDeepTicketQuality,
+  JiraDeepTechnical,
+  JiraDeepRecommendedAction,
+  JiraDeepRisk,
+  JiraDeepResult as JiraDeepAnalysis,
+} from "./api";
+import type { JiraDeepResult } from "./api";
 
 export interface JiraBriefResult {
   triage: JiraTriageResult;
-  analysis: JiraDeepAnalysis;
+  analysis: JiraDeepResult;
 }
 
 /** Fetch a stored ticket brief by JIRA key. Returns null if not yet generated. */
