@@ -394,6 +394,7 @@ fn main() {
             commands::jira_assist::generate_ticket_brief,
             commands::jira_assist::find_similar_tickets,
             commands::jira_assist::post_brief_to_jira,
+            commands::jira_assist::submit_engineer_feedback,
         ])
         .on_window_event(|window, event| {
             match event {

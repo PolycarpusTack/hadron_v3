@@ -409,3 +409,24 @@ pub async fn post_brief_to_jira(
 
     Ok(())
 }
+
+/// Submit engineer feedback (star rating + notes) for a ticket brief.
+#[tauri::command]
+pub async fn submit_engineer_feedback(
+    jira_key: String,
+    rating: Option<i64>,
+    notes: Option<String>,
+    db: DbState<'_>,
+) -> Result<(), String> {
+    log::debug!("cmd: submit_engineer_feedback key={jira_key} rating={rating:?}");
+
+    let db = Arc::clone(&db);
+    tauri::async_runtime::spawn_blocking(move || {
+        db.update_engineer_feedback(&jira_key, rating, notes)
+            .map_err(|e| format!("Database error: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))??;
+
+    Ok(())
+}
