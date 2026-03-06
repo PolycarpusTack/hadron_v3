@@ -27,8 +27,9 @@ dist-ssr
 /src-tauri/target
 /src-tauri/Cargo.lock
 
-# Cargo local config (build parallelism, linker settings)
-.cargo/
+# Cargo local config — .cargo/config.toml is tracked (contains target-cpu fix)
+# but ignore any local overrides
+.cargo/*.local
 
 # Crash monitor IPC socket (created at runtime)
 /src-tauri/hadron-crash-monitor
