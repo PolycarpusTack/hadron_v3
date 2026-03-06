@@ -15,7 +15,7 @@ import type { JiraBriefResult } from "../../services/jira-assist";
 import {
   SEVERITY_BADGE, CATEGORY_COLORS, CONFIDENCE_COLOR,
   findSimilarTickets, type SimilarTicket,
-  postBriefToJira, submitEngineerFeedback,
+  postBriefToJira, submitEngineerFeedback, deleteTicketBrief,
 } from "../../services/jira-assist";
 import { getStoredApiKey } from "../../services/api";
 
@@ -142,6 +142,16 @@ export default function TicketBriefPanel({
     }
   }
 
+  async function handleDeleteBrief() {
+    if (!confirm(`Delete the stored brief for ${jiraKey}? This removes triage, analysis, and embeddings.`)) return;
+    try {
+      await deleteTicketBrief(jiraKey);
+      onBriefUpdated?.();
+    } catch (err) {
+      setPostError(`Delete failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   const severityClass  = SEVERITY_BADGE[result.triage.severity]   ?? "bg-gray-500/15 text-gray-300 border-gray-500/30";
   const categoryClass  = CATEGORY_COLORS[result.triage.category]  ?? "bg-gray-500/15 text-gray-300 border-gray-500/30";
   const confidenceClass = CONFIDENCE_COLOR[result.triage.confidence] ?? "text-gray-400";
@@ -175,6 +185,15 @@ export default function TicketBriefPanel({
               {posting ? "Posting..." : "Post to JIRA"}
             </button>
           )}
+
+          {/* Delete brief */}
+          <button
+            onClick={handleDeleteBrief}
+            className="text-xs px-2 py-1 rounded text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition"
+            title="Delete stored brief"
+          >
+            ✕
+          </button>
 
           {/* Tab switcher */}
           <div className="flex gap-1 bg-gray-900 rounded-lg p-0.5">
