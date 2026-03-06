@@ -57,6 +57,10 @@ pub async fn analyze_jira_ticket_deep(
     let analysis_id = tauri::async_runtime::spawn_blocking(move || {
         use crate::database::Analysis;
 
+        // Remove any previous jira_deep analysis for this ticket to avoid duplicates
+        db.delete_analyses_by_filename_and_type(&jira_key_db, "jira_deep")
+            .map_err(|e| format!("Database error: {}", e))?;
+
         let full_data = serde_json::to_string(&result_for_db)
             .map_err(|e| format!("Serialization error: {}", e))?;
 
@@ -77,7 +81,7 @@ pub async fn analyze_jira_ticket_deep(
             file_size_kb: 0.0,
             error_type: result_for_db.technical.error_type.clone(),
             error_message: Some(result_for_db.plain_summary.clone()),
-            severity: result_for_db.technical.severity_estimate.clone(),
+            severity: result_for_db.technical.severity_estimate.to_uppercase(),
             component: None,
             stack_trace: None,
             root_cause: result_for_db.technical.root_cause.clone(),

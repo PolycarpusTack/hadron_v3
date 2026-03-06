@@ -263,6 +263,17 @@ impl Database {
         Ok(())
     }
 
+    /// Hard-delete all analyses matching a filename and analysis_type.
+    /// Used to remove old jira_deep duplicates before re-analysis.
+    pub fn delete_analyses_by_filename_and_type(&self, filename: &str, analysis_type: &str) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "DELETE FROM analyses WHERE filename = ?1 AND analysis_type = ?2",
+            params![filename, analysis_type],
+        )?;
+        Ok(())
+    }
+
     // Full-text search using FTS5
     pub fn search_analyses(
         &self,

@@ -784,13 +784,16 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
   const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 
   const unifiedItems = useMemo((): HistoryItem[] => {
-    const items: HistoryItem[] = analyses.map((a) => ({
-      kind: "analysis" as const,
-      data: a,
-      date: a.analyzed_at,
-      sortSeverity: severityRank[a.severity.toLowerCase()] ?? 4,
-      sortCost: a.cost,
-    }));
+    // Exclude jira_deep analyses — those tickets are already shown via ticket_briefs
+    const items: HistoryItem[] = analyses
+      .filter((a) => a.analysis_type !== "jira_deep")
+      .map((a) => ({
+        kind: "analysis" as const,
+        data: a,
+        date: a.analyzed_at,
+        sortSeverity: severityRank[a.severity.toLowerCase()] ?? 4,
+        sortCost: a.cost,
+      }));
 
     for (const b of jiraBriefs) {
       items.push({
