@@ -118,6 +118,12 @@ SCORING GUIDE for quality.score:
 - 70–89 Good: Clear description, reproduction steps or clear spec, some acceptance criteria
 - 90–100 Excellent: Complete description, full repro/spec, acceptance criteria, attachments/logs referenced
 
+TICKET TYPE ADAPTATION:
+- For Bug / Incident tickets: root_cause = likely cause of the defect; error_type = exception or failure class; recommended_actions = debugging & fix steps.
+- For Feature / Story / Epic / Enhancement tickets: root_cause = the gap or user need driving the request; error_type = "Feature Request" or "Enhancement"; recommended_actions = design decisions, scope suggestions, implementation steps.
+- For Task / Sub-task / Information Request tickets: root_cause = the underlying question or objective; error_type = "Task" or "Information Request"; recommended_actions = next steps to fulfill the request.
+Adapt your language to match the ticket's intent — do not force bug-centric framing onto non-bug tickets.
+
 Be direct. Do not hedge unnecessarily. If the ticket is vague, say so clearly in plain_summary and gaps.
 "#;
 

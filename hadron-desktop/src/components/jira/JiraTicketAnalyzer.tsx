@@ -610,6 +610,7 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
           analysisId={deepResult.id}
           jiraKey={issue.key}
           result={deepResult.result}
+          category={triageResult?.category || storedBrief?.category || undefined}
           onViewInHistory={async (id) => {
             try {
               const fullAnalysis = await getAnalysisById(id);

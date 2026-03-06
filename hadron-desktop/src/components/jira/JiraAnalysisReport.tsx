@@ -27,9 +27,15 @@ interface Props {
   jiraKey: string;
   result: JiraDeepResult;
   onViewInHistory: (id: number) => void;
+  /** Triage category for adaptive labels (defaults to "Bug") */
+  category?: string;
 }
 
-export default function JiraAnalysisReport({ analysisId, jiraKey, result, onViewInHistory }: Props) {
+export default function JiraAnalysisReport({ analysisId, jiraKey, result, onViewInHistory, category = "Bug" }: Props) {
+  const isBugLike = ["Bug", "Security", "Performance"].includes(category);
+  const labelErrorType = isBugLike ? "Error Type" : "Type";
+  const labelRootCause = isBugLike ? "Root Cause" : "Analysis";
+  const labelTechnical  = isBugLike ? "Technical Analysis" : "Technical Assessment";
   const [checkedActions, setCheckedActions] = useState<Set<number>>(new Set());
 
   function toggleAction(i: number) {
@@ -112,10 +118,10 @@ export default function JiraAnalysisReport({ analysisId, jiraKey, result, onView
       {/* Technical Analysis */}
       <Section
         icon={<AlertCircle className="w-4 h-4 text-red-400" />}
-        title="Technical Analysis"
+        title={labelTechnical}
       >
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mb-3 text-xs">
-          <span className="text-gray-500 font-medium">Error Type:</span>
+          <span className="text-gray-500 font-medium">{labelErrorType}:</span>
           <span className="text-gray-300">{result.technical.error_type}</span>
           <span className="text-gray-500 font-medium">Severity:</span>
           <span className="text-amber-300 font-semibold">{result.technical.severity_estimate}</span>
@@ -126,7 +132,7 @@ export default function JiraAnalysisReport({ analysisId, jiraKey, result, onView
         </div>
         <div className="mb-2">
           <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide font-medium">
-            Root Cause
+            {labelRootCause}
           </p>
           <p className="text-sm text-gray-300 leading-relaxed">{result.technical.root_cause}</p>
         </div>

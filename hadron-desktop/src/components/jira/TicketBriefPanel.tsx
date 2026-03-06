@@ -154,6 +154,12 @@ export default function TicketBriefPanel({
 
   const severityClass  = SEVERITY_BADGE[result.triage.severity]   ?? "bg-gray-500/15 text-gray-300 border-gray-500/30";
   const categoryClass  = CATEGORY_COLORS[result.triage.category]  ?? "bg-gray-500/15 text-gray-300 border-gray-500/30";
+
+  // Adapt labels for non-bug ticket types
+  const isBugLike = ["Bug", "Security", "Performance"].includes(result.triage.category);
+  const labelErrorType = isBugLike ? "Error Type" : "Type";
+  const labelRootCause = isBugLike ? "Root Cause" : "Analysis";
+  const labelTechnical  = isBugLike ? "Technical Analysis" : "Technical Assessment";
   const confidenceClass = CONFIDENCE_COLOR[result.triage.confidence] ?? "text-gray-400";
 
   return (
@@ -302,9 +308,9 @@ export default function TicketBriefPanel({
           </Section>
 
           {/* Technical */}
-          <Section icon={<AlertCircle className="w-4 h-4 text-red-400" />} title="Technical Analysis">
+          <Section icon={<AlertCircle className="w-4 h-4 text-red-400" />} title={labelTechnical}>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mb-3 text-xs">
-              <MetaRow label="Error Type" value={result.analysis.technical.error_type} />
+              <MetaRow label={labelErrorType} value={result.analysis.technical.error_type} />
               <MetaRow label="Severity" value={result.analysis.technical.severity_estimate} highlight />
               <MetaRow
                 label="Confidence"
@@ -312,7 +318,7 @@ export default function TicketBriefPanel({
                 span
               />
             </div>
-            <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide font-medium">Root Cause</p>
+            <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide font-medium">{labelRootCause}</p>
             <p className="text-sm text-gray-300 leading-relaxed mb-3">{result.analysis.technical.root_cause}</p>
             {result.analysis.technical.affected_areas.length > 0 && (
               <div className="flex flex-wrap gap-1">

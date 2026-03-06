@@ -58,10 +58,10 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no prose outside JSON.
 }
 
 SEVERITY GUIDE:
-- Critical: Production down, data loss, security breach, blocking all users
-- High: Major feature broken, significant user population affected, no workaround
-- Medium: Feature degraded, workaround exists, affects a subset of users
-- Low: Cosmetic, edge case, minor inconvenience, enhancement request
+- Critical: Production down, data loss, security breach, blocking all users; or a feature request that is blocking a major release or contract
+- High: Major feature broken, significant user population affected, no workaround; or a high-value feature request with strong business justification
+- Medium: Feature degraded, workaround exists, affects a subset of users; or a feature/info request with moderate impact
+- Low: Cosmetic, edge case, minor inconvenience, nice-to-have enhancement, routine information request
 
 CATEGORY GUIDE:
 - Bug: Unintended behavior, crash, regression
