@@ -2,7 +2,7 @@
 
 use crate::database::Analysis;
 use crate::error::CommandResult;
-use crate::commands_legacy::BulkOperationResult;
+use super::bulk_ops::BulkOperationResult;
 use super::common::DbState;
 use std::sync::Arc;
 

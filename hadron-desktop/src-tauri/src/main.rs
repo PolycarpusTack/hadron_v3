@@ -36,7 +36,19 @@ mod ticket_briefs;
 mod ticket_embeddings;
 mod widget_commands;
 
-use commands::*;
+use commands_legacy::{
+    analyze_crash_log, analyze_jira_ticket, analyze_sentry_issue,
+    call_ai, save_analysis, save_external_analysis, save_pasted_log,
+    translate_content, list_models, test_connection,
+    test_jira_connection, list_jira_projects, create_jira_ticket,
+    search_jira_issues, post_jira_comment,
+    link_jira_to_analysis, unlink_jira_from_analysis,
+    get_jira_links_for_analysis, get_analyses_for_jira_ticket,
+    update_jira_link_metadata, count_jira_links_for_analysis,
+    get_all_jira_links,
+    get_database_info, get_file_stats,
+    export_gold_jsonl_enhanced,
+};
 use database::Database;
 use rag_commands::*;
 use std::sync::{Arc, RwLock};
@@ -91,7 +103,7 @@ fn main() {
 
     // Initialize pattern engine with built-in patterns
     let pattern_engine = patterns::create_pattern_engine(None);
-    let pattern_engine_state = PatternEngineState(RwLock::new(pattern_engine));
+    let pattern_engine_state = commands::PatternEngineState(RwLock::new(pattern_engine));
 
     // Initialize embedding cache for retrieval pipeline
     let embedding_cache = retrieval::cache::EmbeddingCache::new();
@@ -175,97 +187,24 @@ fn main() {
         .manage(widget_commands::WidgetLock::new())
         .manage(jira_poller::PollerState::new())
         .invoke_handler(tauri::generate_handler![
+            // ── Still in commands_legacy (25 commands) ──
             analyze_crash_log,
             analyze_jira_ticket,
             translate_content,
             call_ai,
+            save_analysis,
             save_external_analysis,
-            // CRUD (migrated to commands::crud)
-            commands::crud::get_all_analyses,
-            commands::crud::get_analyses_paginated,
-            commands::crud::get_analyses_count,
-            commands::crud::get_analysis_by_id,
-            commands::crud::delete_analysis,
-            commands::crud::export_analysis,
-            // Phase 2: Search & Favorites
-            search_analyses,
-            commands::crud::toggle_favorite,
-            commands::crud::get_favorites,
-            commands::crud::get_recent,
-            // Phase 2: Database Management
-            commands::crud::get_database_statistics,
-            commands::crud::optimize_fts_index,
-            commands::crud::check_database_integrity,
-            commands::crud::compact_database,
-            commands::crud::checkpoint_wal,
-            // Translation Management
-            commands::crud::get_all_translations,
-            commands::crud::get_translation_by_id,
-            commands::crud::delete_translation,
-            commands::crud::toggle_translation_favorite,
-            // Tag Management
-            create_tag,
-            update_tag,
-            delete_tag,
-            get_all_tags,
-            add_tag_to_analysis,
-            remove_tag_from_analysis,
-            get_tags_for_analysis,
-            add_tag_to_translation,
-            remove_tag_from_translation,
-            get_tags_for_translation,
-            auto_tag_analyses,
-            count_analyses_without_tags,
-            // Advanced Filtering
-            get_analyses_filtered,
-            // Bulk Operations
-            bulk_delete_analyses,
-            bulk_delete_translations,
-            bulk_add_tag_to_analyses,
-            bulk_remove_tag_from_analyses,
-            bulk_set_favorite_analyses,
-            bulk_set_favorite_translations,
-            // Archive System (migrated to commands::archive)
-            commands::archive::archive_analysis,
-            commands::archive::restore_analysis,
-            commands::archive::get_archived_analyses,
-            commands::archive::permanently_delete_analysis,
-            commands::archive::bulk_archive_analyses,
-            // Notes System (migrated to commands::notes)
-            commands::notes::add_note_to_analysis,
-            commands::notes::update_note,
-            commands::notes::delete_note,
-            commands::notes::get_notes_for_analysis,
-            commands::notes::get_note_count,
-            commands::notes::analysis_has_notes,
-            // Translation Archive System (migrated to commands::archive)
-            commands::archive::archive_translation,
-            commands::archive::restore_translation,
-            // Similar Crash Detection & Analytics
-            get_similar_analyses,
-            count_similar_analyses,
-            get_trend_data,
-            get_top_error_patterns,
-            // Model Management
+            save_pasted_log,
             list_models,
             test_connection,
-            // File Management
-            save_pasted_log,
-            // Keeper Secrets Manager Integration
-            initialize_keeper,
-            list_keeper_secrets,
-            get_keeper_status,
-            clear_keeper_config,
-            test_keeper_connection,
-            // JIRA Integration
+            get_database_info,
+            get_file_stats,
+            // JIRA (legacy)
             test_jira_connection,
             list_jira_projects,
             create_jira_ticket,
             search_jira_issues,
-            commands::jira::search_jira_issues_next_page,
             post_jira_comment,
-            commands::jira::analyze_jira_ticket_deep,
-            // JIRA Ticket Linking (Phase 3)
             link_jira_to_analysis,
             unlink_jira_from_analysis,
             get_jira_links_for_analysis,
@@ -273,84 +212,144 @@ fn main() {
             update_jira_link_metadata,
             count_jira_links_for_analysis,
             get_all_jira_links,
-            // Crash Signatures
-            compute_crash_signature,
-            register_crash_signature,
-            get_signature_occurrences,
-            get_top_signatures,
-            update_signature_status,
-            link_ticket_to_signature,
-            // WCR Parser
-            parse_crash_file,
-            parse_crash_content,
-            parse_crash_files_batch,
-            // Known Patterns
-            match_patterns,
-            get_best_pattern_match,
-            list_patterns,
-            get_pattern_by_id,
-            reload_patterns,
-            quick_pattern_match,
-            // Report Export
-            generate_report,
-            get_export_formats,
-            get_audience_options,
-            preview_report,
-            // Sensitive Content Detection
-            check_sensitive_content,
-            sanitize_content,
-            // Pattern Filtering
-            get_patterns_by_category,
-            get_patterns_by_tag,
-            get_pattern_tags,
-            get_pattern_categories,
-            // Multi-Format Export
-            generate_report_multi,
-            // Database Admin
-            get_database_info,
-            // Performance Trace Analysis (migrated to commands::performance)
+            analyze_sentry_issue,
+            // ── CRUD ──
+            commands::crud::get_all_analyses,
+            commands::crud::get_analyses_paginated,
+            commands::crud::get_analyses_count,
+            commands::crud::get_analysis_by_id,
+            commands::crud::delete_analysis,
+            commands::crud::export_analysis,
+            commands::crud::toggle_favorite,
+            commands::crud::get_favorites,
+            commands::crud::get_recent,
+            commands::crud::get_database_statistics,
+            commands::crud::optimize_fts_index,
+            commands::crud::check_database_integrity,
+            commands::crud::compact_database,
+            commands::crud::checkpoint_wal,
+            commands::crud::get_all_translations,
+            commands::crud::get_translation_by_id,
+            commands::crud::delete_translation,
+            commands::crud::toggle_translation_favorite,
+            // ── Search ──
+            commands::search::search_analyses,
+            commands::search::get_analyses_filtered,
+            // ── Tags ──
+            commands::tags::create_tag,
+            commands::tags::update_tag,
+            commands::tags::delete_tag,
+            commands::tags::get_all_tags,
+            commands::tags::add_tag_to_analysis,
+            commands::tags::remove_tag_from_analysis,
+            commands::tags::get_tags_for_analysis,
+            commands::tags::add_tag_to_translation,
+            commands::tags::remove_tag_from_translation,
+            commands::tags::get_tags_for_translation,
+            commands::tags::auto_tag_analyses,
+            commands::tags::count_analyses_without_tags,
+            // ── Bulk Operations ──
+            commands::bulk_ops::bulk_delete_analyses,
+            commands::bulk_ops::bulk_delete_translations,
+            commands::bulk_ops::bulk_add_tag_to_analyses,
+            commands::bulk_ops::bulk_remove_tag_from_analyses,
+            commands::bulk_ops::bulk_set_favorite_analyses,
+            commands::bulk_ops::bulk_set_favorite_translations,
+            // ── Archive ──
+            commands::archive::archive_analysis,
+            commands::archive::restore_analysis,
+            commands::archive::get_archived_analyses,
+            commands::archive::permanently_delete_analysis,
+            commands::archive::bulk_archive_analyses,
+            commands::archive::archive_translation,
+            commands::archive::restore_translation,
+            // ── Notes ──
+            commands::notes::add_note_to_analysis,
+            commands::notes::update_note,
+            commands::notes::delete_note,
+            commands::notes::get_notes_for_analysis,
+            commands::notes::get_note_count,
+            commands::notes::analysis_has_notes,
+            // ── Analytics ──
+            commands::analytics::get_similar_analyses,
+            commands::analytics::count_similar_analyses,
+            commands::analytics::get_trend_data,
+            commands::analytics::get_top_error_patterns,
+            // ── Keeper ──
+            commands::keeper::initialize_keeper,
+            commands::keeper::list_keeper_secrets,
+            commands::keeper::get_keeper_status,
+            commands::keeper::clear_keeper_config,
+            commands::keeper::test_keeper_connection,
+            // ── Signatures ──
+            commands::signatures::compute_crash_signature,
+            commands::signatures::register_crash_signature,
+            commands::signatures::get_signature_occurrences,
+            commands::signatures::get_top_signatures,
+            commands::signatures::update_signature_status,
+            commands::signatures::link_ticket_to_signature,
+            // ── Patterns / WCR Parser ──
+            commands::patterns::parse_crash_file,
+            commands::patterns::parse_crash_content,
+            commands::patterns::parse_crash_files_batch,
+            commands::patterns::match_patterns,
+            commands::patterns::get_best_pattern_match,
+            commands::patterns::list_patterns,
+            commands::patterns::get_pattern_by_id,
+            commands::patterns::reload_patterns,
+            commands::patterns::quick_pattern_match,
+            commands::patterns::get_patterns_by_category,
+            commands::patterns::get_patterns_by_tag,
+            commands::patterns::get_pattern_tags,
+            commands::patterns::get_pattern_categories,
+            commands::export::check_sensitive_content,
+            commands::export::sanitize_content,
+            // ── Export ──
+            commands::export::generate_report,
+            commands::export::get_export_formats,
+            commands::export::get_audience_options,
+            commands::export::preview_report,
+            commands::export::generate_report_multi,
+            // ── Performance ──
             commands::performance::analyze_performance_trace,
-            get_file_stats,
-            // Intelligence Platform (Phase 1-2)
-            submit_analysis_feedback,
-            get_feedback_for_analysis,
-            promote_to_gold,
-            get_gold_analyses,
-            is_gold_analysis,
-            // Gold Review Workflow (Phase 1-2 Week 3)
-            get_pending_gold_analyses,
-            verify_gold_analysis,
-            reject_gold_analysis,
-            get_rejected_gold_analyses,
-            reopen_gold_analysis,
-            check_auto_promotion_eligibility,
-            auto_promote_if_eligible,
-            // Fine-Tuning Export (Phase 1.4)
-            export_gold_jsonl,
-            count_gold_for_export,
-            // Enhanced Export (Phase 4)
+            // ── Intelligence ──
+            commands::intelligence::submit_analysis_feedback,
+            commands::intelligence::get_feedback_for_analysis,
+            commands::intelligence::promote_to_gold,
+            commands::intelligence::get_gold_analyses,
+            commands::intelligence::is_gold_analysis,
+            commands::intelligence::get_pending_gold_analyses,
+            commands::intelligence::verify_gold_analysis,
+            commands::intelligence::reject_gold_analysis,
+            commands::intelligence::get_rejected_gold_analyses,
+            commands::intelligence::reopen_gold_analysis,
+            commands::intelligence::check_auto_promotion_eligibility,
+            commands::intelligence::auto_promote_if_eligible,
+            commands::intelligence::export_gold_jsonl,
+            commands::intelligence::count_gold_for_export,
             export_gold_jsonl_enhanced,
-            get_export_statistics,
-            // RAG System (Phase 1-2, Week 4)
+            commands::intelligence::get_export_statistics,
+            // ── Sentry ──
+            commands::sentry::test_sentry_connection,
+            commands::sentry::list_sentry_projects,
+            commands::sentry::list_sentry_issues,
+            commands::sentry::list_sentry_org_issues,
+            commands::sentry::fetch_sentry_issue,
+            commands::sentry::fetch_sentry_latest_event,
+            // ── JIRA (migrated) ──
+            commands::jira::search_jira_issues_next_page,
+            commands::jira::analyze_jira_ticket_deep,
+            // ── RAG ──
             rag_query,
             rag_index_analysis,
             rag_build_context,
             rag_get_stats,
-            // Knowledge Base RAG
             kb_query,
             kb_test_connection,
             kb_list_indices,
             kb_import_docs,
             kb_get_stats,
-            // Sentry Integration
-            test_sentry_connection,
-            list_sentry_projects,
-            list_sentry_issues,
-            list_sentry_org_issues,
-            fetch_sentry_issue,
-            fetch_sentry_latest_event,
-            analyze_sentry_issue,
-            // Ask Hadron Chat
+            // ── Chat ──
             chat_commands::chat_send,
             chat_commands::chat_submit_feedback,
             chat_commands::chat_delete_feedback,
@@ -362,20 +361,19 @@ fn main() {
             chat_commands::chat_star_session,
             chat_commands::chat_tag_session,
             chat_commands::chat_update_session_metadata,
-            // Retrieval Evaluation
             chat_commands::run_retrieval_eval,
-            // Gold Answers (Ask Hadron 2.0)
+            // ── Gold Answers ──
             commands::gold_answers::save_gold_answer,
             commands::gold_answers::list_gold_answers,
             commands::gold_answers::search_gold_answers_cmd,
             commands::gold_answers::delete_gold_answer_cmd,
             commands::gold_answers::export_gold_answers_jsonl,
-            // Session Summaries (Ask Hadron 2.0)
+            // ── Summaries ──
             commands::summaries::generate_session_summary,
             commands::summaries::save_session_summary,
             commands::summaries::get_session_summary,
             commands::summaries::export_summaries_bundle,
-            // Release Notes Generator
+            // ── Release Notes ──
             commands::release_notes::generate_release_notes,
             commands::release_notes::preview_release_notes_tickets,
             commands::release_notes::list_jira_fix_versions,
@@ -388,7 +386,7 @@ fn main() {
             commands::release_notes::export_release_notes,
             commands::release_notes::delete_release_notes,
             commands::release_notes::check_release_notes_compliance,
-            // Widget
+            // ── Widget ──
             widget_commands::toggle_widget,
             widget_commands::show_widget,
             widget_commands::hide_widget,
@@ -397,7 +395,7 @@ fn main() {
             widget_commands::get_widget_position,
             widget_commands::move_widget,
             widget_commands::is_main_window_visible,
-            // JIRA Assist
+            // ── JIRA Assist ──
             commands::jira_assist::get_ticket_brief,
             commands::jira_assist::get_ticket_briefs_batch,
             commands::jira_assist::get_all_ticket_briefs,

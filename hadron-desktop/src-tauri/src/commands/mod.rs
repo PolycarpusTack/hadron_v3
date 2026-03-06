@@ -1,22 +1,30 @@
 //! Tauri command handlers
-//!
-//! This module re-exports from commands_legacy while we gradually migrate
-//! to the new modular structure.
 
 pub mod common;
 
-// Re-export everything from the legacy commands module
-pub use crate::commands_legacy::*;
+// Re-export shared types used by database.rs
+pub use search::{AdvancedFilterOptions, FilteredResults};
+pub use patterns::PatternEngineState;
 
-// Modular command handlers (migrated from commands_legacy)
+// Data access
+pub mod analytics;
 pub mod archive;
+pub mod bulk_ops;
 pub mod crud;
+pub mod export;
+pub mod intelligence;
 pub mod notes;
-pub mod performance;
+pub mod search;
+pub mod tags;
 
-// New feature modules
+// Feature modules
 pub mod gold_answers;
 pub mod jira;
 pub mod jira_assist;
+pub mod keeper;
+pub mod patterns;
+pub mod performance;
 pub mod release_notes;
+pub mod sentry;
+pub mod signatures;
 pub mod summaries;

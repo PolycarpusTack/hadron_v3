@@ -9,39 +9,21 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdvancedFilterOptions {
-    /// Full-text search query
     pub search: Option<String>,
-    /// Severity levels to include (e.g., ["critical", "high"])
     pub severities: Option<Vec<String>>,
-    /// Analysis types to include (e.g., ["whatson", "complete", "specialized"])
     pub analysis_types: Option<Vec<String>>,
-    /// Analysis modes to include (e.g., ["Quick", "Deep Scan"])
     pub analysis_modes: Option<Vec<String>>,
-    /// Tag IDs to filter by
     pub tag_ids: Option<Vec<i64>>,
-    /// Tag filter mode: "any" (OR) or "all" (AND)
     pub tag_mode: Option<String>,
-    /// Start date (ISO 8601 format)
     pub date_from: Option<String>,
-    /// End date (ISO 8601 format)
     pub date_to: Option<String>,
-    /// Minimum cost
     pub cost_min: Option<f64>,
-    /// Maximum cost
     pub cost_max: Option<f64>,
-    /// Include archived (soft-deleted) items
     pub include_archived: Option<bool>,
-    /// Sort by field
+    pub favorites_only: Option<bool>,
     pub sort_by: Option<String>,
-    /// Sort direction: "asc" or "desc"
-    pub sort_direction: Option<String>,
-    /// Number of results per page
-    pub page_size: Option<i64>,
-    /// Page number (0-indexed)
-    pub page: Option<i64>,
-    /// Limit (alias for page_size)
+    pub sort_order: Option<String>,
     pub limit: Option<i64>,
-    /// Offset (alias for page * page_size)
     pub offset: Option<i64>,
 }
 

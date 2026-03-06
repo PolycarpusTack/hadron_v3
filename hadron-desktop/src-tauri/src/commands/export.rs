@@ -3,7 +3,7 @@
 use super::common::helpers::redact_pii_basic;
 use super::patterns::PatternEngineState;
 use crate::export::{
-    default_config_for_audience, export_report, export_report_multi, has_sensitive_content,
+    default_config_for_audience, export_report, has_sensitive_content,
     sanitize_for_customer, simplify_technical_terms, ExportFormat, ReportAudience, ReportData,
     ReportSections,
 };
@@ -367,8 +367,12 @@ pub fn generate_report_multi(
         _ => ExportFormat::Markdown,
     };
 
-    // Generate combined report
-    let content = export_report_multi(&report_data_list, format);
+    // Generate individual reports and concatenate
+    let mut parts = Vec::new();
+    for data in &report_data_list {
+        parts.push(export_report(data, format));
+    }
+    let content = parts.join("\n\n---\n\n");
 
     // Determine file extension
     let extension = match format {
