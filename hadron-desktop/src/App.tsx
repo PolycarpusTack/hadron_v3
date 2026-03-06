@@ -4,7 +4,7 @@ import FileDropZone from "./components/FileDropZone";
 import AnalysisResults from "./components/AnalysisResults";
 import SettingsPanel from "./components/SettingsPanel";
 import HistoryView from "./components/HistoryView";
-import CodeAnalyzerView from "./components/CodeAnalyzerView";
+import CodeAnalyzerView from "./components/code-analyzer/CodeAnalyzerView";
 import PerformanceAnalyzerView from "./components/PerformanceAnalyzerView";
 import JiraAnalyzerView from "./components/JiraAnalyzerView";
 import SentryAnalyzerView from "./components/SentryAnalyzerView";

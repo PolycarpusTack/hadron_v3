@@ -14,6 +14,9 @@ pub const MAX_CRASH_LOG_SIZE_BYTES: u64 = 5 * 1024 * 1024;
 /// Maximum content size for translation (1 MB)
 pub const MAX_TRANSLATION_CONTENT_SIZE: usize = 1024 * 1024;
 
+/// Soft limit for call_ai: ~128K tokens at 4 chars/token. Exceeding this will fail most cloud models.
+pub const MAX_AI_CONTENT_BYTES_ESTIMATE: usize = 512_000;
+
 /// Maximum content size for pasted logs (5 MB)
 pub const MAX_PASTED_LOG_SIZE: usize = 5 * 1024 * 1024;
 

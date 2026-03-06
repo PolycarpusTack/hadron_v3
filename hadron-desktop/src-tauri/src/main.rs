@@ -178,6 +178,7 @@ fn main() {
             analyze_crash_log,
             analyze_jira_ticket,
             translate_content,
+            call_ai,
             save_external_analysis,
             // CRUD (migrated to commands::crud)
             commands::crud::get_all_analyses,

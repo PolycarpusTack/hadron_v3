@@ -265,8 +265,27 @@ export async function analyzeJiraTicketDeep(
 }
 
 /**
- * Translate technical content to plain language
- * Invalidates translation cache after successful translation
+ * Call the AI without persisting to the translations table.
+ * Use this for Code Analyzer and other features that persist via save_external_analysis.
+ */
+export async function callAi(
+  content: string,
+  apiKey: string,
+  model: string,
+  provider: string,
+): Promise<string> {
+  const redactPii = getBooleanSetting("pii_redaction_enabled");
+  return invoke<string>("call_ai", { content, apiKey, model, provider, redactPii });
+}
+
+/**
+ * Translate technical content to plain language.
+ * Invalidates translation cache after successful translation.
+ *
+ * NOTE: apiKey may be "" when Keeper secrets management is active.
+ * The Rust backend / Python layer resolves the key from the Keeper UID stored
+ * in secure settings. Callers must still pass apiKey="" (not undefined) to
+ * satisfy the Tauri command schema.
  */
 export async function translateTechnicalContent(
   content: string,

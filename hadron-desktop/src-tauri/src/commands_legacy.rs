@@ -32,7 +32,7 @@ use zeroize::Zeroizing;
 pub use crate::commands::common::{
     AnalysisPhase, AnalysisProgress, AutoTagSummary, DbState,
     MAX_CRASH_LOG_SIZE_BYTES,
-    MAX_TRANSLATION_CONTENT_SIZE, MAX_PASTED_LOG_SIZE,
+    MAX_TRANSLATION_CONTENT_SIZE, MAX_AI_CONTENT_BYTES_ESTIMATE, MAX_PASTED_LOG_SIZE,
     emit_progress, normalize_severity, redact_pii_basic, validate_file_path,
     detect_pii_types,
 };
@@ -1764,6 +1764,58 @@ pub async fn translate_content(
     );
 
     Ok(translation_text)
+}
+
+/// Call the AI and return the raw response, without persisting to the database.
+/// Used by features (Code Analyzer, future tools) that handle their own persistence
+/// via save_external_analysis or equivalent.
+#[tauri::command]
+pub async fn call_ai(
+    content: String,
+    api_key: String,
+    model: String,
+    provider: String,
+    redact_pii: Option<bool>,
+) -> Result<String, String> {
+    log::debug!("cmd: call_ai");
+    let api_key = Zeroizing::new(api_key);
+
+    if content.len() > MAX_TRANSLATION_CONTENT_SIZE {
+        return Err(format!(
+            "Content too large: {} bytes exceeds maximum of {} bytes (1 MB)",
+            content.len(),
+            MAX_TRANSLATION_CONTENT_SIZE
+        ));
+    }
+
+    if content.len() > MAX_AI_CONTENT_BYTES_ESTIMATE {
+        let estimated_tokens = content.len() / 4;
+        return Err(format!(
+            "Content is approximately {} tokens, which likely exceeds your AI model's \
+             context limit (128K). Please reduce the code size and try again.",
+            estimated_tokens
+        ));
+    }
+
+    let content_for_ai: Cow<'_, str> = if redact_pii.unwrap_or(false) {
+        redact_pii_basic(&content)
+    } else {
+        Cow::Borrowed(&content)
+    };
+
+    let response = if provider.to_lowercase() == "llamacpp" {
+        translate_llamacpp(&content_for_ai, &model)
+            .await
+            .map_err(|e| format!("llama.cpp call failed: {}", e))?
+    } else {
+        run_python_translation(&content_for_ai, api_key.as_str(), &model, &provider)
+            .await
+            .map_err(|e| format!("AI call failed: {}", e))?
+            .translation
+    };
+
+    log::info!("call_ai completed: provider={}", provider);
+    Ok(response)
 }
 
 #[derive(Debug, Deserialize)]

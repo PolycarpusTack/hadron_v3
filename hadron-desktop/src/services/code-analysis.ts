@@ -5,7 +5,7 @@
  * from App.tsx into a dedicated, testable module.
  */
 
-import { translateTechnicalContent, getStoredModel, getStoredProvider, saveExternalAnalysis } from "./api";
+import { callAi, getStoredModel, getStoredProvider, saveExternalAnalysis } from "./api";
 import { getApiKey } from "./secure-storage";
 import { getKeeperSecretForProvider } from "./keeper";
 import logger from "./logger";
@@ -170,7 +170,9 @@ export async function analyzeCode(
   const model = getStoredModel();
   const provider = getStoredProvider();
 
-  // Resolve API key (Keeper or manual)
+  // When Keeper is active, keeperSecretUid is passed separately through the
+  // Tauri command chain to the Python layer, which resolves it independently.
+  // apiKey is intentionally left "" in that case — the backend ignores it.
   const keeperSecretUid = await getKeeperSecretForProvider(provider);
   let apiKey = "";
   if (!keeperSecretUid) {
@@ -183,7 +185,7 @@ export async function analyzeCode(
   logger.info("Starting code analysis", { filename, language, model, provider });
 
   const prompt = buildCodeAnalysisPrompt(code, filename, language);
-  const response = await translateTechnicalContent(prompt, apiKey, model, provider);
+  const response = await callAi(prompt, apiKey, model, provider);
 
   let result: CodeAnalysisResult;
   try {
