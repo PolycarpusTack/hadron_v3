@@ -146,6 +146,37 @@ pub fn get_briefs_batch(conn: &Connection, jira_keys: &[String]) -> Result<Vec<T
     Ok(briefs)
 }
 
+/// Fetch all ticket briefs, ordered by most recently updated first.
+pub fn get_all_briefs(conn: &Connection) -> Result<Vec<TicketBrief>> {
+    let mut stmt = conn.prepare(
+        "SELECT jira_key, title, customer, severity, category, tags,
+                triage_json, brief_json, posted_to_jira, posted_at,
+                engineer_rating, engineer_notes, created_at, updated_at
+         FROM ticket_briefs ORDER BY updated_at DESC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(TicketBrief {
+            jira_key:        row.get(0)?,
+            title:           row.get(1)?,
+            customer:        row.get(2)?,
+            severity:        row.get(3)?,
+            category:        row.get(4)?,
+            tags:            row.get(5)?,
+            triage_json:     row.get(6)?,
+            brief_json:      row.get(7)?,
+            posted_to_jira:  row.get::<_, i64>(8)? != 0,
+            posted_at:       row.get(9)?,
+            engineer_rating: row.get(10)?,
+            engineer_notes:  row.get(11)?,
+            created_at:      row.get(12)?,
+            updated_at:      row.get(13)?,
+        })
+    })?;
+
+    rows.collect()
+}
+
 /// Delete a brief and its embeddings (CASCADE handles ticket_embeddings).
 pub fn delete_ticket_brief(conn: &Connection, jira_key: &str) -> Result<()> {
     conn.execute(

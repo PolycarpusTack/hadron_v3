@@ -3734,6 +3734,11 @@ impl Database {
         crate::ticket_briefs::get_briefs_batch(&conn, jira_keys)
     }
 
+    pub fn get_all_ticket_briefs(&self) -> Result<Vec<crate::ticket_briefs::TicketBrief>> {
+        let conn = self.lock_conn();
+        crate::ticket_briefs::get_all_briefs(&conn)
+    }
+
     pub fn upsert_ticket_brief(&self, brief: &crate::ticket_briefs::TicketBrief) -> Result<()> {
         let conn = self.lock_conn();
         crate::ticket_briefs::upsert_ticket_brief(&conn, brief)

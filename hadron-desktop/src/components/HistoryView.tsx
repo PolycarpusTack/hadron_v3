@@ -23,6 +23,8 @@ import {
   countAnalysesWithoutTags,
   getGoldAnalyses,
 } from "../services/api";
+import { getAllTicketBriefs, deleteTicketBrief } from "../services/jira-assist";
+import type { TicketBrief } from "../services/jira-assist";
 import { useDebounce } from "../hooks/useDebounce";
 import logger from "../services/logger";
 import type { Analysis, Translation, DatabaseStatistics } from "../services/api";
@@ -39,6 +41,7 @@ const FILTER_STORAGE_KEY = "hadron_history_filters";
 
 interface HistoryViewProps {
   onViewAnalysis: (analysis: Analysis) => void;
+  onViewJiraTicket: (jiraKey: string) => void;
 }
 
 // Load saved filters from localStorage
@@ -78,7 +81,7 @@ const DEFAULT_VISIBLE_COLUMNS: Set<ColumnKey> = new Set([
   "file", "rootCause", "severity", "status", "component", "cost",
 ]);
 
-export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
+export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: HistoryViewProps) {
   // currentTab is always "all" in triage mode -- kept for loadData() compatibility
   const [currentTab, setCurrentTab] = useState<"analyses" | "translations" | "all" | "favorites">("all");
   void setCurrentTab; // Tab switching removed in triage layout
@@ -96,6 +99,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
   const [tagRefreshKey, setTagRefreshKey] = useState(0);
   void tagRefreshKey; // Used internally by setTagRefreshKey for cache-busting
   const [goldStatusByAnalysisId, setGoldStatusByAnalysisId] = useState<Record<number, string>>({});
+  const [jiraBriefs, setJiraBriefs] = useState<TicketBrief[]>([]);
 
   // Selection mode state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -108,6 +112,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
   // New triage workspace state
   const [previewAnalysis, setPreviewAnalysis] = useState<Analysis | null>(null);
+  const [previewJiraBrief, setPreviewJiraBrief] = useState<TicketBrief | null>(null);
   const [sortBy, setSortBy] = useState<"recent" | "severity" | "recurrence" | "cost">("recent");
   const [groupBy, setGroupBy] = useState<"none" | "component" | "status" | "severity">("none");
   const [columnsOpen, setColumnsOpen] = useState(false);
@@ -265,6 +270,15 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
         setTranslations(filtered);
       }
+
+      // Load JIRA briefs
+      try {
+        const briefs = await getAllTicketBriefs();
+        setJiraBriefs(briefs);
+      } catch (e) {
+        logger.warn("Failed to load JIRA briefs", { error: e });
+        // Non-fatal — history still works without JIRA items
+      }
     } catch (err) {
       logger.error('Failed to load history', { error: err instanceof Error ? err.message : String(err) });
       setError(err instanceof Error ? err.message : "Failed to load history");
@@ -354,6 +368,18 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
     } catch (err) {
       logger.error('Failed to delete translation', { id, error: err instanceof Error ? err.message : String(err) });
       toast.error("Failed to delete translation");
+    }
+  }, [toast]);
+
+  const handleDeleteJiraBrief = useCallback(async (jiraKey: string, title: string) => {
+    if (!window.confirm(`Delete JIRA brief for ${jiraKey} "${title}"?`)) return;
+    try {
+      await deleteTicketBrief(jiraKey);
+      setJiraBriefs((prev) => prev.filter((b) => b.jira_key !== jiraKey));
+      setPreviewJiraBrief((prev) => (prev?.jira_key === jiraKey ? null : prev));
+      toast.success("JIRA brief deleted");
+    } catch (e) {
+      toast.error(`Failed to delete: ${e}`);
     }
   }, [toast]);
 
@@ -750,76 +776,95 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
   // Triage Sort and Group Logic
   // =========================================================================
 
-  const sortedAnalyses = useMemo(() => {
-    const sorted = [...analyses];
+  // Unified history item: analysis or JIRA brief
+  type HistoryItem =
+    | { kind: "analysis"; data: Analysis; date: string; sortSeverity: number; sortCost: number }
+    | { kind: "jira"; data: TicketBrief; date: string; sortSeverity: number; sortCost: number };
+
+  const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+  const unifiedItems = useMemo((): HistoryItem[] => {
+    const items: HistoryItem[] = analyses.map((a) => ({
+      kind: "analysis" as const,
+      data: a,
+      date: a.analyzed_at,
+      sortSeverity: severityRank[a.severity.toLowerCase()] ?? 4,
+      sortCost: a.cost,
+    }));
+
+    for (const b of jiraBriefs) {
+      items.push({
+        kind: "jira" as const,
+        data: b,
+        date: b.updated_at,
+        sortSeverity: severityRank[(b.severity || "").toLowerCase()] ?? 4,
+        sortCost: 0,
+      });
+    }
+
+    // Apply quick filters
+    if (quickFilter === "jira") {
+      return items.filter((i) => i.kind === "jira");
+    }
+    if (quickFilter === "analyses") {
+      return items.filter((i) => i.kind === "analysis");
+    }
+    if (quickFilter === "today") {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      return items.filter((i) => new Date(i.date) >= startOfToday);
+    }
+    if (quickFilter === "7days") {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      return items.filter((i) => new Date(i.date) >= sevenDaysAgo);
+    }
+    if (quickFilter === "gold") {
+      return items.filter((i) => i.kind === "analysis" && goldStatusByAnalysisId[i.data.id]);
+    }
+    if (quickFilter === "noTags") {
+      return items; // Placeholder — no tag data filtering yet
+    }
+
+    return items;
+  }, [analyses, jiraBriefs, quickFilter, goldStatusByAnalysisId]);
+
+  // Sort unified items
+  const sortedUnifiedItems = useMemo(() => {
+    const sorted = [...unifiedItems];
     switch (sortBy) {
-      case "severity": {
-        const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-        sorted.sort((a, b) => (order[a.severity.toLowerCase()] ?? 4) - (order[b.severity.toLowerCase()] ?? 4));
+      case "severity":
+        sorted.sort((a, b) => a.sortSeverity - b.sortSeverity);
         break;
-      }
       case "cost":
-        sorted.sort((a, b) => b.cost - a.cost);
+        sorted.sort((a, b) => b.sortCost - a.sortCost);
         break;
       case "recent":
       default:
-        sorted.sort((a, b) => new Date(b.analyzed_at).getTime() - new Date(a.analyzed_at).getTime());
+        sorted.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         break;
     }
     return sorted;
-  }, [analyses, sortBy]);
+  }, [unifiedItems, sortBy]);
 
-  const groupedAnalyses = useMemo(() => {
-    if (groupBy === "none") return { "": sortedAnalyses };
-    const groups: Record<string, Analysis[]> = {};
-    for (const analysis of sortedAnalyses) {
+  // Group unified items
+  const groupedUnifiedItems = useMemo(() => {
+    if (groupBy === "none") return { "": sortedUnifiedItems };
+    const groups: Record<string, HistoryItem[]> = {};
+    for (const item of sortedUnifiedItems) {
       let key: string;
       if (groupBy === "component") {
-        key = analysis.component || "Unknown";
+        key = item.kind === "analysis" ? (item.data.component || "Unknown") : (item.data.category || "JIRA");
       } else if (groupBy === "severity") {
-        key = analysis.severity;
+        key = item.kind === "analysis" ? item.data.severity : (item.data.severity || "Unknown");
       } else {
-        key = "analyzed";
+        key = item.kind === "analysis" ? "analyzed" : "jira";
       }
       if (!groups[key]) groups[key] = [];
-      groups[key].push(analysis);
+      groups[key].push(item);
     }
     return groups;
-  }, [sortedAnalyses, groupBy]);
-
-  // Quick filter: apply client-side date filtering on top of the sorted list
-  const quickFilteredGroups = useMemo(() => {
-    if (quickFilter === "all") return groupedAnalyses;
-
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const sevenDaysAgo = new Date(startOfToday.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    function filterList(list: Analysis[]): Analysis[] {
-      switch (quickFilter) {
-        case "today":
-          return list.filter((a) => new Date(a.analyzed_at) >= startOfToday);
-        case "7days":
-          return list.filter((a) => new Date(a.analyzed_at) >= sevenDaysAgo);
-        case "gold":
-          return list.filter((a) => goldStatusByAnalysisId[a.id]);
-        case "noTags":
-          // Placeholder: show all (no tag data on Analysis object)
-          return list;
-        default:
-          return list;
-      }
-    }
-
-    const filtered: Record<string, Analysis[]> = {};
-    for (const [key, items] of Object.entries(groupedAnalyses)) {
-      const result = filterList(items);
-      if (result.length > 0) {
-        filtered[key] = result;
-      }
-    }
-    return filtered;
-  }, [groupedAnalyses, quickFilter, goldStatusByAnalysisId]);
+  }, [sortedUnifiedItems, groupBy]);
 
   // Severity stats from statistics (severity_breakdown is [string, number][])
   const severityStats = useMemo(() => {
@@ -870,8 +915,8 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
     );
   }
 
-  // Flat list of all analyses after quick filter for total count
-  const displayedAnalyses = Object.values(quickFilteredGroups).flat();
+  // Flat list of all items after quick filter for total count
+  const displayedItems = Object.values(groupedUnifiedItems).flat();
 
   return (
     <div className="space-y-2.5">
@@ -896,7 +941,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
                 color: "var(--hd-text-muted)",
               }}
             >
-              {displayedAnalyses.length} shown
+              {displayedItems.length} shown
             </span>
             {severityStats.critical > 0 && (
               <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
@@ -1050,9 +1095,11 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
         {/* Quick Filter Chips */}
         <div className="flex flex-wrap gap-1.5 items-center" style={{ marginBottom: 8 }}>
-          {(["all", "today", "7days", "gold", "noTags"] as const).map((chip) => {
+          {(["all", "analyses", "jira", "today", "7days", "gold", "noTags"] as const).map((chip) => {
             const labels: Record<string, string> = {
               all: "All",
+              analyses: "Analyses",
+              jira: "JIRA",
               today: "Today",
               "7days": "Last 7 days",
               gold: "Gold only",
@@ -1183,7 +1230,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
       </div>
 
       {/* Two-Panel Layout: List + Preview */}
-      {displayedAnalyses.length === 0 ? (
+      {displayedItems.length === 0 ? (
         <div className="hd-panel" style={{ padding: 32, textAlign: "center" }}>
           <p style={{ color: "var(--hd-text-dim)", fontSize: "0.88rem" }}>
             {filters.search || activeFilterCount > 0 || quickFilter !== "all"
@@ -1227,7 +1274,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
 
             {/* Scrollable List */}
             <div style={{ overflowY: "auto", flex: 1, padding: "6px 8px" }}>
-              {Object.entries(quickFilteredGroups).map(([groupLabel, groupItems]) => (
+              {Object.entries(groupedUnifiedItems).map(([groupLabel, groupItems]) => (
                 <div key={groupLabel || "__default"}>
                   {/* Group header when grouping is active */}
                   {groupBy !== "none" && groupLabel && (
@@ -1248,133 +1295,173 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
                     </div>
                   )}
 
-                  {groupItems.map((analysis) => (
-                    <div
-                      key={analysis.id}
-                      className={`hd-triage-row ${previewAnalysis?.id === analysis.id ? "hd-triage-row-active" : ""}`}
-                      onClick={() => setPreviewAnalysis(analysis)}
-                    >
-                      {visibleColumns.has("file") && (
-                        <div
-                          style={{
-                            fontWeight: 600,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                          }}
-                        >
-                          {selectionMode && (
-                            <input
-                              type="checkbox"
-                              checked={selectedAnalysisIds.has(analysis.id)}
+                  {groupItems.map((item) => {
+                    const isActive = item.kind === "analysis"
+                      ? previewAnalysis?.id === item.data.id
+                      : previewJiraBrief?.jira_key === item.data.jira_key;
+
+                    const handleClick = () => {
+                      if (item.kind === "analysis") {
+                        setPreviewAnalysis(item.data);
+                        setPreviewJiraBrief(null);
+                      } else {
+                        setPreviewJiraBrief(item.data);
+                        setPreviewAnalysis(null);
+                      }
+                    };
+
+                    const jiraStatus = item.kind === "jira"
+                      ? (item.data.posted_to_jira ? "posted" : item.data.brief_json ? "briefed" : "triaged")
+                      : null;
+
+                    return (
+                      <div
+                        key={item.kind === "analysis" ? `a-${item.data.id}` : `j-${item.data.jira_key}`}
+                        className={`hd-triage-row ${isActive ? "hd-triage-row-active" : ""}`}
+                        onClick={handleClick}
+                      >
+                        {visibleColumns.has("file") && (
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            {item.kind === "analysis" && selectionMode && (
+                              <input
+                                type="checkbox"
+                                checked={selectedAnalysisIds.has(item.data.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectAnalysis(item.data.id, e.shiftKey);
+                                }}
+                                onChange={() => {}}
+                                style={{
+                                  accentColor: "var(--hd-accent)",
+                                  width: 14,
+                                  height: 14,
+                                  cursor: "pointer",
+                                  marginRight: 4,
+                                }}
+                              />
+                            )}
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {item.kind === "analysis" ? item.data.filename : item.data.jira_key}
+                            </span>
+                            {item.kind === "analysis" && item.data.is_favorite && (
+                              <span style={{ color: "#fbbf24" }}>&#9733;</span>
+                            )}
+                            {item.kind === "analysis" && goldStatusByAnalysisId[item.data.id] && (
+                              <span style={{ fontSize: "0.7rem", color: "#fbbf24" }}>&#11088;</span>
+                            )}
+                            {item.kind === "jira" && (
+                              <span style={{
+                                fontSize: "0.6rem",
+                                fontWeight: 700,
+                                padding: "1px 5px",
+                                borderRadius: 4,
+                                background: "rgba(99,102,241,0.15)",
+                                color: "rgb(129,140,248)",
+                              }}>
+                                JIRA
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {visibleColumns.has("rootCause") && (
+                          <div
+                            style={{
+                              color: "var(--hd-text-muted)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              fontSize: "0.78rem",
+                            }}
+                          >
+                            {item.kind === "analysis" ? item.data.root_cause : item.data.title}
+                          </div>
+                        )}
+
+                        {visibleColumns.has("severity") && (
+                          <div>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${getSeverityBadgeClasses(
+                                item.kind === "analysis" ? item.data.severity : (item.data.severity || "medium")
+                              )}`}
+                            >
+                              {item.kind === "analysis" ? item.data.severity : (item.data.severity || "\u2014")}
+                            </span>
+                          </div>
+                        )}
+
+                        {visibleColumns.has("status") && (
+                          <div style={{ fontSize: "0.72rem", color: "var(--hd-text-muted)" }}>
+                            {item.kind === "analysis" ? "analyzed" : jiraStatus}
+                          </div>
+                        )}
+
+                        {visibleColumns.has("component") && (
+                          <div style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)" }}>
+                            {item.kind === "analysis" ? (item.data.component || "\u2014") : (item.data.category || "\u2014")}
+                          </div>
+                        )}
+
+                        {visibleColumns.has("cost") && (
+                          <div style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)", fontVariantNumeric: "tabular-nums" }}>
+                            {item.kind === "analysis" ? `$${item.data.cost.toFixed(3)}` : "\u2014"}
+                          </div>
+                        )}
+
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          {item.kind === "analysis" && (
+                            <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleSelectAnalysis(analysis.id, e.shiftKey);
+                                handleToggleFavorite(item.data.id);
                               }}
-                              onChange={() => {}}
                               style={{
-                                accentColor: "var(--hd-accent)",
-                                width: 14,
-                                height: 14,
+                                background: "none",
+                                border: "none",
                                 cursor: "pointer",
-                                marginRight: 4,
+                                color: item.data.is_favorite ? "#fbbf24" : "var(--hd-text-dim)",
+                                fontSize: "0.9rem",
+                                padding: 2,
                               }}
-                            />
+                            >
+                              &#9733;
+                            </button>
                           )}
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {analysis.filename}
-                          </span>
-                          {analysis.is_favorite && (
-                            <span style={{ color: "#fbbf24" }}>&#9733;</span>
-                          )}
-                          {goldStatusByAnalysisId[analysis.id] && (
-                            <span style={{ fontSize: "0.7rem", color: "#fbbf24" }}>&#11088;</span>
-                          )}
-                        </div>
-                      )}
-
-                      {visibleColumns.has("rootCause") && (
-                        <div
-                          style={{
-                            color: "var(--hd-text-muted)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            fontSize: "0.78rem",
-                          }}
-                        >
-                          {analysis.root_cause}
-                        </div>
-                      )}
-
-                      {visibleColumns.has("severity") && (
-                        <div>
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${getSeverityBadgeClasses(analysis.severity)}`}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (item.kind === "analysis") {
+                                handleDelete(item.data.id, item.data.filename);
+                              } else {
+                                handleDeleteJiraBrief(item.data.jira_key, item.data.title);
+                              }
+                            }}
+                            style={{
+                              background: "var(--hd-danger-dim, rgba(239,68,68,0.12))",
+                              border: "none",
+                              color: "var(--hd-danger, #ef4444)",
+                              borderRadius: 4,
+                              padding: "3px 6px",
+                              fontSize: "0.68rem",
+                              cursor: "pointer",
+                            }}
                           >
-                            {analysis.severity}
-                          </span>
+                            Del
+                          </button>
                         </div>
-                      )}
-
-                      {visibleColumns.has("status") && (
-                        <div style={{ fontSize: "0.72rem", color: "var(--hd-text-muted)" }}>
-                          analyzed
-                        </div>
-                      )}
-
-                      {visibleColumns.has("component") && (
-                        <div style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)" }}>
-                          {analysis.component || "\u2014"}
-                        </div>
-                      )}
-
-                      {visibleColumns.has("cost") && (
-                        <div style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)", fontVariantNumeric: "tabular-nums" }}>
-                          ${analysis.cost.toFixed(3)}
-                        </div>
-                      )}
-
-                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleFavorite(analysis.id);
-                          }}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            cursor: "pointer",
-                            color: analysis.is_favorite ? "#fbbf24" : "var(--hd-text-dim)",
-                            fontSize: "0.9rem",
-                            padding: 2,
-                          }}
-                        >
-                          &#9733;
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(analysis.id, analysis.filename);
-                          }}
-                          style={{
-                            background: "var(--hd-danger-dim, rgba(239,68,68,0.12))",
-                            border: "none",
-                            color: "var(--hd-danger, #ef4444)",
-                            borderRadius: 4,
-                            padding: "3px 6px",
-                            fontSize: "0.68rem",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Del
-                        </button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ))}
             </div>
@@ -1418,7 +1505,7 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
             >
               <strong style={{ fontSize: "0.88rem", color: "var(--hd-text)" }}>Preview</strong>
               <span className="text-xs" style={{ color: "var(--hd-text-dim)" }}>
-                #{previewAnalysis?.id ?? "\u2014"}
+                {previewAnalysis ? `#${previewAnalysis.id}` : previewJiraBrief ? previewJiraBrief.jira_key : "\u2014"}
               </span>
             </div>
             <div style={{ overflowY: "auto", flex: 1, padding: "10px 14px" }}>
@@ -1481,6 +1568,113 @@ export default function HistoryView({ onViewAnalysis }: HistoryViewProps) {
                       variant="ghost-danger"
                       size="sm"
                       onClick={() => handleDelete(previewAnalysis.id, previewAnalysis.filename)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </>
+              ) : previewJiraBrief ? (
+                <>
+                  {/* JIRA Ticket Header */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--hd-text)", marginBottom: 4 }}>
+                      {previewJiraBrief.jira_key}
+                    </div>
+                    <div style={{ fontSize: "0.82rem", color: "var(--hd-text-muted)" }}>
+                      {previewJiraBrief.title}
+                    </div>
+                  </div>
+
+                  {/* Triage Info */}
+                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 6, color: "var(--hd-text)" }}>
+                      Triage
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                      {previewJiraBrief.severity && (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${getSeverityBadgeClasses(previewJiraBrief.severity)}`}>
+                          {previewJiraBrief.severity}
+                        </span>
+                      )}
+                      {previewJiraBrief.category && (
+                        <span style={{
+                          fontSize: "0.72rem",
+                          padding: "2px 8px",
+                          borderRadius: 9999,
+                          background: "rgba(99,102,241,0.12)",
+                          color: "rgb(129,140,248)",
+                          fontWeight: 600,
+                        }}>
+                          {previewJiraBrief.category}
+                        </span>
+                      )}
+                    </div>
+                    {previewJiraBrief.customer && (
+                      <div style={{ fontSize: "0.78rem", color: "var(--hd-text-dim)" }}>
+                        Customer: {previewJiraBrief.customer}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Brief Summary (if available) */}
+                  {previewJiraBrief.brief_json && (() => {
+                    try {
+                      const brief = JSON.parse(previewJiraBrief.brief_json);
+                      const summary = brief?.analysis?.executive_summary || brief?.analysis?.plain_summary;
+                      if (!summary) return null;
+                      return (
+                        <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
+                            Brief Summary
+                          </div>
+                          <div style={{ fontSize: "0.78rem", color: "var(--hd-text-muted)" }}>
+                            {summary}
+                          </div>
+                        </div>
+                      );
+                    } catch { return null; }
+                  })()}
+
+                  {/* Details */}
+                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
+                      Details
+                    </div>
+                    <div
+                      style={{
+                        borderLeft: "2px solid rgba(99,102,241,0.3)",
+                        paddingLeft: 10,
+                        fontSize: "0.78rem",
+                        color: "var(--hd-text-muted)",
+                      }}
+                    >
+                      <div style={{ marginBottom: 4 }}>
+                        Updated: {format(new Date(previewJiraBrief.updated_at), "MMM d, yyyy 'at' h:mm a")}
+                      </div>
+                      <div style={{ marginBottom: 4 }}>
+                        Status: {previewJiraBrief.posted_to_jira ? "Posted to JIRA" : previewJiraBrief.brief_json ? "Brief generated" : "Triaged"}
+                      </div>
+                      {previewJiraBrief.engineer_rating && (
+                        <div style={{ marginBottom: 4 }}>
+                          Rating: {"\u2605".repeat(previewJiraBrief.engineer_rating)}{"\u2606".repeat(5 - previewJiraBrief.engineer_rating)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex gap-2 flex-wrap" style={{ marginTop: 12 }}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => onViewJiraTicket(previewJiraBrief.jira_key)}
+                    >
+                      Open in JIRA Analyzer
+                    </Button>
+                    <Button
+                      variant="ghost-danger"
+                      size="sm"
+                      onClick={() => handleDeleteJiraBrief(previewJiraBrief.jira_key, previewJiraBrief.title)}
                     >
                       Delete
                     </Button>

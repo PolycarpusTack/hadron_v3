@@ -101,6 +101,21 @@ pub async fn get_ticket_briefs_batch(
     .map_err(|e| format!("Task error: {}", e))?
 }
 
+/// Fetch all ticket briefs for the history view.
+#[tauri::command]
+pub async fn get_all_ticket_briefs(
+    db: DbState<'_>,
+) -> Result<Vec<TicketBrief>, String> {
+    log::debug!("cmd: get_all_ticket_briefs");
+    let db = Arc::clone(&db);
+    tauri::async_runtime::spawn_blocking(move || {
+        db.get_all_ticket_briefs()
+            .map_err(|e| format!("Database error: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
 /// Delete a ticket brief and its embeddings from the database.
 #[tauri::command]
 pub async fn delete_ticket_brief(

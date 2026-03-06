@@ -572,7 +572,13 @@ function App() {
           {currentView === "history" && (
             <ViewErrorBoundary name="History">
               <div id="history-panel" role="tabpanel">
-                <HistoryView onViewAnalysis={actions.viewAnalysis} />
+                <HistoryView
+                  onViewAnalysis={actions.viewAnalysis}
+                  onViewJiraTicket={(jiraKey) => {
+                    actions.setView("jira");
+                    sessionStorage.setItem("hadron_jira_navigate_key", jiraKey);
+                  }}
+                />
               </div>
             </ViewErrorBoundary>
           )}

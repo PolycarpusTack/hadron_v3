@@ -60,6 +60,11 @@ export async function getTicketBriefsBatch(jiraKeys: string[]): Promise<TicketBr
   return invoke<TicketBrief[]>("get_ticket_briefs_batch", { jiraKeys });
 }
 
+/** Fetch all ticket briefs for the history view. */
+export async function getAllTicketBriefs(): Promise<TicketBrief[]> {
+  return invoke<TicketBrief[]>("get_all_ticket_briefs");
+}
+
 /** Delete a ticket brief and its embeddings. */
 export async function deleteTicketBrief(jiraKey: string): Promise<void> {
   return invoke<void>("delete_ticket_brief", { jiraKey });
