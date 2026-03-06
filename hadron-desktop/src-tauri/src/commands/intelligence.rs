@@ -26,18 +26,6 @@ pub struct FineTuneExportResult {
     pub format: String,
 }
 
-/// Export options for fine-tuning data
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportOptions {
-    pub include_pending: Option<bool>,
-    pub component_filter: Option<Vec<String>>,
-    pub severity_filter: Option<Vec<String>>,
-    pub balance_dataset: Option<bool>,
-    pub max_examples: Option<usize>,
-    pub test_split: Option<f32>,
-}
-
 /// Dataset statistics for export
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,19 +36,6 @@ pub struct DatasetStatistics {
     pub verified_count: usize,
     pub pending_count: usize,
     pub avg_rating: Option<f64>,
-}
-
-/// Enhanced export result with statistics
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EnhancedExportResult {
-    pub total_exported: usize,
-    pub train_count: usize,
-    pub test_count: usize,
-    pub train_jsonl: String,
-    pub test_jsonl: String,
-    pub format: String,
-    pub statistics: DatasetStatistics,
 }
 
 /// OpenAI fine-tuning message format

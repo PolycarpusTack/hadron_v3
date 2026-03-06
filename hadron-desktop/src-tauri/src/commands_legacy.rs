@@ -2320,15 +2320,6 @@ pub async fn get_file_stats(path: String) -> Result<serde_json::Value, String> {
 // Fine-Tuning Export (Phase 1.4)
 // ============================================================================
 
-/// Export result for fine-tuning data
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FineTuneExportResult {
-    pub total_exported: usize,
-    pub jsonl_content: String,
-    pub format: String,
-}
-
 /// OpenAI fine-tuning message format
 #[derive(Debug, Serialize, Deserialize)]
 struct FineTuneMessage {
