@@ -81,3 +81,9 @@ tao = { git = "https://github.com/PolycarpusTack/tao", rev = "943f900264bde9e74b
 [profile.dev]
 # Keep debug builds lightweight to avoid rustc OOM on Windows while iterating.
 debug = 0
+
+[profile.release]
+# LTO for smaller + faster binary
+lto = "thin"
+# Single codegen unit for better optimization
+codegen-units = 1

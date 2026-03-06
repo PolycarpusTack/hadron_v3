@@ -60,6 +60,7 @@ fn log_level_from_env_or_default() -> log::LevelFilter {
 fn main() {
     // Install panic hook first — captures crash info if anything panics during init
     crash_handler::install_panic_hook();
+    crash_handler::install_native_crash_handler();
 
     // Initialize database wrapped in Arc for safe sharing across spawn_blocking tasks
     let db = Arc::new(match Database::new() {

@@ -1,0 +1,10 @@
+[build]
+# Reduce peak RAM during large dependency compiles on Windows (e.g. `windows` crate).
+jobs = 1
+
+# Force baseline x86-64 (SSE2 only) for release builds.
+# Without this, MSVC /O2 auto-vectorization can emit AVX/AVX2 instructions
+# that cause ILLEGAL_INSTRUCTION (0xc000001d) on older CPUs.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=x86-64"]
+
