@@ -332,10 +332,6 @@ export async function analyzeWithResilience(
 
       logger.info('Analysis successful', { provider, model, wasFailover: provider !== preferredProvider });
 
-      // Track which provider was used (for UI display)
-      (result as any)._usedProvider = provider;
-      (result as any)._wasFailover = provider !== preferredProvider;
-
       return result;
 
     } catch (error: unknown) {

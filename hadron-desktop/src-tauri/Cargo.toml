@@ -3,7 +3,7 @@ name = "hadron-desktop"
 version = "4.3.0"
 description = "Hadron - AI Support Assistant"
 authors = ["Hadron Team"]
-license = "MIT"
+license = "Proprietary"
 repository = "https://github.com/PolycarpusTack/hadron_v3"
 edition = "2021"
 
@@ -54,10 +54,6 @@ hex = "0.4"
 
 # Better mutex implementation (no poisoning, faster)
 parking_lot = "0.12"
-
-# Crash capture: write minidumps on native crashes (segfault, abort, etc.)
-crash-handler = "0.6"
-minidumper = "0.8"
 
 # Parser dependencies
 thiserror = "1.0"

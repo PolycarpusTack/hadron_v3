@@ -67,7 +67,7 @@ Features: context-aware suggestions, conversation query rewriting, true SSE stre
 ### Production Features
 
 - **Multi-provider AI**: OpenAI, Anthropic Claude, Z.ai, llama.cpp (local/offline)
-- **Encrypted storage**: API keys secured with OS-level encryption (Keychain/Credential Manager)
+- **Secure storage**: API keys stored in app settings storage with optional Keeper Secrets integration
 - **Circuit breaker**: Automatic failover to backup AI providers
 - **Structured logging**: JSON + human-readable logs with automatic rotation
 - **Auto-updater**: Automatic update checks and one-click installation
@@ -76,7 +76,7 @@ Features: context-aware suggestions, conversation query rewriting, true SSE stre
 
 ### Status
 
-- **Version**: 4.0.1
+- **Version**: 4.3.0
 - **Platform**: Windows, macOS, Linux
 - **Architecture**: Tauri 2 (Rust) + React/TypeScript
 
@@ -87,15 +87,15 @@ Features: context-aware suggestions, conversation query rewriting, true SSE stre
 ### 1. Download
 
 Get the installer for your platform:
-- **Windows**: `hadron-desktop_4.0.1_x64_en-US.msi`
-- **macOS**: `hadron-desktop_4.0.1_x64.dmg` (Intel) or `_aarch64.dmg` (Apple Silicon)
-- **Linux**: `hadron-desktop_4.0.1_amd64.deb` or `.AppImage`
+- **Windows**: `hadron-desktop_4.3.0_x64_en-US.msi`
+- **macOS**: `hadron-desktop_4.3.0_x64.dmg` (Intel) or `_aarch64.dmg` (Apple Silicon)
+- **Linux**: `hadron-desktop_4.3.0_amd64.deb` or `.AppImage`
 
 ### 2. Install
 
 **Windows**: Run `.msi` installer
 **macOS**: Open `.dmg` and drag to Applications
-**Linux**: `sudo dpkg -i hadron-desktop_4.0.1_amd64.deb`
+**Linux**: `sudo dpkg -i hadron-desktop_4.3.0_amd64.deb`
 
 ### 3. Configure
 
@@ -136,8 +136,6 @@ Get the installer for your platform:
 
 ### For Users
 - [Complete User Guide](docs/user/USER-GUIDE.md) — Installation, features, tips & tricks
-- [Troubleshooting](TROUBLESHOOTING.md) — Common issues and solutions
-- [Features](FEATURES.md) — Full feature list
 - [Changelog](CHANGELOG.md) — Release history
 
 ### For Developers

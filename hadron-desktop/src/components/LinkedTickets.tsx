@@ -378,7 +378,7 @@ function LinkTicketModal({
   // Manual entry state
   const [manualKey, setManualKey] = useState("");
   const [manualSummary, setManualSummary] = useState("");
-  const [linkType, setLinkType] = useState("related");
+  const [linkType, setLinkType] = useState<"related" | "causes" | "caused_by" | "duplicates" | "blocks">("related");
   const [notes, setNotes] = useState("");
 
   const linkTypes = getAvailableLinkTypes();
@@ -422,7 +422,7 @@ function LinkTicketModal({
         jiraSummary: issue.summary,
         jiraStatus: issue.status,
         jiraPriority: issue.priority,
-        linkType: linkType as any,
+        linkType,
         notes: notes || undefined,
       });
 
@@ -455,7 +455,7 @@ function LinkTicketModal({
         analysisId,
         jiraKey: manualKey.trim().toUpperCase(),
         jiraSummary: manualSummary || undefined,
-        linkType: linkType as any,
+        linkType,
         notes: notes || undefined,
       });
 
@@ -614,7 +614,7 @@ function LinkTicketModal({
                   </label>
                   <select
                     value={linkType}
-                    onChange={(e) => setLinkType(e.target.value)}
+                    onChange={(e) => setLinkType(e.target.value as typeof linkType)}
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:border-blue-500"
                   >
                     {linkTypes.map((type) => (

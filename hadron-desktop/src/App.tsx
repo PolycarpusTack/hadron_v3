@@ -141,7 +141,7 @@ function App() {
 
     const heartbeat = window.setInterval(() => {
       const snapshot = runtimeStateRef.current;
-      const perfMem = (performance as any).memory;
+      const perfMem = (performance as unknown as { memory?: { usedJSHeapSize?: number; totalJSHeapSize?: number } }).memory;
       logger.info("Heartbeat", {
         view: snapshot.currentView,
         analyzing: snapshot.analyzing,

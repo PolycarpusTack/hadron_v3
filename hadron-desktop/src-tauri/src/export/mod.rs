@@ -34,17 +34,6 @@ pub fn export_report(data: &ReportData, format: ExportFormat) -> String {
     }
 }
 
-/// Export a report to multiple formats at once
-pub fn export_report_multi(
-    data: &ReportData,
-    formats: &[ExportFormat],
-) -> Vec<(ExportFormat, String)> {
-    formats
-        .iter()
-        .map(|&format| (format, export_report(data, format)))
-        .collect()
-}
-
 /// Create a default report configuration for a specific audience
 pub fn default_config_for_audience(audience: ReportAudience) -> ReportConfig {
     let sections = match audience {
