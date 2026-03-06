@@ -8,8 +8,6 @@ import {
   searchAnalyses,
   toggleFavorite,
   getAllTranslations,
-  deleteTranslation,
-  toggleTranslationFavorite,
   getDatabaseStatistics,
   getAllTags,
   getAnalysesFiltered,
@@ -82,9 +80,7 @@ const DEFAULT_VISIBLE_COLUMNS: Set<ColumnKey> = new Set([
 ]);
 
 export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: HistoryViewProps) {
-  // currentTab is always "all" in triage mode -- kept for loadData() compatibility
-  const [currentTab, setCurrentTab] = useState<"analyses" | "translations" | "all" | "favorites">("all");
-  void setCurrentTab; // Tab switching removed in triage layout
+
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [translations, setTranslations] = useState<Translation[]>([]);
   const [filters, setFilters] = useState<HistoryFilters>(loadSavedFilters);
@@ -173,7 +169,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTab, debouncedSearchTerm, debouncedFilterKey]);
+  }, [debouncedSearchTerm, debouncedFilterKey]);
 
   const loadData = async () => {
     setLoading(true);
@@ -206,16 +202,15 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
         logger.warn("Failed to load gold statuses", { error: goldResult.reason });
       }
 
-      // Load analyses if needed
-      if (currentTab === "analyses" || currentTab === "all" || currentTab === "favorites") {
-        // Use advanced filtering API
+      // Load analyses
+      {
         const goldOnly = filters.analysisTypes.includes("gold");
         const analysisTypesForApi = filters.analysisTypes.filter((t) => t !== "gold");
         const filtersForApi = {
           ...filters,
           analysisTypes: analysisTypesForApi,
           search: debouncedSearchTerm,
-          favoritesOnly: currentTab === "favorites" ? true : filters.favoritesOnly,
+          favoritesOnly: filters.favoritesOnly,
         };
         const apiOptions = filtersToApiOptions(filtersForApi);
 
@@ -235,7 +230,6 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
               )
             : await getAllAnalyses();
 
-          // Apply basic client-side filtering as fallback
           let filtered = data;
           if (goldOnly) {
             filtered = filtered.filter((a) => goldStatusMap[a.id]);
@@ -245,18 +239,16 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
               filters.severities.includes(a.severity.toLowerCase())
             );
           }
-          if (currentTab === "favorites" || filters.favoritesOnly) {
+          if (filters.favoritesOnly) {
             filtered = filtered.filter((a) => a.is_favorite);
           }
           setAnalyses(filtered);
         }
       }
 
-      // Load translations if needed (also in favorites tab)
-      if (currentTab === "translations" || currentTab === "all" || currentTab === "favorites") {
+      // Load translations
+      {
         const data = await getAllTranslations();
-
-        // Apply search filter on translations (client-side)
         let filtered = data;
         if (debouncedSearchTerm) {
           filtered = filtered.filter((t) =>
@@ -264,10 +256,9 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
             t.translation.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
           );
         }
-        if (currentTab === "favorites" || filters.favoritesOnly) {
+        if (filters.favoritesOnly) {
           filtered = filtered.filter((t) => t.is_favorite);
         }
-
         setTranslations(filtered);
       }
 
@@ -307,15 +298,6 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     });
   }, []);
 
-  // Toggle analysis type filter
-  const toggleAnalysisType = useCallback((type: string) => {
-    setFilters((prev) => {
-      const analysisTypes = prev.analysisTypes.includes(type)
-        ? prev.analysisTypes.filter((t) => t !== type)
-        : [...prev.analysisTypes, type];
-      return { ...prev, analysisTypes };
-    });
-  }, []);
 
   // Memoized handlers to prevent unnecessary re-renders of list items
   const handleDelete = useCallback(async (id: number, filename: string) => {
@@ -358,18 +340,6 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     }
   }, [toast]);
 
-  const handleDeleteTranslation = useCallback(async (id: number) => {
-    if (!confirm(`Delete this translation?`)) return;
-
-    try {
-      await deleteTranslation(id);
-      setTranslations((prev) => prev.filter((t) => t.id !== id));
-      toast.success("Translation deleted");
-    } catch (err) {
-      logger.error('Failed to delete translation', { id, error: err instanceof Error ? err.message : String(err) });
-      toast.error("Failed to delete translation");
-    }
-  }, [toast]);
 
   const handleDeleteJiraBrief = useCallback(async (jiraKey: string, title: string) => {
     if (!window.confirm(`Delete JIRA brief for ${jiraKey} "${title}"?`)) return;
@@ -383,18 +353,6 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     }
   }, [toast]);
 
-  const handleToggleTranslationFavorite = useCallback(async (id: number) => {
-    try {
-      const newStatus = await toggleTranslationFavorite(id);
-      setTranslations((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, is_favorite: newStatus } : t))
-      );
-      toast.success(newStatus ? "Added to favorites" : "Removed from favorites");
-    } catch (err) {
-      logger.error('Failed to toggle favorite', { id, error: err instanceof Error ? err.message : String(err) });
-      toast.error("Failed to update favorite status");
-    }
-  }, [toast]);
 
   // =========================================================================
   // Selection Mode Handlers
@@ -444,35 +402,6 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     });
   }, [analyses]);
 
-  // Handle translation selection with shift+click range support
-  const handleSelectTranslation = useCallback((id: number, shiftKey: boolean) => {
-    setSelectedTranslationIds((prev) => {
-      const newSet = new Set(prev);
-
-      if (shiftKey && lastSelectedTranslationId.current !== null) {
-        // Range selection
-        const lastIdx = translations.findIndex((t) => t.id === lastSelectedTranslationId.current);
-        const currentIdx = translations.findIndex((t) => t.id === id);
-        if (lastIdx !== -1 && currentIdx !== -1) {
-          const start = Math.min(lastIdx, currentIdx);
-          const end = Math.max(lastIdx, currentIdx);
-          for (let i = start; i <= end; i++) {
-            newSet.add(translations[i].id);
-          }
-        }
-      } else {
-        // Toggle single selection
-        if (newSet.has(id)) {
-          newSet.delete(id);
-        } else {
-          newSet.add(id);
-        }
-      }
-
-      lastSelectedTranslationId.current = id;
-      return newSet;
-    });
-  }, [translations]);
 
   // Clear all selections
   const clearSelection = useCallback(() => {
@@ -692,22 +621,6 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     }
   }, [toast]);
 
-  const handleShowTaggedOnly = useCallback(() => {
-    if (availableTags.length === 0) return;
-    const tagIds = availableTags.map((t) => t.id);
-    setFilters((prev) => ({
-      ...prev,
-      tags: { ...prev.tags, tagIds, mode: "any" },
-    }));
-  }, [availableTags]);
-
-  // Preserve handler references for future use (translations view, type filters, etc.)
-  // These are not rendered in the triage grid but remain part of the component's API surface.
-  void toggleAnalysisType;
-  void handleDeleteTranslation;
-  void handleToggleTranslationFavorite;
-  void handleSelectTranslation;
-  void handleShowTaggedOnly;
 
   // Keyboard shortcuts for history view
   useEffect(() => {
@@ -750,13 +663,8 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
       // Ctrl+A - Select all visible (when in selection mode and not in an input)
       if (isCtrl && event.key.toLowerCase() === "a" && selectionMode && !isInputFocused) {
         event.preventDefault();
-        // Select all visible analyses and translations
-        if (currentTab === "analyses" || currentTab === "all" || currentTab === "favorites") {
-          setSelectedAnalysisIds(new Set(analyses.map((a) => a.id)));
-        }
-        if (currentTab === "translations" || currentTab === "all" || currentTab === "favorites") {
-          setSelectedTranslationIds(new Set(translations.map((t) => t.id)));
-        }
+        setSelectedAnalysisIds(new Set(analyses.map((a) => a.id)));
+        setSelectedTranslationIds(new Set(translations.map((t) => t.id)));
       }
 
       // Ctrl+E - Export (when items are selected)
@@ -770,7 +678,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [advancedFiltersOpen, columnsOpen, selectionMode, selectedCount, currentTab, analyses, translations, clearSelection, handleBulkDelete, handleBulkExport]);
+  }, [advancedFiltersOpen, columnsOpen, selectionMode, selectedCount, analyses, translations, clearSelection, handleBulkDelete, handleBulkExport]);
 
   // =========================================================================
   // Triage Sort and Group Logic

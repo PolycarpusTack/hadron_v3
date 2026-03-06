@@ -84,14 +84,6 @@ IMPORTANT INSTRUCTIONS:
 const VALID_SEVERITIES = new Set(["critical", "high", "medium", "low"]);
 const VALID_CATEGORIES = new Set(["security", "performance", "error", "best-practice"]);
 
-const DEFAULT_SCORES: CodeQualityScores = {
-  overall: 50,
-  security: 50,
-  performance: 50,
-  maintainability: 50,
-  bestPractices: 50,
-};
-
 function clampScores(raw: unknown): CodeQualityScores {
   const defaults = { overall: 50, security: 50, performance: 50, maintainability: 50, bestPractices: 50 };
   if (!raw || typeof raw !== "object") return defaults;

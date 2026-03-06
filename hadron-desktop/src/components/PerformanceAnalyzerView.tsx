@@ -516,7 +516,7 @@ function AnalysisResultView({ result }: { result: PerformanceAnalysisResult }) {
           {result.patterns.map((pattern, i) => (
             <div key={i} className={`p-4 rounded-lg border ${
               pattern.severity === 'critical' ? 'bg-red-900/20 border-red-500/30' :
-              pattern.severity === 'high' || pattern.severity === 'warning' ? 'bg-orange-900/20 border-orange-500/30' :
+              pattern.severity === 'high' ? 'bg-orange-900/20 border-orange-500/30' :
               pattern.severity === 'medium' ? 'bg-yellow-900/20 border-yellow-500/30' :
               pattern.severity === 'low' ? 'bg-blue-900/20 border-blue-500/30' :
               'bg-gray-700/30 border-gray-600'
@@ -524,7 +524,7 @@ function AnalysisResultView({ result }: { result: PerformanceAnalysisResult }) {
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-2">
                   {(pattern.severity === 'critical') && <AlertTriangle size={18} className="text-red-400" />}
-                  {(pattern.severity === 'high' || pattern.severity === 'warning') && <AlertTriangle size={18} className="text-orange-400" />}
+                  {pattern.severity === 'high' && <AlertTriangle size={18} className="text-orange-400" />}
                   {pattern.severity === 'medium' && <AlertCircle size={18} className="text-yellow-400" />}
                   {pattern.severity === 'low' && <Info size={18} className="text-blue-400" />}
                   {pattern.severity === 'info' && <Info size={18} className="text-gray-400" />}
