@@ -1316,22 +1316,29 @@ impl Database {
 
         let conn = self.lock_conn();
 
+        // Build batch INSERT with VALUES list: INSERT OR IGNORE INTO ... VALUES (?,?), (?,?), ...
+        let values_clause: Vec<String> = analysis_ids.iter().map(|_| "(?, ?)".to_string()).collect();
+        let sql = format!(
+            "INSERT OR IGNORE INTO analysis_tags (analysis_id, tag_id) VALUES {}",
+            values_clause.join(", ")
+        );
+
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        for &id in analysis_ids {
+            param_values.push(Box::new(id));
+            param_values.push(Box::new(tag_id));
+        }
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+
         conn.execute("BEGIN TRANSACTION", [])?;
 
-        let mut added = 0;
-        for analysis_id in analysis_ids {
-            // INSERT OR IGNORE to skip duplicates
-            match conn.execute(
-                "INSERT OR IGNORE INTO analysis_tags (analysis_id, tag_id) VALUES (?1, ?2)",
-                params![analysis_id, tag_id],
-            ) {
-                Ok(count) => added += count,
-                Err(e) => {
-                    conn.execute("ROLLBACK", [])?;
-                    return Err(e);
-                }
+        let added = match conn.execute(&sql, params_ref.as_slice()) {
+            Ok(count) => count,
+            Err(e) => {
+                let _ = conn.execute("ROLLBACK", []);
+                return Err(e);
             }
-        }
+        };
 
         // Update tag usage count
         conn.execute(
@@ -1359,21 +1366,29 @@ impl Database {
 
         let conn = self.lock_conn();
 
+        // Batch DELETE: WHERE analysis_id IN (?,?,...) AND tag_id = ?
+        let placeholders: Vec<String> = analysis_ids.iter().map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "DELETE FROM analysis_tags WHERE analysis_id IN ({}) AND tag_id = ?",
+            placeholders.join(", ")
+        );
+
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        for &id in analysis_ids {
+            param_values.push(Box::new(id));
+        }
+        param_values.push(Box::new(tag_id));
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+
         conn.execute("BEGIN TRANSACTION", [])?;
 
-        let mut removed = 0;
-        for analysis_id in analysis_ids {
-            match conn.execute(
-                "DELETE FROM analysis_tags WHERE analysis_id = ?1 AND tag_id = ?2",
-                params![analysis_id, tag_id],
-            ) {
-                Ok(count) => removed += count,
-                Err(e) => {
-                    conn.execute("ROLLBACK", [])?;
-                    return Err(e);
-                }
+        let removed = match conn.execute(&sql, params_ref.as_slice()) {
+            Ok(count) => count,
+            Err(e) => {
+                let _ = conn.execute("ROLLBACK", []);
+                return Err(e);
             }
-        }
+        };
 
         // Update tag usage count
         conn.execute(
@@ -1401,23 +1416,21 @@ impl Database {
 
         let conn = self.lock_conn();
 
-        conn.execute("BEGIN TRANSACTION", [])?;
+        // Batch UPDATE: WHERE id IN (?,?,...)
+        let placeholders: Vec<String> = analysis_ids.iter().map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "UPDATE analyses SET is_favorite = ? WHERE id IN ({})",
+            placeholders.join(", ")
+        );
 
-        let mut updated = 0;
-        for analysis_id in analysis_ids {
-            match conn.execute(
-                "UPDATE analyses SET is_favorite = ?1 WHERE id = ?2",
-                params![favorite as i32, analysis_id],
-            ) {
-                Ok(count) => updated += count,
-                Err(e) => {
-                    conn.execute("ROLLBACK", [])?;
-                    return Err(e);
-                }
-            }
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(favorite as i32));
+        for &id in analysis_ids {
+            param_values.push(Box::new(id));
         }
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
 
-        conn.execute("COMMIT", [])?;
+        let updated = conn.execute(&sql, params_ref.as_slice())?;
         Ok(updated)
     }
 
@@ -1433,23 +1446,21 @@ impl Database {
 
         let conn = self.lock_conn();
 
-        conn.execute("BEGIN TRANSACTION", [])?;
+        // Batch UPDATE: WHERE id IN (?,?,...)
+        let placeholders: Vec<String> = translation_ids.iter().map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "UPDATE translations SET is_favorite = ? WHERE id IN ({})",
+            placeholders.join(", ")
+        );
 
-        let mut updated = 0;
-        for translation_id in translation_ids {
-            match conn.execute(
-                "UPDATE translations SET is_favorite = ?1 WHERE id = ?2",
-                params![favorite as i32, translation_id],
-            ) {
-                Ok(count) => updated += count,
-                Err(e) => {
-                    conn.execute("ROLLBACK", [])?;
-                    return Err(e);
-                }
-            }
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(favorite as i32));
+        for &id in translation_ids {
+            param_values.push(Box::new(id));
         }
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
 
-        conn.execute("COMMIT", [])?;
+        let updated = conn.execute(&sql, params_ref.as_slice())?;
         Ok(updated)
     }
 
