@@ -5,7 +5,6 @@ mod ai_service;
 mod chat_commands;
 mod chat_tools;
 mod commands;
-mod commands_legacy;
 mod crash_handler;
 mod database;
 mod error;
@@ -36,19 +35,6 @@ mod ticket_briefs;
 mod ticket_embeddings;
 mod widget_commands;
 
-use commands_legacy::{
-    analyze_crash_log, analyze_jira_ticket, analyze_sentry_issue,
-    call_ai, save_analysis, save_external_analysis, save_pasted_log,
-    translate_content, list_models, test_connection,
-    test_jira_connection, list_jira_projects, create_jira_ticket,
-    search_jira_issues, post_jira_comment,
-    link_jira_to_analysis, unlink_jira_from_analysis,
-    get_jira_links_for_analysis, get_analyses_for_jira_ticket,
-    update_jira_link_metadata, count_jira_links_for_analysis,
-    get_all_jira_links,
-    get_database_info, get_file_stats,
-    export_gold_jsonl_enhanced,
-};
 use database::Database;
 use rag_commands::*;
 use std::sync::{Arc, RwLock};
@@ -171,32 +157,21 @@ fn main() {
         .manage(widget_commands::WidgetLock::new())
         .manage(jira_poller::PollerState::new())
         .invoke_handler(tauri::generate_handler![
-            // ── Still in commands_legacy (25 commands) ──
-            analyze_crash_log,
-            analyze_jira_ticket,
-            translate_content,
-            call_ai,
-            save_analysis,
-            save_external_analysis,
-            save_pasted_log,
-            list_models,
-            test_connection,
-            get_database_info,
-            get_file_stats,
-            // JIRA (legacy)
-            test_jira_connection,
-            list_jira_projects,
-            create_jira_ticket,
-            search_jira_issues,
-            post_jira_comment,
-            link_jira_to_analysis,
-            unlink_jira_from_analysis,
-            get_jira_links_for_analysis,
-            get_analyses_for_jira_ticket,
-            update_jira_link_metadata,
-            count_jira_links_for_analysis,
-            get_all_jira_links,
-            analyze_sentry_issue,
+            // ── AI Analysis ──
+            commands::ai::analyze_crash_log,
+            commands::ai::analyze_jira_ticket,
+            commands::ai::translate_content,
+            commands::ai::call_ai,
+            commands::ai::save_analysis,
+            commands::ai::save_external_analysis,
+            commands::ai::save_pasted_log,
+            commands::ai::analyze_sentry_issue,
+            // ── Providers ──
+            commands::providers::list_models,
+            commands::providers::test_connection,
+            // ── Info ──
+            commands::info::get_database_info,
+            commands::info::get_file_stats,
             // ── CRUD ──
             commands::crud::get_all_analyses,
             commands::crud::get_analyses_paginated,
@@ -311,7 +286,7 @@ fn main() {
             commands::intelligence::auto_promote_if_eligible,
             commands::intelligence::export_gold_jsonl,
             commands::intelligence::count_gold_for_export,
-            export_gold_jsonl_enhanced,
+            commands::intelligence::export_gold_jsonl_enhanced,
             commands::intelligence::get_export_statistics,
             // ── Sentry ──
             commands::sentry::test_sentry_connection,
@@ -321,8 +296,20 @@ fn main() {
             commands::sentry::fetch_sentry_issue,
             commands::sentry::fetch_sentry_latest_event,
             // ── JIRA (migrated) ──
+            commands::jira::test_jira_connection,
+            commands::jira::list_jira_projects,
+            commands::jira::create_jira_ticket,
+            commands::jira::search_jira_issues,
+            commands::jira::post_jira_comment,
             commands::jira::search_jira_issues_next_page,
             commands::jira::analyze_jira_ticket_deep,
+            commands::jira::link_jira_to_analysis,
+            commands::jira::unlink_jira_from_analysis,
+            commands::jira::get_jira_links_for_analysis,
+            commands::jira::get_analyses_for_jira_ticket,
+            commands::jira::update_jira_link_metadata,
+            commands::jira::count_jira_links_for_analysis,
+            commands::jira::get_all_jira_links,
             // ── RAG ──
             rag_query,
             rag_index_analysis,

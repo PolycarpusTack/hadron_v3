@@ -318,6 +318,217 @@ fn build_analysis_response(gold: &crate::database::GoldAnalysisExport) -> String
     serde_json::to_string_pretty(&response).unwrap_or_else(|_| gold.root_cause.clone())
 }
 
+// ============================================================================
+// Enhanced Export (migrated from commands_legacy.rs)
+// ============================================================================
+
+/// Export options for fine-tuning data
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportOptions {
+    pub include_pending: Option<bool>,
+    pub component_filter: Option<Vec<String>>,
+    pub severity_filter: Option<Vec<String>>,
+    pub balance_dataset: Option<bool>,
+    pub max_examples: Option<usize>,
+    pub test_split: Option<f32>,
+}
+
+/// Enhanced export result with statistics
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnhancedExportResult {
+    pub total_exported: usize,
+    pub train_count: usize,
+    pub test_count: usize,
+    pub train_jsonl: String,
+    pub test_jsonl: String,
+    pub format: String,
+    pub statistics: DatasetStatistics,
+}
+
+/// Export gold analyses with enhanced options and statistics
+#[tauri::command]
+pub fn export_gold_jsonl_enhanced(
+    options: Option<ExportOptions>,
+    db: DbState<'_>,
+) -> Result<EnhancedExportResult, String> {
+    log::debug!("cmd: export_gold_jsonl_enhanced");
+    log::info!("Exporting gold analyses with enhanced options");
+
+    let opts = options.unwrap_or(ExportOptions {
+        include_pending: Some(false),
+        component_filter: None,
+        severity_filter: None,
+        balance_dataset: Some(false),
+        max_examples: None,
+        test_split: Some(0.1),
+    });
+
+    let mut gold_analyses = db
+        .get_gold_analyses_for_export()
+        .map_err(|e| format!("Failed to get gold analyses: {}", e))?;
+
+    // Calculate initial statistics
+    let mut by_component: HashMap<String, usize> = HashMap::new();
+    let mut by_severity: HashMap<String, usize> = HashMap::new();
+    let mut verified_count = 0;
+    let mut pending_count = 0;
+
+    for gold in &gold_analyses {
+        let component = gold.component.clone().unwrap_or_else(|| "Unknown".to_string());
+        let severity = gold.severity.clone().unwrap_or_else(|| "medium".to_string());
+
+        *by_component.entry(component).or_insert(0) += 1;
+        *by_severity.entry(severity).or_insert(0) += 1;
+
+        if gold.validation_status == "verified" {
+            verified_count += 1;
+        } else {
+            pending_count += 1;
+        }
+    }
+
+    // Apply include_pending filter (default: only verified)
+    let include_pending = opts.include_pending.unwrap_or(false);
+    if !include_pending {
+        gold_analyses.retain(|g| g.validation_status == "verified");
+        log::debug!("Filtered to verified-only: {} analyses remain", gold_analyses.len());
+    }
+
+    // Apply component filter
+    if let Some(ref components) = opts.component_filter {
+        gold_analyses.retain(|g| {
+            g.component.as_ref()
+                .map(|c| components.iter().any(|f| f.eq_ignore_ascii_case(c)))
+                .unwrap_or(false)
+        });
+    }
+
+    // Apply severity filter
+    if let Some(ref severities) = opts.severity_filter {
+        gold_analyses.retain(|g| {
+            g.severity.as_ref()
+                .map(|s| severities.iter().any(|f| f.eq_ignore_ascii_case(s)))
+                .unwrap_or(false)
+        });
+    }
+
+    // Balance dataset if requested
+    if opts.balance_dataset.unwrap_or(false) {
+        gold_analyses = balance_by_component(gold_analyses);
+    }
+
+    // Apply max examples limit
+    if let Some(max) = opts.max_examples {
+        if gold_analyses.len() > max {
+            gold_analyses.truncate(max);
+        }
+    }
+
+    // Split into train/test
+    let test_split = opts.test_split.unwrap_or(0.1).clamp(0.0, 0.5);
+    let split_idx = ((gold_analyses.len() as f32) * (1.0 - test_split)) as usize;
+
+    let train_set: Vec<_> = gold_analyses.iter().take(split_idx).collect();
+    let test_set: Vec<_> = gold_analyses.iter().skip(split_idx).collect();
+
+    // Generate JSONL for both sets
+    let system_prompt = r#"You are a WHATS'ON broadcast management system crash analysis expert. Analyze Smalltalk crash logs and provide:
+1. Root cause identification with specific class/method references
+2. Severity assessment (critical/high/medium/low)
+3. Actionable fix suggestions specific to WHATS'ON
+4. Component classification (EPG, Rights, Scheduling, etc.)
+
+Return your analysis as structured JSON with fields: error_type, severity, root_cause, suggested_fixes (array), component."#;
+
+    let train_jsonl = generate_jsonl(&train_set, system_prompt)?;
+    let test_jsonl = generate_jsonl(&test_set, system_prompt)?;
+
+    log::info!(
+        "Exported {} gold analyses (train: {}, test: {})",
+        gold_analyses.len(),
+        train_set.len(),
+        test_set.len()
+    );
+
+    let statistics = DatasetStatistics {
+        total_examples: gold_analyses.len(),
+        by_component,
+        by_severity,
+        verified_count,
+        pending_count,
+        avg_rating: None,
+    };
+
+    Ok(EnhancedExportResult {
+        total_exported: gold_analyses.len(),
+        train_count: train_set.len(),
+        test_count: test_set.len(),
+        train_jsonl,
+        test_jsonl,
+        format: "openai_chat".to_string(),
+        statistics,
+    })
+}
+
+/// Balance dataset by component (sample equal numbers from each)
+fn balance_by_component(
+    analyses: Vec<crate::database::GoldAnalysisExport>,
+) -> Vec<crate::database::GoldAnalysisExport> {
+    let mut by_component: HashMap<String, Vec<crate::database::GoldAnalysisExport>> = HashMap::new();
+    for analysis in analyses {
+        let component = analysis.component.clone().unwrap_or_else(|| "Unknown".to_string());
+        by_component.entry(component).or_default().push(analysis);
+    }
+
+    let min_count = by_component.values().map(|v| v.len()).min().unwrap_or(0);
+
+    let mut balanced = Vec::new();
+    for (_, mut items) in by_component {
+        items.truncate(min_count);
+        balanced.extend(items);
+    }
+
+    balanced
+}
+
+/// Generate JSONL from gold analyses
+fn generate_jsonl(
+    analyses: &[&crate::database::GoldAnalysisExport],
+    system_prompt: &str,
+) -> Result<String, String> {
+    let mut lines = Vec::new();
+
+    for gold in analyses {
+        let user_content = build_crash_context(gold);
+        let assistant_content = build_analysis_response(gold);
+
+        let conversation = FineTuneConversation {
+            messages: vec![
+                FineTuneMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                },
+                FineTuneMessage {
+                    role: "user".to_string(),
+                    content: user_content,
+                },
+                FineTuneMessage {
+                    role: "assistant".to_string(),
+                    content: assistant_content,
+                },
+            ],
+        };
+
+        let json_line = serde_json::to_string(&conversation)
+            .map_err(|e| format!("Failed to serialize: {}", e))?;
+        lines.push(json_line);
+    }
+
+    Ok(lines.join("\n"))
+}
+
 /// Count verified gold analyses available for export
 #[tauri::command]
 pub fn count_gold_for_export(db: DbState<'_>) -> Result<i64, String> {

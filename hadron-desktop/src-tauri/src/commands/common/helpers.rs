@@ -107,6 +107,100 @@ pub fn detect_pii_types(text: &str) -> Vec<&'static str> {
     types
 }
 
+#[cfg(test)]
+mod tests {
+    use super::redact_pii_basic;
+    use std::borrow::Cow;
+
+    #[test]
+    fn redacts_emails() {
+        let input = "Contact john.doe@example.com for details.";
+        let output = redact_pii_basic(input);
+        assert!(!output.contains("john.doe@example.com"));
+        assert!(output.contains("[REDACTED_EMAIL]"));
+    }
+
+    #[test]
+    fn redacts_ipv4_addresses() {
+        let input = "Server at 192.168.1.10 responded with error.";
+        let output = redact_pii_basic(input);
+        assert!(!output.contains("192.168.1.10"));
+        assert!(output.contains("[REDACTED_IP]"));
+    }
+
+    #[test]
+    fn redacts_tokens() {
+        let input = "API key: sk-abcdefghijklmnop123456";
+        let output = redact_pii_basic(input);
+        assert!(!output.contains("sk-abcdefghijklmnop123456"));
+        assert!(output.contains("[REDACTED_TOKEN]"));
+    }
+
+    #[test]
+    fn redacts_user_paths() {
+        let input = "Path C:\\Users\\Alice\\Documents and /home/bob/projects";
+        let output = redact_pii_basic(input);
+        assert!(!output.contains("C:\\Users\\Alice"));
+        assert!(!output.contains("/home/bob"));
+        assert!(output.contains("C:\\Users\\[REDACTED_USER]"));
+        assert!(output.contains("/home/[REDACTED_USER]"));
+    }
+
+    #[test]
+    fn leaves_text_without_pii_unchanged() {
+        let input = "Simple message without any obvious PII.";
+        let output = redact_pii_basic(input);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn handles_empty_string() {
+        let output = redact_pii_basic("");
+        assert_eq!(output, "");
+        assert!(matches!(output, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn returns_borrowed_when_no_pii() {
+        let input = "Just regular text with no sensitive data";
+        let output = redact_pii_basic(input);
+        assert!(matches!(output, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn returns_owned_when_pii_found() {
+        let input = "Contact user@example.com";
+        let output = redact_pii_basic(input);
+        assert!(matches!(output, Cow::Owned(_)));
+    }
+
+    #[test]
+    fn redacts_multiple_pii_types_in_same_text() {
+        let input = "User john@example.com at 192.168.1.1 with key sk-abc123defghijk used C:\\Users\\John\\file.txt";
+        let output = redact_pii_basic(input);
+        assert!(output.contains("[REDACTED_EMAIL]"));
+        assert!(output.contains("[REDACTED_IP]"));
+        assert!(output.contains("[REDACTED_TOKEN]"));
+        assert!(output.contains("[REDACTED_USER]"));
+    }
+
+    #[test]
+    fn redacts_pii_in_stack_trace() {
+        let input = r#"
+Exception in thread "main" java.lang.NullPointerException
+    at com.example.App.process(App.java:42)
+    at C:\Users\Developer\projects\app\src\Main.java:15
+Reported by: developer@company.com
+Server: 192.168.1.100
+        "#;
+        let output = redact_pii_basic(input);
+        assert!(!output.contains("Developer"));
+        assert!(!output.contains("developer@company.com"));
+        assert!(!output.contains("192.168.1.100"));
+        assert!(output.contains("NullPointerException"));
+    }
+}
+
 /// Validate and canonicalize a file path for safe access
 pub async fn validate_file_path(
     raw_path: &str,

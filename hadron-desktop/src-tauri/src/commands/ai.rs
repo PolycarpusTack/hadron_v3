@@ -1,17 +1,21 @@
+//! AI analysis commands — crash log analysis, JIRA ticket analysis, translation,
+//! generic AI calls, external analysis persistence, and Sentry issue analysis.
+//!
+//! Migrated from `commands_legacy.rs` without logic changes.
+
+use super::common::{
+    AnalysisPhase, AnalysisProgress, DbState,
+    MAX_AI_CONTENT_BYTES_ESTIMATE, MAX_CRASH_LOG_SIZE_BYTES, MAX_PASTED_LOG_SIZE,
+    MAX_TRANSLATION_CONTENT_SIZE,
+    emit_progress, normalize_severity, redact_pii_basic,
+};
 use crate::ai_service;
 use crate::ai_service::translate_llamacpp;
-use crate::database::{
-    Analysis, Database, Translation,
-};
-use crate::jira_service;
+use crate::database::{Analysis, Database, Translation};
 use crate::keeper_service;
-use crate::sentry_service;
-use crate::model_fetcher::{
-    list_models as fetch_models, test_connection as test_api_connection, ConnectionTestResult,
-    Model,
-};
 use crate::python_runner::run_python_translation;
 use crate::rag_commands;
+use crate::sentry_service;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -21,17 +25,6 @@ use std::sync::Arc;
 use tauri::AppHandle;
 use tokio::fs as async_fs;
 use zeroize::Zeroizing;
-
-// ============================================================================
-// Shared types and helpers (canonical definitions in commands::common)
-// ============================================================================
-
-pub use crate::commands::common::{
-    AnalysisPhase, AnalysisProgress, DbState,
-    MAX_CRASH_LOG_SIZE_BYTES,
-    MAX_TRANSLATION_CONTENT_SIZE, MAX_AI_CONTENT_BYTES_ESTIMATE, MAX_PASTED_LOG_SIZE,
-    emit_progress, normalize_severity, redact_pii_basic, validate_file_path,
-};
 
 // ============================================================================
 // Automated Tagging (Deterministic)
@@ -225,8 +218,6 @@ fn apply_auto_tags(db: &Database, analysis: &Analysis) -> Result<(), String> {
     Ok(())
 }
 
-// AutoTagSummary, DbState, MAX_* constants imported from commands::common above
-
 // ============================================================================
 // RAG Auto-Indexing Helper
 // ============================================================================
@@ -282,325 +273,9 @@ async fn auto_index_analysis(analysis: &Analysis, api_key: &str) {
     }
 }
 
-// validate_file_path, normalize_severity, redact_pii_basic, PII regexes
-// all imported from commands::common above
-
-#[cfg(test)]
-mod tests {
-    use super::redact_pii_basic;
-    use std::borrow::Cow;
-
-    // ============================================================================
-    // Basic PII Redaction Tests
-    // ============================================================================
-
-    #[test]
-    fn redacts_emails() {
-        let input = "Contact john.doe@example.com for details.";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("john.doe@example.com"));
-        assert!(output.contains("[REDACTED_EMAIL]"));
-    }
-
-    #[test]
-    fn redacts_ipv4_addresses() {
-        let input = "Server at 192.168.1.10 responded with error.";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("192.168.1.10"));
-        assert!(output.contains("[REDACTED_IP]"));
-    }
-
-    #[test]
-    fn redacts_tokens() {
-        let input = "API key: sk-abcdefghijklmnop123456";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("sk-abcdefghijklmnop123456"));
-        assert!(output.contains("[REDACTED_TOKEN]"));
-    }
-
-    #[test]
-    fn redacts_user_paths() {
-        let input = "Path C:\\Users\\Alice\\Documents and /home/bob/projects";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("C:\\Users\\Alice"));
-        assert!(!output.contains("/home/bob"));
-        assert!(output.contains("C:\\Users\\[REDACTED_USER]"));
-        assert!(output.contains("/home/[REDACTED_USER]"));
-    }
-
-    #[test]
-    fn leaves_text_without_pii_unchanged() {
-        let input = "Simple message without any obvious PII.";
-        let output = redact_pii_basic(input);
-        assert_eq!(input, output);
-    }
-
-    // ============================================================================
-    // Edge Case Tests
-    // ============================================================================
-
-    #[test]
-    fn handles_empty_string() {
-        let input = "";
-        let output = redact_pii_basic(input);
-        assert_eq!(output, "");
-        // Should return borrowed (no allocation)
-        assert!(matches!(output, Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn handles_whitespace_only() {
-        let input = "   \t\n  ";
-        let output = redact_pii_basic(input);
-        assert_eq!(output, input);
-        assert!(matches!(output, Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn returns_borrowed_when_no_pii() {
-        let input = "Just regular text with no sensitive data";
-        let output = redact_pii_basic(input);
-        // Verify zero-allocation path is taken
-        assert!(matches!(output, Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn returns_owned_when_pii_found() {
-        let input = "Contact user@example.com";
-        let output = redact_pii_basic(input);
-        // Verify allocation happens when redaction needed
-        assert!(matches!(output, Cow::Owned(_)));
-    }
-
-    // ============================================================================
-    // Multiple PII Types Combined
-    // ============================================================================
-
-    #[test]
-    fn redacts_multiple_pii_types_in_same_text() {
-        let input = "User john@example.com at 192.168.1.1 with key sk-abc123defghijk used C:\\Users\\John\\file.txt";
-        let output = redact_pii_basic(input);
-        assert!(output.contains("[REDACTED_EMAIL]"));
-        assert!(output.contains("[REDACTED_IP]"));
-        assert!(output.contains("[REDACTED_TOKEN]"));
-        assert!(output.contains("[REDACTED_USER]"));
-        assert!(!output.contains("john@example.com"));
-        assert!(!output.contains("192.168.1.1"));
-        assert!(!output.contains("sk-abc123defghijk"));
-        assert!(!output.contains("C:\\Users\\John"));
-    }
-
-    #[test]
-    fn redacts_multiple_emails() {
-        let input = "From: alice@foo.com To: bob@bar.org CC: charlie@baz.net";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("alice@foo.com"));
-        assert!(!output.contains("bob@bar.org"));
-        assert!(!output.contains("charlie@baz.net"));
-        // Should have 3 redacted emails
-        assert_eq!(output.matches("[REDACTED_EMAIL]").count(), 3);
-    }
-
-    #[test]
-    fn redacts_multiple_ips() {
-        let input = "Servers: 10.0.0.1, 172.16.0.1, 192.168.0.1";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("10.0.0.1"));
-        assert!(!output.contains("172.16.0.1"));
-        assert!(!output.contains("192.168.0.1"));
-        assert_eq!(output.matches("[REDACTED_IP]").count(), 3);
-    }
-
-    // ============================================================================
-    // Email Edge Cases
-    // ============================================================================
-
-    #[test]
-    fn redacts_email_with_plus_addressing() {
-        let input = "Contact user+tag@example.com";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("user+tag@example.com"));
-        assert!(output.contains("[REDACTED_EMAIL]"));
-    }
-
-    #[test]
-    fn redacts_email_with_subdomain() {
-        let input = "Email: admin@mail.subdomain.example.co.uk";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("admin@mail.subdomain.example.co.uk"));
-        assert!(output.contains("[REDACTED_EMAIL]"));
-    }
-
-    #[test]
-    fn redacts_email_with_numbers() {
-        let input = "User: test123@domain456.com";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("test123@domain456.com"));
-        assert!(output.contains("[REDACTED_EMAIL]"));
-    }
-
-    // ============================================================================
-    // IP Address Edge Cases
-    // ============================================================================
-
-    #[test]
-    fn redacts_localhost_ip() {
-        let input = "Connected to 127.0.0.1";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("127.0.0.1"));
-        assert!(output.contains("[REDACTED_IP]"));
-    }
-
-    #[test]
-    fn redacts_broadcast_ip() {
-        let input = "Broadcast: 255.255.255.255";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("255.255.255.255"));
-        assert!(output.contains("[REDACTED_IP]"));
-    }
-
-    #[test]
-    fn does_not_redact_version_numbers() {
-        // Version numbers like 1.2.3 should NOT be redacted (only 3 octets)
-        let input = "Version 1.2.3 released";
-        let output = redact_pii_basic(input);
-        assert!(output.contains("1.2.3"));
-    }
-
-    // ============================================================================
-    // Token Edge Cases
-    // ============================================================================
-
-    #[test]
-    fn redacts_long_api_tokens() {
-        let input = "Key: sk-proj-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("sk-proj-"));
-        assert!(output.contains("[REDACTED_TOKEN]"));
-    }
-
-    #[test]
-    fn does_not_redact_short_sk_prefix() {
-        // sk- followed by less than 10 chars should NOT be redacted
-        let input = "Variable sk-short";
-        let output = redact_pii_basic(input);
-        assert!(output.contains("sk-short"));
-    }
-
-    // ============================================================================
-    // Path Edge Cases
-    // ============================================================================
-
-    #[test]
-    fn redacts_windows_path_case_insensitive() {
-        let input = "Path: c:\\users\\Admin\\Desktop\\file.txt";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("c:\\users\\Admin"));
-        assert!(output.contains("[REDACTED_USER]"));
-    }
-
-    #[test]
-    fn redacts_windows_path_with_spaces() {
-        // Note: current regex stops at spaces, so partial match is expected
-        let input = "C:\\Users\\John Doe\\Documents";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("C:\\Users\\John"));
-    }
-
-    #[test]
-    fn redacts_unix_home_nested_path() {
-        let input = "File at /home/developer/projects/app/src/main.rs";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("/home/developer"));
-        assert!(output.contains("/home/[REDACTED_USER]"));
-    }
-
-    #[test]
-    fn preserves_non_home_unix_paths() {
-        let input = "Config at /etc/nginx/nginx.conf and /var/log/syslog";
-        let output = redact_pii_basic(input);
-        assert!(output.contains("/etc/nginx/nginx.conf"));
-        assert!(output.contains("/var/log/syslog"));
-    }
-
-    // ============================================================================
-    // Real-world Crash Log Patterns
-    // ============================================================================
-
-    #[test]
-    fn redacts_pii_in_stack_trace() {
-        let input = r#"
-Exception in thread "main" java.lang.NullPointerException
-    at com.example.App.process(App.java:42)
-    at C:\Users\Developer\projects\app\src\Main.java:15
-Reported by: developer@company.com
-Server: 192.168.1.100
-        "#;
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("Developer"));
-        assert!(!output.contains("developer@company.com"));
-        assert!(!output.contains("192.168.1.100"));
-        // Stack trace structure should be preserved
-        assert!(output.contains("NullPointerException"));
-        assert!(output.contains("App.java:42"));
-    }
-
-    #[test]
-    fn redacts_pii_in_log_format() {
-        let input = "2024-01-15 10:30:45 [ERROR] User admin@test.com from 10.0.0.50 failed auth with sk-test1234567890abc";
-        let output = redact_pii_basic(input);
-        assert!(output.contains("2024-01-15 10:30:45 [ERROR]"));
-        assert!(!output.contains("admin@test.com"));
-        assert!(!output.contains("10.0.0.50"));
-        assert!(!output.contains("sk-test1234567890abc"));
-    }
-
-    // ============================================================================
-    // Unicode and Special Characters
-    // ============================================================================
-
-    #[test]
-    fn handles_unicode_text_without_pii() {
-        let input = "Error: 日本語テキスト with émojis 🎉 and ñ characters";
-        let output = redact_pii_basic(input);
-        assert_eq!(output, input);
-    }
-
-    #[test]
-    fn redacts_pii_in_unicode_context() {
-        let input = "ユーザー: user@example.com からのリクエスト";
-        let output = redact_pii_basic(input);
-        assert!(!output.contains("user@example.com"));
-        assert!(output.contains("[REDACTED_EMAIL]"));
-        assert!(output.contains("ユーザー"));
-    }
-
-    // ============================================================================
-    // Performance Sanity Tests
-    // ============================================================================
-
-    #[test]
-    fn handles_large_text_efficiently() {
-        // Generate a large text block without PII
-        let input: String = "This is a test line without any PII data.\n".repeat(1000);
-        let output = redact_pii_basic(&input);
-        // Should return borrowed (no allocation for large text without PII)
-        assert!(matches!(output, Cow::Borrowed(_)));
-        assert_eq!(output.len(), input.len());
-    }
-
-    #[test]
-    fn handles_many_redactions() {
-        // Text with many PII items
-        let mut input = String::new();
-        for i in 0..100 {
-            input.push_str(&format!("user{}@test.com 192.168.1.{} ", i, i));
-        }
-        let output = redact_pii_basic(&input);
-        assert_eq!(output.matches("[REDACTED_EMAIL]").count(), 100);
-        assert_eq!(output.matches("[REDACTED_IP]").count(), 100);
-    }
-}
+// ============================================================================
+// Request / Response Types
+// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnalysisRequest {
@@ -708,6 +383,30 @@ fn extract_kb_query(content: &str, analysis_type: &str, hint: Option<&str>) -> S
         }
     }
 }
+
+// ============================================================================
+// Keeper Helper
+// ============================================================================
+
+/// Run a closure on a dedicated OS thread outside the tokio runtime.
+/// The Keeper SDK uses `reqwest::blocking` which creates its own tokio runtime,
+/// conflicting with Tauri's runtime if called from `spawn_blocking`.
+async fn run_keeper_off_runtime<F, T>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let result = f();
+        let _ = tx.send(result);
+    });
+    rx.await.map_err(|_| "Keeper task was cancelled".to_string())
+}
+
+// ============================================================================
+// Commands
+// ============================================================================
 
 /// Analyze a crash log file using Rust AI service
 #[tauri::command]
@@ -1670,6 +1369,10 @@ pub async fn analyze_jira_ticket(
     })
 }
 
+// ============================================================================
+// Translation
+// ============================================================================
+
 /// Translate technical content to plain language
 #[tauri::command]
 pub async fn translate_content(
@@ -1762,6 +1465,10 @@ pub async fn translate_content(
     Ok(translation_text)
 }
 
+// ============================================================================
+// Generic AI Call (no persistence)
+// ============================================================================
+
 /// Call the AI and return the raw response, without persisting to the database.
 /// Used by features (Code Analyzer, future tools) that handle their own persistence
 /// via save_external_analysis or equivalent.
@@ -1813,6 +1520,10 @@ pub async fn call_ai(
     log::info!("call_ai completed: provider={}", provider);
     Ok(response)
 }
+
+// ============================================================================
+// External Analysis Persistence
+// ============================================================================
 
 #[derive(Debug, Deserialize)]
 pub struct ExternalAnalysisRequest {
@@ -1925,49 +1636,8 @@ pub async fn save_external_analysis(
 }
 
 // ============================================================================
-// Bulk Operations
+// Save Analysis (from TypeScript)
 // ============================================================================
-
-// ============================================================================
-// Similar Crash Detection & Analytics
-// ============================================================================
-
-/// List available models from AI provider
-#[tauri::command]
-pub async fn list_models(provider: String, api_key: String) -> Result<Vec<Model>, String> {
-    log::debug!("cmd: list_models");
-    // SECURITY: Wrap API key in Zeroizing to ensure it's cleared from memory after use
-    let api_key = Zeroizing::new(api_key);
-
-    log::info!("Fetching models: provider={}", provider);
-
-    let models = fetch_models(&provider, api_key.as_str()).await?;
-
-    log::info!("Fetched {} models from {}", models.len(), provider);
-    Ok(models)
-}
-
-/// Test API connection by attempting to list models
-#[tauri::command]
-pub async fn test_connection(
-    provider: String,
-    api_key: String,
-) -> Result<ConnectionTestResult, String> {
-    log::debug!("cmd: test_connection");
-    // SECURITY: Wrap API key in Zeroizing to ensure it's cleared from memory after use
-    let api_key = Zeroizing::new(api_key);
-
-    log::info!("Testing connection: provider={}", provider);
-
-    let result = test_api_connection(&provider, api_key.as_str()).await?;
-
-    log::info!(
-        "Connection test: provider={}, success={}",
-        provider,
-        result.success
-    );
-    Ok(result)
-}
 
 /// Save analysis result to database (called from TypeScript after AI analysis)
 #[tauri::command]
@@ -2052,6 +1722,10 @@ pub async fn save_analysis(
     Ok(id)
 }
 
+// ============================================================================
+// Pasted Log Helper
+// ============================================================================
+
 /// Save pasted log text to a temporary file
 #[tauri::command]
 pub async fn save_pasted_log(content: String) -> Result<String, String> {
@@ -2085,727 +1759,9 @@ pub async fn save_pasted_log(content: String) -> Result<String, String> {
 }
 
 // ============================================================================
-// Keeper Secrets Manager Commands
+// Sentry Issue Analysis
 // ============================================================================
 
-/// Run a closure on a dedicated OS thread outside the tokio runtime.
-/// The Keeper SDK uses `reqwest::blocking` which creates its own tokio runtime,
-/// conflicting with Tauri's runtime if called from `spawn_blocking`.
-async fn run_keeper_off_runtime<F, T>(f: F) -> Result<T, String>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    std::thread::spawn(move || {
-        let result = f();
-        let _ = tx.send(result);
-    });
-    rx.await.map_err(|_| "Keeper task was cancelled".to_string())
-}
-
-// ============================================================================
-// JIRA Integration Commands
-// ============================================================================
-
-/// Test JIRA connection
-#[tauri::command]
-pub async fn test_jira_connection(
-    base_url: String,
-    email: String,
-    api_token: String,
-) -> Result<jira_service::JiraTestResponse, String> {
-    log::debug!("cmd: test_jira_connection");
-    log::info!("Testing JIRA connection");
-    jira_service::test_jira_connection(base_url, email, api_token).await
-}
-
-/// List JIRA projects for autocomplete
-#[tauri::command]
-pub async fn list_jira_projects(
-    base_url: String,
-    email: String,
-    api_token: String,
-) -> Result<Vec<jira_service::JiraProjectInfo>, String> {
-    log::debug!("cmd: list_jira_projects");
-    log::info!("Listing JIRA projects");
-    jira_service::list_jira_projects(base_url, email, api_token).await
-}
-
-/// Create JIRA ticket from crash analysis
-#[tauri::command]
-pub async fn create_jira_ticket(
-    base_url: String,
-    email: String,
-    api_token: String,
-    project_key: String,
-    issue_type: String,
-    ticket: jira_service::JiraTicketRequest,
-) -> Result<jira_service::JiraCreateResponse, String> {
-    log::debug!("cmd: create_jira_ticket");
-    log::info!("Creating JIRA ticket");
-    jira_service::create_jira_ticket(base_url, email, api_token, project_key, issue_type, ticket)
-        .await
-}
-
-/// Search JIRA issues using JQL (Phase 3 - JIRA Intelligence)
-#[tauri::command]
-pub async fn search_jira_issues(
-    base_url: String,
-    email: String,
-    api_token: String,
-    jql: String,
-    max_results: i32,
-    include_comments: bool,
-) -> Result<jira_service::JiraSearchResponse, String> {
-    log::debug!("cmd: search_jira_issues");
-    log::info!("Searching JIRA issues with JQL");
-    jira_service::search_jira_issues(base_url, email, api_token, jql, max_results, include_comments)
-        .await
-}
-
-/// Post a comment to a JIRA issue
-#[tauri::command]
-pub async fn post_jira_comment(
-    base_url: String,
-    email: String,
-    api_token: String,
-    issue_key: String,
-    comment_body: String,
-) -> Result<(), String> {
-    log::debug!("cmd: post_jira_comment");
-    log::info!("Posting comment to JIRA issue {}", issue_key);
-    jira_service::post_jira_comment(&base_url, &email, &api_token, &issue_key, &comment_body).await
-}
-
-
-// ============================================================================
-// Report Export Commands
-// ============================================================================
-
-// ============================================================================
-// Multi-Format Export Commands
-// ============================================================================
-
-// ============================================================================
-// Database Admin Commands
-// ============================================================================
-
-/// Database information for admin panel
-#[derive(Serialize)]
-pub struct DatabaseInfo {
-    pub schema_version: i32,
-    pub analyses_count: i64,
-    pub translations_count: i64,
-    pub favorites_count: i64,
-    pub needs_migration: bool,
-    pub database_size_bytes: Option<u64>,
-    pub last_analysis_at: Option<String>,
-}
-
-/// Get database admin information
-#[tauri::command]
-pub async fn get_database_info(db: DbState<'_>) -> Result<DatabaseInfo, String> {
-    log::debug!("cmd: get_database_info");
-    log::debug!("Getting database info");
-
-    // Try to get database file size asynchronously (separate from blocking DB ops)
-    let database_size_bytes =
-        if let Some(db_path) = dirs::data_dir().map(|p| p.join("hadron").join("analyses.db")) {
-            async_fs::metadata(&db_path).await.ok().map(|m| m.len())
-        } else {
-            None
-        };
-
-    // Run all database operations in spawn_blocking to avoid blocking async runtime
-    let db_clone = Arc::clone(&db);
-    let db_result = tauri::async_runtime::spawn_blocking(move || {
-        // Get schema version
-        let schema_version = db_clone
-            .get_schema_version()
-            .map_err(|e| format!("Failed to get schema version: {}", e))?;
-
-        // Expected version (should match latest migration)
-        const EXPECTED_SCHEMA_VERSION: i32 = 5;
-        let needs_migration = schema_version < EXPECTED_SCHEMA_VERSION;
-
-        // Get counts
-        let analyses_count = db_clone
-            .get_analyses_count()
-            .map_err(|e| format!("Failed to get analyses count: {}", e))?;
-
-        let translations_count = db_clone
-            .get_translations_count()
-            .map_err(|e| format!("Failed to get translations count: {}", e))?;
-
-        // Get statistics for favorites count
-        let stats = db_clone
-            .get_statistics()
-            .map_err(|e| format!("Failed to get statistics: {}", e))?;
-        let favorites_count = stats
-            .get("favorite_count")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-
-        // Get last analysis timestamp
-        let last_analysis_at = db_clone
-            .get_recent(1)
-            .ok()
-            .and_then(|v| v.into_iter().next())
-            .map(|a| a.analyzed_at);
-
-        log::info!(
-            "Database info: version={}, analyses={}, translations={}",
-            schema_version,
-            analyses_count,
-            translations_count
-        );
-
-        Ok::<_, String>((
-            schema_version,
-            analyses_count,
-            translations_count,
-            favorites_count,
-            needs_migration,
-            last_analysis_at,
-        ))
-    })
-    .await
-    .map_err(|e| format!("Task error: {}", e))??;
-
-    let (
-        schema_version,
-        analyses_count,
-        translations_count,
-        favorites_count,
-        needs_migration,
-        last_analysis_at,
-    ) = db_result;
-
-    Ok(DatabaseInfo {
-        schema_version,
-        analyses_count,
-        translations_count,
-        favorites_count,
-        needs_migration,
-        database_size_bytes,
-        last_analysis_at,
-    })
-}
-
-/// Get file stats (size) for a file path
-/// SECURITY: Uses path validation to prevent access to sensitive system files
-#[tauri::command]
-pub async fn get_file_stats(path: String) -> Result<serde_json::Value, String> {
-    log::debug!("cmd: get_file_stats");
-    // SECURITY: Validate file path before accessing (canonicalization, blocklist)
-    // Use a generous size limit since we're only reading metadata, not content
-    let canonical_path = validate_file_path(&path, u64::MAX).await?;
-
-    let metadata = async_fs::metadata(&canonical_path).await.map_err(|e| {
-        log::error!(
-            "Failed to get file stats for '{}': {}",
-            canonical_path.display(),
-            e
-        );
-        "Failed to access file: permission denied or file not found".to_string()
-    })?;
-
-    Ok(serde_json::json!({
-        "size": metadata.len()
-    }))
-}
-
-// ============================================================================
-// Fine-Tuning Export (Phase 1.4)
-// ============================================================================
-
-/// OpenAI fine-tuning message format
-#[derive(Debug, Serialize, Deserialize)]
-struct FineTuneMessage {
-    role: String,
-    content: String,
-}
-
-/// OpenAI fine-tuning conversation format
-#[derive(Debug, Serialize, Deserialize)]
-struct FineTuneConversation {
-    messages: Vec<FineTuneMessage>,
-}
-
-/// Build crash context from gold analysis source data
-fn build_crash_context(gold: &crate::database::GoldAnalysisExport) -> String {
-    let mut context = String::new();
-
-    // Add error signature as context
-    context.push_str(&format!("Error Signature: {}\n", gold.error_signature));
-
-    if let Some(error_type) = &gold.source_error_type {
-        context.push_str(&format!("Error Type: {}\n", error_type));
-    }
-
-    if let Some(error_message) = &gold.source_error_message {
-        context.push_str(&format!("Error Message: {}\n", error_message));
-    }
-
-    if let Some(stack_trace) = &gold.source_stack_trace {
-        context.push_str(&format!("\nStack Trace:\n{}\n", stack_trace));
-    }
-
-    // If full_data exists, try to extract additional context
-    if let Some(full_data) = &gold.source_full_data {
-        if let Ok(data) = serde_json::from_str::<serde_json::Value>(full_data) {
-            // Extract key sections from full analysis data
-            if let Some(exception) = data.get("exception_details") {
-                if let Some(exception_str) = exception.as_str() {
-                    context.push_str(&format!("\nException Details:\n{}\n", exception_str));
-                }
-            }
-            if let Some(env) = data.get("environment") {
-                if let Some(env_obj) = env.as_object() {
-                    context.push_str("\nEnvironment:\n");
-                    for (key, value) in env_obj {
-                        if let Some(v) = value.as_str() {
-                            context.push_str(&format!("  {}: {}\n", key, v));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    context
-}
-
-/// Build the gold-standard analysis response
-fn build_analysis_response(gold: &crate::database::GoldAnalysisExport) -> String {
-    // Parse suggested_fixes from JSON array string
-    let fixes: Vec<String> = serde_json::from_str(&gold.suggested_fixes)
-        .unwrap_or_else(|_| vec![gold.suggested_fixes.clone()]);
-
-    let response = serde_json::json!({
-        "error_type": gold.error_signature.split("::").next().unwrap_or(&gold.error_signature),
-        "severity": gold.severity.as_deref().unwrap_or("medium"),
-        "root_cause": gold.root_cause,
-        "suggested_fixes": fixes,
-        "component": gold.component.as_deref().unwrap_or("Unknown")
-    });
-
-    serde_json::to_string_pretty(&response).unwrap_or_else(|_| gold.root_cause.clone())
-}
-
-// ============================================================================
-// Enhanced Export with Statistics (Phase 4)
-// ============================================================================
-
-/// Export options for fine-tuning data
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportOptions {
-    /// Include pending (unverified) gold analyses
-    pub include_pending: Option<bool>,
-    /// Filter by components
-    pub component_filter: Option<Vec<String>>,
-    /// Filter by severities
-    pub severity_filter: Option<Vec<String>>,
-    /// Balance dataset across components
-    pub balance_dataset: Option<bool>,
-    /// Maximum examples to export
-    pub max_examples: Option<usize>,
-    /// Test split ratio (0.0 to 0.5)
-    pub test_split: Option<f32>,
-}
-
-/// Dataset statistics for export
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DatasetStatistics {
-    pub total_examples: usize,
-    pub by_component: std::collections::HashMap<String, usize>,
-    pub by_severity: std::collections::HashMap<String, usize>,
-    pub verified_count: usize,
-    pub pending_count: usize,
-    pub avg_rating: Option<f64>,
-}
-
-/// Enhanced export result with statistics
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EnhancedExportResult {
-    pub total_exported: usize,
-    pub train_count: usize,
-    pub test_count: usize,
-    pub train_jsonl: String,
-    pub test_jsonl: String,
-    pub format: String,
-    pub statistics: DatasetStatistics,
-}
-
-/// Export gold analyses with enhanced options and statistics
-#[tauri::command]
-pub fn export_gold_jsonl_enhanced(
-    options: Option<ExportOptions>,
-    db: DbState<'_>,
-) -> Result<EnhancedExportResult, String> {
-    log::debug!("cmd: export_gold_jsonl_enhanced");
-    log::info!("Exporting gold analyses with enhanced options");
-
-    let opts = options.unwrap_or(ExportOptions {
-        include_pending: Some(false),
-        component_filter: None,
-        severity_filter: None,
-        balance_dataset: Some(false),
-        max_examples: None,
-        test_split: Some(0.1),
-    });
-
-    // Get all gold analyses
-    let mut gold_analyses = db
-        .get_gold_analyses_for_export()
-        .map_err(|e| format!("Failed to get gold analyses: {}", e))?;
-
-    // Calculate initial statistics
-    let mut by_component: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut by_severity: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut verified_count = 0;
-    let mut pending_count = 0;
-
-    for gold in &gold_analyses {
-        let component = gold.component.clone().unwrap_or_else(|| "Unknown".to_string());
-        let severity = gold.severity.clone().unwrap_or_else(|| "medium".to_string());
-
-        *by_component.entry(component).or_insert(0) += 1;
-        *by_severity.entry(severity).or_insert(0) += 1;
-
-        if gold.validation_status == "verified" {
-            verified_count += 1;
-        } else {
-            pending_count += 1;
-        }
-    }
-
-    // Apply include_pending filter (default: only verified)
-    let include_pending = opts.include_pending.unwrap_or(false);
-    if !include_pending {
-        gold_analyses.retain(|g| g.validation_status == "verified");
-        log::debug!("Filtered to verified-only: {} analyses remain", gold_analyses.len());
-    }
-
-    // Apply component filter
-    if let Some(ref components) = opts.component_filter {
-        gold_analyses.retain(|g| {
-            g.component.as_ref()
-                .map(|c| components.iter().any(|f| f.eq_ignore_ascii_case(c)))
-                .unwrap_or(false)
-        });
-    }
-
-    // Apply severity filter
-    if let Some(ref severities) = opts.severity_filter {
-        gold_analyses.retain(|g| {
-            g.severity.as_ref()
-                .map(|s| severities.iter().any(|f| f.eq_ignore_ascii_case(s)))
-                .unwrap_or(false)
-        });
-    }
-
-    // Balance dataset if requested
-    if opts.balance_dataset.unwrap_or(false) {
-        gold_analyses = balance_by_component(gold_analyses);
-    }
-
-    // Apply max examples limit
-    if let Some(max) = opts.max_examples {
-        if gold_analyses.len() > max {
-            gold_analyses.truncate(max);
-        }
-    }
-
-    // Split into train/test
-    let test_split = opts.test_split.unwrap_or(0.1).clamp(0.0, 0.5);
-    let split_idx = ((gold_analyses.len() as f32) * (1.0 - test_split)) as usize;
-
-    let train_set: Vec<_> = gold_analyses.iter().take(split_idx).collect();
-    let test_set: Vec<_> = gold_analyses.iter().skip(split_idx).collect();
-
-    // Generate JSONL for both sets
-    let system_prompt = r#"You are a WHATS'ON broadcast management system crash analysis expert. Analyze Smalltalk crash logs and provide:
-1. Root cause identification with specific class/method references
-2. Severity assessment (critical/high/medium/low)
-3. Actionable fix suggestions specific to WHATS'ON
-4. Component classification (EPG, Rights, Scheduling, etc.)
-
-Return your analysis as structured JSON with fields: error_type, severity, root_cause, suggested_fixes (array), component."#;
-
-    let train_jsonl = generate_jsonl(&train_set, system_prompt)?;
-    let test_jsonl = generate_jsonl(&test_set, system_prompt)?;
-
-    log::info!(
-        "Exported {} gold analyses (train: {}, test: {})",
-        gold_analyses.len(),
-        train_set.len(),
-        test_set.len()
-    );
-
-    let statistics = DatasetStatistics {
-        total_examples: gold_analyses.len(),
-        by_component,
-        by_severity,
-        verified_count,
-        pending_count,
-        avg_rating: None, // TODO: Calculate from feedback
-    };
-
-    Ok(EnhancedExportResult {
-        total_exported: gold_analyses.len(),
-        train_count: train_set.len(),
-        test_count: test_set.len(),
-        train_jsonl,
-        test_jsonl,
-        format: "openai_chat".to_string(),
-        statistics,
-    })
-}
-
-/// Balance dataset by component (sample equal numbers from each)
-fn balance_by_component(
-    analyses: Vec<crate::database::GoldAnalysisExport>,
-) -> Vec<crate::database::GoldAnalysisExport> {
-    use std::collections::HashMap;
-
-    // Group by component
-    let mut by_component: HashMap<String, Vec<crate::database::GoldAnalysisExport>> = HashMap::new();
-    for analysis in analyses {
-        let component = analysis.component.clone().unwrap_or_else(|| "Unknown".to_string());
-        by_component.entry(component).or_default().push(analysis);
-    }
-
-    // Find minimum count
-    let min_count = by_component.values().map(|v| v.len()).min().unwrap_or(0);
-
-    // Sample equally from each component
-    let mut balanced = Vec::new();
-    for (_, mut items) in by_component {
-        items.truncate(min_count);
-        balanced.extend(items);
-    }
-
-    balanced
-}
-
-/// Generate JSONL from gold analyses
-fn generate_jsonl(
-    analyses: &[&crate::database::GoldAnalysisExport],
-    system_prompt: &str,
-) -> Result<String, String> {
-    let mut lines = Vec::new();
-
-    for gold in analyses {
-        let user_content = build_crash_context(gold);
-        let assistant_content = build_analysis_response(gold);
-
-        let conversation = FineTuneConversation {
-            messages: vec![
-                FineTuneMessage {
-                    role: "system".to_string(),
-                    content: system_prompt.to_string(),
-                },
-                FineTuneMessage {
-                    role: "user".to_string(),
-                    content: user_content,
-                },
-                FineTuneMessage {
-                    role: "assistant".to_string(),
-                    content: assistant_content,
-                },
-            ],
-        };
-
-        let json_line = serde_json::to_string(&conversation)
-            .map_err(|e| format!("Failed to serialize: {}", e))?;
-        lines.push(json_line);
-    }
-
-    Ok(lines.join("\n"))
-}
-
-// ============================================================================
-// JIRA Ticket Linking Commands (Phase 3)
-// ============================================================================
-
-use crate::database::JiraLink;
-
-/// Link request from frontend
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LinkJiraTicketRequest {
-    pub analysis_id: i64,
-    pub jira_key: String,
-    pub jira_url: Option<String>,
-    pub jira_summary: Option<String>,
-    pub jira_status: Option<String>,
-    pub jira_priority: Option<String>,
-    pub link_type: Option<String>,
-    pub notes: Option<String>,
-}
-
-/// Link a JIRA ticket to an analysis
-#[tauri::command]
-pub async fn link_jira_to_analysis(
-    request: LinkJiraTicketRequest,
-    db: DbState<'_>,
-) -> Result<JiraLink, String> {
-    log::debug!("cmd: link_jira_to_analysis");
-    log::info!(
-        "Linking JIRA {} to analysis {}",
-        request.jira_key,
-        request.analysis_id
-    );
-
-    let db_clone = Arc::clone(&db);
-    let analysis_id = request.analysis_id;
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let link_type = request.link_type.as_deref().unwrap_or("related");
-
-        db_clone
-            .link_jira_ticket(
-                analysis_id,
-                &request.jira_key,
-                request.jira_url.as_deref(),
-                request.jira_summary.as_deref(),
-                request.jira_status.as_deref(),
-                request.jira_priority.as_deref(),
-                link_type,
-                request.notes.as_deref(),
-            )
-            .map_err(|e| format!("Failed to link JIRA ticket: {}", e))?;
-
-        // Return the created link
-        db_clone
-            .get_jira_links_for_analysis(analysis_id)
-            .map_err(|e| format!("Failed to get link: {}", e))?
-            .into_iter()
-            .find(|l| l.jira_key == request.jira_key)
-            .ok_or_else(|| "Link not found after creation".to_string())
-    })
-    .await
-    .map_err(|e| format!("Task error: {}", e))?
-}
-
-/// Unlink a JIRA ticket from an analysis
-#[tauri::command]
-pub async fn unlink_jira_from_analysis(
-    analysis_id: i64,
-    jira_key: String,
-    db: DbState<'_>,
-) -> Result<bool, String> {
-    log::debug!("cmd: unlink_jira_from_analysis");
-    log::info!("Unlinking JIRA {} from analysis {}", jira_key, analysis_id);
-
-    let db_clone = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db_clone.unlink_jira_ticket(analysis_id, &jira_key))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Failed to unlink JIRA ticket: {}", e))
-}
-
-/// Get all JIRA links for an analysis
-#[tauri::command]
-pub async fn get_jira_links_for_analysis(
-    analysis_id: i64,
-    db: DbState<'_>,
-) -> Result<Vec<JiraLink>, String> {
-    log::debug!("cmd: get_jira_links_for_analysis");
-    log::debug!("Getting JIRA links for analysis {}", analysis_id);
-
-    let db_clone = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db_clone.get_jira_links_for_analysis(analysis_id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Failed to get JIRA links: {}", e))
-}
-
-/// Get all analyses linked to a specific JIRA ticket
-#[tauri::command]
-pub async fn get_analyses_for_jira_ticket(
-    jira_key: String,
-    db: DbState<'_>,
-) -> Result<Vec<(Analysis, JiraLink)>, String> {
-    log::debug!("cmd: get_analyses_for_jira_ticket");
-    log::debug!("Getting analyses linked to JIRA {}", jira_key);
-
-    let db_clone = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db_clone.get_analyses_for_jira_ticket(&jira_key))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Failed to get analyses for JIRA ticket: {}", e))
-}
-
-/// Update JIRA ticket metadata in all links (e.g., after status change)
-#[tauri::command]
-pub async fn update_jira_link_metadata(
-    jira_key: String,
-    jira_summary: Option<String>,
-    jira_status: Option<String>,
-    jira_priority: Option<String>,
-    db: DbState<'_>,
-) -> Result<usize, String> {
-    log::debug!("cmd: update_jira_link_metadata");
-    log::info!("Updating JIRA {} metadata in links", jira_key);
-
-    let db_clone = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || {
-        db_clone.update_jira_link_metadata(
-            &jira_key,
-            jira_summary.as_deref(),
-            jira_status.as_deref(),
-            jira_priority.as_deref(),
-        )
-    })
-    .await
-    .map_err(|e| format!("Task error: {}", e))?
-    .map_err(|e| format!("Failed to update JIRA link metadata: {}", e))
-}
-
-/// Count JIRA links for an analysis
-#[tauri::command]
-pub async fn count_jira_links_for_analysis(
-    analysis_id: i64,
-    db: DbState<'_>,
-) -> Result<i64, String> {
-    log::debug!("cmd: count_jira_links_for_analysis");
-    let db_clone = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db_clone.count_jira_links_for_analysis(analysis_id))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Failed to count JIRA links: {}", e))
-}
-
-/// Get all JIRA links across all analyses (for sync service)
-#[tauri::command]
-pub async fn get_all_jira_links(db: DbState<'_>) -> Result<Vec<JiraLink>, String> {
-    log::debug!("cmd: get_all_jira_links");
-    log::debug!("Getting all JIRA links for sync");
-
-    let db_clone = Arc::clone(&db);
-
-    tauri::async_runtime::spawn_blocking(move || db_clone.get_all_jira_links())
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-        .map_err(|e| format!("Failed to get all JIRA links: {}", e))
-}
-
-// ============================================================================
-// Sentry Integration Commands
-// ============================================================================
-
-/// Analyze a Sentry issue using the AI pipeline
 #[tauri::command]
 pub async fn analyze_sentry_issue(
     base_url: String,

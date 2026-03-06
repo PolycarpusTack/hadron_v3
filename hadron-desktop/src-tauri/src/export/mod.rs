@@ -112,14 +112,11 @@ mod tests {
     }
 
     #[test]
-    fn test_export_multi() {
+    fn test_export_txt() {
         let data = create_test_data();
-        let formats = vec![ExportFormat::Markdown, ExportFormat::Json];
-        let results = export_report_multi(&data, &formats);
+        let result = export_report(&data, ExportFormat::Txt);
 
-        assert_eq!(results.len(), 2);
-        assert!(results[0].1.contains("#")); // Markdown
-        assert!(results[1].1.contains("{")); // JSON
+        assert!(result.contains("test.txt"));
     }
 
     #[test]

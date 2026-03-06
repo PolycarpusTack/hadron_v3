@@ -6,6 +6,11 @@ pub mod common;
 pub use search::{AdvancedFilterOptions, FilteredResults};
 pub use patterns::PatternEngineState;
 
+// Core AI analysis commands
+pub mod ai;
+pub mod providers;
+pub mod info;
+
 // Data access
 pub mod analytics;
 pub mod archive;
