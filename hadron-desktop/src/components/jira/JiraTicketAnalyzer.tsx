@@ -24,8 +24,11 @@ import {
   AlertTriangle,
   ShieldAlert,
   BookOpen,
+  Download,
 } from "lucide-react";
 import Button from "../ui/Button";
+import ExportDialog from "../ExportDialog";
+import type { ExportSource } from "../../types";
 import JiraImportService, { type NormalizedIssue } from "../../services/jira-import";
 import { analyzeJiraTicket, getAnalysisById, getStoredApiKey } from "../../services/api";
 import { getStoredModel, getStoredProvider } from "../../services/api";
@@ -67,6 +70,7 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
   const [jiraBaseUrl, setJiraBaseUrl] = useState("");
   const [jiraEmail, setJiraEmail] = useState("");
   const [jiraApiToken, setJiraApiToken] = useState("");
+  const [showExport, setShowExport] = useState(false);
 
   async function handleFetch() {
     const trimmed = input.trim();
@@ -310,6 +314,97 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
     } finally {
       setBriefing(false);
     }
+  }
+
+  function buildJiraExportSource(
+    iss: NormalizedIssue,
+    triage: JiraTriageResult | null,
+    brief: JiraBriefResult | null,
+    deep: JiraDeepResult | null,
+  ): ExportSource {
+    const sections: (ExportSource["sections"][number])[] = [];
+
+    // Ticket Summary — always present
+    const ticketLines = [
+      `Key: ${iss.key}`,
+      `Summary: ${iss.summary}`,
+      `Type: ${iss.issueType || "Unknown"}`,
+      `Priority: ${iss.priority || "Not set"}`,
+      `Status: ${iss.status || "Unknown"}`,
+      iss.components.length > 0 ? `Components: ${iss.components.join(", ")}` : null,
+      iss.labels.length > 0 ? `Labels: ${iss.labels.join(", ")}` : null,
+      iss.assignee ? `Assignee: ${iss.assignee.displayName}` : null,
+    ].filter(Boolean).join("\n");
+    sections.push({ id: "ticket", label: "Ticket Summary", content: ticketLines, defaultOn: true });
+
+    // Triage — from brief or standalone triage
+    const triageData = brief?.triage ?? triage;
+    if (triageData) {
+      const triageLines = [
+        `Severity: ${triageData.severity}`,
+        `Category: ${triageData.category}`,
+        `Confidence: ${triageData.confidence}`,
+        `Customer Impact: ${triageData.customer_impact}`,
+        triageData.tags.length > 0 ? `Tags: ${triageData.tags.join(", ")}` : null,
+        `Rationale: ${triageData.rationale}`,
+      ].filter(Boolean).join("\n");
+      sections.push({ id: "triage", label: "Triage", content: triageLines, defaultOn: true });
+    }
+
+    // Use deep analysis from brief or standalone
+    const analysis = brief?.analysis ?? deep;
+
+    if (analysis) {
+      // Analysis Summary
+      sections.push({
+        id: "summary",
+        label: "Analysis Summary",
+        content: analysis.plain_summary,
+        defaultOn: true,
+      });
+
+      // Technical Analysis
+      const tech = analysis.technical;
+      const techLines = [
+        `Error Type: ${tech.error_type}`,
+        `Root Cause: ${tech.root_cause}`,
+        `Affected Areas: ${tech.affected_areas.join(", ")}`,
+        `Severity Estimate: ${tech.severity_estimate}`,
+        `Confidence: ${tech.confidence} — ${tech.confidence_rationale}`,
+      ].join("\n");
+      sections.push({ id: "technical", label: "Technical Analysis", content: techLines, defaultOn: true });
+
+      // Recommended Actions
+      if (analysis.recommended_actions.length > 0) {
+        const actionsText = analysis.recommended_actions
+          .map((a, i) => `${i + 1}. [${a.priority}] ${a.action}\n   Rationale: ${a.rationale}`)
+          .join("\n\n");
+        sections.push({ id: "actions", label: "Recommended Actions", content: actionsText, defaultOn: true });
+      }
+
+      // Risk & Impact
+      const risk = analysis.risk;
+      const riskLines = [
+        `User Impact: ${risk.user_impact}`,
+        `Blast Radius: ${risk.blast_radius}`,
+        `Urgency: ${risk.urgency}`,
+        `Do-Nothing Risk: ${risk.do_nothing_risk}`,
+      ].join("\n");
+      sections.push({ id: "risk", label: "Risk & Impact", content: riskLines, defaultOn: false });
+
+      // Open Questions
+      if (analysis.open_questions.length > 0) {
+        const questionsText = analysis.open_questions.map((q, i) => `${i + 1}. ${q}`).join("\n");
+        sections.push({ id: "questions", label: "Open Questions", content: questionsText, defaultOn: false });
+      }
+    }
+
+    return {
+      sourceType: "jira",
+      sourceName: iss.key,
+      defaultTitle: `${iss.key} — ${iss.summary}`,
+      sections,
+    };
   }
 
   function handleReset() {
@@ -574,6 +669,14 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
               >
                 {deepAnalyzing ? "Deep Analyzing..." : "Deep Analyze"}
               </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setShowExport(true)}
+                disabled={!triageResult && !briefResult && !deepResult}
+                icon={<Download />}
+              >
+                Export
+              </Button>
             </div>
           </div>
         </div>
@@ -619,6 +722,15 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
               // Navigation failed — report is still shown inline
             }
           }}
+        />
+      )}
+
+      {/* Export Dialog */}
+      {issue && (
+        <ExportDialog
+          source={buildJiraExportSource(issue, triageResult, briefResult, deepResult?.result ?? null)}
+          isOpen={showExport}
+          onClose={() => setShowExport(false)}
         />
       )}
 
