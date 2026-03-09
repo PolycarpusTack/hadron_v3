@@ -18,13 +18,13 @@ import {
 } from "lucide-react";
 import Button from "./ui/Button";
 import Modal from "./ui/Modal";
-import type { Analysis } from "../services/api";
-import type { ReportAudience, ExportResponse } from "../types";
-import { previewReport, generateReportMulti } from "../services/api";
+import type { ExportSource, ExportResponse, ReportAudience } from "../types";
+import { previewReport, exportGenericReport, previewGenericReport } from "../services/api";
+import { invoke } from "@tauri-apps/api/core";
 import logger from "../services/logger";
 
 interface ExportDialogProps {
-  analysis: Analysis;
+  source: ExportSource;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -122,28 +122,12 @@ const AUDIENCE_OPTIONS: AudienceOption[] = [
   },
 ];
 
-const SECTION_OPTIONS = [
-  { id: "summary", label: "Summary" },
-  { id: "environment", label: "Environment" },
-  { id: "exception_details", label: "Exception Details" },
-  { id: "root_cause", label: "Root Cause" },
-  { id: "suggested_fix", label: "Suggested Fixes" },
-  { id: "stack_trace", label: "Stack Trace" },
-  { id: "reproduction_steps", label: "Reproduction Steps" },
-  { id: "impact_analysis", label: "Impact Analysis" },
-  { id: "pattern_match", label: "Pattern Match" },
-];
-
-export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialogProps) {
+export default function ExportDialog({ source, isOpen, onClose }: ExportDialogProps) {
   const [selectedFormats, setSelectedFormats] = useState<string[]>(["markdown"]);
   const [selectedAudience, setSelectedAudience] = useState<ReportAudience>("technical");
-  const [selectedSections, setSelectedSections] = useState<string[]>([
-    "summary",
-    "environment",
-    "exception_details",
-    "root_cause",
-    "suggested_fix",
-  ]);
+  const [selectedSections, setSelectedSections] = useState<string[]>(() =>
+    source.sections.filter(s => s.defaultOn).map(s => s.id)
+  );
   const [customTitle, setCustomTitle] = useState("");
   const [footerText, setFooterText] = useState("");
   const [preview, setPreview] = useState<string>("");
@@ -151,46 +135,40 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
-  const [crashContent, setCrashContent] = useState<string>("");
-
-  // Load crash content when dialog opens
-  useEffect(() => {
-    if (isOpen) {
-      const content = [
-        `Error Type: ${analysis.error_type}`,
-        `Severity: ${analysis.severity}`,
-        analysis.error_message ? `Error Message: ${analysis.error_message}` : '',
-        analysis.component ? `Component: ${analysis.component}` : '',
-        '',
-        'Root Cause:',
-        analysis.root_cause,
-        '',
-        analysis.stack_trace ? `Stack Trace:\n${analysis.stack_trace}` : '',
-      ].filter(Boolean).join('\n');
-      setCrashContent(content);
-    }
-  }, [isOpen, analysis]);
 
   // Update preview when settings change
   useEffect(() => {
-    if (isOpen && crashContent) {
+    if (isOpen && source.sections.length > 0) {
       loadPreview();
     }
-  }, [isOpen, crashContent, selectedAudience, previewFormat, selectedSections]);
+  }, [isOpen, selectedAudience, previewFormat, selectedSections]);
 
   const loadPreview = useCallback(async () => {
-    if (!crashContent) return;
-    // Only preview text-based formats
     if (!PREVIEWABLE_FORMATS.has(previewFormat)) return;
+    const activeSections = source.sections.filter(s => selectedSections.includes(s.id));
+    if (activeSections.length === 0) return;
 
     setIsLoadingPreview(true);
     try {
-      const previewContent = await previewReport(
-        crashContent,
-        analysis.filename,
-        previewFormat,
-        selectedAudience
-      );
+      let previewContent: string;
+      if (source.sourceType === "crash") {
+        const crashContent = activeSections.map(s => s.content).join("\n\n");
+        previewContent = await previewReport(
+          crashContent,
+          source.sourceName,
+          previewFormat,
+          selectedAudience
+        );
+      } else {
+        previewContent = await previewGenericReport(
+          source.sourceType,
+          source.sourceName,
+          previewFormat,
+          selectedAudience,
+          customTitle || source.defaultTitle,
+          activeSections.map(({ id, label, content }) => ({ id, label, content }))
+        );
+      }
       setPreview(previewContent);
     } catch (error) {
       logger.error("Preview failed", { error });
@@ -198,7 +176,7 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
     } finally {
       setIsLoadingPreview(false);
     }
-  }, [crashContent, analysis.filename, previewFormat, selectedAudience]);
+  }, [source, selectedSections, previewFormat, selectedAudience, customTitle]);
 
   const toggleFormat = (formatId: string) => {
     setSelectedFormats((prev) => {
@@ -220,21 +198,43 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
   };
 
   const handleExport = async () => {
-    if (!crashContent || selectedFormats.length === 0) return;
+    if (selectedFormats.length === 0) return;
 
     setIsExporting(true);
     setExportMessage(null);
 
     try {
-      const results = await generateReportMulti({
-        crash_content: crashContent,
-        file_name: analysis.filename,
-        formats: selectedFormats,
-        audience: selectedAudience,
-        title: customTitle || undefined,
-        include_sections: selectedSections.length > 0 ? selectedSections : undefined,
-        footer_text: footerText || undefined,
-      });
+      const activeSections = source.sections.filter(s => selectedSections.includes(s.id));
+      const results: ExportResponse[] = [];
+
+      for (const fmt of selectedFormats) {
+        if (source.sourceType === "crash") {
+          const crashContent = activeSections.map(s => s.content).join("\n\n");
+          const result = await invoke<ExportResponse>("generate_report", {
+            request: {
+              crash_content: crashContent,
+              file_name: source.sourceName,
+              format: fmt,
+              audience: selectedAudience,
+              title: customTitle || undefined,
+              include_sections: selectedSections.length > 0 ? selectedSections : undefined,
+              footer_text: footerText || undefined,
+            },
+          });
+          results.push(result);
+        } else {
+          const result = await exportGenericReport({
+            source_type: source.sourceType,
+            source_name: source.sourceName,
+            format: fmt,
+            audience: selectedAudience,
+            title: customTitle || source.defaultTitle,
+            sections: activeSections.map(({ id, label, content }) => ({ id, label, content })),
+            footer_text: footerText || undefined,
+          });
+          results.push(result);
+        }
+      }
 
       for (const result of results) {
         downloadFile(result);
@@ -308,7 +308,7 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
               <h2 id="export-dialog-title" className="text-2xl font-bold">
                 Export Report
               </h2>
-              <p className="text-sm text-gray-400">{analysis.filename}</p>
+              <p className="text-sm text-gray-400">{source.sourceName}</p>
             </div>
           </div>
           <button
@@ -398,7 +398,7 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
             <div>
               <label className="block text-sm font-semibold mb-3">Include Sections</label>
               <div className="space-y-1">
-                {SECTION_OPTIONS.map((section) => (
+                {source.sections.map((section) => (
                   <label
                     key={section.id}
                     className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-900/50 cursor-pointer"
@@ -422,7 +422,7 @@ export default function ExportDialog({ analysis, isOpen, onClose }: ExportDialog
                 type="text"
                 value={customTitle}
                 onChange={(e) => setCustomTitle(e.target.value)}
-                placeholder="Crash Analysis Report"
+                placeholder={source.defaultTitle}
                 className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
               />
             </div>

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import { format } from "date-fns";
 import type { Analysis } from "../services/api";
+import type { ExportSource } from "../types";
 import StackTraceViewer from "./StackTraceViewer";
 import CollapsibleSection from "./CollapsibleSection";
 import MultiPartAnalysisViewer from "./MultiPartAnalysisViewer";
@@ -572,7 +573,22 @@ ${analysis.suggested_fixes}
 
       {/* Export Dialog */}
       <ExportDialog
-        analysis={analysis}
+        source={{
+          sourceType: "crash",
+          sourceName: analysis.filename,
+          defaultTitle: "Crash Analysis Report",
+          sections: [
+            { id: "summary", label: "Summary", content: `Error Type: ${analysis.error_type}\nSeverity: ${analysis.severity}${analysis.error_message ? `\nError Message: ${analysis.error_message}` : ""}${analysis.component ? `\nComponent: ${analysis.component}` : ""}`, defaultOn: true },
+            { id: "root_cause", label: "Root Cause", content: analysis.root_cause || "", defaultOn: true },
+            { id: "suggested_fix", label: "Suggested Fixes", content: analysis.suggested_fixes || "", defaultOn: true },
+            { id: "stack_trace", label: "Stack Trace", content: analysis.stack_trace || "", defaultOn: false },
+            { id: "environment", label: "Environment", content: `File: ${analysis.filename}\nSize: ${analysis.file_size_kb} KB\nModel: ${analysis.ai_model}`, defaultOn: true },
+            { id: "exception_details", label: "Exception Details", content: `${analysis.error_type}: ${analysis.error_message || "N/A"}`, defaultOn: true },
+            { id: "reproduction_steps", label: "Reproduction Steps", content: "", defaultOn: false },
+            { id: "impact_analysis", label: "Impact Analysis", content: "", defaultOn: false },
+            { id: "pattern_match", label: "Pattern Match", content: "", defaultOn: false },
+          ].filter(s => s.content.length > 0),
+        } satisfies ExportSource}
         isOpen={showExportDialog}
         onClose={() => setShowExportDialog(false)}
       />
