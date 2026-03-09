@@ -7,14 +7,17 @@ import {
   Trash2,
   FileCode,
   Upload,
+  Download,
 } from "lucide-react";
 import type {
   CodeAnalysisResult,
   CodeAnalyzerTab,
   CodeInput,
+  ExportSource,
 } from "../../types";
 import logger from "../../services/logger";
 import AnalyzerEntryPanel from "../AnalyzerEntryPanel";
+import ExportDialog from "../ExportDialog";
 import Button from "../ui/Button";
 
 import { SOFT_TOKEN_WARN_BYTES, warnIfLargeFile } from "./constants";
@@ -42,6 +45,89 @@ interface CodeAnalyzerViewProps {
 }
 
 // ============================================================================
+// Export Helper
+// ============================================================================
+
+function buildCodeExportSource(
+  result: CodeAnalysisResult,
+  filename: string,
+  language: string
+): ExportSource {
+  const sections: ExportSource["sections"] = [
+    {
+      id: "summary",
+      label: "Summary",
+      content: result.summary,
+      defaultOn: true,
+    },
+    {
+      id: "quality",
+      label: "Quality Scores",
+      content: [
+        `Overall: ${result.qualityScores.overall}/100`,
+        `Security: ${result.qualityScores.security}/100`,
+        `Performance: ${result.qualityScores.performance}/100`,
+        `Maintainability: ${result.qualityScores.maintainability}/100`,
+        `Best Practices: ${result.qualityScores.bestPractices}/100`,
+      ].join("\n"),
+      defaultOn: true,
+    },
+    {
+      id: "issues",
+      label: "Issues",
+      content:
+        result.issues.length > 0
+          ? result.issues
+              .map(
+                (issue) =>
+                  `[${issue.severity.toUpperCase()}] ${issue.title} (line ${issue.line})\n  ${issue.description}\n  Fix: ${issue.fix}`
+              )
+              .join("\n\n")
+          : "No issues found.",
+      defaultOn: true,
+    },
+    {
+      id: "walkthrough",
+      label: "Code Walkthrough",
+      content: result.walkthrough
+        .map(
+          (section) =>
+            `### ${section.title}\n\`\`\`\n${section.code}\n\`\`\`\n${section.whatItDoes}\n\nWhy it matters: ${section.whyItMatters}`
+        )
+        .join("\n\n"),
+      defaultOn: false,
+    },
+  ];
+
+  if (result.optimizedCode) {
+    sections.push({
+      id: "optimized",
+      label: "Optimized Code",
+      content: "```" + language + "\n" + result.optimizedCode + "\n```",
+      defaultOn: false,
+    });
+  }
+
+  if (result.glossary && result.glossary.length > 0) {
+    sections.push({
+      id: "glossary",
+      label: "Glossary",
+      content: result.glossary
+        .map((g) => `**${g.term}**: ${g.definition}`)
+        .join("\n"),
+      defaultOn: false,
+    });
+  }
+
+  return {
+    sourceType: "code",
+    sourceName: filename,
+    defaultTitle: `Code Analysis: ${filename}`,
+    sections,
+  };
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -60,6 +146,7 @@ export default function CodeAnalyzerView({
   const [language, setLanguage] = useState("Auto-detect");
   const [highlightIssueId, setHighlightIssueId] = useState<number | undefined>();
   const [issuesSeverityFilter, setIssuesSeverityFilter] = useState<string | null>(null);
+  const [showExport, setShowExport] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Restore input if we have it in state
@@ -317,13 +404,22 @@ export default function CodeAnalyzerView({
                 {codeInput?.language}
               </span>
             </div>
-            <Button
-              onClick={handleClear}
-              variant="ghost"
-              icon={<Trash2 className="w-4 h-4" />}
-            >
-              New Analysis
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setShowExport(true)}
+                icon={<Download className="w-4 h-4" />}
+              >
+                Export
+              </Button>
+              <Button
+                onClick={handleClear}
+                variant="ghost"
+                icon={<Trash2 className="w-4 h-4" />}
+              >
+                New Analysis
+              </Button>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -371,6 +467,14 @@ export default function CodeAnalyzerView({
             </div>
           </div>
         </>
+      )}
+
+      {analysisResult && codeInput && (
+        <ExportDialog
+          source={buildCodeExportSource(analysisResult, codeInput.filename, codeInput.language)}
+          isOpen={showExport}
+          onClose={() => setShowExport(false)}
+        />
       )}
     </div>
   );
