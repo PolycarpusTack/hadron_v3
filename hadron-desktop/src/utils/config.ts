@@ -22,6 +22,7 @@ export const STORAGE_KEYS = {
   THEME: "theme",
   AUTO_CHECK_UPDATES: "auto_check_updates",
   ANALYSIS_DEFAULT_TYPE: "analysis_default_type",
+  DEFAULT_EXPORT_DIR: "default_export_dir",
   HISTORY_FILTERS: "hadron_history_filters",
 
   // JIRA integration

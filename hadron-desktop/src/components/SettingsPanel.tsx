@@ -100,6 +100,9 @@ export default function SettingsPanel({
 
   // Crash log directory
   const [crashLogDir, setCrashLogDir] = useState<string>("");
+  const [defaultExportDir, setDefaultExportDir] = useState(
+    () => localStorage.getItem(STORAGE_KEYS.DEFAULT_EXPORT_DIR) || ""
+  );
   const [crashLogMsg, setCrashLogMsg] = useState<string | null>(null);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
@@ -1214,6 +1217,55 @@ export default function SettingsPanel({
                             {crashLogMsg}
                           </p>
                         )}
+                      </div>
+
+                      {/* Default Export Location */}
+                      <div className="hd-setting-card space-y-2 mt-1">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-medium" style={{ color: 'var(--hd-text)' }}>Default Export Location</p>
+                            <p className="text-xs truncate max-w-xs" style={{ color: 'var(--hd-text-dim)' }}>
+                              {defaultExportDir || "Not set — exports download to browser default"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={defaultExportDir}
+                            readOnly
+                            className="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs font-mono"
+                            style={{ color: 'var(--hd-text-muted)' }}
+                            placeholder="Not set"
+                            title={defaultExportDir || "Not set"}
+                          />
+                          <button
+                            className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                            title="Choose folder"
+                            onClick={async () => {
+                              const selected = await tauriOpen({ directory: true, title: "Select Default Export Directory" });
+                              if (selected) {
+                                localStorage.setItem(STORAGE_KEYS.DEFAULT_EXPORT_DIR, selected as string);
+                                setDefaultExportDir(selected as string);
+                              }
+                            }}
+                          >
+                            <FolderOpen className="w-3.5 h-3.5" style={{ color: 'var(--hd-text-muted)' }} />
+                          </button>
+                          {defaultExportDir && (
+                            <button
+                              className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                              style={{ color: 'var(--hd-text-muted)' }}
+                              title="Clear default export location"
+                              onClick={() => {
+                                localStorage.removeItem(STORAGE_KEYS.DEFAULT_EXPORT_DIR);
+                                setDefaultExportDir("");
+                              }}
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* Database Admin */}
