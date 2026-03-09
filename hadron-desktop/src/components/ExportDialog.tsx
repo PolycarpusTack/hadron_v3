@@ -21,7 +21,11 @@ import Modal from "./ui/Modal";
 import type { ExportSource, ExportResponse, ReportAudience } from "../types";
 import { previewReport, exportGenericReport, previewGenericReport } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
+import { save as tauriSave } from "@tauri-apps/plugin-dialog";
+import { writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { join } from "@tauri-apps/api/path";
 import logger from "../services/logger";
+import { STORAGE_KEYS } from "../utils/config";
 
 interface ExportDialogProps {
   source: ExportSource;
@@ -123,6 +127,10 @@ const AUDIENCE_OPTIONS: AudienceOption[] = [
 ];
 
 export default function ExportDialog({ source, isOpen, onClose }: ExportDialogProps) {
+  const defaultExportDir = localStorage.getItem(STORAGE_KEYS.DEFAULT_EXPORT_DIR) || "";
+  const [saveLocation, setSaveLocation] = useState<"download" | "default" | "choose">(
+    defaultExportDir ? "default" : "download"
+  );
   const [selectedFormats, setSelectedFormats] = useState<string[]>(["markdown"]);
   const [selectedAudience, setSelectedAudience] = useState<ReportAudience>("technical");
   const [selectedSections, setSelectedSections] = useState<string[]>(() =>
@@ -237,7 +245,7 @@ export default function ExportDialog({ source, isOpen, onClose }: ExportDialogPr
       }
 
       for (const result of results) {
-        downloadFile(result);
+        await saveFile(result);
       }
 
       setExportMessage(`Successfully exported ${results.length} file(s)`);
@@ -249,6 +257,41 @@ export default function ExportDialog({ source, isOpen, onClose }: ExportDialogPr
       setExportMessage(`Export failed: ${error}`);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const saveFile = async (result: ExportResponse) => {
+    const formatDef = FORMAT_OPTIONS.find((f) => f.id === result.format);
+    const isBinary = formatDef?.isBinary ?? false;
+
+    if (saveLocation === "download") {
+      downloadFile(result);
+      return;
+    }
+
+    let filePath: string | null = null;
+
+    if (saveLocation === "default" && defaultExportDir) {
+      filePath = await join(defaultExportDir, result.suggested_filename);
+    } else if (saveLocation === "choose") {
+      const ext = result.suggested_filename.split(".").pop() || "md";
+      filePath = await tauriSave({
+        defaultPath: result.suggested_filename,
+        filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+      });
+    }
+
+    if (!filePath) return;
+
+    if (isBinary) {
+      const binaryString = atob(result.content);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      await writeFile(filePath, bytes);
+    } else {
+      await writeTextFile(filePath, result.content);
     }
   };
 
@@ -497,6 +540,44 @@ export default function ExportDialog({ source, isOpen, onClose }: ExportDialogPr
                 • PII redaction for {selectedAudience}
               </span>
             )}
+          </div>
+
+          {/* Save Location */}
+          <div className="flex items-center gap-1 bg-gray-900 rounded-lg p-1">
+            <button
+              onClick={() => setSaveLocation("download")}
+              className={`px-3 py-1.5 text-xs rounded-md transition ${
+                saveLocation === "download"
+                  ? "bg-blue-500/30 text-blue-400"
+                  : "text-gray-400 hover:text-gray-300"
+              }`}
+            >
+              Download
+            </button>
+            <button
+              onClick={() => setSaveLocation("default")}
+              disabled={!defaultExportDir}
+              title={defaultExportDir || "Set in Settings → Preferences"}
+              className={`px-3 py-1.5 text-xs rounded-md transition ${
+                saveLocation === "default"
+                  ? "bg-blue-500/30 text-blue-400"
+                  : defaultExportDir
+                    ? "text-gray-400 hover:text-gray-300"
+                    : "text-gray-600 cursor-not-allowed"
+              }`}
+            >
+              Default Folder
+            </button>
+            <button
+              onClick={() => setSaveLocation("choose")}
+              className={`px-3 py-1.5 text-xs rounded-md transition ${
+                saveLocation === "choose"
+                  ? "bg-blue-500/30 text-blue-400"
+                  : "text-gray-400 hover:text-gray-300"
+              }`}
+            >
+              Choose&hellip;
+            </button>
           </div>
 
           <div className="flex items-center gap-3">
