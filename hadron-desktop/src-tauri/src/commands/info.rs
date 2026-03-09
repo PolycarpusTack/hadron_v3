@@ -120,3 +120,17 @@ pub async fn get_file_stats(path: String) -> Result<serde_json::Value, String> {
         "size": metadata.len()
     }))
 }
+
+/// Get the current crash log directory path
+#[tauri::command]
+pub fn get_crash_log_dir() -> Result<String, String> {
+    Ok(crate::crash_handler::get_crash_log_dir()
+        .to_string_lossy()
+        .to_string())
+}
+
+/// Set a custom crash log directory, or pass empty string to reset to default
+#[tauri::command]
+pub fn set_crash_log_dir(dir: String) -> Result<String, String> {
+    crate::crash_handler::set_crash_log_dir(&dir).map(|p| p.to_string_lossy().to_string())
+}

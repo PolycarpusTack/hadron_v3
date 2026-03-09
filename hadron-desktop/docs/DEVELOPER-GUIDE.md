@@ -1,6 +1,6 @@
 # Hadron Developer Guide
 
-**Version**: 4.0.1 | **Architecture**: Tauri 2 (Rust) + React 18/TypeScript + Python 3.10+
+**Version**: 4.3.0 | **Architecture**: Tauri 2 (Rust) + React 18/TypeScript + Python 3.10+
 
 ---
 
@@ -51,16 +51,16 @@ hadron-desktop/
 ├── src-tauri/                      # Backend (Rust)
 │   ├── src/
 │   │   ├── main.rs                 # Entry point, Tauri command registration
-│   │   ├── commands.rs             # Core Tauri commands (analysis, export, DB)
+│   │   ├── commands/mod.rs         # Modular Tauri command registry
 │   │   ├── chat_commands.rs        # Ask Hadron agentic loop
 │   │   ├── chat_tools.rs           # 15 tool definitions + executors
 │   │   ├── ai_service.rs           # Multi-provider AI (OpenAI, Anthropic, Z.ai, llama.cpp)
 │   │   ├── database.rs             # SQLite CRUD (15+ tables, FTS5 full-text search)
-│   │   ├── migrations.rs           # 10 schema migrations (CURRENT_SCHEMA_VERSION = 10)
+│   │   ├── migrations.rs           # 14 schema migrations (CURRENT_SCHEMA_VERSION = 14)
 │   │   ├── sentry_service.rs       # Sentry API + pattern detection
 │   │   ├── jira_service.rs         # JIRA REST API v3 (search, create, fix versions)
 │   │   ├── release_notes_service.rs # Release notes generation + lifecycle
-│   │   ├── kb_commands.rs          # OpenSearch knowledge base queries
+│   │   ├── rag_commands.rs         # RAG + OpenSearch knowledge base queries
 │   │   ├── parser/                 # Crash log parsing engine
 │   │   │   ├── crash_file.rs       # Main parser orchestrator
 │   │   │   └── sections/           # Header, exception, stack trace, memory, DB, context
@@ -108,14 +108,14 @@ llama.cpp reuses the OpenAI response parser since it exposes an OpenAI-compatibl
 The Ask Hadron chatbot uses an **agentic tool-calling loop**:
 1. Send user message + tool definitions to LLM
 2. If LLM returns `tool_calls`, execute them and append results
-3. Repeat (max 8 iterations)
+3. Repeat (max 5 iterations)
 4. When no more tool calls, return the final text response
 
 **15 tools**: `search_analyses`, `search_kb`, `get_analysis_detail`, `find_similar_crashes`, `get_crash_signature`, `get_top_signatures`, `get_trend_data`, `get_error_patterns`, `get_statistics`, `correlate_crash_to_jira`, `get_crash_timeline`, `compare_crashes`, `get_component_health`, `search_jira`, `create_jira_ticket`
 
 ### Database (`database.rs` + `migrations.rs`)
 
-SQLite with FTS5 full-text search (BM25 ranking). 10 migrations, 15+ tables:
+SQLite with FTS5 full-text search (BM25 ranking). 14 migrations, 15+ tables:
 - `analyses` + `analyses_fts` — Core crash analyses with full-text search
 - `crash_signatures` + `analysis_signatures` — Deduplication and grouping
 - `tags` + `analysis_tags` — User-defined tags
@@ -168,7 +168,7 @@ User types message
   -> LLM decides which tools to call
   -> chat_tools.rs executes tools (DB/HTTP)
   -> Results appended to conversation
-  -> Loop repeats (max 8 iterations)
+  -> Loop repeats (max 5 iterations)
   -> Final response streamed to frontend
 ```
 

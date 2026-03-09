@@ -1,5 +1,5 @@
 import { useState, useEffect, Suspense, lazy, useRef, useCallback } from "react";
-import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, Download, RefreshCw, Check, AlertCircle, Clipboard, Info, Cpu, Shield, Code, MessageCircle, Zap, ChevronDown } from "lucide-react";
+import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, Download, RefreshCw, Check, AlertCircle, Clipboard, Info, Cpu, Shield, Code, MessageCircle, Zap, ChevronDown, FolderOpen } from "lucide-react";
 import { getCircuitState } from "../services/circuit-breaker";
 import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage";
 import { checkForUpdates } from "../services/updater";
@@ -10,7 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getKeeperConfig, type KeeperConfig } from "../services/keeper";
 import { listGoldAnswers, exportGoldAnswersJsonl } from "../services/gold-answers";
 import { exportSummariesBundle } from "../services/summaries";
-import { save as tauriSave } from "@tauri-apps/plugin-dialog";
+import { save as tauriSave, open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import logger from '../services/logger';
 import { AI_PROVIDERS, getDefaultModelForProvider, getCuratedModelsForProvider, MODEL_CACHE_TTL_MS } from '../constants/providers';
@@ -97,6 +97,10 @@ export default function SettingsPanel({
   const [goldExportMsg, setGoldExportMsg] = useState<string | null>(null);
   const [isExportingGold, setIsExportingGold] = useState(false);
   const [isExportingSummaries, setIsExportingSummaries] = useState(false);
+
+  // Crash log directory
+  const [crashLogDir, setCrashLogDir] = useState<string>("");
+  const [crashLogMsg, setCrashLogMsg] = useState<string | null>(null);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
@@ -228,6 +232,8 @@ export default function SettingsPanel({
       listGoldAnswers(1000, 0).then((golds) => {
         setGoldCount(golds.length);
       }).catch(() => setGoldCount(null));
+      // Load crash log directory
+      invoke<string>("get_crash_log_dir").then(setCrashLogDir).catch(() => {});
     }
   }, [isOpen, advancedOpen]);
 
@@ -1144,6 +1150,71 @@ export default function SettingsPanel({
                           {autoTagMessage}
                         </p>
                       )}
+
+                      {/* Crash Log Directory */}
+                      <div className="hd-setting-card space-y-2 mt-1">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-medium" style={{ color: 'var(--hd-text)' }}>Crash Log Directory</p>
+                            <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>
+                              Where crash reports are saved
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={crashLogDir}
+                            readOnly
+                            className="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs font-mono"
+                            style={{ color: 'var(--hd-text-muted)' }}
+                            title={crashLogDir}
+                          />
+                          <button
+                            className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                            title="Choose folder"
+                            onClick={async () => {
+                              try {
+                                const selected = await tauriOpen({ directory: true, title: "Select Crash Log Directory" });
+                                if (selected) {
+                                  const result = await invoke<string>("set_crash_log_dir", { dir: selected });
+                                  setCrashLogDir(result);
+                                  setCrashLogMsg("Crash log directory updated");
+                                  safeTimeout(() => setCrashLogMsg(null), 4000);
+                                }
+                              } catch (e) {
+                                setCrashLogMsg(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+                                safeTimeout(() => setCrashLogMsg(null), 5000);
+                              }
+                            }}
+                          >
+                            <FolderOpen className="w-3.5 h-3.5" style={{ color: 'var(--hd-text-muted)' }} />
+                          </button>
+                          <button
+                            className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                            style={{ color: 'var(--hd-text-muted)' }}
+                            title="Reset to default"
+                            onClick={async () => {
+                              try {
+                                const result = await invoke<string>("set_crash_log_dir", { dir: "" });
+                                setCrashLogDir(result);
+                                setCrashLogMsg("Reset to default");
+                                safeTimeout(() => setCrashLogMsg(null), 4000);
+                              } catch (e) {
+                                setCrashLogMsg(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+                                safeTimeout(() => setCrashLogMsg(null), 5000);
+                              }
+                            }}
+                          >
+                            Reset
+                          </button>
+                        </div>
+                        {crashLogMsg && (
+                          <p className={`text-xs ${crashLogMsg.includes("Failed") ? "text-red-400" : "text-green-400"}`}>
+                            {crashLogMsg}
+                          </p>
+                        )}
+                      </div>
 
                       {/* Database Admin */}
                       <Suspense fallback={

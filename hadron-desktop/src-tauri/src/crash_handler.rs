@@ -2,18 +2,114 @@
 //!
 //! Catches both Rust panics and native crashes (access violation, illegal instruction,
 //! stack overflow) so that silent closes produce a diagnosable log file.
+//!
+//! The crash log directory is configurable via Settings. The path is stored in
+//! `%APPDATA%/hadron/crash_config.json` so the crash handler can read it at
+//! startup before the Tauri app is fully initialized.
 
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-/// Returns the directory for log files.
-fn log_dir() -> PathBuf {
+/// Returns the hadron data directory (`%APPDATA%/hadron` or `~/.local/share/hadron`).
+fn hadron_data_dir() -> PathBuf {
     let mut path = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
     path.push("hadron");
-    path.push("logs");
+    path
+}
+
+/// Path to the crash config file.
+fn config_file_path() -> PathBuf {
+    hadron_data_dir().join("crash_config.json")
+}
+
+/// Read the user-configured crash log directory from `crash_config.json`.
+/// Returns `None` if not configured or the file doesn't exist.
+fn read_custom_crash_dir() -> Option<PathBuf> {
+    let config_path = config_file_path();
+    let content = fs::read_to_string(&config_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let dir_str = json.get("crash_log_dir")?.as_str()?;
+    if dir_str.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(dir_str))
+}
+
+/// Returns the directory for crash log files.
+///
+/// Priority:
+/// 1. User-configured path from `crash_config.json`
+/// 2. Default: `%APPDATA%/hadron/logs`
+pub fn log_dir() -> PathBuf {
+    if let Some(custom_dir) = read_custom_crash_dir() {
+        // Validate the custom dir exists or can be created
+        if fs::create_dir_all(&custom_dir).is_ok() {
+            return custom_dir;
+        }
+        // Fall through to default if custom dir is unusable
+        eprintln!(
+            "Warning: custom crash log dir {:?} is not writable, using default",
+            custom_dir
+        );
+    }
+
+    let path = hadron_data_dir().join("logs");
     let _ = fs::create_dir_all(&path);
     path
+}
+
+/// Get the current crash log directory path (for display in UI).
+pub fn get_crash_log_dir() -> PathBuf {
+    log_dir()
+}
+
+/// Set a custom crash log directory. Pass an empty string to reset to default.
+///
+/// Validates that the directory exists or can be created before saving.
+pub fn set_crash_log_dir(dir: &str) -> Result<PathBuf, String> {
+    let config_path = config_file_path();
+
+    if dir.is_empty() {
+        // Reset to default — remove the config key
+        let json = serde_json::json!({});
+        let content = serde_json::to_string_pretty(&json)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+        let _ = fs::create_dir_all(config_path.parent().unwrap_or(&hadron_data_dir()));
+        fs::write(&config_path, content)
+            .map_err(|e| format!("Failed to write config: {}", e))?;
+
+        let default_dir = hadron_data_dir().join("logs");
+        let _ = fs::create_dir_all(&default_dir);
+        return Ok(default_dir);
+    }
+
+    let path = PathBuf::from(dir);
+
+    // Validate the directory is usable
+    fs::create_dir_all(&path)
+        .map_err(|e| format!("Cannot create directory '{}': {}", dir, e))?;
+
+    // Write a test file to verify write permissions
+    let test_file = path.join(".hadron_write_test");
+    fs::write(&test_file, "test")
+        .map_err(|e| format!("Directory '{}' is not writable: {}", dir, e))?;
+    let _ = fs::remove_file(&test_file);
+
+    // Save to config
+    let json = serde_json::json!({
+        "crash_log_dir": dir,
+    });
+    let content = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    let _ = fs::create_dir_all(config_path.parent().unwrap_or(&hadron_data_dir()));
+    fs::write(&config_path, content)
+        .map_err(|e| format!("Failed to write config: {}", e))?;
+
+    log::info!("Crash log directory set to: {}", dir);
+    Ok(path)
 }
 
 /// Write a crash report to disk. Used by both the panic hook and the SEH handler.
@@ -24,7 +120,8 @@ fn write_crash_report(header: &str, body: &str) {
     let mut content = String::new();
     content.push_str("=== HADRON CRASH REPORT ===\n");
     content.push_str(&format!("Timestamp: {}\n", chrono::Local::now()));
-    content.push_str(&format!("Version: {}\n\n", env!("CARGO_PKG_VERSION")));
+    content.push_str(&format!("Version: {}\n", env!("CARGO_PKG_VERSION")));
+    content.push_str(&format!("Crash log dir: {}\n\n", log_dir().display()));
     content.push_str(header);
     content.push('\n');
     content.push_str(body);
@@ -78,9 +175,6 @@ pub fn install_panic_hook() {
 /// (access violation, illegal instruction, stack overflow, etc.) and writes a crash
 /// report before the process terminates.
 ///
-/// This covers the gap that the Rust panic hook cannot: crashes in C libraries
-/// (SQLite, Keeper SDK, webview) and CPU-level faults like SIGILL.
-///
 /// On non-Windows platforms this is a no-op.
 pub fn install_native_crash_handler() {
     #[cfg(target_os = "windows")]
@@ -88,8 +182,6 @@ pub fn install_native_crash_handler() {
         use std::sync::Once;
         static INIT: Once = Once::new();
         INIT.call_once(|| unsafe {
-            // SetUnhandledExceptionFilter — catches unhandled SEH exceptions.
-            // This is the last resort before the process dies.
             windows_seh::set_unhandled_exception_filter();
         });
     }
@@ -98,11 +190,9 @@ pub fn install_native_crash_handler() {
 #[cfg(target_os = "windows")]
 mod windows_seh {
     //! Minimal Windows SEH integration using raw FFI.
-    //! No external crate needed — just kernel32 + ntdll types.
 
     use std::ffi::c_void;
 
-    // Windows exception codes
     const EXCEPTION_ACCESS_VIOLATION: u32 = 0xC0000005;
     const EXCEPTION_ILLEGAL_INSTRUCTION: u32 = 0xC000001D;
     const EXCEPTION_STACK_OVERFLOW: u32 = 0xC00000FD;
@@ -110,7 +200,6 @@ mod windows_seh {
     const EXCEPTION_IN_PAGE_ERROR: u32 = 0xC0000006;
     const EXCEPTION_GUARD_PAGE: u32 = 0x80000001;
 
-    // Return value: continue search (let Windows show the error dialog after we log)
     const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
 
     #[repr(C)]
@@ -120,7 +209,7 @@ mod windows_seh {
         exception_record: *mut ExceptionRecord,
         exception_address: *mut c_void,
         number_parameters: u32,
-        exception_information: [usize; 15], // EXCEPTION_MAXIMUM_PARAMETERS
+        exception_information: [usize; 15],
     }
 
     #[repr(C)]
@@ -153,8 +242,6 @@ mod windows_seh {
     unsafe extern "system" fn hadron_exception_filter(
         info: *mut ExceptionPointers,
     ) -> i32 {
-        // Safety: we're in a crash handler — do minimal work, no allocations if possible.
-        // But we need to write a useful report, so we accept the risk of String allocation.
         if info.is_null() {
             return EXCEPTION_CONTINUE_SEARCH;
         }

@@ -173,6 +173,8 @@ fn main() {
             // ── Info ──
             commands::info::get_database_info,
             commands::info::get_file_stats,
+            commands::info::get_crash_log_dir,
+            commands::info::set_crash_log_dir,
             // ── CRUD ──
             commands::crud::get_all_analyses,
             commands::crud::get_analyses_paginated,

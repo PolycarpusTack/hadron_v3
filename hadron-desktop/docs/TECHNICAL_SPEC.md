@@ -1,6 +1,6 @@
 # Hadron Desktop — Technical Specification
 
-**Version:** 4.2.0
+**Version:** 4.3.0
 **Stack:** Rust/Tauri v2 + React 18/TypeScript + Python 3.10+ (optional)
 **Generated:** 2025-02-24
 
@@ -13,7 +13,7 @@ hadron-desktop/
 ├── src/                              (Frontend — React 18 + TypeScript)
 │   ├── App.tsx                       # Root orchestrator: routing, state, lazy loading
 │   ├── main.tsx                      # Vite entry point (main window)
-│   ├── widget.tsx                    # Vite entry point (widget window)
+│   ├── widget-main.tsx               # Vite entry point (widget window)
 │   ├── components/                   # 68 UI components
 │   │   ├── widget/                   #   Floating widget subsystem (FAB, panel, chat)
 │   │   ├── jira/                     #   JIRA integration views (10 components)
@@ -257,7 +257,7 @@ sequenceDiagram
         Chat->>DB: Get similar analyses
     end
 
-    loop Agent Loop (max 8 iterations)
+    loop Agent Loop (max 5 iterations)
         Chat->>AI: call_provider_streaming(messages + tools)
         AI-->>Stream: Token stream events
         Stream-->>FE: Render tokens in real-time
@@ -451,14 +451,14 @@ sequenceDiagram
 - **Purpose:** Ask Hadron chat session management and event streaming.
 - **Dependencies:** `@tauri-apps/api/core`, `@tauri-apps/api/event`.
 - **Exports:** `sendChatMessage`, `cancelChat`, `subscribeToChatStream`, `subscribeToChatToolUse`, `subscribeToChatDiagnostics`, `subscribeToChatFinalContent`, session CRUD functions.
-- **Key Logic:** `sendChatMessage` invokes `chat_send` while frontend subscribes to Tauri events for real-time streaming. Events: `chat:stream` (tokens), `chat:tool-use` (tool invocations), `chat:diagnostics` (retrieval stats), `chat:final-content` (complete response). Each subscription is scoped to a `requestId` to prevent cross-talk.
+- **Key Logic:** `sendChatMessage` invokes `chat_send` while frontend subscribes to Tauri events for real-time streaming. Events: `chat-stream` (tokens), `chat-tool-use` (tool invocations), `chat-diagnostics` (retrieval stats), `chat-final-content` (complete response). Each subscription is scoped to a `requestId` to prevent cross-talk.
 
 ### 5b. Frontend — Widget System
 
 #### `components/widget/WidgetApp.tsx`
 - **Purpose:** Root component for the secondary Tauri widget window.
 - **Dependencies:** `withWidgetLock`, `invoke`, `listen`, all widget sub-components.
-- **Exports:** Default component rendered by `widget.tsx`.
+- **Exports:** Default component rendered by `widget-main.tsx`.
 - **Key Logic:** Two states: FAB (44x44 floating button) and expanded (400x520 panel). Smart expand positioning: detects screen quadrant and expands away from edges. Saves/restores FAB position via localStorage. Listens for `settings:hover-button-changed` to auto-hide. All window operations serialized via `withWidgetLock` to prevent wry/WebView2 crashes.
 
 #### `components/widget/widgetLock.ts`
@@ -473,7 +473,7 @@ sequenceDiagram
 - **Purpose:** Application entry point — Tauri builder configuration.
 - **Dependencies:** All command modules, all Tauri plugins.
 - **Exports:** `main()` function.
-- **Key Logic:** Registers 100+ Tauri commands, 10+ plugins (log, dialog, store, updater, process, notification, window-state, global-shortcut, clipboard). Manages shared state: `Database` (Arc), `PatternEngine` (RwLock), `EmbeddingCache`, `WidgetLock`. Sets up crash handler, widget window creation, and global hotkey (Alt+H for widget toggle). Conditional log level: Debug in dev, Info in release.
+- **Key Logic:** Registers 100+ Tauri commands and core plugins (log, dialog, store, updater, process, notification, window-state, global-shortcut, clipboard). Manages shared state: `Database` (Arc), `PatternEngine` (RwLock), `EmbeddingCache`, `WidgetLock`. Sets up panic/crash logging and global hotkey (`CmdOrCtrl+Shift+H`) for widget toggle. Log level is configurable via `HADRON_LOG_LEVEL` and defaults to debug.
 
 #### `error.rs`
 - **Purpose:** Unified error handling across the entire backend.
@@ -488,10 +488,10 @@ sequenceDiagram
 - **Key Logic:** Connection protected by `parking_lot::Mutex` (never poisons). WAL mode for concurrent reads. Parameterized queries for SQL injection prevention. FTS5 virtual tables with BM25 ranking (weighted: error_type×10, root_cause×8, component×7). Soft deletes via `deleted_at` column. 50+ methods covering analyses, translations, tags, signatures, JIRA links, chat sessions, gold analyses, release notes, and feedback.
 
 #### `migrations.rs`
-- **Purpose:** 13-version database schema migration system.
+- **Purpose:** 14-version database schema migration system.
 - **Dependencies:** rusqlite.
 - **Exports:** `run_migrations(conn)`.
-- **Key Logic:** Each migration runs once inside a transaction. Versions: v1 (initial schema + FTS5), v2 (analysis_type), v3 (translations), v4 (crash_signatures), v5 (tags + archive + notes), v6 (intelligence platform), v7 (JIRA linking), v8 (chat feedback), v9 (chat sessions), v10 (release notes), v11 (feedback reason field), v12 (gold answers), v13 (JIRA link_type canonicalization).
+- **Key Logic:** Each migration runs once inside a transaction. Versions: v1 (initial schema + FTS5), v2 (analysis_type), v3 (translations), v4 (crash_signatures), v5 (tags + archive + notes), v6 (intelligence platform), v7 (JIRA linking), v8 (chat feedback), v9 (chat sessions), v10 (release notes), v11 (feedback reason field), v12 (Ask Hadron 2), v13 (JIRA link_type canonicalization), v14 (JIRA assist tables).
 
 #### `ai_service.rs`
 - **Purpose:** Multi-provider AI integration layer.
@@ -503,7 +503,7 @@ sequenceDiagram
 - **Purpose:** Ask Hadron agentic chat loop with tool calling.
 - **Dependencies:** ai_service, chat_tools, retrieval, database.
 - **Exports:** `chat_send` command.
-- **Key Logic:** Builds system prompt with tool definitions (15 tools). Runs agent loop (max 8 iterations): send to AI → parse tool calls → execute tools → append results → repeat. Supports streaming responses via Tauri events. RAG context injection from FTS5 search, knowledge base, and similar analyses. Citation extraction and validation post-processing. Evidence synthesis using XML source tags. Falls back to non-streaming on stream failure.
+- **Key Logic:** Builds system prompt with tool definitions (15 tools). Runs agent loop (max 5 iterations): send to AI → parse tool calls → execute tools → append results → repeat. Supports streaming responses via Tauri events. RAG context injection from FTS5 search, knowledge base, and similar analyses. Citation extraction and validation post-processing. Evidence synthesis using XML source tags. Falls back to non-streaming on stream failure.
 
 ### 5d. Backend — Parser
 

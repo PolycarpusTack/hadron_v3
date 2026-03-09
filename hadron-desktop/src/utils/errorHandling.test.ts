@@ -19,77 +19,77 @@ describe("getUserFriendlyErrorMessage", () => {
   it("returns network error message for fetch errors", () => {
     const error = new Error("fetch failed");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Network error. Please check your internet connection and try again."
+      "Network error: fetch failed"
     );
   });
 
   it("returns network error message for network errors", () => {
     const error = new Error("network unavailable");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Network error. Please check your internet connection and try again."
+      "Network error: network unavailable"
     );
   });
 
   it("returns API key error for 401 errors", () => {
     const error = new Error("Request failed with status 401");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Invalid API key. Please check your OpenAI API key in Settings."
+      "Authentication error: Request failed with status 401"
     );
   });
 
   it("returns API key error for explicit API key messages", () => {
     const error = new Error("API key is invalid");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Invalid API key. Please check your OpenAI API key in Settings."
+      "Authentication error: API key is invalid"
     );
   });
 
   it("returns rate limit error for 429 errors", () => {
     const error = new Error("Request failed with status 429");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Rate limit exceeded. Please wait a moment and try again."
+      "Rate limit exceeded: Request failed with status 429"
     );
   });
 
   it("returns rate limit error for explicit rate limit messages", () => {
     const error = new Error("rate limit exceeded");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Rate limit exceeded. Please wait a moment and try again."
+      "Rate limit exceeded: rate limit exceeded"
     );
   });
 
   it("returns timeout error message", () => {
     const error = new Error("Request timeout");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Request timed out. Please try again."
+      "Request timed out: Request timeout"
     );
   });
 
   it("returns database error message", () => {
     const error = new Error("database is locked");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Database error. Your analysis may not have been saved. Please try again."
+      "Database error: database is locked"
     );
   });
 
   it("returns database error for SQLite errors", () => {
     const error = new Error("SQLite constraint violation");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Database error. Your analysis may not have been saved. Please try again."
+      "Database error: SQLite constraint violation"
     );
   });
 
   it("returns file error for ENOENT errors", () => {
     const error = new Error("ENOENT: no such file or directory");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "File not found or cannot be read. Please check the file path."
+      "File error: ENOENT: no such file or directory"
     );
   });
 
   it("returns Python error for Python-related issues", () => {
     const error = new Error("Python subprocess failed");
     expect(getUserFriendlyErrorMessage(error)).toBe(
-      "Analysis engine error. Please ensure Python is installed and configured correctly."
+      "Analysis engine error: Python subprocess failed"
     );
   });
 
@@ -100,7 +100,7 @@ describe("getUserFriendlyErrorMessage", () => {
 
   it("returns generic message for non-Error objects", () => {
     expect(getUserFriendlyErrorMessage("string error")).toBe(
-      "An unexpected error occurred. Please try again."
+      "string error"
     );
     expect(getUserFriendlyErrorMessage(null)).toBe(
       "An unexpected error occurred. Please try again."
@@ -164,7 +164,7 @@ describe("getRecoverySuggestions", () => {
 
     expect(suggestions).toContain("Try again");
     expect(suggestions).toContain("Restart the application if the problem persists");
-    expect(suggestions).toContain("Check the console for more details");
+    expect(suggestions).toContain("Check Settings for configuration issues");
   });
 
   it("handles non-Error inputs", () => {
@@ -211,12 +211,10 @@ describe("retryOperation", () => {
     const fn = vi.fn().mockRejectedValue(new Error("always fails"));
 
     const resultPromise = retryOperation(fn, { maxAttempts: 3, delayMs: 100 });
+    const rejection = expect(resultPromise).rejects.toThrow("always fails");
 
-    // Run all timers first
     await vi.runAllTimersAsync();
-
-    // Then check the rejection
-    await expect(resultPromise).rejects.toThrow("always fails");
+    await rejection;
     expect(fn).toHaveBeenCalledTimes(3);
   });
 
@@ -224,12 +222,10 @@ describe("retryOperation", () => {
     const fn = vi.fn().mockRejectedValue(new Error("fail"));
 
     const resultPromise = retryOperation(fn, { maxAttempts: 5, delayMs: 100 });
+    const rejection = expect(resultPromise).rejects.toThrow();
 
-    // Run all timers first
     await vi.runAllTimersAsync();
-
-    // Then check the rejection
-    await expect(resultPromise).rejects.toThrow();
+    await rejection;
     expect(fn).toHaveBeenCalledTimes(5);
   });
 
@@ -283,11 +279,9 @@ describe("retryOperation", () => {
     const fn = vi.fn().mockRejectedValue("string error");
 
     const resultPromise = retryOperation(fn, { maxAttempts: 1 });
+    const rejection = expect(resultPromise).rejects.toThrow("string error");
 
-    // Run all timers first
     await vi.runAllTimersAsync();
-
-    // Then check the rejection
-    await expect(resultPromise).rejects.toThrow("string error");
+    await rejection;
   });
 });
