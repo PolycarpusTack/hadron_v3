@@ -391,6 +391,32 @@ export interface ExportResponse {
   format: string;
 }
 
+/** A section for generic (non-crash) export */
+export interface ExportSection {
+  id: string;
+  label: string;
+  content: string;
+}
+
+/** Data source for the unified ExportDialog */
+export interface ExportSource {
+  sourceType: "crash" | "code" | "sentry" | "jira";
+  sourceName: string;
+  defaultTitle: string;
+  sections: (ExportSection & { defaultOn: boolean })[];
+}
+
+/** Request for non-crash generic export */
+export interface GenericExportRequest {
+  source_type: string;
+  source_name: string;
+  format: string;
+  audience?: ReportAudience;
+  title?: string;
+  sections: ExportSection[];
+  footer_text?: string;
+}
+
 // ============================================================================
 // Pattern Types
 // ============================================================================

@@ -660,6 +660,8 @@ import type {
   ReportAudience,
   MultiExportRequest,
   ExportResponse,
+  ExportSection,
+  GenericExportRequest,
   PatternSummary,
   DatabaseInfo,
   ExportFormatOption,
@@ -781,6 +783,45 @@ export async function previewReport(
     fileName,
     format,
     audience,
+  });
+}
+
+/**
+ * Export a generic (non-crash) report
+ * @param request - Generic export request with sections
+ * @returns Export response with content and suggested filename
+ */
+export async function exportGenericReport(
+  request: GenericExportRequest
+): Promise<ExportResponse> {
+  return await invoke<ExportResponse>("export_generic_report", { request });
+}
+
+/**
+ * Preview a generic (non-crash) report without saving
+ * @param sourceType - Source type (code, sentry, jira)
+ * @param sourceName - Source identifier
+ * @param format - Export format (markdown, html, json)
+ * @param audience - Target audience
+ * @param title - Optional custom title
+ * @param sections - Sections to include
+ * @returns Preview content as string
+ */
+export async function previewGenericReport(
+  sourceType: string,
+  sourceName: string,
+  format: string,
+  audience: ReportAudience,
+  title: string | undefined,
+  sections: ExportSection[]
+): Promise<string> {
+  return await invoke<string>("preview_generic_report", {
+    sourceType,
+    sourceName,
+    format,
+    audience,
+    title: title ?? null,
+    sections,
   });
 }
 
