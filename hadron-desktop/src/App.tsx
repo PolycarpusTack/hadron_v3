@@ -79,6 +79,9 @@ function App() {
     codeAnalyzing,
     codeAnalysisResult,
     codeInput,
+    // Crash Analyzer persistence
+    crashFile,
+    crashAnalysisResult,
   } = state;
 
   const runtimeStateRef = useRef({
@@ -298,6 +301,10 @@ function App() {
   const handleFileSelect = useCallback(async (filePath: string, analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
     actions.startAnalysis();
 
+    // Persist file info in global state
+    const fileName = filePath.split(/[\\/]/).pop() || filePath;
+    actions.setCrashFile(filePath, fileName);
+
     try {
       if (!apiKey) {
         throw new Error("Please set your OpenAI API key in Settings");
@@ -332,6 +339,10 @@ function App() {
         hasFullData: !!fullAnalysis.full_data,
         fullDataLength: fullAnalysis.full_data?.length
       });
+
+      // Persist result so it survives tab switches
+      actions.setCrashAnalysisResult({ filename: result.filename, severity: result.severity });
+      actions.clearCrashFile();
 
       // Navigate directly to detail view with full analysis data
       actions.viewAnalysis(fullAnalysis);
@@ -537,6 +548,9 @@ function App() {
                     onBatchSelect={handleBatchSelect}
                     onOpenAnalysis={(analysis) => actions.viewAnalysis(analysis)}
                     isAnalyzing={analyzing}
+                    crashFile={crashFile}
+                    crashAnalysisResult={crashAnalysisResult}
+                    onClearCrashAnalysisResult={actions.clearCrashAnalysisResult}
                   />
                 )}
 

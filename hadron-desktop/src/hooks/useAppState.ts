@@ -52,6 +52,11 @@ export interface AppState {
   // Analysis
   analyzing: boolean;
   analysisResult: AnalysisResult | null;
+
+  // Crash Analyzer persistence
+  crashFile: { path: string; name: string } | null;
+  crashAnalysisResult: { filename: string; severity: string } | null;
+
   selectedAnalysis: Analysis | null;
 
   // Translation / Code Analyzer
@@ -104,6 +109,12 @@ export type AppAction =
   | { type: 'ANALYSIS_ERROR'; payload: ErrorState }
   | { type: 'CLEAR_ANALYSIS' }
 
+  // Crash Analyzer persistence
+  | { type: 'SET_CRASH_FILE'; payload: { path: string; name: string } }
+  | { type: 'CLEAR_CRASH_FILE' }
+  | { type: 'SET_CRASH_ANALYSIS_RESULT'; payload: { filename: string; severity: string } }
+  | { type: 'CLEAR_CRASH_ANALYSIS_RESULT' }
+
   // Translation
   | { type: 'START_TRANSLATION' }
   | { type: 'TRANSLATION_COMPLETE' }
@@ -147,6 +158,8 @@ export const initialState: AppState = {
   apiKey: '',
   analyzing: false,
   analysisResult: null,
+  crashFile: null,
+  crashAnalysisResult: null,
   selectedAnalysis: null,
   translating: false,
   // Code Analyzer
@@ -184,8 +197,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         currentView: action.payload,
-        // Clear analysis result when switching away from analyze view
-        ...(action.payload !== 'analyze' ? {} : { analysisResult: null }),
         error: null,
       };
 
@@ -244,6 +255,32 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         error: null,
         batchProgress: null,
         batchSummary: null,
+      };
+
+    // Crash Analyzer persistence
+    case 'SET_CRASH_FILE':
+      return {
+        ...state,
+        crashFile: action.payload,
+      };
+
+    case 'CLEAR_CRASH_FILE':
+      return {
+        ...state,
+        crashFile: null,
+      };
+
+    case 'SET_CRASH_ANALYSIS_RESULT':
+      return {
+        ...state,
+        crashAnalysisResult: action.payload,
+      };
+
+    case 'CLEAR_CRASH_ANALYSIS_RESULT':
+      return {
+        ...state,
+        crashAnalysisResult: null,
+        crashFile: null,
       };
 
     // Translation
@@ -458,6 +495,19 @@ export function useAppState() {
       []
     ),
     clearAnalysis: useCallback(() => dispatch({ type: 'CLEAR_ANALYSIS' }), []),
+
+    // Crash Analyzer persistence
+    setCrashFile: useCallback(
+      (path: string, name: string) =>
+        dispatch({ type: 'SET_CRASH_FILE', payload: { path, name } }),
+      []
+    ),
+    clearCrashFile: useCallback(() => dispatch({ type: 'CLEAR_CRASH_FILE' }), []),
+    setCrashAnalysisResult: useCallback(
+      (result: { filename: string; severity: string }) => dispatch({ type: 'SET_CRASH_ANALYSIS_RESULT', payload: result }),
+      []
+    ),
+    clearCrashAnalysisResult: useCallback(() => dispatch({ type: 'CLEAR_CRASH_ANALYSIS_RESULT' }), []),
 
     // Translation
     startTranslation: useCallback(() => dispatch({ type: 'START_TRANSLATION' }), []),

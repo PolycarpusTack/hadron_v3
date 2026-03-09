@@ -14,6 +14,9 @@ interface FileDropZoneProps {
   onBatchSelect?: (filePaths: string[], analysisType: string, analysisMode: AnalysisMode) => void;
   onOpenAnalysis?: (analysis: Analysis) => void;
   isAnalyzing: boolean;
+  crashFile?: { path: string; name: string } | null;
+  crashAnalysisResult?: { filename: string; severity: string } | null;
+  onClearCrashAnalysisResult?: () => void;
 }
 
 function getSeverityDotClasses(severity: string): string {
@@ -46,7 +49,7 @@ function getSeverityBadgeClass(severity: string): string {
   }
 }
 
-export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalysis, isAnalyzing }: FileDropZoneProps) {
+export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalysis, isAnalyzing, crashFile, crashAnalysisResult, onClearCrashAnalysisResult }: FileDropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [analysisType, setAnalysisType] = useState<"comprehensive" | "quick">(() => {
     const stored = localStorage.getItem("analysis_default_type");
@@ -172,11 +175,30 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="w-10 h-10 text-emerald-400 mb-4 animate-spin" />
               <p className="text-base font-semibold mb-4" style={{ color: 'var(--hd-text)' }}>
-                Analyzing crash log...
+                Analyzing {crashFile?.name || 'crash log'}...
               </p>
               <div className="w-full max-w-md">
                 <AnalysisProgressBar isAnalyzing={isAnalyzing} />
               </div>
+            </div>
+          ) : crashAnalysisResult ? (
+            <div className="flex flex-col items-center justify-center py-8">
+              <div className="text-center mb-4">
+                <p className="text-base font-semibold" style={{ color: 'var(--hd-text)' }}>
+                  Analysis Complete
+                </p>
+                <p className="text-sm mt-1" style={{ color: 'var(--hd-text-muted)' }}>
+                  {crashAnalysisResult.filename} — {crashAnalysisResult.severity} severity
+                </p>
+              </div>
+              <Button
+                onClick={onClearCrashAnalysisResult}
+                variant="primary"
+                size="md"
+                icon={<RotateCcw />}
+              >
+                New Analysis
+              </Button>
             </div>
           ) : (
             <>
