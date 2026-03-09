@@ -36,6 +36,8 @@ import { StarRating } from "../StarRating";
 import { GoldBadge } from "../GoldBadge";
 import { InlineEditor } from "../InlineEditor";
 import CitationPanel from "../CitationPanel";
+import ExportDialog from "../ExportDialog";
+import type { ExportSource } from "../../types";
 import { getLevelColor } from "./sentryHelpers";
 import { getSeverityBadgeClasses } from "../../utils/severity";
 
@@ -165,6 +167,7 @@ export default function SentryDetailView({
   const [showJiraModal, setShowJiraModal] = useState(false);
   const [jiraEnabled, setJiraEnabled] = useState(false);
   const [isGold, setIsGold] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [editableRootCause, setEditableRootCause] = useState<string | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -266,6 +269,86 @@ ${analysis.suggested_fixes}
     }
   }
 
+  function buildSentryExportSource(): ExportSource {
+    const sections: ExportSource["sections"] = [
+      {
+        id: "summary",
+        label: "Summary",
+        content: [
+          `Error Type: ${analysis.error_type}`,
+          `Severity: ${analysis.severity}`,
+          analysis.error_message ? `Error Message: ${analysis.error_message}` : "",
+          analysis.component ? `Component: ${analysis.component}` : "",
+          sentryData?.permalink ? `Sentry: ${sentryData.permalink}` : "",
+        ].filter(Boolean).join("\n"),
+        defaultOn: true,
+      },
+      {
+        id: "root_cause",
+        label: "Root Cause",
+        content: currentRootCause || "Not available",
+        defaultOn: true,
+      },
+      {
+        id: "suggested_fixes",
+        label: "Suggested Fixes",
+        content: suggestedFixesArray
+          ? suggestedFixesArray.map((f, i) => `${i + 1}. ${f}`).join("\n")
+          : String(suggestedFixesRaw || "None"),
+        defaultOn: true,
+      },
+    ];
+
+    if (aiResult?.user_impact) {
+      sections.push({
+        id: "user_impact",
+        label: "User Impact",
+        content: aiResult.user_impact,
+        defaultOn: true,
+      });
+    }
+
+    if (aiResult?.breadcrumb_analysis) {
+      sections.push({
+        id: "breadcrumbs",
+        label: "Breadcrumb Analysis",
+        content: aiResult.breadcrumb_analysis,
+        defaultOn: true,
+      });
+    }
+
+    if (analysis.stack_trace) {
+      sections.push({
+        id: "stack_trace",
+        label: "Stack Trace",
+        content: analysis.stack_trace,
+        defaultOn: false,
+      });
+    }
+
+    const patterns = sentryData?.detectedPatterns;
+    if (patterns && patterns.length > 0) {
+      sections.push({
+        id: "patterns",
+        label: "Detected Patterns",
+        content: patterns
+          .map(
+            (p) =>
+              `${p.patternType} (${Math.round(p.confidence * 100)}%): ${p.evidence.join("; ")}`
+          )
+          .join("\n"),
+        defaultOn: false,
+      });
+    }
+
+    return {
+      sourceType: "sentry",
+      sourceName: analysis.filename,
+      defaultTitle: `Sentry Analysis: ${analysis.filename}`,
+      sections,
+    };
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -295,6 +378,12 @@ ${analysis.suggested_fixes}
             icon={<Download />}
           >
             Export Markdown
+          </Button>
+          <Button
+            onClick={() => setShowExport(true)}
+            icon={<Download />}
+          >
+            Export Options
           </Button>
           {jiraEnabled && (
             <Button
@@ -734,6 +823,13 @@ ${analysis.suggested_fixes}
         analysis={analysis}
         isOpen={showJiraModal}
         onClose={() => setShowJiraModal(false)}
+      />
+
+      {/* Export Dialog */}
+      <ExportDialog
+        source={buildSentryExportSource()}
+        isOpen={showExport}
+        onClose={() => setShowExport(false)}
       />
     </div>
   );
