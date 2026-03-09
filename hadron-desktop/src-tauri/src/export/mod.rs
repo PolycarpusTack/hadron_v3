@@ -2,7 +2,7 @@ pub mod generators;
 pub mod report;
 pub mod sanitizer;
 
-pub use report::{ReportAudience, ReportConfig, ReportData, ReportSections};
+pub use report::{GenericReportData, GenericSection, ReportAudience, ReportConfig, ReportData, ReportSections};
 pub use sanitizer::{has_sensitive_content, sanitize_for_customer, simplify_technical_terms};
 
 use generators::{
@@ -31,6 +31,22 @@ pub fn export_report(data: &ReportData, format: ExportFormat) -> String {
         ExportFormat::Json => generate_json(data),
         ExportFormat::Txt => generate_txt(data),
         ExportFormat::Xlsx => generate_xlsx(data),
+    }
+}
+
+/// Export a generic report to the specified format
+pub fn export_generic_report(data: &GenericReportData, format: ExportFormat) -> String {
+    use generators::{
+        generate_generic_html, generate_generic_html_interactive, generate_generic_json,
+        generate_generic_markdown, generate_generic_txt, generate_generic_xlsx,
+    };
+    match format {
+        ExportFormat::Markdown => generate_generic_markdown(data),
+        ExportFormat::Html => generate_generic_html(data),
+        ExportFormat::HtmlInteractive => generate_generic_html_interactive(data),
+        ExportFormat::Json => generate_generic_json(data),
+        ExportFormat::Txt => generate_generic_txt(data),
+        ExportFormat::Xlsx => generate_generic_xlsx(data),
     }
 }
 

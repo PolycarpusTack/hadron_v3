@@ -342,3 +342,50 @@ impl ReportData {
         }
     }
 }
+
+/// A named section for generic (non-crash) reports
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenericSection {
+    pub id: String,
+    pub label: String,
+    pub content: String,
+}
+
+/// Report data for non-crash exports (code, sentry, jira)
+#[derive(Debug, Clone, Serialize)]
+pub struct GenericReportData {
+    pub metadata: ReportMetadata,
+    pub source_type: String,
+    pub source_name: String,
+    pub title: String,
+    pub sections: Vec<GenericSection>,
+    pub audience: ReportAudience,
+    pub footer_text: Option<String>,
+}
+
+impl GenericReportData {
+    pub fn new(
+        source_type: String,
+        source_name: String,
+        title: String,
+        sections: Vec<GenericSection>,
+        audience: ReportAudience,
+        footer_text: Option<String>,
+    ) -> Self {
+        Self {
+            metadata: ReportMetadata {
+                generated_at: chrono::Utc::now()
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string(),
+                generator_version: env!("CARGO_PKG_VERSION").to_string(),
+                report_id: uuid::Uuid::new_v4().to_string(),
+            },
+            source_type,
+            source_name,
+            title,
+            sections,
+            audience,
+            footer_text,
+        }
+    }
+}
