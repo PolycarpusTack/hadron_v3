@@ -297,6 +297,128 @@ pub fn sanitize_content(content: String, audience: String) -> Result<String, Str
     Ok(sanitized)
 }
 
+/// A single named section for generic export
+#[derive(Deserialize)]
+pub struct GenericExportSection {
+    pub id: String,
+    pub label: String,
+    pub content: String,
+}
+
+/// Export request for non-crash analyzers (code, sentry, jira)
+#[derive(Deserialize)]
+pub struct GenericExportRequest {
+    pub source_type: String,
+    pub source_name: String,
+    pub format: String,
+    pub audience: Option<String>,
+    pub title: Option<String>,
+    pub sections: Vec<GenericExportSection>,
+    pub footer_text: Option<String>,
+}
+
+/// Generate a report from pre-structured sections (non-crash analyzers)
+#[tauri::command]
+pub fn export_generic_report(request: GenericExportRequest) -> Result<ExportResponse, String> {
+    log::debug!("cmd: export_generic_report");
+    log::info!(
+        "Generating generic {} report for: {} ({})",
+        request.format,
+        request.source_name,
+        request.source_type
+    );
+
+    let audience = match request.audience.as_deref() {
+        Some("customer") => crate::export::ReportAudience::Customer,
+        Some("support") => crate::export::ReportAudience::Support,
+        Some("executive") => crate::export::ReportAudience::Executive,
+        _ => crate::export::ReportAudience::Technical,
+    };
+
+    let sections: Vec<crate::export::GenericSection> = request
+        .sections
+        .into_iter()
+        .map(|s| crate::export::GenericSection {
+            id: s.id,
+            label: s.label,
+            content: s.content,
+        })
+        .collect();
+
+    let title = request
+        .title
+        .unwrap_or_else(|| format!("{} Report", request.source_type));
+
+    let data = crate::export::GenericReportData::new(
+        request.source_type.clone(),
+        request.source_name.clone(),
+        title,
+        sections,
+        audience,
+        request.footer_text,
+    );
+
+    let format = match request.format.to_lowercase().as_str() {
+        "html" => crate::export::ExportFormat::Html,
+        "html_interactive" => crate::export::ExportFormat::HtmlInteractive,
+        "json" => crate::export::ExportFormat::Json,
+        "txt" | "text" => crate::export::ExportFormat::Txt,
+        "xlsx" | "excel" => crate::export::ExportFormat::Xlsx,
+        _ => crate::export::ExportFormat::Markdown,
+    };
+
+    let content = crate::export::export_generic_report(&data, format);
+
+    let extension = match format {
+        crate::export::ExportFormat::Html
+        | crate::export::ExportFormat::HtmlInteractive => "html",
+        crate::export::ExportFormat::Json => "json",
+        crate::export::ExportFormat::Markdown => "md",
+        crate::export::ExportFormat::Txt => "txt",
+        crate::export::ExportFormat::Xlsx => "xlsx",
+    };
+
+    let base_name = request
+        .source_name
+        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+    let suggested_filename = format!(
+        "{}_{}_report.{}",
+        base_name,
+        request.source_type,
+        extension
+    );
+
+    Ok(ExportResponse {
+        content,
+        suggested_filename,
+        format: request.format,
+    })
+}
+
+/// Preview a generic report without saving
+#[tauri::command]
+pub fn preview_generic_report(
+    source_type: String,
+    source_name: String,
+    format: String,
+    audience: String,
+    title: Option<String>,
+    sections: Vec<GenericExportSection>,
+) -> Result<String, String> {
+    log::debug!("cmd: preview_generic_report");
+    let request = GenericExportRequest {
+        source_type,
+        source_name,
+        format,
+        audience: Some(audience),
+        title,
+        sections,
+        footer_text: None,
+    };
+    let response = export_generic_report(request)?;
+    Ok(response.content)
+}
+
 /// Multi-file report export request
 #[derive(Deserialize)]
 pub struct MultiExportRequest {

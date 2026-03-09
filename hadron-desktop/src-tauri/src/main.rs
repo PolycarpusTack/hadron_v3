@@ -272,6 +272,8 @@ fn main() {
             commands::export::get_audience_options,
             commands::export::preview_report,
             commands::export::generate_report_multi,
+            commands::export::export_generic_report,
+            commands::export::preview_generic_report,
             // ── Performance ──
             commands::performance::analyze_performance_trace,
             // ── Intelligence ──
