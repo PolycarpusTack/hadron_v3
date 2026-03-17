@@ -53,8 +53,8 @@ fn log_level_from_env_or_default() -> log::LevelFilter {
         "info" => log::LevelFilter::Info,
         "debug" => log::LevelFilter::Debug,
         "trace" => log::LevelFilter::Trace,
-        // Default to Debug while random shutdowns are being investigated.
-        _ => log::LevelFilter::Debug,
+        // Default to Info for production. Set HADRON_LOG_LEVEL=debug to diagnose.
+        _ => log::LevelFilter::Info,
     }
 }
 
@@ -88,7 +88,6 @@ fn main() {
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
                         file_name: Some("hadron".to_string()),
                     }),
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
                 .level(log_level_from_env_or_default())
                 .max_file_size(50_000)
@@ -409,17 +408,23 @@ fn main() {
                 tauri::WindowEvent::Destroyed => {
                     log::info!("window: {} destroyed", window.label());
                 }
-                // Immediately hide widget when main window is minimized.
-                // This avoids the 200ms+ JS debounce chain that leaves
-                // the widget as a black box over the desktop.
+                // Hide widget when main window is minimized.
+                // Routed through the WidgetLock to prevent racing with
+                // JS-triggered show/resize operations on the widget.
                 tauri::WindowEvent::Resized(_) if window.label() == "main" => {
                     if let Ok(true) = window.is_minimized() {
-                        if let Some(widget) = window.app_handle().get_webview_window("widget") {
-                            if widget.is_visible().unwrap_or(false) {
-                                let _ = widget.hide();
-                                log::debug!("widget: hidden on main minimize");
+                        let app = window.app_handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            let wl = app.state::<widget_commands::WidgetLock>();
+                            let _guard = wl.0.lock().await;
+                            if let Some(widget) = app.get_webview_window("widget") {
+                                if widget.is_visible().unwrap_or(false) {
+                                    let _ = widget.hide();
+                                    let _ = widget.set_always_on_top(false);
+                                    log::debug!("widget: hidden on main minimize (lock-aware)");
+                                }
                             }
-                        }
+                        });
                     }
                 }
                 _ => {}

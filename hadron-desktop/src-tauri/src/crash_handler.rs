@@ -204,9 +204,22 @@ pub fn install_native_crash_handler() {
 
 #[cfg(target_os = "windows")]
 mod windows_seh {
-    //! Windows SEH integration: catches native crashes and writes detailed reports
-    //! including a raw stack trace (return addresses) and loaded module map so that
-    //! ACCESS_VIOLATION and other native faults can be mapped back to source.
+    //! Minimal Windows SEH handler.
+    //!
+    //! After a native crash (ACCESS_VIOLATION, ILLEGAL_INSTRUCTION, etc.) the
+    //! process heap may be corrupt, so we avoid all heap allocation in the hot
+    //! path.  The strategy is:
+    //!
+    //! 1. **Write a MiniDump** via `MiniDumpWriteDump` — a single kernel call
+    //!    that captures full thread/stack/module state without touching the heap.
+    //!    This is the primary diagnostic artifact.
+    //!
+    //! 2. **Write a small text report** to a pre-allocated static buffer using
+    //!    `core::fmt::Write` on a `&mut [u8]` — no String/format! allocation.
+    //!    Contains the exception code, address, and raw stack frames.
+    //!
+    //! 3. **Flush the buffer** to disk via `CreateFileW`/`WriteFile` (kernel32),
+    //!    bypassing Rust's std::fs which may allocate.
 
     use std::ffi::c_void;
 
@@ -232,7 +245,7 @@ mod windows_seh {
     #[repr(C)]
     struct ExceptionPointers {
         exception_record: *mut ExceptionRecord,
-        _context_record: *mut c_void,
+        context_record: *mut c_void,
     }
 
     type UnhandledExceptionFilter =
@@ -242,114 +255,263 @@ mod windows_seh {
         fn SetUnhandledExceptionFilter(
             filter: Option<UnhandledExceptionFilter>,
         ) -> Option<UnhandledExceptionFilter>;
-    }
-
-    // Stack trace capture
-    extern "system" {
         fn RtlCaptureStackBackTrace(
             frames_to_skip: u32,
             frames_to_capture: u32,
             back_trace: *mut *mut c_void,
             back_trace_hash: *mut u32,
         ) -> u16;
+        fn GetCurrentProcessId() -> u32;
+        fn GetCurrentThreadId() -> u32;
+        fn GetCurrentProcess() -> *mut c_void;
     }
 
-    // Module enumeration for address → DLL mapping
+    // MiniDump support
+    const MINIDUMP_NORMAL: u32 = 0x00000000;
+    const MINIDUMP_WITH_THREAD_INFO: u32 = 0x00001000;
+    const MINIDUMP_WITH_MODULE_HEADERS: u32 = 0x00080000;
+
     #[repr(C)]
-    struct ModuleEntry32W {
-        dw_size: u32,
-        th32_module_id: u32,
-        th32_process_id: u32,
-        glbl_cnt_usage: u32,
-        proc_cnt_usage: u32,
-        mod_base_addr: *mut u8,
-        mod_base_size: u32,
-        h_module: *mut c_void,
-        sz_module: [u16; 256],
-        sz_exe_path: [u16; 260],
+    struct MinidumpExceptionInformation {
+        thread_id: u32,
+        exception_pointers: *mut ExceptionPointers,
+        client_pointers: i32, // BOOL
     }
-
-    const TH32CS_SNAPMODULE: u32 = 0x00000008;
-    const TH32CS_SNAPMODULE32: u32 = 0x00000010;
-    const INVALID_HANDLE: *mut c_void = -1isize as *mut c_void;
 
     extern "system" {
-        fn CreateToolhelp32Snapshot(dw_flags: u32, th32_process_id: u32) -> *mut c_void;
-        fn Module32FirstW(h_snapshot: *mut c_void, lpme: *mut ModuleEntry32W) -> i32;
-        fn Module32NextW(h_snapshot: *mut c_void, lpme: *mut ModuleEntry32W) -> i32;
+        // dbghelp.dll
+        fn MiniDumpWriteDump(
+            h_process: *mut c_void,
+            process_id: u32,
+            h_file: *mut c_void,
+            dump_type: u32,
+            exception_param: *const MinidumpExceptionInformation,
+            user_stream_param: *const c_void,
+            callback_param: *const c_void,
+        ) -> i32;
+
+        // kernel32.dll — file I/O without heap
+        fn CreateFileW(
+            file_name: *const u16,
+            desired_access: u32,
+            share_mode: u32,
+            security_attributes: *const c_void,
+            creation_disposition: u32,
+            flags_and_attributes: u32,
+            template_file: *mut c_void,
+        ) -> *mut c_void;
+        fn WriteFile(
+            h_file: *mut c_void,
+            buffer: *const u8,
+            number_of_bytes_to_write: u32,
+            number_of_bytes_written: *mut u32,
+            overlapped: *mut c_void,
+        ) -> i32;
         fn CloseHandle(h_object: *mut c_void) -> i32;
-        fn GetCurrentProcessId() -> u32;
     }
+
+    const GENERIC_WRITE: u32 = 0x40000000;
+    const CREATE_ALWAYS: u32 = 2;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+    const INVALID_HANDLE: *mut c_void = -1isize as *mut c_void;
 
     fn exception_code_name(code: u32) -> &'static str {
         match code {
-            EXCEPTION_ACCESS_VIOLATION => "ACCESS_VIOLATION (0xC0000005)",
-            EXCEPTION_ILLEGAL_INSTRUCTION => "ILLEGAL_INSTRUCTION (0xC000001D)",
-            EXCEPTION_STACK_OVERFLOW => "STACK_OVERFLOW (0xC00000FD)",
-            EXCEPTION_INT_DIVIDE_BY_ZERO => "INT_DIVIDE_BY_ZERO (0xC0000094)",
-            EXCEPTION_IN_PAGE_ERROR => "IN_PAGE_ERROR (0xC0000006)",
-            EXCEPTION_GUARD_PAGE => "GUARD_PAGE (0x80000001)",
+            EXCEPTION_ACCESS_VIOLATION => "ACCESS_VIOLATION",
+            EXCEPTION_ILLEGAL_INSTRUCTION => "ILLEGAL_INSTRUCTION",
+            EXCEPTION_STACK_OVERFLOW => "STACK_OVERFLOW",
+            EXCEPTION_INT_DIVIDE_BY_ZERO => "INT_DIVIDE_BY_ZERO",
+            EXCEPTION_IN_PAGE_ERROR => "IN_PAGE_ERROR",
+            EXCEPTION_GUARD_PAGE => "GUARD_PAGE",
             _ => "UNKNOWN",
         }
     }
 
-    /// Capture raw return addresses from the current call stack.
-    unsafe fn capture_stack_trace() -> String {
-        const MAX_FRAMES: u32 = 64;
-        let mut frames: [*mut c_void; 64] = [std::ptr::null_mut(); 64];
-        let count = unsafe {
-            RtlCaptureStackBackTrace(
-                2, // skip this fn + the exception filter
-                MAX_FRAMES,
-                frames.as_mut_ptr(),
+    /// Fixed-capacity buffer that implements core::fmt::Write without allocating.
+    struct StackBuf {
+        buf: [u8; Self::CAPACITY],
+        pos: usize,
+    }
+
+    impl StackBuf {
+        const CAPACITY: usize = 8192;
+
+        const fn new() -> Self {
+            Self {
+                buf: [0u8; Self::CAPACITY],
+                pos: 0,
+            }
+        }
+
+        fn as_bytes(&self) -> &[u8] {
+            &self.buf[..self.pos]
+        }
+    }
+
+    impl core::fmt::Write for StackBuf {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            let bytes = s.as_bytes();
+            let remaining = Self::CAPACITY - self.pos;
+            let len = bytes.len().min(remaining);
+            self.buf[self.pos..self.pos + len].copy_from_slice(&bytes[..len]);
+            self.pos += len;
+            Ok(())
+        }
+    }
+
+    /// Encode a path as null-terminated UTF-16 into a stack buffer.
+    fn path_to_wide(path: &str, out: &mut [u16; 512]) -> usize {
+        let mut i = 0;
+        for ch in path.encode_utf16() {
+            if i >= 511 { break; }
+            out[i] = ch;
+            i += 1;
+        }
+        out[i] = 0;
+        i
+    }
+
+    /// Write a MiniDump file — single kernel call, no heap.
+    unsafe fn write_minidump(info: *mut ExceptionPointers) {
+        let dump_dir = super::log_dir();
+        let dump_path = format!(
+            "{}\\crash-{}.dmp",
+            dump_dir.display(),
+            // Use a simple counter instead of chrono to avoid allocation
+            unsafe { GetCurrentProcessId() }
+        );
+
+        let mut wide_path = [0u16; 512];
+        path_to_wide(&dump_path, &mut wide_path);
+
+        let h_file = unsafe {
+            CreateFileW(
+                wide_path.as_ptr(),
+                GENERIC_WRITE,
+                0,
+                std::ptr::null(),
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
                 std::ptr::null_mut(),
             )
         };
 
-        if count == 0 {
-            return "  (no frames captured)\n".to_string();
+        if h_file == INVALID_HANDLE || h_file.is_null() {
+            return;
         }
 
-        let mut out = String::new();
-        for i in 0..count as usize {
-            out.push_str(&format!("  [{:2}] 0x{:016X}\n", i, frames[i] as usize));
+        let exc_info = MinidumpExceptionInformation {
+            thread_id: unsafe { GetCurrentThreadId() },
+            exception_pointers: info,
+            client_pointers: 0, // FALSE
+        };
+
+        let dump_type = MINIDUMP_NORMAL | MINIDUMP_WITH_THREAD_INFO | MINIDUMP_WITH_MODULE_HEADERS;
+
+        unsafe {
+            MiniDumpWriteDump(
+                GetCurrentProcess(),
+                GetCurrentProcessId(),
+                h_file,
+                dump_type,
+                &exc_info,
+                std::ptr::null(),
+                std::ptr::null(),
+            );
+            CloseHandle(h_file);
         }
-        out
     }
 
-    /// List loaded modules (DLLs) with base address and size for offline addr2line.
-    unsafe fn capture_module_map() -> String {
-        let pid = unsafe { GetCurrentProcessId() };
-        let snap = unsafe {
-            CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
+    /// Write the text crash report using only stack-allocated buffers.
+    unsafe fn write_text_report(record: &ExceptionRecord) {
+        use core::fmt::Write;
+
+        let mut buf = StackBuf::new();
+        let code = record.exception_code;
+        let addr = record.exception_address as usize;
+
+        let _ = write!(buf, "=== HADRON CRASH REPORT ===\n");
+        let _ = write!(buf, "Version: {}\n", env!("CARGO_PKG_VERSION"));
+        let _ = write!(buf, "PID: {}\n\n", unsafe { GetCurrentProcessId() });
+        let _ = write!(
+            buf,
+            "Type: Windows SEH exception\nException: {} (0x{:08X})\nAddress: 0x{:016X}\n\n",
+            exception_code_name(code), code, addr,
+        );
+
+        // Exception-specific detail
+        match code {
+            EXCEPTION_ACCESS_VIOLATION if record.number_parameters >= 2 => {
+                let op = if record.exception_information[0] == 0 { "read" } else { "write" };
+                let target = record.exception_information[1];
+                let _ = write!(buf, "Attempted {} of address 0x{:016X}\n\n", op, target);
+            }
+            EXCEPTION_ILLEGAL_INSTRUCTION => {
+                let _ = write!(buf, "CPU cannot execute instruction at crash address.\n");
+                let _ = write!(buf, "Fix: rebuild with target-cpu=x86-64 in .cargo/config.toml\n\n");
+            }
+            EXCEPTION_STACK_OVERFLOW => {
+                let _ = write!(buf, "Stack overflow detected.\n\n");
+            }
+            _ => {}
+        }
+
+        // Raw stack trace (no heap — frames on stack)
+        let _ = write!(buf, "Stack trace:\n");
+        const MAX_FRAMES: u32 = 48;
+        let mut frames: [*mut c_void; 48] = [std::ptr::null_mut(); 48];
+        let count = unsafe {
+            RtlCaptureStackBackTrace(2, MAX_FRAMES, frames.as_mut_ptr(), std::ptr::null_mut())
         };
-        if snap == INVALID_HANDLE || snap.is_null() {
-            return "  (failed to enumerate modules)\n".to_string();
+        for i in 0..count as usize {
+            let _ = write!(buf, "  [{:2}] 0x{:016X}\n", i, frames[i] as usize);
+        }
+        if count == 0 {
+            let _ = write!(buf, "  (no frames captured)\n");
         }
 
-        let mut entry: ModuleEntry32W = unsafe { std::mem::zeroed() };
-        entry.dw_size = std::mem::size_of::<ModuleEntry32W>() as u32;
+        let _ = write!(buf, "\nA .dmp minidump file was also written (if dbghelp.dll is available).\n");
+        let _ = write!(buf, "Open the .dmp in WinDbg or Visual Studio for full stack + module info.\n");
 
-        let mut out = String::new();
-        let mut ok = unsafe { Module32FirstW(snap, &mut entry) } != 0;
+        // Write to file via kernel32 (no std::fs allocation)
+        let log_dir = super::log_dir();
+        let text_path = format!(
+            "{}\\crash-{}.log",
+            log_dir.display(),
+            unsafe { GetCurrentProcessId() }
+        );
+        let mut wide_path = [0u16; 512];
+        path_to_wide(&text_path, &mut wide_path);
 
-        while ok {
-            let base = entry.mod_base_addr as usize;
-            let size = entry.mod_base_size as usize;
-            let name = String::from_utf16_lossy(
-                &entry.sz_module[..entry.sz_module.iter().position(|&c| c == 0).unwrap_or(256)],
-            );
-            out.push_str(&format!(
-                "  0x{:016X} - 0x{:016X}  {}\n",
-                base,
-                base + size,
-                name
-            ));
-            ok = unsafe { Module32NextW(snap, &mut entry) } != 0;
+        let h_file = unsafe {
+            CreateFileW(
+                wide_path.as_ptr(),
+                GENERIC_WRITE,
+                0,
+                std::ptr::null(),
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if h_file != INVALID_HANDLE && !h_file.is_null() {
+            let bytes = buf.as_bytes();
+            let mut written: u32 = 0;
+            unsafe {
+                WriteFile(
+                    h_file,
+                    bytes.as_ptr(),
+                    bytes.len() as u32,
+                    &mut written,
+                    std::ptr::null_mut(),
+                );
+                CloseHandle(h_file);
+            }
         }
 
-        unsafe { CloseHandle(snap) };
-        out
+        // Also write to stderr (best effort)
+        let _ = std::io::Write::write_all(&mut std::io::stderr(), buf.as_bytes());
     }
 
     unsafe extern "system" fn hadron_exception_filter(
@@ -359,56 +521,12 @@ mod windows_seh {
             return EXCEPTION_CONTINUE_SEARCH;
         }
 
+        // 1. Write minidump first — single kernel call, most robust
+        unsafe { write_minidump(info) };
+
+        // 2. Write minimal text report using stack-allocated buffer
         let record = unsafe { &*(*info).exception_record };
-        let code = record.exception_code;
-        let address = record.exception_address;
-
-        let header = format!(
-            "Type: Windows SEH exception\nException: {} (0x{:08X})\nAddress: {:?}\n",
-            exception_code_name(code),
-            code,
-            address,
-        );
-
-        let description = match code {
-            EXCEPTION_ACCESS_VIOLATION if record.number_parameters >= 2 => {
-                let op = if record.exception_information[0] == 0 { "read" } else { "write" };
-                format!(
-                    "Attempted {} of address 0x{:016X}\n\n\
-                     This is a memory safety violation in native code (C/C++ library or FFI).\n\
-                     Common causes: use-after-free, null pointer dereference, buffer overflow.\n",
-                    op, record.exception_information[1]
-                )
-            }
-            EXCEPTION_ILLEGAL_INSTRUCTION => {
-                "The CPU encountered an instruction it cannot execute.\n\n\
-                 Common causes:\n\
-                 - Binary compiled with AVX/AVX2 but running on a CPU that only supports SSE2\n\
-                 - Corrupted executable or DLL\n\
-                 - Jump to invalid/non-code memory\n\n\
-                 Fix: rebuild with target-cpu=x86-64 in .cargo/config.toml\n"
-                    .to_string()
-            }
-            EXCEPTION_STACK_OVERFLOW => {
-                "Stack overflow detected.\n\n\
-                 Common causes: infinite recursion, very deep call chains, large stack allocations.\n"
-                    .to_string()
-            }
-            _ => format!("Exception code: 0x{:08X}\n", code),
-        };
-
-        // Capture stack trace and module map for offline analysis
-        let stack = unsafe { capture_stack_trace() };
-        let modules = unsafe { capture_module_map() };
-
-        let body = format!(
-            "{}\nStack trace (raw return addresses):\n{}\nLoaded modules:\n{}\n\
-             To resolve: match the crash address against module base ranges above,\n\
-             then use `addr2line -e <module> <offset>` where offset = address - base.\n",
-            description, stack, modules
-        );
-
-        super::write_crash_report(&header, &body);
+        unsafe { write_text_report(record) };
 
         EXCEPTION_CONTINUE_SEARCH
     }

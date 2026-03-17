@@ -16,7 +16,7 @@ const MAX_WIDGET_HEIGHT: f64 = 1200.0;
 ///
 /// Uses tokio::sync::Mutex (not parking_lot) to avoid blocking the Tokio
 /// runtime when multiple widget commands arrive concurrently.
-pub struct WidgetLock(tokio::sync::Mutex<()>);
+pub struct WidgetLock(pub(crate) tokio::sync::Mutex<()>);
 
 impl WidgetLock {
     pub fn new() -> Self {
