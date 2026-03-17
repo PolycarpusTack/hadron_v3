@@ -1,0 +1,4 @@
+[build]
+# Use baseline x86-64 instruction set to avoid ILLEGAL_INSTRUCTION crashes
+# on older CPUs that lack AVX/AVX2 support.
+rustflags = ["-C", "target-cpu=x86-64"]

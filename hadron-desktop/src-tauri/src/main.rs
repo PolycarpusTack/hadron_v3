@@ -33,6 +33,7 @@ mod evidence_extractor;
 mod token_budget;
 mod ticket_briefs;
 mod ticket_embeddings;
+mod str_utils;
 mod widget_commands;
 
 use database::Database;
@@ -100,9 +101,14 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .skip_initial_state("widget")
+                .build(),
+        )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Register global hotkey: Ctrl+Shift+H to toggle widget
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -156,6 +162,7 @@ fn main() {
         .manage(pattern_engine_state)
         .manage(embedding_cache)
         .manage(widget_commands::WidgetLock::new())
+        .manage(widget_commands::HoverButtonEnabledState::new(true))
         .manage(jira_poller::PollerState::new())
         .invoke_handler(tauri::generate_handler![
             // ── AI Analysis ──
@@ -236,6 +243,7 @@ fn main() {
             commands::analytics::get_similar_analyses,
             commands::analytics::count_similar_analyses,
             commands::analytics::get_trend_data,
+            commands::analytics::get_dashboard_stats,
             commands::analytics::get_top_error_patterns,
             // ── Keeper ──
             commands::keeper::initialize_keeper,
@@ -366,11 +374,13 @@ fn main() {
             widget_commands::toggle_widget,
             widget_commands::show_widget,
             widget_commands::hide_widget,
+            widget_commands::is_widget_visible,
             widget_commands::resize_widget,
             widget_commands::focus_main_window,
             widget_commands::get_widget_position,
             widget_commands::move_widget,
             widget_commands::is_main_window_visible,
+            widget_commands::set_hover_button_enabled,
             // ── JIRA Assist ──
             commands::jira_assist::get_ticket_brief,
             commands::jira_assist::get_ticket_briefs_batch,
@@ -398,6 +408,19 @@ fn main() {
                 }
                 tauri::WindowEvent::Destroyed => {
                     log::info!("window: {} destroyed", window.label());
+                }
+                // Immediately hide widget when main window is minimized.
+                // This avoids the 200ms+ JS debounce chain that leaves
+                // the widget as a black box over the desktop.
+                tauri::WindowEvent::Resized(_) if window.label() == "main" => {
+                    if let Ok(true) = window.is_minimized() {
+                        if let Some(widget) = window.app_handle().get_webview_window("widget") {
+                            if widget.is_visible().unwrap_or(false) {
+                                let _ = widget.hide();
+                                log::debug!("widget: hidden on main minimize");
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
