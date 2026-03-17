@@ -104,9 +104,16 @@ const TOOL_LABELS: Record<string, string> = {
 interface AskHadronViewProps {
   selectedAnalysisId?: number | null;
   onNavigateToAnalysis?: (id: number) => void;
+  initialMessages?: ChatMessage[];
+  onInitialMessagesConsumed?: () => void;
 }
 
-export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis }: AskHadronViewProps) {
+export default function AskHadronView({
+  selectedAnalysisId,
+  onNavigateToAnalysis,
+  initialMessages,
+  onInitialMessagesConsumed,
+}: AskHadronViewProps) {
   // Session state
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -161,6 +168,7 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
   const streamingContentRef = useRef("");
   const sessionsRef = useRef<ChatSession[]>([]);
   const activeRequestIdRef = useRef<string | null>(null);
+  const importedBatchRef = useRef<string | null>(null);
 
   // Keep sessionsRef in sync
   useEffect(() => {
@@ -174,8 +182,57 @@ export default function AskHadronView({ selectedAnalysisId, onNavigateToAnalysis
     getOpenSearchConfig().then((cfg) => {
       setWonVersion(cfg.defaultVersion);
       setCustomer(cfg.defaultCustomer);
-    }).catch(() => {});
+    }).catch((e) => logger.warn("Failed to load OpenSearch config", { error: e }));
   }, []);
+
+  useEffect(() => {
+    if (!initialMessages || initialMessages.length === 0) {
+      importedBatchRef.current = null;
+      return;
+    }
+    if (isLoading) return;
+
+    const batchKey = initialMessages.map((message) => message.id).join("|");
+    if (importedBatchRef.current === batchKey) return;
+    importedBatchRef.current = batchKey;
+
+    const importedMessages = initialMessages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .map((message) => ({
+        ...message,
+        isStreaming: false,
+      }));
+
+    if (importedMessages.length === 0) {
+      onInitialMessagesConsumed?.();
+      return;
+    }
+
+    const firstUserMessage = importedMessages.find((message) => message.role === "user");
+    const now = Date.now();
+    const sessionId = createSessionId();
+    const session: ChatSession = {
+      id: sessionId,
+      title: generateSessionTitle(firstUserMessage?.content || "Widget chat"),
+      messages: importedMessages,
+      createdAt: importedMessages[0]?.timestamp || now,
+      updatedAt: now,
+    };
+
+    setActiveSessionId(sessionId);
+    setMessages(importedMessages);
+    setInput("");
+    setShowSidebar(true);
+
+    saveChatSession(session)
+      .then(() => getChatSessions().then(setSessions))
+      .catch((error) => {
+        logger.error("Failed to import widget chat session", { error: String(error) });
+        setErrorMsg("Warning: widget conversation could not be saved.");
+      });
+
+    onInitialMessagesConsumed?.();
+  }, [initialMessages, isLoading, onInitialMessagesConsumed]);
 
   // Auto-scroll on new messages (scroll container only, not the page)
   useEffect(() => {

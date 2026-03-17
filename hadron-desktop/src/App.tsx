@@ -10,6 +10,7 @@ import JiraAnalyzerView from "./components/JiraAnalyzerView";
 import SentryAnalyzerView from "./components/SentryAnalyzerView";
 import ConsoleViewer from "./components/ConsoleViewer";
 import DocumentationViewer from "./components/DocumentationViewer";
+import IntelligenceDashboard from "./components/IntelligenceDashboard";
 import Splashscreen from "./components/Splashscreen";
 import { ViewErrorBoundary, AppErrorBoundary } from "./components/ErrorBoundary";
 import Navigation from "./components/Navigation";
@@ -32,6 +33,8 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAppState } from "./hooks/useAppState";
 import { retryOperation, getUserFriendlyErrorMessage, getRecoverySuggestions } from "./utils/errorHandling";
 import logger from "./services/logger";
+import type { ChatMessage } from "./services/chat";
+import { getWidgetAutoAction } from "./components/widget/widgetAutoVisibility";
 
 // Lazy-loaded components for code splitting
 const AnalysisDetailView = lazy(() => import("./components/AnalysisDetailView"));
@@ -55,6 +58,7 @@ function App() {
   const { state, actions } = useAppState();
   const [showConsole, setShowConsole] = useState(false);
   const [showDocs, setShowDocs] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [jiraEnabled, setJiraEnabled] = useState(false);
   const [sentryEnabled, setSentryEnabled] = useState(false);
@@ -62,6 +66,10 @@ function App() {
   const [showPerformanceAnalyzer, setShowPerformanceAnalyzer] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true));
   const [showAskHadron, setShowAskHadron] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true));
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [pendingWidgetMessages, setPendingWidgetMessages] = useState<ChatMessage[] | null>(null);
+  const widgetVisibilitySyncTimeoutRef = useRef<number | null>(null);
+  const widgetVisibilitySyncInFlightRef = useRef(false);
+  const queuedWidgetVisibilitySyncReasonRef = useRef<string | null>(null);
 
   // Destructure for cleaner code
   const {
@@ -111,6 +119,101 @@ function App() {
       category: "ui",
     });
   }, [currentView, analyzing, codeAnalyzing, selectedAnalysis?.id]);
+
+  const syncHoverButtonEnabled = useCallback((enabled: boolean) => {
+    invoke("set_hover_button_enabled", { enabled }).catch((e) => logger.warn("set_hover_button_enabled failed", { error: e }));
+    emit("settings:hover-button-changed", { enabled }).catch((e) => logger.warn("emit hover-button-changed failed", { error: e }));
+    if (!enabled) {
+      invoke("hide_widget").catch((e) => logger.warn("hide_widget failed", { error: e }));
+    }
+  }, []);
+
+  useEffect(() => {
+    syncHoverButtonEnabled(getBooleanSetting(STORAGE_KEYS.FEATURE_HOVER_BUTTON, true));
+  }, [syncHoverButtonEnabled]);
+
+  const syncWidgetAutoVisibility = useCallback(async (reason: string) => {
+    if (widgetVisibilitySyncInFlightRef.current) {
+      queuedWidgetVisibilitySyncReasonRef.current = reason;
+      return;
+    }
+
+    widgetVisibilitySyncInFlightRef.current = true;
+    try {
+      const hoverEnabled = getBooleanSetting(STORAGE_KEYS.FEATURE_HOVER_BUTTON, true);
+      const [mainVisible, widgetVisible] = await Promise.all([
+        invoke<boolean>("is_main_window_visible"),
+        invoke<boolean>("is_widget_visible"),
+      ]);
+      const action = getWidgetAutoAction(hoverEnabled, mainVisible, widgetVisible);
+
+      logger.debug("Widget visibility sync", {
+        reason,
+        hoverEnabled,
+        mainVisible,
+        widgetVisible,
+        action,
+      });
+
+      if (action === "show") {
+        await invoke("show_widget");
+      } else if (action === "hide") {
+        await invoke("hide_widget");
+      }
+    } catch (error) {
+      logger.warn("Failed to sync widget visibility", {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      widgetVisibilitySyncInFlightRef.current = false;
+
+      const queuedReason = queuedWidgetVisibilitySyncReasonRef.current;
+      if (queuedReason) {
+        queuedWidgetVisibilitySyncReasonRef.current = null;
+        window.setTimeout(() => {
+          syncWidgetAutoVisibility(queuedReason);
+        }, 0);
+      }
+    }
+  }, []);
+
+  const scheduleWidgetAutoVisibilitySync = useCallback((reason: string, delayMs = 150) => {
+    if (widgetVisibilitySyncTimeoutRef.current !== null) {
+      window.clearTimeout(widgetVisibilitySyncTimeoutRef.current);
+    }
+
+    widgetVisibilitySyncTimeoutRef.current = window.setTimeout(() => {
+      widgetVisibilitySyncTimeoutRef.current = null;
+      syncWidgetAutoVisibility(reason);
+    }, delayMs);
+  }, [syncWidgetAutoVisibility]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => scheduleWidgetAutoVisibilitySync(`visibility:${document.visibilityState}`);
+    const onFocus = () => scheduleWidgetAutoVisibilitySync("focus", 50);
+    const onBlur = () => scheduleWidgetAutoVisibilitySync("blur", 0);
+    const onPageHide = () => scheduleWidgetAutoVisibilitySync("pagehide", 0);
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("pagehide", onPageHide);
+
+    scheduleWidgetAutoVisibilitySync("startup", 0);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("pagehide", onPageHide);
+      if (widgetVisibilitySyncTimeoutRef.current !== null) {
+        window.clearTimeout(widgetVisibilitySyncTimeoutRef.current);
+        widgetVisibilitySyncTimeoutRef.current = null;
+      }
+      queuedWidgetVisibilitySyncReasonRef.current = null;
+    };
+  }, [scheduleWidgetAutoVisibilitySync]);
 
   useEffect(() => {
     const logWindowState = (event: string) => {
@@ -237,8 +340,20 @@ function App() {
 
       const unlistenOpenInMain = await listen<{ messages?: Array<{ role: string; content: string }> }>(
         "widget:open-in-main",
-        (_event) => {
-          // TODO: pass _event.payload.messages to AskHadronView for conversation carry-over
+        (event) => {
+          const baseTimestamp = Date.now();
+          const importedMessages = (event.payload.messages || [])
+            .filter((message): message is { role: ChatMessage["role"]; content: string } =>
+              (message.role === "user" || message.role === "assistant" || message.role === "system")
+              && typeof message.content === "string"
+            )
+            .map((message, index) => ({
+              id: `widget-import-${baseTimestamp}-${index}`,
+              role: message.role,
+              content: message.content,
+              timestamp: baseTimestamp + index,
+            }));
+          setPendingWidgetMessages(importedMessages);
           actions.setView("chat");
         }
       );
@@ -284,7 +399,9 @@ function App() {
     onViewHistory: () => actions.setView("history"),
     onOpenSettings: () => actions.setView('configure'),
     onCloseModal: () => {
-      if (showDocs) {
+      if (showDashboard) {
+        setShowDashboard(false);
+      } else if (showDocs) {
         setShowDocs(false);
       } else if (showConsole) {
         setShowConsole(false);
@@ -390,9 +507,10 @@ function App() {
         try {
           logger.info("Starting batch crash analysis", { filePath, model, provider, analysisType, analysisMode });
 
+          const isBatchComprehensive = analysisType === 'comprehensive' || analysisMode === 'deep_scan';
           await retryOperation(
             () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType, analysisMode),
-            { maxAttempts: 3, delayMs: 1000, backoff: true }
+            { maxAttempts: isBatchComprehensive ? 1 : 3, delayMs: 1000, backoff: true }
           );
 
           logger.info("Batch analysis succeeded", { filePath, model, provider, analysisType, analysisMode });
@@ -462,16 +580,13 @@ function App() {
     setShowCodeAnalyzer(codeFlag);
     setShowPerformanceAnalyzer(perfFlag);
     setShowAskHadron(chatFlag);
-    // Notify widget window of hover button setting change
-    emit("settings:hover-button-changed", { enabled: hoverFlag }).catch(() => {});
-    if (!hoverFlag) {
-      invoke("hide_widget").catch(() => {});
-    }
+    syncHoverButtonEnabled(hoverFlag);
+    scheduleWidgetAutoVisibilitySync("settings-change", 0);
     // Redirect if active view was disabled
     if (!codeFlag && currentView === "translate") actions.setView("analyze");
     if (!perfFlag && currentView === "performance") actions.setView("analyze");
     if (!chatFlag && currentView === "chat") actions.setView("analyze");
-  }, [currentView, actions]);
+  }, [currentView, actions, scheduleWidgetAutoVisibilitySync, syncHoverButtonEnabled]);
 
   // Handle navigation to analysis from chat
   const handleNavigateToAnalysis = useCallback(async (id: number) => {
@@ -510,6 +625,7 @@ function App() {
           sentryConnected={sentryEnabled}
           onOpenSettings={() => actions.setView("configure")}
           onOpenAskHadronDrawer={() => setDrawerOpen(true)}
+          onOpenDashboard={() => setShowDashboard(true)}
           isSettingsActive={currentView === "configure"}
         />
 
@@ -643,6 +759,8 @@ function App() {
                   <AskHadronView
                     selectedAnalysisId={selectedAnalysis?.id ?? null}
                     onNavigateToAnalysis={handleNavigateToAnalysis}
+                    initialMessages={pendingWidgetMessages ?? undefined}
+                    onInitialMessagesConsumed={() => setPendingWidgetMessages(null)}
                   />
                 </div>
               </Suspense>
@@ -708,6 +826,12 @@ function App() {
       <DocumentationViewer
         isOpen={showDocs}
         onClose={() => setShowDocs(false)}
+      />
+
+      {/* Intelligence Dashboard */}
+      <IntelligenceDashboard
+        isOpen={showDashboard}
+        onClose={() => setShowDashboard(false)}
       />
 
       {/* Ask Hadron Drawer */}

@@ -8,6 +8,7 @@ let chain = Promise.resolve();
 
 export function withWidgetLock(fn: () => Promise<void>): Promise<void> {
   const next = chain.then(fn, fn);
+  // Intentionally swallowed: keeps chain resolved so subsequent operations aren't blocked
   chain = next.catch(() => {});
   return next;
 }

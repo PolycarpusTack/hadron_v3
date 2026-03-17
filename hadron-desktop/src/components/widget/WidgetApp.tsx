@@ -83,7 +83,7 @@ export default function WidgetApp() {
         const { x, y } = JSON.parse(saved);
         await invoke("move_widget", { x, y });
       }
-    }).catch(() => {});
+    }).catch((e) => console.warn("Widget: failed to restore position", e));
   }, []);
 
   // Track whether hover button feature is enabled
@@ -94,31 +94,11 @@ export default function WidgetApp() {
     const unlisten = listen<{ enabled: boolean }>("settings:hover-button-changed", (event) => {
       hoverEnabledRef.current = event.payload.enabled;
       if (!event.payload.enabled) {
-        withWidgetLock(async () => { await invoke("hide_widget"); }).catch(() => {});
+        withWidgetLock(async () => { await invoke("hide_widget"); }).catch((e) => console.warn("Widget: failed to hide", e));
       }
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
-
-  // Poll main window visibility — hide widget when main is visible, show when hidden
-  // NOTE: Disabled for crash investigation — rapid show/hide cycling may be causing
-  // ILLEGAL_INSTRUCTION crashes via tao/wry event loop state machine violations.
-  // Re-enable once root cause is confirmed.
-  //
-  // useEffect(() => {
-  //   const interval = setInterval(async () => {
-  //     if (!hoverEnabledRef.current) return;
-  //     try {
-  //       const mainVisible = await invoke<boolean>("is_main_window_visible");
-  //       if (mainVisible) {
-  //         await invoke("hide_widget");
-  //       } else {
-  //         await invoke("show_widget");
-  //       }
-  //     } catch { /* ignore */ }
-  //   }, VISIBILITY_CHECK_INTERVAL);
-  //   return () => clearInterval(interval);
-  // }, []);
 
   const handleMessagesChange = useCallback((messages: ChatMessage[]) => {
     widgetMessagesRef.current = messages;

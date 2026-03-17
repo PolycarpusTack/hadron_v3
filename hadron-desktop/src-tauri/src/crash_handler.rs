@@ -155,6 +155,7 @@ pub fn install_panic_hook() {
         // https://github.com/tauri-apps/tao/issues/1140
         // Triggered by device changes (Bluetooth, VPN, USB) during a paint cycle.
         // Safe to restart: the panic is in the UI layer; SQLite WAL survives unclean exit.
+        // Capped at MAX_AUTO_RESTARTS to prevent fork-bomb if the trigger persists.
         let is_tao_paint_bug = panic_info
             .location()
             .map(|l| l.file().contains("tao") && l.file().contains("event_loop"))
@@ -162,10 +163,24 @@ pub fn install_panic_hook() {
             || panic_info.to_string().contains("flush_paint_messages");
 
         if is_tao_paint_bug {
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = std::process::Command::new(&exe)
-                    .args(std::env::args().skip(1))
-                    .spawn();
+            const MAX_AUTO_RESTARTS: u32 = 2;
+            let restart_count: u32 = std::env::var("HADRON_RESTART_COUNT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+
+            if restart_count < MAX_AUTO_RESTARTS {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(&exe)
+                        .args(std::env::args().skip(1))
+                        .env("HADRON_RESTART_COUNT", (restart_count + 1).to_string())
+                        .spawn();
+                }
+            } else {
+                eprintln!(
+                    "Hadron: suppressed auto-restart (already restarted {} times)",
+                    restart_count
+                );
             }
         }
     }));
@@ -189,7 +204,9 @@ pub fn install_native_crash_handler() {
 
 #[cfg(target_os = "windows")]
 mod windows_seh {
-    //! Minimal Windows SEH integration using raw FFI.
+    //! Windows SEH integration: catches native crashes and writes detailed reports
+    //! including a raw stack trace (return addresses) and loaded module map so that
+    //! ACCESS_VIOLATION and other native faults can be mapped back to source.
 
     use std::ffi::c_void;
 
@@ -227,6 +244,43 @@ mod windows_seh {
         ) -> Option<UnhandledExceptionFilter>;
     }
 
+    // Stack trace capture
+    extern "system" {
+        fn RtlCaptureStackBackTrace(
+            frames_to_skip: u32,
+            frames_to_capture: u32,
+            back_trace: *mut *mut c_void,
+            back_trace_hash: *mut u32,
+        ) -> u16;
+    }
+
+    // Module enumeration for address → DLL mapping
+    #[repr(C)]
+    struct ModuleEntry32W {
+        dw_size: u32,
+        th32_module_id: u32,
+        th32_process_id: u32,
+        glbl_cnt_usage: u32,
+        proc_cnt_usage: u32,
+        mod_base_addr: *mut u8,
+        mod_base_size: u32,
+        h_module: *mut c_void,
+        sz_module: [u16; 256],
+        sz_exe_path: [u16; 260],
+    }
+
+    const TH32CS_SNAPMODULE: u32 = 0x00000008;
+    const TH32CS_SNAPMODULE32: u32 = 0x00000010;
+    const INVALID_HANDLE: *mut c_void = -1isize as *mut c_void;
+
+    extern "system" {
+        fn CreateToolhelp32Snapshot(dw_flags: u32, th32_process_id: u32) -> *mut c_void;
+        fn Module32FirstW(h_snapshot: *mut c_void, lpme: *mut ModuleEntry32W) -> i32;
+        fn Module32NextW(h_snapshot: *mut c_void, lpme: *mut ModuleEntry32W) -> i32;
+        fn CloseHandle(h_object: *mut c_void) -> i32;
+        fn GetCurrentProcessId() -> u32;
+    }
+
     fn exception_code_name(code: u32) -> &'static str {
         match code {
             EXCEPTION_ACCESS_VIOLATION => "ACCESS_VIOLATION (0xC0000005)",
@@ -237,6 +291,65 @@ mod windows_seh {
             EXCEPTION_GUARD_PAGE => "GUARD_PAGE (0x80000001)",
             _ => "UNKNOWN",
         }
+    }
+
+    /// Capture raw return addresses from the current call stack.
+    unsafe fn capture_stack_trace() -> String {
+        const MAX_FRAMES: u32 = 64;
+        let mut frames: [*mut c_void; 64] = [std::ptr::null_mut(); 64];
+        let count = unsafe {
+            RtlCaptureStackBackTrace(
+                2, // skip this fn + the exception filter
+                MAX_FRAMES,
+                frames.as_mut_ptr(),
+                std::ptr::null_mut(),
+            )
+        };
+
+        if count == 0 {
+            return "  (no frames captured)\n".to_string();
+        }
+
+        let mut out = String::new();
+        for i in 0..count as usize {
+            out.push_str(&format!("  [{:2}] 0x{:016X}\n", i, frames[i] as usize));
+        }
+        out
+    }
+
+    /// List loaded modules (DLLs) with base address and size for offline addr2line.
+    unsafe fn capture_module_map() -> String {
+        let pid = unsafe { GetCurrentProcessId() };
+        let snap = unsafe {
+            CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
+        };
+        if snap == INVALID_HANDLE || snap.is_null() {
+            return "  (failed to enumerate modules)\n".to_string();
+        }
+
+        let mut entry: ModuleEntry32W = unsafe { std::mem::zeroed() };
+        entry.dw_size = std::mem::size_of::<ModuleEntry32W>() as u32;
+
+        let mut out = String::new();
+        let mut ok = unsafe { Module32FirstW(snap, &mut entry) } != 0;
+
+        while ok {
+            let base = entry.mod_base_addr as usize;
+            let size = entry.mod_base_size as usize;
+            let name = String::from_utf16_lossy(
+                &entry.sz_module[..entry.sz_module.iter().position(|&c| c == 0).unwrap_or(256)],
+            );
+            out.push_str(&format!(
+                "  0x{:016X} - 0x{:016X}  {}\n",
+                base,
+                base + size,
+                name
+            ));
+            ok = unsafe { Module32NextW(snap, &mut entry) } != 0;
+        }
+
+        unsafe { CloseHandle(snap) };
+        out
     }
 
     unsafe extern "system" fn hadron_exception_filter(
@@ -257,7 +370,7 @@ mod windows_seh {
             address,
         );
 
-        let body = match code {
+        let description = match code {
             EXCEPTION_ACCESS_VIOLATION if record.number_parameters >= 2 => {
                 let op = if record.exception_information[0] == 0 { "read" } else { "write" };
                 format!(
@@ -283,6 +396,17 @@ mod windows_seh {
             }
             _ => format!("Exception code: 0x{:08X}\n", code),
         };
+
+        // Capture stack trace and module map for offline analysis
+        let stack = unsafe { capture_stack_trace() };
+        let modules = unsafe { capture_module_map() };
+
+        let body = format!(
+            "{}\nStack trace (raw return addresses):\n{}\nLoaded modules:\n{}\n\
+             To resolve: match the crash address against module base ranges above,\n\
+             then use `addr2line -e <module> <offset>` where offset = address - base.\n",
+            description, stack, modules
+        );
 
         super::write_crash_report(&header, &body);
 

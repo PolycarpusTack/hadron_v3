@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-shell";
+import logger from "../services/logger";
 import {
   X,
   ExternalLink,
@@ -89,7 +90,7 @@ export default function JiraTicketModal({
   // Load cached issues for autocomplete when comment tab is first activated
   useEffect(() => {
     if (activeTab === "comment" && cachedIssues.length === 0) {
-      getCachedIssuesAsync().then(setCachedIssues).catch(() => {});
+      getCachedIssuesAsync().then(setCachedIssues).catch((e) => logger.warn("Failed to load cached JIRA issues", { error: e }));
     }
   }, [activeTab, cachedIssues.length]);
 

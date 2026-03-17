@@ -11,8 +11,9 @@ use crate::jira_service;
 use crate::jira_triage::JiraTriageRequest;
 use crate::ticket_briefs::TicketBrief;
 use serde::{Deserialize, Serialize};
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_store::StoreExt;
 use tokio::task::JoinHandle;
@@ -71,11 +72,15 @@ fn default_config() -> JiraPollerConfig {
 /// Write last_polled_at back to the store.
 pub fn write_last_polled_at(app: &AppHandle, timestamp: &str) {
     if let Some(store) = app.get_store("settings.json") {
-        let _ = store.set(
+        if let Err(e) = store.set(
             "jira_assist_last_polled_at",
             serde_json::Value::String(timestamp.to_string()),
-        );
-        let _ = store.save();
+        ) {
+            log::warn!("poller: failed to set last_polled_at: {}", e);
+        }
+        if let Err(e) = store.save() {
+            log::warn!("poller: failed to save store: {}", e);
+        }
     }
 }
 
@@ -364,16 +369,10 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
         return;
     }
 
-    let cancel = Arc::new(AtomicBool::new(false));
+    // Reset the cancel flag so the new task sees false;
+    // stop_poller() sets this same Arc to true for graceful shutdown.
     state.cancel.store(false, Ordering::Relaxed);
-    let cancel_flag = Arc::clone(&cancel);
-
-    // Store the new cancel flag
-    {
-        // Replace the cancel Arc so stop_poller can signal this specific task
-        // We can't replace the Arc in PollerState directly (it's behind AtomicBool),
-        // so we just use the state's cancel flag.
-    }
+    let cancel_flag = Arc::clone(&state.cancel);
 
     let interval_mins = config.interval_mins;
     let app2 = app.clone();
@@ -404,49 +403,63 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
                 break;
             }
 
-            match run_poll_cycle(&app2, &db, &cycle_config).await {
-                Ok(keys) => {
-                    consecutive_failures = 0;
-                    let count = keys.len();
-
-                    // Update last_polled_at
-                    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M").to_string();
-                    write_last_polled_at(&app2, &now);
-
-                    if count > 0 {
-                        // Update total
-                        if let Some(poller_state) = app2.try_state::<PollerState>() {
-                            poller_state
-                                .triaged_total
-                                .fetch_add(count as u64, Ordering::Relaxed);
-                        }
-
-                        // Emit frontend event
-                        let payload = PollCompletePayload {
-                            triaged_count: count,
-                            keys: keys.clone(),
-                        };
-                        let _ = app2.emit("jira-assist-poll-complete", &payload);
-
-                        // OS notification
-                        if let Err(e) = send_notification(&app2, count) {
-                            log::warn!("poller: notification failed: {e}");
-                        }
-
-                        log::info!("poller: triaged {} new tickets", count);
-                    } else {
-                        log::debug!("poller: no new tickets to triage");
-                    }
-                }
-                Err(e) => {
+            // Timeout the entire poll cycle to prevent hung network calls from stalling the poller.
+            let cycle_timeout = std::time::Duration::from_secs(5 * 60);
+            match tokio::time::timeout(cycle_timeout, run_poll_cycle(&app2, &db, &cycle_config)).await {
+                Err(_elapsed) => {
                     consecutive_failures += 1;
                     log::warn!(
-                        "poller: cycle failed ({} consecutive): {e}",
+                        "poller: cycle timed out after {}s ({} consecutive failures)",
+                        cycle_timeout.as_secs(),
                         consecutive_failures
                     );
+                    let _ = app2.emit("jira-assist-poll-error", "Poll cycle timed out");
+                }
+                Ok(inner) => match inner {
+                    Ok(keys) => {
+                        consecutive_failures = 0;
+                        let count = keys.len();
 
-                    // Emit error event so frontend can show a warning
-                    let _ = app2.emit("jira-assist-poll-error", &e);
+                        // Update last_polled_at
+                        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M").to_string();
+                        write_last_polled_at(&app2, &now);
+
+                        // Skip emitting results if cancelled during this cycle
+                        if count > 0 && !cancel_flag.load(Ordering::Relaxed) {
+                            // Update total
+                            if let Some(poller_state) = app2.try_state::<PollerState>() {
+                                poller_state
+                                    .triaged_total
+                                    .fetch_add(count as u64, Ordering::Relaxed);
+                            }
+
+                            // Emit frontend event
+                            let payload = PollCompletePayload {
+                                triaged_count: count,
+                                keys: keys.clone(),
+                            };
+                            let _ = app2.emit("jira-assist-poll-complete", &payload);
+
+                            // OS notification
+                            if let Err(e) = send_notification(&app2, count) {
+                                log::warn!("poller: notification failed: {e}");
+                            }
+
+                            log::info!("poller: triaged {} new tickets", count);
+                        } else {
+                            log::debug!("poller: no new tickets to triage");
+                        }
+                    }
+                    Err(e) => {
+                        consecutive_failures += 1;
+                        log::warn!(
+                            "poller: cycle failed ({} consecutive): {e}",
+                            consecutive_failures
+                        );
+
+                        // Emit error event so frontend can show a warning
+                        let _ = app2.emit("jira-assist-poll-error", &e);
+                    }
                 }
             }
 
@@ -464,13 +477,13 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
         }
     });
 
-    *state.handle.lock().unwrap() = Some(handle);
+    *state.handle.lock() = Some(handle);
 }
 
 /// Stop the background poller if running.
 pub fn stop_poller(state: &PollerState) {
     state.cancel.store(true, Ordering::Relaxed);
-    if let Some(handle) = state.handle.lock().unwrap().take() {
+    if let Some(handle) = state.handle.lock().take() {
         handle.abort();
         log::info!("poller: stopped");
     }
@@ -481,7 +494,6 @@ pub fn get_poller_status(state: &PollerState, app: &AppHandle) -> PollerStatus {
     let running = state
         .handle
         .lock()
-        .unwrap()
         .as_ref()
         .map(|h| !h.is_finished())
         .unwrap_or(false);

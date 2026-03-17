@@ -4,7 +4,6 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
 import { analyzeWithResilience } from "./circuit-breaker";
 import { getApiKey, storeApiKey as storeApiKeySecure } from "./secure-storage";
 import { getBooleanSetting, STORAGE_KEYS } from "../utils/config";
@@ -99,26 +98,7 @@ export interface DatabaseStatistics {
   severity_breakdown: [string, number][];
 }
 
-/**
- * Open file dialog to select a crash log
- */
-export async function selectCrashLogFile(): Promise<string | null> {
-  const selected = await open({
-    multiple: false,
-    filters: [
-      {
-        name: "Crash Logs",
-        extensions: ["txt", "log"],
-      },
-    ],
-  });
-
-  if (Array.isArray(selected)) {
-    return selected[0] || null;
-  }
-
-  return selected;
-}
+// selectCrashLogFile — removed: unused, file dialog handled inline by components
 
 /**
  * Analyze a crash log file with automatic failover
@@ -278,33 +258,7 @@ export async function callAi(
   return invoke<string>("call_ai", { content, apiKey, model, provider, redactPii });
 }
 
-/**
- * Translate technical content to plain language.
- * Invalidates translation cache after successful translation.
- *
- * NOTE: apiKey may be "" when Keeper secrets management is active.
- * The Rust backend / Python layer resolves the key from the Keeper UID stored
- * in secure settings. Callers must still pass apiKey="" (not undefined) to
- * satisfy the Tauri command schema.
- */
-export async function translateTechnicalContent(
-  content: string,
-  apiKey: string,
-  model: string = "gpt-4-turbo-preview",
-  provider: string = "openai"
-): Promise<string> {
-  const redactPii = getBooleanSetting("pii_redaction_enabled");
-  const result = await invoke<string>("translate_content", {
-    content,
-    apiKey,
-    model,
-    provider,
-    redactPii,
-  });
-  // Invalidate translation cache since new translation was added
-  apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
-  return result;
-}
+// translateTechnicalContent — removed: replaced by callAi() for all AI calls
 
 export interface ExternalAnalysisRequest {
   filename: string;
@@ -658,7 +612,6 @@ export function getCacheStats() {
 import type {
   SensitiveContentResult,
   ReportAudience,
-  MultiExportRequest,
   ExportResponse,
   ExportSection,
   GenericExportRequest,
@@ -739,14 +692,7 @@ export async function listPatterns(): Promise<PatternSummary[]> {
 // Multi-Format Export
 // ============================================================================
 
-/**
- * Generate reports in multiple formats at once
- * @param request - Export request with formats array
- * @returns Array of export responses
- */
-export async function generateReportMulti(request: MultiExportRequest): Promise<ExportResponse[]> {
-  return await invoke<ExportResponse[]>("generate_report_multi", { request });
-}
+// generateReportMulti — removed: superseded by exportGenericReport
 
 /**
  * Get available export formats
@@ -1274,13 +1220,7 @@ export async function exportGoldJsonl(): Promise<FineTuneExportResult> {
   return await invoke<FineTuneExportResult>("export_gold_jsonl");
 }
 
-/**
- * Count verified gold analyses available for export
- * @returns Number of verified gold analyses
- */
-export async function countGoldForExport(): Promise<number> {
-  return await invoke<number>("count_gold_for_export");
-}
+// countGoldForExport — removed: stats now provided by get_dashboard_stats
 
 /**
  * Get all gold analyses (any status)

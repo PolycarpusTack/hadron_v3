@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { Search, FileText, Wrench, Copy } from "lucide-react";
 import { looksLikeError } from "../../utils/errorDetection";
 import { withWidgetLock } from "./widgetLock";
+import { calcMenuPosition } from "./widgetPositioning";
 
 interface WidgetFABProps {
   onClick: () => void;
@@ -22,22 +23,24 @@ const TEMPLATES = [
 const MENU_SIZE = { width: 230, height: 250 };
 const FAB_SIZE = { width: 44, height: 44 };
 const DRAG_THRESHOLD = 5; // px before a click becomes a drag
+const SCREEN_MARGIN = 8;
 
 export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const isDragging = useRef(false);
+  const menuOriginRef = useRef<{ x: number; y: number } | null>(null);
 
   const closeMenu = useCallback(() => {
     setShowMenu(false);
     return withWidgetLock(async () => {
       try {
-        const pos = await invoke<{ x: number; y: number }>("get_widget_position");
-        const dx = MENU_SIZE.width - FAB_SIZE.width;
-        const dy = MENU_SIZE.height - FAB_SIZE.height;
         await invoke("resize_widget", FAB_SIZE);
-        await invoke("move_widget", { x: pos.x + dx, y: pos.y + dy });
+        if (menuOriginRef.current) {
+          await invoke("move_widget", menuOriginRef.current);
+          menuOriginRef.current = null;
+        }
       } catch { /* ignore resize errors */ }
     });
   }, []);
@@ -58,18 +61,36 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    if (showMenu) return;
     withWidgetLock(async () => {
       try {
-        // Expand window upward-left so menu renders above the FAB
-        const pos = await invoke<{ x: number; y: number }>("get_widget_position");
-        const dx = MENU_SIZE.width - FAB_SIZE.width;
-        const dy = MENU_SIZE.height - FAB_SIZE.height;
-        await invoke("move_widget", { x: pos.x - dx, y: pos.y - dy });
+        const [pos, monitor] = await Promise.all([
+          invoke<{ x: number; y: number }>("get_widget_position"),
+          currentMonitor(),
+        ]);
+        menuOriginRef.current = pos;
+
+        if (monitor) {
+          const scale = monitor.scaleFactor;
+          const target = calcMenuPosition(
+            pos,
+            FAB_SIZE,
+            MENU_SIZE,
+            {
+              x: monitor.position.x / scale,
+              y: monitor.position.y / scale,
+              width: monitor.size.width / scale,
+              height: monitor.size.height / scale,
+            },
+            SCREEN_MARGIN,
+          );
+          await invoke("move_widget", { x: target.x, y: target.y });
+        }
         await invoke("resize_widget", MENU_SIZE);
         setShowMenu(true);
-      } catch { /* ignore */ }
-    }).catch(() => {});
-  }, []);
+      } catch (e) { console.warn("Widget: menu toggle failed", e); }
+    }).catch((e) => console.warn("Widget: menu lock failed", e));
+  }, [showMenu]);
 
   const handleSelect = async (prefix: string) => {
     await closeMenu();
@@ -102,8 +123,8 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
           try {
             const pos = await invoke<{ x: number; y: number }>("get_widget_position");
             onDragEnd?.(pos.x, pos.y);
-          } catch { /* ignore */ }
-        }).catch(() => {});
+          } catch (e) { console.warn("Widget: failed to get position after drag", e); }
+        }).catch((e) => console.warn("Widget: startDragging failed", e));
       }
     };
 

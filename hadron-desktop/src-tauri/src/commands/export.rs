@@ -446,7 +446,8 @@ pub fn generate_report_multi(
 
     // If not combined, just process first file
     if !request.combined {
-        let first = request.files.into_iter().next().unwrap();
+        let first = request.files.into_iter().next()
+            .ok_or_else(|| "No files provided after validation".to_string())?;
         return generate_report(first, engine);
     }
 

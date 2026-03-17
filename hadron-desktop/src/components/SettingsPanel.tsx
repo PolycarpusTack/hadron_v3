@@ -8,10 +8,7 @@ import { isSentryEnabled } from "../services/sentry";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI, autoTagAnalyses } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
 import { getKeeperConfig, type KeeperConfig } from "../services/keeper";
-import { listGoldAnswers, exportGoldAnswersJsonl } from "../services/gold-answers";
-import { exportSummariesBundle } from "../services/summaries";
-import { save as tauriSave, open as tauriOpen } from "@tauri-apps/plugin-dialog";
-import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import logger from '../services/logger';
 import { AI_PROVIDERS, getDefaultModelForProvider, getCuratedModelsForProvider, MODEL_CACHE_TTL_MS } from '../constants/providers';
 import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey } from '../utils/config';
@@ -90,13 +87,6 @@ export default function SettingsPanel({
   // Integration status
   const [jiraConnected, setJiraConnected] = useState(false);
   const [sentryConnected, setSentryConnected] = useState(false);
-
-  // Ask Hadron Data state (Task 24)
-  const [goldCount, setGoldCount] = useState<number | null>(null);
-  const [summaryExportMsg, setSummaryExportMsg] = useState<string | null>(null);
-  const [goldExportMsg, setGoldExportMsg] = useState<string | null>(null);
-  const [isExportingGold, setIsExportingGold] = useState(false);
-  const [isExportingSummaries, setIsExportingSummaries] = useState(false);
 
   // Crash log directory
   const [crashLogDir, setCrashLogDir] = useState<string>("");
@@ -229,14 +219,10 @@ export default function SettingsPanel({
     }
   }, [isOpen]);
 
-  // Load gold answer count for Ask Hadron Data section (Task 24)
+  // Load crash log directory for advanced settings
   useEffect(() => {
     if (isOpen && advancedOpen) {
-      listGoldAnswers(1000, 0).then((golds) => {
-        setGoldCount(golds.length);
-      }).catch(() => setGoldCount(null));
-      // Load crash log directory
-      invoke<string>("get_crash_log_dir").then(setCrashLogDir).catch(() => {});
+      invoke<string>("get_crash_log_dir").then(setCrashLogDir).catch((e) => logger.warn("Failed to get crash log dir", { error: e }));
     }
   }, [isOpen, advancedOpen]);
 
@@ -893,7 +879,7 @@ export default function SettingsPanel({
                         const isActive = config.enabled && !!config.secretMappings[settings.provider as keyof typeof config.secretMappings];
                         if (isActive) setShowManualKeys(false);
                         else setShowManualKeys(true);
-                      }).catch(() => {});
+                      }).catch((e) => logger.warn("Failed to reload Keeper config", { error: e }));
                     }} />
                   </Suspense>
 
@@ -1292,103 +1278,7 @@ export default function SettingsPanel({
                         </div>
                       </Suspense>
 
-                      {/* Ask Hadron Data */}
-                      <div className="mt-1 space-y-2">
-                        <p className="text-xs font-semibold" style={{ color: 'var(--hd-text-muted)' }}>Ask Hadron Data</p>
-
-                        {/* Gold Answers */}
-                        <div className="hd-setting-card space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-xs font-medium" style={{ color: 'var(--hd-text)' }}>Gold Answers</p>
-                              <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>
-                                Curated Q&A pairs
-                                {goldCount !== null && (
-                                  <span className="ml-1 text-amber-400">({goldCount})</span>
-                                )}
-                              </p>
-                            </div>
-                            <Button
-                              size="sm"
-                              onClick={async () => {
-                                setIsExportingGold(true);
-                                setGoldExportMsg(null);
-                                try {
-                                  const jsonl = await exportGoldAnswersJsonl({});
-                                  const filePath = await tauriSave({
-                                    defaultPath: `gold-answers-${new Date().toISOString().split("T")[0]}.jsonl`,
-                                    filters: [{ name: "JSONL", extensions: ["jsonl"] }],
-                                  });
-                                  if (filePath) {
-                                    await writeTextFile(filePath, jsonl);
-                                    setGoldExportMsg(`Exported to ${filePath}`);
-                                  }
-                                } catch (e) {
-                                  setGoldExportMsg(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
-                                } finally {
-                                  setIsExportingGold(false);
-                                  safeTimeout(() => setGoldExportMsg(null), 5000);
-                                }
-                              }}
-                              disabled={isExportingGold || goldCount === 0}
-                              loading={isExportingGold}
-                              icon={<Download />}
-                              className="bg-amber-600/20 hover:bg-amber-600/30 text-amber-400"
-                            >
-                              JSONL
-                            </Button>
-                          </div>
-                          {goldExportMsg && (
-                            <p className={`text-xs ${goldExportMsg.includes("failed") ? "text-red-400" : "text-green-400"}`}>
-                              {goldExportMsg}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Session Summaries */}
-                        <div className="hd-setting-card space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-xs font-medium" style={{ color: 'var(--hd-text)' }}>Summaries</p>
-                              <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>RAG-ready session data</p>
-                            </div>
-                            <Button
-                              size="sm"
-                              onClick={async () => {
-                                setIsExportingSummaries(true);
-                                setSummaryExportMsg(null);
-                                try {
-                                  const bundle = await exportSummariesBundle({});
-                                  const filePath = await tauriSave({
-                                    defaultPath: `summaries-rag-${new Date().toISOString().split("T")[0]}.jsonl`,
-                                    filters: [{ name: "JSONL", extensions: ["jsonl"] }],
-                                  });
-                                  if (filePath) {
-                                    await writeTextFile(filePath, bundle);
-                                    setSummaryExportMsg(`Exported to ${filePath}`);
-                                  }
-                                } catch (e) {
-                                  setSummaryExportMsg(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
-                                } finally {
-                                  setIsExportingSummaries(false);
-                                  safeTimeout(() => setSummaryExportMsg(null), 5000);
-                                }
-                              }}
-                              disabled={isExportingSummaries}
-                              loading={isExportingSummaries}
-                              icon={<Download />}
-                              className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400"
-                            >
-                              RAG
-                            </Button>
-                          </div>
-                          {summaryExportMsg && (
-                            <p className={`text-xs ${summaryExportMsg.includes("failed") ? "text-red-400" : "text-green-400"}`}>
-                              {summaryExportMsg}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                      {/* Ask Hadron Data — moved to Intelligence Dashboard (header icon) */}
                     </div>
                   </div>
                 </div>
