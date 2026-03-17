@@ -152,6 +152,7 @@ impl PatternEngine {
     }
 
     /// Get patterns by category
+    #[allow(dead_code)]
     pub fn get_by_category(&self, category: &PatternCategory) -> Vec<&CrashPattern> {
         self.patterns
             .iter()
@@ -160,6 +161,7 @@ impl PatternEngine {
     }
 
     /// Get patterns by tag
+    #[allow(dead_code)]
     pub fn get_by_tag(&self, tag: &str) -> Vec<&CrashPattern> {
         self.patterns
             .iter()

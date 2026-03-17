@@ -3,11 +3,20 @@
 //! Wraps `reqwest::Client` for HTTP calls to OpenSearch and OpenAI embeddings API.
 //! Replaces the Python subprocess for remote KB search.
 
+use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::rag_commands::OpenSearchConfig;
+
+/// Shared HTTP client for embedding API calls (connection pooling, avoids FD exhaustion).
+static EMBEDDING_CLIENT: Lazy<Client> = Lazy::new(|| {
+    Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .unwrap_or_else(|_| Client::new())
+});
 
 // ============================================================================
 // OpenSearch Client
@@ -57,7 +66,7 @@ impl OpenSearchClient {
         let base_url = format!("{}://{}:{}", scheme, config.host, config.port);
 
         let client = Client::builder()
-            .danger_accept_invalid_certs(true) // Allow self-signed certs
+            .danger_accept_invalid_certs(!config.verify_certs)
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| Client::new());
@@ -161,19 +170,19 @@ pub async fn get_embedding_cached(
     // Check cache first
     if let Some(cache) = cache {
         if let Some(embedding) = cache.get(text) {
-            log::debug!("Embedding cache hit for query: {}...", &text[..text.len().min(50)]);
+            let preview_end = crate::str_utils::floor_char_boundary(text, text.len().min(50));
+            log::debug!("Embedding cache hit for query: {}...", &text[..preview_end]);
             return Ok(embedding);
         }
     }
 
-    let client = Client::new();
     let body = EmbeddingRequest {
         model: model.to_string(),
         input: text.to_string(),
         dimensions,
     };
 
-    let resp = client
+    let resp = EMBEDDING_CLIENT
         .post("https://api.openai.com/v1/embeddings")
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&body)

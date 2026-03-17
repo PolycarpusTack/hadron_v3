@@ -3,6 +3,8 @@ use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener};
+
+use crate::str_utils::floor_char_boundary;
 use zeroize::Zeroizing;
 
 use crate::ai_service::{
@@ -63,6 +65,12 @@ pub struct ChatOpenSearchConfig {
     pub username: String,
     pub password: String,
     pub use_ssl: bool,
+    #[serde(default = "default_verify_certs")]
+    pub verify_certs: bool,
+}
+
+fn default_verify_certs() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -418,17 +426,16 @@ impl Drop for UnlistenGuard {
 
 /// Run a closure on a dedicated OS thread outside the tokio runtime.
 /// Needed because the Keeper SDK uses `reqwest::blocking` internally.
+/// Run a blocking function off the async runtime using Tokio's managed thread pool.
+/// Prevents orphaned OS threads on cancellation (unlike raw std::thread::spawn).
 async fn run_off_runtime<F, T>(f: F) -> Result<T, String>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    std::thread::spawn(move || {
-        let result = f();
-        let _ = tx.send(result);
-    });
-    rx.await.map_err(|_| "Keeper task was cancelled".to_string())
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("Keeper task failed: {}", e))
 }
 
 #[tauri::command]
@@ -500,6 +507,7 @@ pub async fn chat_send(
         username: c.username,
         password: c.password,
         use_ssl: c.use_ssl,
+        verify_certs: c.verify_certs,
     });
 
     // Build JIRA config if credentials are provided
@@ -695,6 +703,11 @@ pub async fn chat_send(
         )
         .await?;
 
+        // Check for cancellation after LLM call
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("Request cancelled by user".to_string());
+        }
+
         // Check if the LLM wants to call tools
         if !response_wants_tools(&response, &request.provider) {
             let _ = app.emit("chat-context", &context_summary);
@@ -808,6 +821,11 @@ pub async fn chat_send(
                         return Err(format!("BASE synthesis failed: {}", e));
                     }
                 };
+
+                // Check for cancellation between dual synthesis calls
+                if cancelled.load(Ordering::Relaxed) {
+                    return Err("Request cancelled by user".to_string());
+                }
 
                 // Emit separator between base and customer streaming
                 let _ = app.emit(
@@ -1013,7 +1031,8 @@ pub async fn chat_send(
         for (tc, (result, duration_ms)) in tool_calls.iter().zip(timed_results.into_iter()) {
             // Build trace
             let preview = if result.content.len() > 200 {
-                format!("{}...", &result.content[..200])
+                let end = floor_char_boundary(&result.content, 200);
+                format!("{}...", &result.content[..end])
             } else {
                 result.content.clone()
             };
@@ -1397,17 +1416,12 @@ pub async fn chat_save_session(
     let db = Arc::clone(&db);
     let req = request;
     tokio::task::spawn_blocking(move || {
-        db.save_chat_session(&req.id, &req.title, req.created_at, req.updated_at)?;
-        for msg in &req.messages {
-            db.save_chat_message(
-                &msg.id,
-                &req.id,
-                &msg.role,
-                &msg.content,
-                msg.sources_json.as_deref(),
-                msg.timestamp,
-            )?;
-        }
+        let messages: Vec<_> = req.messages.iter().map(|msg| {
+            (msg.id.clone(), msg.role.clone(), msg.content.clone(), msg.sources_json.clone(), msg.timestamp)
+        }).collect();
+        db.save_chat_session_with_messages(
+            &req.id, &req.title, req.created_at, req.updated_at, &messages,
+        )?;
         Ok::<(), rusqlite::Error>(())
     })
     .await
@@ -1478,8 +1492,13 @@ pub async fn chat_star_session(
     starred: bool,
 ) -> Result<(), String> {
     log::debug!("cmd: chat_star_session");
-    db.star_chat_session(&session_id, starred)
-        .map_err(|e| e.to_string())
+    let db = Arc::clone(&db);
+    tokio::task::spawn_blocking(move || {
+        db.star_chat_session(&session_id, starred)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1489,8 +1508,13 @@ pub async fn chat_tag_session(
     tags: String,
 ) -> Result<(), String> {
     log::debug!("cmd: chat_tag_session");
-    db.tag_chat_session(&session_id, &tags)
-        .map_err(|e| e.to_string())
+    let db = Arc::clone(&db);
+    tokio::task::spawn_blocking(move || {
+        db.tag_chat_session(&session_id, &tags)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1501,11 +1525,16 @@ pub async fn chat_update_session_metadata(
     won_version: Option<String>,
 ) -> Result<(), String> {
     log::debug!("cmd: chat_update_session_metadata");
-    db.update_chat_session_metadata(
-        &session_id,
-        customer.as_deref(),
-        won_version.as_deref(),
-    )
+    let db = Arc::clone(&db);
+    tokio::task::spawn_blocking(move || {
+        db.update_chat_session_metadata(
+            &session_id,
+            customer.as_deref(),
+            won_version.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
     .map_err(|e| e.to_string())
 }
 

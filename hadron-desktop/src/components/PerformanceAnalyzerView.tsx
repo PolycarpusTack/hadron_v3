@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Upload, FileText, AlertTriangle, CheckCircle, Clock,
   Cpu, ChevronDown, ChevronRight, Zap, MousePointer,
@@ -11,6 +11,8 @@ import { invoke } from "@tauri-apps/api/core"; // used by analyze_performance_tr
 import logger from "../services/logger";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
 import Button from "./ui/Button";
+import ExportDialog from "./ExportDialog";
+import type { ExportSource } from "../types";
 
 // Types for performance trace analysis (snake_case to match Rust backend)
 interface PerformanceHeader {
@@ -244,6 +246,10 @@ function FileUpload({
   onError: (msg: string) => void;
 }) {
   const [dropRejected, setDropRejected] = useState(false);
+  const dropTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Clean up drop rejection timer on unmount
+  useEffect(() => () => clearTimeout(dropTimerRef.current), []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -255,7 +261,8 @@ function FileUpload({
     e.stopPropagation();
     // Tauri doesn't expose file paths via HTML5 drag-drop — show inline hint
     setDropRejected(true);
-    setTimeout(() => setDropRejected(false), 4000);
+    clearTimeout(dropTimerRef.current);
+    dropTimerRef.current = setTimeout(() => setDropRejected(false), 4000);
   }, []);
 
   const handleSelectFile = async () => {
@@ -619,6 +626,99 @@ export default function PerformanceAnalyzerView() {
   const [activeTab, setActiveTab] = useState(0);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
+  const [showExport, setShowExport] = useState(false);
+
+  const buildExportSource = (result: PerformanceAnalysisResult): ExportSource => {
+    const sections: ExportSource["sections"] = [];
+
+    // Summary
+    sections.push({
+      id: "summary",
+      label: "Summary",
+      content: `**File:** ${result.filename}\n**User:** ${result.user}\n**Timestamp:** ${result.timestamp}\n**Overall Severity:** ${result.overall_severity.toUpperCase()}\n\n${result.summary}`,
+      defaultOn: true,
+    });
+
+    // Performance Metrics
+    const h = result.header;
+    const d = result.derived;
+    sections.push({
+      id: "metrics",
+      label: "Performance Metrics",
+      content: `**Samples:** ${h.samples} (${h.avg_ms_per_sample.toFixed(2)}ms avg)\n**Active Time:** ${h.active_time.toFixed(1)}ms | **Real Time:** ${h.real_time.toFixed(1)}ms\n**CPU Utilization:** ${(d.cpu_utilization * 100).toFixed(1)}%\n**GC Pressure:** ${(d.gc_pressure * 100).toFixed(1)}% (${h.scavenges} scavenges, ${h.inc_gcs} incremental GCs)\n**Profiling Overhead:** ${h.profiling_overhead.toFixed(1)}%`,
+      defaultOn: true,
+    });
+
+    // Top Methods
+    if (result.top_methods.length > 0) {
+      const methodLines = result.top_methods
+        .map((m, i) => `${i + 1}. **${m.method}** — ${m.percentage.toFixed(1)}% [${m.category}]`)
+        .join("\n");
+      sections.push({
+        id: "top_methods",
+        label: "Top Methods",
+        content: methodLines,
+        defaultOn: true,
+      });
+    }
+
+    // Detected Patterns
+    if (result.patterns.length > 0) {
+      const patternLines = result.patterns
+        .map((p) => `**[${p.severity.toUpperCase()}] ${p.title}** (${(p.confidence * 100).toFixed(0)}% confidence)\n${p.description}`)
+        .join("\n\n");
+      sections.push({
+        id: "patterns",
+        label: "Detected Patterns",
+        content: patternLines,
+        defaultOn: true,
+      });
+    }
+
+    // User Scenario
+    if (result.scenario) {
+      const s = result.scenario;
+      sections.push({
+        id: "scenario",
+        label: "User Scenario",
+        content: `**Trigger:** ${s.trigger}\n**Action:** ${s.action}\n**Context:** ${s.context}\n**Impact:** ${s.impact}${s.additional_factors.length > 0 ? `\n**Additional Factors:** ${s.additional_factors.join(", ")}` : ""}`,
+        defaultOn: true,
+      });
+    }
+
+    // Recommendations
+    if (result.recommendations.length > 0) {
+      const recLines = result.recommendations
+        .map((r) => `**[${r.priority.toUpperCase()}] ${r.title}** (${r.type}, effort: ${r.effort})\n${r.description}`)
+        .join("\n\n");
+      sections.push({
+        id: "recommendations",
+        label: "Recommendations",
+        content: recLines,
+        defaultOn: true,
+      });
+    }
+
+    // Processes
+    if (result.processes.length > 0) {
+      const procLines = result.processes
+        .map((p) => `- **${p.name}** — ${p.percentage.toFixed(1)}% (priority: ${p.priority}, ${p.status})`)
+        .join("\n");
+      sections.push({
+        id: "processes",
+        label: "Processes",
+        content: procLines,
+        defaultOn: false,
+      });
+    }
+
+    return {
+      sourceType: "performance",
+      sourceName: result.filename,
+      defaultTitle: `Performance Analysis — ${result.filename}`,
+      sections,
+    };
+  };
 
   const handleFilesSelected = (newFiles: FileInfo[]) => {
     setFiles(prev => [...prev, ...newFiles]);
@@ -865,9 +965,24 @@ export default function PerformanceAnalyzerView() {
               icon={<Download size={18} />}
               className="border border-gray-600"
             >
-              Export JSON
+              Quick Export
+            </Button>
+            <Button
+              onClick={() => setShowExport(true)}
+              variant="secondary"
+              icon={<Download size={18} />}
+            >
+              Export Options
             </Button>
           </div>
+
+          {showExport && analysisResults[activeTab] && (
+            <ExportDialog
+              source={buildExportSource(analysisResults[activeTab])}
+              isOpen={showExport}
+              onClose={() => setShowExport(false)}
+            />
+          )}
         </div>
       )}
     </div>

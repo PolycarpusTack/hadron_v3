@@ -3,6 +3,8 @@
 //! Three-stage pipeline: Extract tickets from JIRA → Transform with AI → Deliver as Markdown/Confluence/HTML.
 //! Uses the consolidated WHATS'ON style guide for formatting consistency.
 
+use crate::str_utils::floor_char_boundary;
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Instant;
@@ -407,7 +409,13 @@ pub async fn classify_and_enrich_batch(
         let request_body = build_ai_request(provider, &system_prompt, &user_prompt, model, 4000);
         let response = ai_service::call_provider_raw_json(provider, request_body, api_key).await?;
 
-        let (content, tokens, cost) = extract_ai_response(provider, &response);
+        let (content, tokens, cost) = match extract_ai_response(provider, &response) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("Empty AI response for enrichment batch {}: {}", batch_idx, e);
+                continue;
+            }
+        };
         total_tokens += tokens;
         total_cost += cost;
 
@@ -528,7 +536,7 @@ pub async fn generate_release_notes_markdown(
     let request_body = build_ai_request_freeform(provider, &system_prompt, &user_prompt, model, 8000);
     let response = ai_service::call_provider_raw_json(provider, request_body, api_key).await?;
 
-    let (content, tokens, cost) = extract_ai_response(provider, &response);
+    let (content, tokens, cost) = extract_ai_response(provider, &response)?;
     Ok((content, tokens, cost))
 }
 
@@ -599,15 +607,27 @@ fn build_generation_user_prompt(
             }
         }
         if let Some(ref desc) = ticket.rewritten_description {
-            prompt.push_str(&format!("- Description (enriched): {}\n", desc));
+            let truncated = if desc.len() > 500 { &desc[..floor_char_boundary(desc, 500)] } else { desc.as_str() };
+            prompt.push_str(&format!("- Description (enriched): {}\n", truncated));
         } else if let Some(ref desc) = ticket.description {
-            let truncated = if desc.len() > 500 { &desc[..500] } else { desc };
+            let truncated = if desc.len() > 500 { &desc[..floor_char_boundary(desc, 500)] } else { desc.as_str() };
             prompt.push_str(&format!("- Description: {}\n", truncated));
         }
         if ticket.is_breaking_change == Some(true) {
             prompt.push_str("- **BREAKING CHANGE**\n");
         }
         prompt.push('\n');
+    }
+
+    // Cap total prompt size to ~128K tokens (~512KB).
+    // Beyond this, AI providers will reject the request.
+    const MAX_PROMPT_BYTES: usize = 512_000;
+    if prompt.len() > MAX_PROMPT_BYTES {
+        log::warn!(
+            "Release notes prompt truncated from {} to {} bytes ({} tickets)",
+            prompt.len(), MAX_PROMPT_BYTES, tickets.len()
+        );
+        prompt.truncate(floor_char_boundary(&prompt, MAX_PROMPT_BYTES));
     }
 
     prompt
@@ -703,10 +723,10 @@ Be thorough but concise. For each violation, provide just enough context to iden
     let request_body = build_ai_request(provider, system_prompt, &user_prompt, model, 6000);
     let response = ai_service::call_provider_raw_json(provider, request_body, api_key).await?;
 
-    let (content, tokens, cost) = extract_ai_response(provider, &response);
+    let (content, tokens, cost) = extract_ai_response(provider, &response)?;
 
     let mut report: ComplianceReport = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse compliance report: {}. Raw: {}", e, &content[..content.len().min(200)]))?;
+        .map_err(|e| format!("Failed to parse compliance report: {}. Raw: {}", e, &content[..floor_char_boundary(&content, 200)]))?;
 
     report.tokens_used = tokens;
     report.cost = cost;
@@ -749,8 +769,9 @@ pub async fn apply_incremental_update(
 /// Convert markdown to Confluence wiki markup
 pub fn markdown_to_confluence(markdown: &str) -> String {
     let mut output = String::with_capacity(markdown.len());
+    let lines: Vec<&str> = markdown.lines().collect();
 
-    for line in markdown.lines() {
+    for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
 
         // Headings: ## → h2.
@@ -771,14 +792,22 @@ pub fn markdown_to_confluence(markdown: &str) -> String {
         else if trimmed.starts_with('|') && trimmed.contains("---") {
             continue;
         }
-        // Table rows: | col | → || col ||
+        // Table rows
         else if trimmed.starts_with('|') {
-            // Check if this is a header row (first | row before a --- row)
-            let converted = trimmed
-                .replace("**", "")
-                .replace("| ", "|| ")
-                .replace(" |", " ||");
-            output.push_str(&converted);
+            // Determine if this is a header row: next line is a separator (|---|)
+            let is_header = lines.get(i + 1)
+                .map(|next| next.trim().starts_with('|') && next.contains("---"))
+                .unwrap_or(false);
+
+            if is_header {
+                let converted = trimmed
+                    .replace("**", "")
+                    .replace("| ", "|| ")
+                    .replace(" |", " ||");
+                output.push_str(&converted);
+            } else {
+                output.push_str(trimmed);
+            }
             output.push('\n');
         }
         // Bold: **text** → *text*
@@ -1179,7 +1208,7 @@ fn build_ai_request_inner(
     }
 }
 
-fn extract_ai_response(provider: &str, response: &serde_json::Value) -> (String, i32, f64) {
+fn extract_ai_response(provider: &str, response: &serde_json::Value) -> Result<(String, i32, f64), String> {
     let content = match provider {
         "anthropic" => response["content"][0]["text"]
             .as_str()
@@ -1190,6 +1219,14 @@ fn extract_ai_response(provider: &str, response: &serde_json::Value) -> (String,
             .unwrap_or("")
             .to_string(),
     };
+
+    if content.trim().is_empty() {
+        let raw = serde_json::to_string(response).unwrap_or_default();
+        return Err(format!(
+            "AI provider returned empty response. Raw: {}",
+            &raw[..floor_char_boundary(&raw, 300)]
+        ));
+    }
 
     let tokens = match provider {
         "anthropic" => {
@@ -1203,5 +1240,5 @@ fn extract_ai_response(provider: &str, response: &serde_json::Value) -> (String,
     // Rough cost estimate
     let cost = tokens as f64 * 0.00001;
 
-    (content, tokens, cost)
+    Ok((content, tokens, cost))
 }

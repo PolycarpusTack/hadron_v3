@@ -17,6 +17,7 @@ export interface OpenSearchConfig {
   host: string;
   port: number;
   useSsl: boolean;
+  verifyCerts: boolean;
   username: string;
   defaultVersion: string;
   defaultCustomer: string;
@@ -50,6 +51,7 @@ const DEFAULT_CONFIG: OpenSearchConfig = {
   host: "localhost",
   port: 9200,
   useSsl: false,
+  verifyCerts: true,
   username: "",
   defaultVersion: "2025r12",
   defaultCustomer: "",
@@ -71,6 +73,7 @@ export async function getOpenSearchConfig(): Promise<OpenSearchConfig> {
     const host = await getSetting<string>("opensearch_host", "localhost");
     const port = await getSetting<number>("opensearch_port", 9200);
     const useSsl = await getSetting<boolean>("opensearch_use_ssl", false);
+    const verifyCerts = await getSetting<boolean>("opensearch_verify_certs", true);
     const username = await getSetting<string>("opensearch_username", "");
     const defaultVersion = await getSetting<string>("opensearch_default_version", "2025r12");
     const defaultCustomer = await getSetting<string>("opensearch_default_customer", "");
@@ -82,6 +85,7 @@ export async function getOpenSearchConfig(): Promise<OpenSearchConfig> {
       host: host || "localhost",
       port: port || 9200,
       useSsl: useSsl ?? false,
+      verifyCerts: verifyCerts ?? true,
       username: username || "",
       defaultVersion: defaultVersion || "2025r12",
       defaultCustomer: defaultCustomer || "",
@@ -102,6 +106,7 @@ export async function saveOpenSearchConfig(config: OpenSearchConfig): Promise<vo
     await storeSetting("opensearch_host", config.host);
     await storeSetting("opensearch_port", config.port);
     await storeSetting("opensearch_use_ssl", config.useSsl);
+    await storeSetting("opensearch_verify_certs", config.verifyCerts);
     await storeSetting("opensearch_username", config.username);
     await storeSetting("opensearch_default_version", config.defaultVersion);
     await storeSetting("opensearch_default_customer", config.defaultCustomer);
@@ -148,6 +153,7 @@ export async function testOpenSearchConnection(): Promise<KBTestResponse> {
         username: config.username,
         password: password || "",
         use_ssl: config.useSsl,
+        verify_certs: config.verifyCerts,
       },
       apiKey: apiKey || "",
     });
@@ -174,6 +180,7 @@ export async function listOpenSearchIndices(): Promise<string[]> {
         username: config.username,
         password: password || "",
         use_ssl: config.useSsl,
+        verify_certs: config.verifyCerts,
       },
       apiKey: apiKey || "",
     });

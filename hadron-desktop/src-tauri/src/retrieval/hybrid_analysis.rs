@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::ai_service::{call_provider_quick, ChatMessage};
 use crate::database::{Analysis, Database};
+use crate::str_utils::floor_char_boundary;
 use crate::retrieval::rrf;
 use crate::retrieval::RetrievalOptions;
 
@@ -74,7 +75,7 @@ async fn generate_query_variants(
                 log::info!(
                     "Generated {} query variants for: \"{}\"",
                     variants.len(),
-                    &query[..query.len().min(50)]
+                    &query[..floor_char_boundary(query, 50)]
                 );
                 return variants;
             }

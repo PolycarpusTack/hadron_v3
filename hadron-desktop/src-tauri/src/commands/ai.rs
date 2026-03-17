@@ -13,6 +13,7 @@ use crate::ai_service;
 use crate::ai_service::translate_llamacpp;
 use crate::database::{Analysis, Database, Translation};
 use crate::keeper_service;
+use crate::str_utils::floor_char_boundary;
 use crate::python_runner::run_python_translation;
 use crate::rag_commands;
 use crate::sentry_service;
@@ -640,53 +641,52 @@ pub async fn analyze_crash_log(
         None
     };
 
-    // Call AI service - use RAG-enhanced if context available
+    // Prepend RAG/domain-knowledge context to crash content when available.
+    // This ensures the token-safe pipeline sees the full input size and can
+    // choose deep-scan/extraction for large comprehensive+RAG analyses.
     let has_extra_context = rag_context.is_some() || domain_knowledge.is_some();
-    let result = if has_extra_context && matches!(request.analysis_type.as_str(), "whatson" | "comprehensive" | "jira") {
-        // Use RAG-enhanced analysis for WHATS'ON types
-        ai_service::analyze_crash_log_with_rag(
-            &crash_content,
-            api_key.as_str(),
-            &request.model,
-            &request.provider,
-            &request.analysis_type,
-            rag_context,
-            domain_knowledge,
-        )
-        .await
-        .map_err(|e| {
-            log::error!(
-                "RAG-enhanced AI analysis failed: file={}, error={}",
-                request.file_path,
-                e
-            );
-            format!("AI analysis failed: {}", e)
-        })?
+    let enriched_content = if has_extra_context && matches!(request.analysis_type.as_str(), "whatson" | "comprehensive" | "jira") {
+        let mut sections = String::new();
+        if let Some(ref dk) = domain_knowledge {
+            let dk_text = dk.format_for_prompt();
+            if !dk_text.is_empty() {
+                sections.push_str(&dk_text);
+            }
+        }
+        if let Some(ref ctx) = rag_context {
+            let rag_text = ctx.format_for_prompt();
+            if !rag_text.is_empty() {
+                sections.push_str(&rag_text);
+            }
+        }
+        if sections.is_empty() {
+            crash_content.clone()
+        } else {
+            format!("{}\n\n{}", sections, crash_content)
+        }
     } else {
-        // Use standard token-safe analysis
-        // This automatically handles large files by:
-        // 1. Estimating token usage
-        // 2. Using evidence extraction if needed
-        // 3. Falling back to deep scan (map-reduce) for very large files
-        ai_service::analyze_crash_log_safe(
-            &crash_content,
-            None, // raw_walkback is embedded in crash_content for now
-            api_key.as_str(),
-            &request.model,
-            &request.provider,
-            &request.analysis_type,
-            token_safe_config,
-        )
-        .await
-        .map_err(|e| {
-            log::error!(
-                "AI analysis failed: file={}, error={}",
-                request.file_path,
-                e
-            );
-            format!("AI analysis failed: {}", e)
-        })?
+        crash_content.clone()
     };
+
+    // Always use token-safe analysis — handles large files via extraction/deep-scan
+    let result = ai_service::analyze_crash_log_safe(
+        &enriched_content,
+        None, // raw_walkback is embedded in crash_content
+        api_key.as_str(),
+        &request.model,
+        &request.provider,
+        &request.analysis_type,
+        token_safe_config,
+    )
+    .await
+    .map_err(|e| {
+        log::error!(
+            "AI analysis failed: file={}, error={}",
+            request.file_path,
+            e
+        );
+        format!("AI analysis failed: {}", e)
+    })?;
 
     // Log analysis mode used
     if let Some(ref meta) = result.analysis_meta {
@@ -722,7 +722,7 @@ pub async fn analyze_crash_log(
     if let Some(ref json) = result.raw_enhanced_json {
         log::debug!(
             "Enhanced JSON preview (first 500 chars): {}",
-            &json[..json.len().min(500)]
+            &json[..floor_char_boundary(json, 500)]
         );
     }
 

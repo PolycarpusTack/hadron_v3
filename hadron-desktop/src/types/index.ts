@@ -400,7 +400,7 @@ export interface ExportSection {
 
 /** Data source for the unified ExportDialog */
 export interface ExportSource {
-  sourceType: "crash" | "code" | "sentry" | "jira";
+  sourceType: "crash" | "code" | "sentry" | "jira" | "performance";
   sourceName: string;
   defaultTitle: string;
   sections: (ExportSection & { defaultOn: boolean })[];

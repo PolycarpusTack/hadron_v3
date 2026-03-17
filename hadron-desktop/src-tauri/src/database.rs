@@ -124,6 +124,7 @@ impl Database {
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
         conn.pragma_update(None, "mmap_size", "268435456")?; // 256MB
+        conn.pragma_update(None, "foreign_keys", "ON")?;
 
         // Run versioned migrations
         migrations::run_migrations(&conn)?;
@@ -1272,7 +1273,7 @@ impl Database {
             match conn.execute("DELETE FROM analyses WHERE id = ?1", params![id]) {
                 Ok(count) => deleted += count,
                 Err(e) => {
-                    conn.execute("ROLLBACK", [])?;
+                    let _ = conn.execute("ROLLBACK", []);
                     return Err(e);
                 }
             }
@@ -1297,7 +1298,7 @@ impl Database {
             match conn.execute("DELETE FROM translations WHERE id = ?1", params![id]) {
                 Ok(count) => deleted += count,
                 Err(e) => {
-                    conn.execute("ROLLBACK", [])?;
+                    let _ = conn.execute("ROLLBACK", []);
                     return Err(e);
                 }
             }
@@ -1545,7 +1546,7 @@ impl Database {
             ) {
                 Ok(count) => archived += count,
                 Err(e) => {
-                    conn.execute("ROLLBACK", [])?;
+                    let _ = conn.execute("ROLLBACK", []);
                     return Err(e);
                 }
             }
@@ -1849,6 +1850,7 @@ impl Database {
 
     /// Get trend data for a period
     pub fn get_trend_data(&self, period: &str, range_days: i32) -> Result<Vec<TrendDataPoint>> {
+        let range_days = range_days.max(1);
         let conn = self.lock_conn();
 
         // Determine grouping based on period
@@ -2047,7 +2049,9 @@ impl Database {
         );
 
         if existing.is_ok() {
-            return Err(rusqlite::Error::QueryReturnedNoRows); // Already promoted
+            return Err(rusqlite::Error::InvalidParameterName(
+                "Analysis has already been promoted to gold".to_string(),
+            ));
         }
 
         // Insert into gold_analyses with 'pending' status for review workflow
@@ -2358,6 +2362,72 @@ impl Database {
         }
 
         Ok(results)
+    }
+
+    /// Get dashboard statistics: scan counts per period + gold answer pipeline counts.
+    /// Returns all data in a single query batch to avoid multiple round-trips.
+    pub fn get_dashboard_stats(&self) -> Result<DashboardStats> {
+        let conn = self.lock_conn();
+
+        // Scan counts by time period
+        let scan_day: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL AND analyzed_at >= datetime('now', '-1 days')",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+        let scan_week: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL AND analyzed_at >= datetime('now', '-7 days')",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+        let scan_month: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL AND analyzed_at >= datetime('now', '-30 days')",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+        let scan_total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+
+        // Severity breakdown (last 30 days)
+        let severity_critical: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL AND LOWER(severity) = 'critical' AND analyzed_at >= datetime('now', '-30 days')",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+        let severity_high: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL AND LOWER(severity) = 'high' AND analyzed_at >= datetime('now', '-30 days')",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+        let severity_medium: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL AND LOWER(severity) = 'medium' AND analyzed_at >= datetime('now', '-30 days')",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+        let severity_low: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL AND LOWER(severity) = 'low' AND analyzed_at >= datetime('now', '-30 days')",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+
+        // Gold answer pipeline counts
+        let gold_pending: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM gold_analyses WHERE validation_status = 'pending'",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+        let gold_verified: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM gold_analyses WHERE validation_status = 'verified'",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+        let gold_rejected: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM gold_analyses WHERE validation_status = 'rejected'",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+        let gold_total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM gold_analyses",
+            [], |row| row.get(0),
+        ).unwrap_or(0);
+
+        Ok(DashboardStats {
+            scan_day, scan_week, scan_month, scan_total,
+            severity_critical, severity_high, severity_medium, severity_low,
+            gold_pending, gold_verified, gold_rejected, gold_total,
+        })
     }
 
     /// Count verified gold analyses
@@ -2881,32 +2951,31 @@ impl Database {
     // Chat Sessions (Sprint 6)
     // ========================================================================
 
-    pub fn save_chat_session(&self, id: &str, title: &str, created_at: i64, updated_at: i64) -> Result<()> {
+    /// Save a chat session and all its messages atomically in a single transaction.
+    pub fn save_chat_session_with_messages(
+        &self,
+        id: &str,
+        title: &str,
+        created_at: i64,
+        updated_at: i64,
+        messages: &[(String, String, String, Option<String>, i64)], // (id, role, content, sources_json, timestamp)
+    ) -> Result<()> {
         let conn = self.lock_conn();
-        conn.execute(
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO chat_sessions (id, title, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
             params![id, title, created_at, updated_at],
         )?;
-        Ok(())
-    }
-
-    pub fn save_chat_message(
-        &self,
-        id: &str,
-        session_id: &str,
-        role: &str,
-        content: &str,
-        sources_json: Option<&str>,
-        timestamp: i64,
-    ) -> Result<()> {
-        let conn = self.lock_conn();
-        conn.execute(
-            "INSERT OR REPLACE INTO chat_messages (id, session_id, role, content, sources_json, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, session_id, role, content, sources_json, timestamp],
-        )?;
+        for (msg_id, role, content, sources_json, timestamp) in messages {
+            tx.execute(
+                "INSERT OR REPLACE INTO chat_messages (id, session_id, role, content, sources_json, timestamp)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![msg_id, id, role, content, sources_json, timestamp],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -2952,10 +3021,12 @@ impl Database {
 
     pub fn delete_chat_session(&self, session_id: &str) -> Result<()> {
         let conn = self.lock_conn();
+        let tx = conn.unchecked_transaction()?;
         // Messages cascade-delete via FK, but SQLite FK enforcement can be off —
         // explicitly delete messages first for safety.
-        conn.execute("DELETE FROM chat_messages WHERE session_id = ?1", params![session_id])?;
-        conn.execute("DELETE FROM chat_sessions WHERE id = ?1", params![session_id])?;
+        tx.execute("DELETE FROM chat_messages WHERE session_id = ?1", params![session_id])?;
+        tx.execute("DELETE FROM chat_sessions WHERE id = ?1", params![session_id])?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -3007,6 +3078,24 @@ pub struct TrendDataPoint {
     pub complete_count: i32,
     pub specialized_count: i32,
     pub total_cost: f64,
+}
+
+/// Dashboard statistics: scan activity + gold answer pipeline
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardStats {
+    pub scan_day: i64,
+    pub scan_week: i64,
+    pub scan_month: i64,
+    pub scan_total: i64,
+    pub severity_critical: i64,
+    pub severity_high: i64,
+    pub severity_medium: i64,
+    pub severity_low: i64,
+    pub gold_pending: i64,
+    pub gold_verified: i64,
+    pub gold_rejected: i64,
+    pub gold_total: i64,
 }
 
 /// Error pattern count for analytics

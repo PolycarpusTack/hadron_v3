@@ -107,6 +107,78 @@ pub fn detect_pii_types(text: &str) -> Vec<&'static str> {
     types
 }
 
+/// Validate and canonicalize a file path for safe access
+pub async fn validate_file_path(
+    raw_path: &str,
+    max_size: u64,
+) -> Result<std::path::PathBuf, String> {
+    // SECURITY: Check raw input path BEFORE canonicalize to reject early
+    if raw_path.contains("..") {
+        log::warn!("Path traversal attempt detected: {}", raw_path);
+        return Err("Invalid file path: path traversal not allowed".to_string());
+    }
+
+    let file_path = std::path::Path::new(raw_path);
+    let canonical_path = async_fs::canonicalize(file_path).await.map_err(|e| {
+        log::error!("Failed to canonicalize path '{}': {}", raw_path, e);
+        "Invalid file path: file not found or inaccessible".to_string()
+    })?;
+
+    // Block access to sensitive system directories (Unix).
+    // Allow /var/log, /var/tmp, /usr/local — common locations for traces and app data.
+    let path_str = canonical_path.to_string_lossy();
+    let blocked_prefixes_unix = [
+        "/etc", "/sbin", "/root", "/sys", "/proc",
+    ];
+    let blocked_exact_unix = [
+        "/usr/bin", "/usr/sbin", "/usr/lib",
+        "/var/run", "/var/spool",
+    ];
+    for prefix in &blocked_prefixes_unix {
+        if path_str.starts_with(prefix) {
+            log::warn!("Blocked access to system directory: {}", prefix);
+            return Err(format!("Access denied: cannot read files from {}", prefix));
+        }
+    }
+    for prefix in &blocked_exact_unix {
+        if path_str.starts_with(prefix) {
+            log::warn!("Blocked access to system directory: {}", prefix);
+            return Err(format!("Access denied: cannot read files from {}", prefix));
+        }
+    }
+
+    // Block access to sensitive Windows system directories.
+    // Allow C:\ProgramData — common location for app logs and performance traces.
+    let path_str_lower = path_str.to_lowercase();
+    let blocked_prefixes_windows = [
+        "c:\\windows", "c:/windows",
+        "c:\\windows\\system32", "c:/windows/system32",
+    ];
+    for prefix in &blocked_prefixes_windows {
+        if path_str_lower.starts_with(prefix) {
+            log::warn!("Blocked access to Windows system directory: {}", prefix);
+            return Err("Access denied: cannot read files from system directories".to_string());
+        }
+    }
+
+    // SECURITY: Validate file size before reading to prevent memory exhaustion
+    let file_metadata = async_fs::metadata(&canonical_path).await.map_err(|e| {
+        log::error!("Failed to get metadata for '{}': {}", path_str, e);
+        "Failed to access file: permission denied or file not found".to_string()
+    })?;
+
+    if file_metadata.len() > max_size {
+        return Err(format!(
+            "File too large: {} bytes exceeds maximum of {} bytes ({} MB)",
+            file_metadata.len(),
+            max_size,
+            max_size / (1024 * 1024)
+        ));
+    }
+
+    Ok(canonical_path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::redact_pii_basic;
@@ -199,68 +271,4 @@ Server: 192.168.1.100
         assert!(!output.contains("192.168.1.100"));
         assert!(output.contains("NullPointerException"));
     }
-}
-
-/// Validate and canonicalize a file path for safe access
-pub async fn validate_file_path(
-    raw_path: &str,
-    max_size: u64,
-) -> Result<std::path::PathBuf, String> {
-    // SECURITY: Check raw input path BEFORE canonicalize to reject early
-    if raw_path.contains("..") {
-        log::warn!("Path traversal attempt detected: {}", raw_path);
-        return Err("Invalid file path: path traversal not allowed".to_string());
-    }
-
-    let file_path = std::path::Path::new(raw_path);
-    let canonical_path = async_fs::canonicalize(file_path).await.map_err(|e| {
-        log::error!("Failed to canonicalize path '{}': {}", raw_path, e);
-        "Invalid file path: file not found or inaccessible".to_string()
-    })?;
-
-    // Block access to sensitive system directories (Unix)
-    let path_str = canonical_path.to_string_lossy();
-    let blocked_prefixes_unix = [
-        "/etc", "/var", "/usr", "/bin", "/sbin", "/root", "/sys", "/proc",
-    ];
-    for prefix in &blocked_prefixes_unix {
-        if path_str.starts_with(prefix) {
-            log::warn!("Blocked access to system directory: {}", prefix);
-            return Err(format!("Access denied: cannot read files from {}", prefix));
-        }
-    }
-
-    // Block access to sensitive Windows system directories
-    let path_str_lower = path_str.to_lowercase();
-    let blocked_prefixes_windows = [
-        "c:\\windows",
-        "c:\\program files",
-        "c:\\programdata",
-        "c:/windows",
-        "c:/program files",
-        "c:/programdata",
-    ];
-    for prefix in &blocked_prefixes_windows {
-        if path_str_lower.starts_with(prefix) {
-            log::warn!("Blocked access to Windows system directory: {}", prefix);
-            return Err("Access denied: cannot read files from system directories".to_string());
-        }
-    }
-
-    // SECURITY: Validate file size before reading to prevent memory exhaustion
-    let file_metadata = async_fs::metadata(&canonical_path).await.map_err(|e| {
-        log::error!("Failed to get metadata for '{}': {}", path_str, e);
-        "Failed to access file: permission denied or file not found".to_string()
-    })?;
-
-    if file_metadata.len() > max_size {
-        return Err(format!(
-            "File too large: {} bytes exceeds maximum of {} bytes ({} MB)",
-            file_metadata.len(),
-            max_size,
-            max_size / (1024 * 1024)
-        ));
-    }
-
-    Ok(canonical_path)
 }

@@ -4,9 +4,6 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PythonTranslationResult {
     pub translation: String,
@@ -126,17 +123,22 @@ pub async fn run_python_translation(
     // Parse JSON output
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Extract JSON from stdout
-    let json_start = stdout.find('{').ok_or("No JSON found in output")?;
-    let json_end = stdout.rfind('}').ok_or("Malformed JSON in output")?;
-
-    // SECURITY: Validate slice bounds to prevent panic
-    if json_start > json_end {
-        return Err("Malformed JSON: invalid bounds in output".to_string());
+    // Extract JSON from stdout — try each '{' position in case earlier
+    // output contains braces (e.g., Python warnings like "Loading model {v2}...").
+    let json_end = stdout.rfind('}').ok_or("No JSON object found in output")?;
+    let mut search_from = 0;
+    while let Some(pos) = stdout[search_from..].find('{') {
+        let json_start = search_from + pos;
+        if json_start > json_end {
+            break;
+        }
+        let json_str = &stdout[json_start..=json_end];
+        if let Ok(result) = serde_json::from_str::<PythonTranslationResult>(json_str) {
+            return Ok(result);
+        }
+        search_from = json_start + 1;
     }
-    let json_str = &stdout[json_start..=json_end];
-
-    serde_json::from_str(json_str).map_err(|e| format!("Failed to parse JSON: {}", e))
+    Err("No valid JSON object found in Python output".to_string())
 }
 
 fn get_translation_script_path() -> Result<PathBuf, String> {

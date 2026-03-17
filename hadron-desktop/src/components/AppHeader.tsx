@@ -1,4 +1,4 @@
-import { Settings, MessageCircle } from "lucide-react";
+import { Settings, MessageCircle, BarChart3 } from "lucide-react";
 import { APP_VERSION } from "../constants/version";
 
 interface AppHeaderProps {
@@ -7,10 +7,11 @@ interface AppHeaderProps {
   sentryConnected?: boolean;
   onOpenSettings?: () => void;
   onOpenAskHadronDrawer?: () => void;
+  onOpenDashboard?: () => void;
   isSettingsActive?: boolean;
 }
 
-export default function AppHeader({ providerName, jiraConnected, sentryConnected, onOpenSettings, onOpenAskHadronDrawer, isSettingsActive }: AppHeaderProps) {
+export default function AppHeader({ providerName, jiraConnected, sentryConnected, onOpenSettings, onOpenAskHadronDrawer, onOpenDashboard, isSettingsActive }: AppHeaderProps) {
   const hasConnection = !!providerName;
 
   // Build connection text
@@ -83,6 +84,18 @@ export default function AppHeader({ providerName, jiraConnected, sentryConnected
               aria-label="Open Ask Hadron drawer"
             >
               <MessageCircle className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Dashboard icon */}
+          {onOpenDashboard && (
+            <button
+              onClick={onOpenDashboard}
+              className="hd-header-icon-btn"
+              title="Intelligence Dashboard"
+              aria-label="Open Intelligence Dashboard"
+            >
+              <BarChart3 className="w-4 h-4" />
             </button>
           )}
 

@@ -190,7 +190,8 @@ fn parse_deep_result(raw: &str) -> Result<JiraDeepResult, String> {
         .trim();
 
     serde_json::from_str(json_str).map_err(|e| {
-        let preview = &raw[..raw.len().min(300)];
+        let end = crate::str_utils::floor_char_boundary(raw, raw.len().min(300));
+        let preview = &raw[..end];
         format!("Failed to parse AI response as JSON: {}. Raw: {}", e, preview)
     })
 }

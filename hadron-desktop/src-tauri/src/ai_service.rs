@@ -5,6 +5,8 @@ use serde_json::json;
 use std::time::Duration;
 use tauri::Emitter;
 
+use crate::str_utils::floor_char_boundary;
+
 /// Shared HTTP client singleton (reqwest::Client is Arc-based, clone is cheap).
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
@@ -78,7 +80,8 @@ impl DomainKnowledge {
         for item in self.kb_results.iter().chain(self.release_note_results.iter()) {
             // Truncate each result to ~800 chars to control token usage
             let text = if item.text.len() > 800 {
-                format!("{}...", &item.text[..800])
+                let end = floor_char_boundary(&item.text, 800);
+                format!("{}...", &item.text[..end])
             } else {
                 item.text.clone()
             };
@@ -1006,16 +1009,32 @@ OUTPUT FORMAT (JSON):
     "affectedModule": "WHATS'ON module/namespace affected (e.g., PSI.ScheduleEngine)",
     "triggerCondition": "What specific condition triggered this crash"
   }},
-  "suggestedFixes": [
-    {{
-      "priority": 1,
-      "title": "Primary fix",
-      "description": "Detailed description",
-      "complexity": "low|medium|high",
-      "risk": "low|medium|high"
-    }}
-  ],
-  ... (continue with standard WHATS'ON analysis fields)
+  "suggestedFix": {{
+    "summary": "One-line summary of the recommended fix",
+    "reasoning": "Why this fix addresses the root cause",
+    "explanation": "Detailed explanation of the fix approach",
+    "codeChanges": [
+      {{
+        "file": "ClassName or method location",
+        "description": "What needs to change",
+        "before": "Problematic code snippet (if identifiable)",
+        "after": "Suggested fix code",
+        "priority": "P0|P1|P2"
+      }}
+    ],
+    "complexity": "simple|moderate|complex",
+    "riskLevel": "low|medium|high"
+  }},
+  "userScenario": {{
+    "description": "What the user was doing when the crash occurred",
+    "steps": ["Step leading to crash"],
+    "expectedResult": "What should have happened",
+    "actualResult": "What actually happened (the crash)"
+  }},
+  "stackTrace": {{
+    "frames": [],
+    "errorFrame": "The frame where the error originated"
+  }}
 }}
 
 Return ONLY valid JSON. No markdown, no explanation outside JSON."#,
@@ -1998,6 +2017,72 @@ fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<Analysis
 
                 let is_whatson_format = has_summary && has_root_cause;
 
+                // Quick analysis format: rootCause + solution + workaround
+                // These use camelCase keys from the Quick prompt schema.
+                let has_solution = parsed.get("solution").is_some();
+                let _has_workaround = parsed.get("workaround").is_some();
+                let is_quick_format = has_root_cause && has_solution && !has_summary;
+
+                if is_quick_format {
+                    log::info!("Detected Quick analysis JSON format — preserving raw JSON");
+                    let root_cause_obj = &parsed["rootCause"];
+                    let solution_obj = &parsed["solution"];
+
+                    let error_type = parsed["errorType"]
+                        .as_str()
+                        .unwrap_or("Quick Analysis")
+                        .to_string();
+
+                    let root_cause = root_cause_obj["technical"]
+                        .as_str()
+                        .or_else(|| root_cause_obj["title"].as_str())
+                        .unwrap_or("See full analysis")
+                        .to_string();
+
+                    let severity = parsed["severity"]
+                        .as_str()
+                        .unwrap_or("medium")
+                        .to_lowercase();
+
+                    let mut fixes: Vec<String> = Vec::new();
+                    if let Some(steps) = solution_obj["steps"].as_array() {
+                        for step in steps {
+                            if let Some(s) = step.as_str() {
+                                fixes.push(s.to_string());
+                            }
+                        }
+                    }
+                    if fixes.is_empty() {
+                        if let Some(s) = solution_obj["summary"].as_str() {
+                            fixes.push(s.to_string());
+                        }
+                    }
+
+                    let component = root_cause_obj["affectedComponent"]
+                        .as_str()
+                        .map(|s| s.to_string());
+
+                    return Ok(AnalysisResult {
+                        error_type,
+                        error_message: root_cause_obj["plainEnglish"]
+                            .as_str()
+                            .map(|s| s.to_string()),
+                        severity,
+                        root_cause,
+                        suggested_fixes: fixes,
+                        component,
+                        stack_trace: None,
+                        confidence: "high".to_string(),
+                        tokens_used: tokens,
+                        cost,
+                        was_truncated: Some(false),
+                        analysis_duration_ms: None,
+                        // Preserve the raw Quick JSON so the frontend detail view can parse it
+                        raw_enhanced_json: Some(json_str.to_string()),
+                        analysis_meta: None,
+                    });
+                }
+
                 if is_whatson_format {
                     // Warn if frontend-required fields are missing
                     if !has_user_scenario || !has_suggested_fix {
@@ -2010,7 +2095,12 @@ fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<Analysis
                     // WHATS'ON Enhanced format - extract fields from the enhanced structure
                     let summary = &parsed["summary"];
                     let root_cause_obj = &parsed["rootCause"];
-                    let suggested_fix = &parsed["suggestedFix"];
+                    // Accept both "suggestedFix" (standard WHATS'ON) and "suggestedFixes" (RAG variant)
+                    let suggested_fix = if parsed.get("suggestedFix").is_some() {
+                        &parsed["suggestedFix"]
+                    } else {
+                        &parsed["suggestedFixes"]
+                    };
 
                     // Extract display-friendly root cause text
                     let root_cause_text = root_cause_obj["plainEnglish"]
@@ -2018,25 +2108,35 @@ fn parse_analysis_json(content: &str, tokens: i32, cost: f64) -> Result<Analysis
                         .or_else(|| root_cause_obj["technical"].as_str())
                         .unwrap_or("See detailed analysis");
 
-                    // Extract suggested fixes from code changes
-                    let suggested_fixes: Vec<String> = suggested_fix["codeChanges"]
-                        .as_array()
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|change| {
-                                    let priority = change["priority"].as_str().unwrap_or("P1");
-                                    let desc = change["description"].as_str()?;
-                                    Some(format!("{} - {}", priority, desc))
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_else(|| {
-                            // Fallback: use the summary as a single fix
-                            suggested_fix["summary"]
-                                .as_str()
-                                .map(|s| vec![s.to_string()])
-                                .unwrap_or_default()
-                        });
+                    // Extract suggested fixes — handle both formats:
+                    // 1. suggestedFix.codeChanges[] (standard WHATS'ON)
+                    // 2. suggestedFixes[] array of {title, description} (RAG variant)
+                    let suggested_fixes: Vec<String> = if let Some(code_changes) = suggested_fix["codeChanges"].as_array() {
+                        // Standard WHATS'ON format: suggestedFix.codeChanges
+                        code_changes.iter()
+                            .filter_map(|change| {
+                                let priority = change["priority"].as_str().unwrap_or("P1");
+                                let desc = change["description"].as_str()?;
+                                Some(format!("{} - {}", priority, desc))
+                            })
+                            .collect()
+                    } else if let Some(fixes_arr) = suggested_fix.as_array() {
+                        // RAG variant: suggestedFixes is an array of fix objects
+                        fixes_arr.iter()
+                            .filter_map(|fix| {
+                                let title = fix["title"].as_str().unwrap_or("");
+                                let desc = fix["description"].as_str().unwrap_or("");
+                                if title.is_empty() && desc.is_empty() { return None; }
+                                Some(if title.is_empty() { desc.to_string() } else { format!("{}: {}", title, desc) })
+                            })
+                            .collect()
+                    } else {
+                        // Fallback: use the summary as a single fix
+                        suggested_fix["summary"]
+                            .as_str()
+                            .map(|s| vec![s.to_string()])
+                            .unwrap_or_default()
+                    };
 
                     return Ok(AnalysisResult {
                         error_type: summary["title"]
@@ -2232,7 +2332,7 @@ pub async fn analyze_crash_log(
     };
 
     // Add analysis duration
-    result.analysis_duration_ms = Some(start_time.elapsed().as_millis() as i32);
+    result.analysis_duration_ms = Some(i32::try_from(start_time.elapsed().as_millis()).unwrap_or(i32::MAX));
 
     Ok(result)
 }
@@ -2320,7 +2420,7 @@ pub async fn analyze_crash_log_with_rag(
     };
 
     // Add analysis duration
-    result.analysis_duration_ms = Some(start_time.elapsed().as_millis() as i32);
+    result.analysis_duration_ms = Some(i32::try_from(start_time.elapsed().as_millis()).unwrap_or(i32::MAX));
 
     Ok(result)
 }
@@ -2456,7 +2556,7 @@ pub async fn analyze_crash_log_safe(
     };
 
     // Add analysis duration
-    result.analysis_duration_ms = Some(start_time.elapsed().as_millis() as i32);
+    result.analysis_duration_ms = Some(i32::try_from(start_time.elapsed().as_millis()).unwrap_or(i32::MAX));
 
     Ok(result)
 }
@@ -2514,22 +2614,20 @@ async fn analyze_with_extraction(
     budget_analysis: &BudgetAnalysis,
     config: &TokenSafeConfig,
 ) -> Result<AnalysisResult, String> {
-    // Extract evidence from walkback if present
-    let (evidence_pack, evidence_summary) = if let Some(wb) = raw_walkback {
-        let extractor = EvidenceExtractor::with_config(ExtractionConfig::with_caps(
-            config
-                .max_preview_lines
-                .min(budget_analysis.recommended_preview_lines),
-            config
-                .max_matched_lines
-                .min(budget_analysis.recommended_matched_lines),
-        ));
-        let pack = extractor.extract(wb);
-        let summary = pack.summary();
-        (Some(pack), Some(summary))
-    } else {
-        (None, None)
-    };
+    // Extract evidence from walkback if present, otherwise from crash_content itself.
+    // This ensures Quick analysis on large files still gets the evidence-extraction assist.
+    let extraction_source = raw_walkback.unwrap_or(crash_content);
+    let extractor = EvidenceExtractor::with_config(ExtractionConfig::with_caps(
+        config
+            .max_preview_lines
+            .min(budget_analysis.recommended_preview_lines),
+        config
+            .max_matched_lines
+            .min(budget_analysis.recommended_matched_lines),
+    ));
+    let pack = extractor.extract(extraction_source);
+    let evidence_summary = Some(pack.summary());
+    let evidence_pack = Some(pack);
 
     // Build prompt with evidence pack instead of full walkback
     let prompt_content = match &evidence_pack {
@@ -2661,7 +2759,7 @@ async fn analyze_deep_scan(
                     Ok(raw_content) => {
                         let sanitized = sanitize_json_string(&raw_content);
 
-                        let preview_len = sanitized.len().min(200);
+                        let preview_len = floor_char_boundary(&sanitized, sanitized.len().min(200));
                         log::info!(
                             "Chunk {} response: {}...",
                             chunk_index,

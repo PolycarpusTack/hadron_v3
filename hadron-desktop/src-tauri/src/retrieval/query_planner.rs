@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ai_service::{call_provider_quick, ChatMessage};
+use crate::str_utils::floor_char_boundary;
 
 /// Maximum number of sub-queries to prevent explosion
 const MAX_SUB_QUERIES: usize = 2;
@@ -75,7 +76,7 @@ pub async fn plan_retrieval(
         .rev()
         .take(6)
         .rev()
-        .map(|m| format!("{}: {}", m.role, &m.content[..m.content.len().min(200)]))
+        .map(|m| format!("{}: {}", m.role, &m.content[..floor_char_boundary(&m.content, 200)]))
         .collect();
 
     let planner_input = vec![ChatMessage {
@@ -101,8 +102,8 @@ pub async fn plan_retrieval(
                     }
                     log::info!(
                         "Query planned: \"{}\" -> \"{}\" ({} sub-queries)",
-                        &latest_query[..latest_query.len().min(60)],
-                        &plan.rewritten[..plan.rewritten.len().min(60)],
+                        &latest_query[..floor_char_boundary(latest_query, 60)],
+                        &plan.rewritten[..floor_char_boundary(&plan.rewritten, 60)],
                         plan.sub_queries.len()
                     );
                     plan

@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Upload, FileText, Loader2, ClipboardPaste, X, Clock, AlertCircle, ChevronRight, RotateCcw, Eye } from "lucide-react";
 import Button from "./ui/Button";
 import Modal from "./ui/Modal";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import logger from "../services/logger";
 import type { Analysis, AnalysisMode } from "../services/api";
 import { formatDistanceToNow } from "date-fns";
@@ -51,6 +52,8 @@ function getSeverityBadgeClass(severity: string): string {
 
 export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalysis, isAnalyzing, crashFile, crashAnalysisResult, onClearCrashAnalysisResult }: FileDropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [dropRejectedMsg, setDropRejectedMsg] = useState<string | null>(null);
+  const dropRejectTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [analysisType, setAnalysisType] = useState<"comprehensive" | "quick">(() => {
     const stored = localStorage.getItem("analysis_default_type");
     // Migrate old values to new types
@@ -60,7 +63,7 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
     if (stored === "quick") {
       return "quick";
     }
-    return "comprehensive";
+    return "quick";
   });
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pastedContent, setPastedContent] = useState("");
@@ -82,9 +85,62 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
     fetchRecent();
   }, []);
 
+  // Refs for Tauri drag-drop callback (avoids stale closures)
+  const analysisTypeRef = useRef(analysisType);
+  const isAnalyzingRef = useRef(isAnalyzing);
+  useEffect(() => { analysisTypeRef.current = analysisType; }, [analysisType]);
+  useEffect(() => { isAnalyzingRef.current = isAnalyzing; }, [isAnalyzing]);
+
+  // Register Tauri native file-drop listener for real filesystem paths
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        setIsDragging(true);
+      } else if (event.payload.type === "drop") {
+        setIsDragging(false);
+        if (isAnalyzingRef.current) return;
+
+        const paths = event.payload.paths.filter((p) => {
+          const lower = p.toLowerCase();
+          return lower.endsWith(".txt") || lower.endsWith(".log");
+        });
+
+        if (paths.length === 0) {
+          logger.warn("Dropped files have no supported extensions (.txt/.log)", { dropped: event.payload.paths });
+          clearTimeout(dropRejectTimerRef.current);
+          setDropRejectedMsg("Only .txt and .log files are supported");
+          dropRejectTimerRef.current = setTimeout(() => setDropRejectedMsg(null), 4000);
+          return;
+        }
+
+        const type = analysisTypeRef.current;
+        const mode = type === "comprehensive" ? "deep_scan" : "quick";
+
+        if (paths.length > 1 && onBatchSelect) {
+          onBatchSelect(paths, type, mode as AnalysisMode);
+        } else if (paths.length > 0) {
+          onFileSelect(paths[0], type, mode as AnalysisMode);
+        }
+      } else if (event.payload.type === "leave") {
+        setIsDragging(false);
+      }
+    }).then((fn) => {
+      if (cancelled) { fn(); } else { unlisten = fn; }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      clearTimeout(dropRejectTimerRef.current);
+    };
+  }, [onFileSelect, onBatchSelect]);
+
+  // HTML5 handlers just prevent default browser behavior
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(true);
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
@@ -95,9 +151,7 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-
-    // Show message to use file picker instead
-    alert("Please use the file picker button below instead of drag & drop.\n\nThis ensures proper file path handling in Tauri.");
+    // Actual file handling is done by Tauri's onDragDropEvent above
   }, []);
 
   const handleSelectFile = useCallback(async () => {
@@ -225,6 +279,9 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
                   <p className="text-xs mb-5" style={{ color: 'var(--hd-text-dim)' }}>
                     Supports .txt and .log files up to 5MB
                   </p>
+                  {dropRejectedMsg && (
+                    <p className="text-xs mb-3 text-amber-400">{dropRejectedMsg}</p>
+                  )}
                   <div className="flex gap-3">
                     <Button
                       onClick={handleSelectFile}

@@ -1,6 +1,6 @@
 //! Analytics and similar crash detection commands
 
-use crate::database::{Analysis, ErrorPatternCount, TrendDataPoint};
+use crate::database::{Analysis, DashboardStats, ErrorPatternCount, TrendDataPoint};
 use super::common::DbState;
 use std::sync::Arc;
 
@@ -68,6 +68,18 @@ pub async fn get_trend_data(
         range_days
     );
     Ok(data)
+}
+
+/// Get dashboard statistics (scan counts + gold pipeline)
+#[tauri::command]
+pub async fn get_dashboard_stats(db: DbState<'_>) -> Result<DashboardStats, String> {
+    log::debug!("cmd: get_dashboard_stats");
+    let db = Arc::clone(&db);
+
+    tauri::async_runtime::spawn_blocking(move || db.get_dashboard_stats())
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
+        .map_err(|e| format!("Database error: {}", e))
 }
 
 /// Get top error patterns

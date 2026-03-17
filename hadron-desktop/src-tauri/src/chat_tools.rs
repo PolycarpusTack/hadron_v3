@@ -3,6 +3,8 @@
 //! Defines the tools available to the Ask Hadron agent and provides
 //! execution logic that maps tool calls to existing Hadron capabilities.
 
+use crate::str_utils::floor_char_boundary;
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -1200,12 +1202,14 @@ async fn execute_search_gold_answers(
             ga.id,
             ga.created_at,
             if ga.question.len() > 200 {
-                format!("{}...", &ga.question[..200])
+                let end = floor_char_boundary(&ga.question, 200);
+                format!("{}...", &ga.question[..end])
             } else {
                 ga.question.clone()
             },
             if ga.answer.len() > 500 {
-                format!("{}...", &ga.answer[..500])
+                let end = floor_char_boundary(&ga.answer, 500);
+                format!("{}...", &ga.answer[..end])
             } else {
                 ga.answer.clone()
             },
@@ -1360,6 +1364,7 @@ fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len])
+        let end = floor_char_boundary(s, max_len);
+        format!("{}...", &s[..end])
     }
 }

@@ -113,16 +113,11 @@ async fn list_openai_models(client: &Client, api_key: &str) -> Result<Vec<Model>
 
             // Determine context window
             let context = if id_lower.starts_with("gpt-4.1") {
-                Some(1047576) // 1M tokens
+                Some(1_047_576) // 1M tokens
             } else if id_lower.starts_with("o3") || id_lower.starts_with("o4") {
-                Some(200000)
-            } else if id_lower.contains("gpt-4o")
-                || id_lower.contains("gpt-4-turbo")
-                || id_lower.contains("gpt-5")
-            {
-                Some(128000)
+                Some(200_000)
             } else {
-                Some(128000) // Default for newer models
+                Some(128_000) // Default for GPT-4o/Turbo/5 and newer models
             };
 
             // Categorize for UI display

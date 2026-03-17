@@ -13,11 +13,23 @@ const MAX_WIDGET_HEIGHT: f64 = 1200.0;
 /// Prevents concurrent show/hide/resize/move from corrupting wry/WebView2
 /// event loop state, which causes ILLEGAL_INSTRUCTION (0xc000001d) crashes
 /// on Windows.
-pub struct WidgetLock(parking_lot::Mutex<()>);
+///
+/// Uses tokio::sync::Mutex (not parking_lot) to avoid blocking the Tokio
+/// runtime when multiple widget commands arrive concurrently.
+pub struct WidgetLock(tokio::sync::Mutex<()>);
 
 impl WidgetLock {
     pub fn new() -> Self {
-        Self(parking_lot::Mutex::new(()))
+        Self(tokio::sync::Mutex::new(()))
+    }
+}
+
+/// Runtime feature flag for the hover button/widget.
+pub struct HoverButtonEnabledState(parking_lot::RwLock<bool>);
+
+impl HoverButtonEnabledState {
+    pub fn new(enabled: bool) -> Self {
+        Self(parking_lot::RwLock::new(enabled))
     }
 }
 
@@ -26,14 +38,24 @@ fn get_widget(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(WIDGET_LABEL)
 }
 
+fn is_hover_button_enabled(app: &AppHandle) -> bool {
+    *app.state::<HoverButtonEnabledState>().0.read()
+}
+
 /// Toggle the widget window visibility
 #[tauri::command]
 pub async fn toggle_widget(app: AppHandle) -> CommandResult<()> {
     let wl = app.state::<WidgetLock>();
-    let _guard = wl.0.lock();
+    let _guard = wl.0.lock().await;
     log::debug!("cmd: toggle_widget");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
+    if !is_hover_button_enabled(&app) {
+        if widget.is_visible()? {
+            widget.hide()?;
+        }
+        return Ok(());
+    }
     if widget.is_visible()? {
         widget.hide()?;
     } else {
@@ -47,10 +69,22 @@ pub async fn toggle_widget(app: AppHandle) -> CommandResult<()> {
 #[tauri::command]
 pub async fn show_widget(app: AppHandle) -> CommandResult<()> {
     let wl = app.state::<WidgetLock>();
-    let _guard = wl.0.lock();
+    let _guard = wl.0.lock().await;
     log::debug!("cmd: show_widget");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
+    if !is_hover_button_enabled(&app) {
+        if widget.is_visible()? {
+            widget.hide()?;
+        }
+        return Ok(());
+    }
+    if widget.is_visible()? {
+        return Ok(());
+    }
+    // Set alwaysOnTop just before showing to avoid a black box
+    // from the transparent window being above everything before paint.
+    widget.set_always_on_top(true)?;
     widget.show()?;
     Ok(())
 }
@@ -59,11 +93,48 @@ pub async fn show_widget(app: AppHandle) -> CommandResult<()> {
 #[tauri::command]
 pub async fn hide_widget(app: AppHandle) -> CommandResult<()> {
     let wl = app.state::<WidgetLock>();
-    let _guard = wl.0.lock();
+    let _guard = wl.0.lock().await;
     log::debug!("cmd: hide_widget");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
+    if !widget.is_visible()? {
+        return Ok(());
+    }
     widget.hide()?;
+    widget.set_always_on_top(false)?;
+    Ok(())
+}
+
+/// Check if the widget window is currently visible.
+#[tauri::command]
+pub async fn is_widget_visible(app: AppHandle) -> CommandResult<bool> {
+    let wl = app.state::<WidgetLock>();
+    let _guard = wl.0.lock().await;
+    log::debug!("cmd: is_widget_visible");
+    let widget = get_widget(&app)
+        .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
+    Ok(widget.is_visible()?)
+}
+
+/// Update whether the hover button/widget feature is enabled.
+#[tauri::command]
+pub async fn set_hover_button_enabled(app: AppHandle, enabled: bool) -> CommandResult<()> {
+    {
+        let hover_state = app.state::<HoverButtonEnabledState>();
+        let mut state = hover_state.0.write();
+        *state = enabled;
+    }
+
+    if !enabled {
+        let wl = app.state::<WidgetLock>();
+        let _guard = wl.0.lock().await;
+        if let Some(widget) = get_widget(&app) {
+            if widget.is_visible()? {
+                widget.hide()?;
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -71,7 +142,7 @@ pub async fn hide_widget(app: AppHandle) -> CommandResult<()> {
 #[tauri::command]
 pub async fn resize_widget(app: AppHandle, width: f64, height: f64) -> CommandResult<()> {
     let wl = app.state::<WidgetLock>();
-    let _guard = wl.0.lock();
+    let _guard = wl.0.lock().await;
     log::debug!("cmd: resize_widget");
     if width < MIN_WIDGET_DIMENSION || width > MAX_WIDGET_WIDTH
         || height < MIN_WIDGET_DIMENSION || height > MAX_WIDGET_HEIGHT
@@ -91,6 +162,15 @@ pub async fn resize_widget(app: AppHandle, width: f64, height: f64) -> CommandRe
 #[tauri::command]
 pub async fn focus_main_window(app: AppHandle) -> CommandResult<()> {
     log::debug!("cmd: focus_main_window");
+    {
+        let wl = app.state::<WidgetLock>();
+        let _guard = wl.0.lock().await;
+        if let Some(widget) = get_widget(&app) {
+            if widget.is_visible()? {
+                widget.hide()?;
+            }
+        }
+    }
     let main = app
         .get_webview_window(MAIN_LABEL)
         .ok_or_else(|| HadronError::Internal("Main window not found".into()))?;
@@ -111,7 +191,7 @@ pub struct WidgetPosition {
 #[tauri::command]
 pub async fn get_widget_position(app: AppHandle) -> CommandResult<WidgetPosition> {
     let wl = app.state::<WidgetLock>();
-    let _guard = wl.0.lock();
+    let _guard = wl.0.lock().await;
     log::debug!("cmd: get_widget_position");
     let widget = get_widget(&app)
         .ok_or_else(|| HadronError::Internal("Widget window not found".into()))?;
@@ -127,7 +207,7 @@ pub async fn get_widget_position(app: AppHandle) -> CommandResult<WidgetPosition
 #[tauri::command]
 pub async fn move_widget(app: AppHandle, x: f64, y: f64) -> CommandResult<()> {
     let wl = app.state::<WidgetLock>();
-    let _guard = wl.0.lock();
+    let _guard = wl.0.lock().await;
     log::debug!("cmd: move_widget");
     if x.is_nan() || x.is_infinite() || y.is_nan() || y.is_infinite() {
         return Err(HadronError::Validation(

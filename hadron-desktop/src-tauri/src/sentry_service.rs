@@ -13,6 +13,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+use crate::str_utils::floor_char_boundary;
+
 /// HTTP client with connection pooling and 30s timeout
 static SENTRY_CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
@@ -765,7 +767,7 @@ pub fn detect_sentry_patterns(issue: &SentryIssue, event: &SentryEvent) -> Vec<D
                     evidence.push(format!(
                         "Query pattern repeated {} times: {}",
                         count,
-                        &query[..query.len().min(100)]
+                        &query[..floor_char_boundary(query, 100)]
                     ));
                 }
             }

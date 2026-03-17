@@ -100,6 +100,14 @@ pub struct OpenSearchConfig {
     pub username: String,
     pub password: String,
     pub use_ssl: bool,
+    /// Set to false to accept self-signed/invalid TLS certs (local dev only).
+    /// Defaults to true (verify certs) when not specified in stored config.
+    #[serde(default = "default_verify_certs")]
+    pub verify_certs: bool,
+}
+
+fn default_verify_certs() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize)]

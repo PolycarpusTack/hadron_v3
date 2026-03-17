@@ -73,7 +73,12 @@ pub async fn chat_send(
                 .map(|m| {
                     let t = &m.content;
                     if t.len() > 50 {
-                        format!("{}...", &t[..50])
+                        // Find valid UTF-8 char boundary to avoid panic on multi-byte chars
+                        let mut end = 50;
+                        while end > 0 && !t.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        format!("{}...", &t[..end])
                     } else {
                         t.clone()
                     }

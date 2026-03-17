@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Button from "./ui/Button";
 import Modal from "./ui/Modal";
+import { useToast } from "./Toast";
 import type { ExportSource, ExportResponse, ReportAudience } from "../types";
 import { previewReport, exportGenericReport, previewGenericReport } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
@@ -127,6 +128,7 @@ const AUDIENCE_OPTIONS: AudienceOption[] = [
 ];
 
 export default function ExportDialog({ source, isOpen, onClose }: ExportDialogProps) {
+  const toast = useToast();
   const defaultExportDir = localStorage.getItem(STORAGE_KEYS.DEFAULT_EXPORT_DIR) || "";
   const [saveLocation, setSaveLocation] = useState<"download" | "default" | "choose">(
     defaultExportDir ? "default" : "download"
@@ -248,13 +250,14 @@ export default function ExportDialog({ source, isOpen, onClose }: ExportDialogPr
         await saveFile(result);
       }
 
-      setExportMessage(`Successfully exported ${results.length} file(s)`);
-      setTimeout(() => {
-        onClose();
-      }, 1500);
+      const locationLabel = saveLocation === "download" ? "to Downloads" :
+        saveLocation === "default" ? "to default folder" : "to selected location";
+      toast.success(`Exported ${results.length} file(s) ${locationLabel}`);
+      onClose();
     } catch (error) {
       logger.error("Export failed", { error });
       setExportMessage(`Export failed: ${error}`);
+      toast.error(`Export failed: ${error}`);
     } finally {
       setIsExporting(false);
     }

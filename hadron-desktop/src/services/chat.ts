@@ -134,6 +134,7 @@ export async function sendChatMessage(
           username: osConfig.username,
           password: password || "",
           use_ssl: osConfig.useSsl,
+          verify_certs: osConfig.verifyCerts,
         };
       }
     } catch (e) {
@@ -191,6 +192,7 @@ export async function sendChatMessage(
       date_from: options.dateFrom ?? null,
       date_to: options.dateTo ?? null,
       analysis_types: options.analysisTypes ?? null,
+      verbosity: options.verbosity ?? null,
     },
   });
 }

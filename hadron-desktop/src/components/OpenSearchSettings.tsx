@@ -37,6 +37,7 @@ export default function OpenSearchSettings({ onConfigChange }: OpenSearchSetting
     host: "localhost",
     port: 9200,
     useSsl: false,
+    verifyCerts: true,
     username: "",
     defaultVersion: "2025r12",
     defaultCustomer: "",
@@ -283,6 +284,18 @@ export default function OpenSearchSettings({ onConfigChange }: OpenSearchSetting
                   />
                   Use SSL
                 </label>
+
+                {config.useSsl && (
+                  <label className="flex items-center gap-2 text-xs text-gray-400">
+                    <input
+                      type="checkbox"
+                      checked={config.verifyCerts}
+                      onChange={(e) => setConfig({ ...config, verifyCerts: e.target.checked })}
+                      className="w-4 h-4 rounded accent-teal-500"
+                    />
+                    Verify TLS certs
+                  </label>
+                )}
 
                 <Button
                   onClick={handleTestConnection}

@@ -206,7 +206,7 @@ impl EvidenceExtractor {
             &detected_signatures,
             &stack_traces,
         );
-        let reduction_percent = if raw_bytes > 0 {
+        let reduction_percent = if raw_bytes > 0 && raw_bytes > evidence_size {
             ((raw_bytes - evidence_size) as f32 / raw_bytes as f32) * 100.0
         } else {
             0.0
@@ -304,7 +304,7 @@ impl EvidenceExtractor {
         }
 
         // Add marker if there's a gap
-        if result.len() < start_context {
+        if result.len() < start_context && result.len() < max_lines {
             result.push("... [content trimmed for brevity] ...".to_string());
         }
 
@@ -316,7 +316,7 @@ impl EvidenceExtractor {
         }
 
         // Add marker if there's a gap
-        if end_context < lines.len().saturating_sub(tail_lines) {
+        if end_context < lines.len().saturating_sub(tail_lines) && result.len() < max_lines {
             result.push("... [content trimmed for brevity] ...".to_string());
         }
 
