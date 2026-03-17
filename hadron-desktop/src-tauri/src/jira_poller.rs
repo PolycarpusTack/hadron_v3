@@ -72,12 +72,10 @@ fn default_config() -> JiraPollerConfig {
 /// Write last_polled_at back to the store.
 pub fn write_last_polled_at(app: &AppHandle, timestamp: &str) {
     if let Some(store) = app.get_store("settings.json") {
-        if let Err(e) = store.set(
+        store.set(
             "jira_assist_last_polled_at",
             serde_json::Value::String(timestamp.to_string()),
-        ) {
-            log::warn!("poller: failed to set last_polled_at: {}", e);
-        }
+        );
         if let Err(e) = store.save() {
             log::warn!("poller: failed to save store: {}", e);
         }

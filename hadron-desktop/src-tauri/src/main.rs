@@ -22,7 +22,7 @@ mod model_fetcher;
 mod models;
 mod parser;
 mod patterns;
-mod python_runner;
+// python_runner — removed: translation now handled natively in Rust (commands/ai.rs)
 mod rag_commands;
 mod retrieval;
 mod signature;

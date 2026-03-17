@@ -14,7 +14,7 @@ use crate::ai_service::translate_llamacpp;
 use crate::database::{Analysis, Database, Translation};
 use crate::keeper_service;
 use crate::str_utils::floor_char_boundary;
-use crate::python_runner::run_python_translation;
+use crate::ai_service::{call_openai_raw, call_anthropic_raw, call_zai_raw};
 use crate::rag_commands;
 use crate::sentry_service;
 use once_cell::sync::Lazy;
@@ -1370,8 +1370,50 @@ pub async fn analyze_jira_ticket(
 }
 
 // ============================================================================
-// Translation
+// Translation — Rust-native (replaces python/translate.py)
 // ============================================================================
+
+const TRANSLATION_SYSTEM_PROMPT: &str = "\
+You are a technical translator that analyzes and explains code, errors, \
+and technical content in plain language.";
+
+fn build_translation_user_prompt(content: &str) -> String {
+    format!(
+        "Analyze the following technical content and provide a comprehensive explanation that covers:\n\n\
+         1. **What It Does**: Explain what this code/content actually does, step by step.\n\n\
+         2. **What It Represents**: Describe the purpose and context.\n\n\
+         3. **Key Details**: Break down important parts — technical terms, data flow, critical operations.\n\n\
+         4. **For Errors/Issues**: If this appears to be an error or stack trace:\n\
+            - Explain what went wrong in simple terms\n\
+            - Describe the likely cause\n\
+            - Suggest 2-3 specific investigative actions\n\
+            - Recommend potential solutions or fixes\n\n\
+         5. **Practical Context**: Use analogies or real-world comparisons when helpful.\n\n\
+         Technical content to analyze:\n{}\n\n\
+         Provide a clear, detailed explanation that helps someone understand not just WHAT this is, \
+         but what it DOES and what it MEANS:",
+        content
+    )
+}
+
+/// Call a cloud AI provider for translation, using the Rust-native HTTP client.
+/// Replaces the old Python subprocess path (python/translate.py).
+async fn translate_cloud(content: &str, api_key: &str, model: &str, provider: &str) -> Result<String, String> {
+    let user_prompt = build_translation_user_prompt(content);
+
+    match provider.to_lowercase().as_str() {
+        "openai" | "vllm" => {
+            call_openai_raw(TRANSLATION_SYSTEM_PROMPT, &user_prompt, api_key, model, 3000).await
+        }
+        "anthropic" => {
+            call_anthropic_raw(TRANSLATION_SYSTEM_PROMPT, &user_prompt, api_key, model).await
+        }
+        "zai" => {
+            call_zai_raw(TRANSLATION_SYSTEM_PROMPT, &user_prompt, api_key, model).await
+        }
+        _ => Err(format!("Unsupported provider for translation: {}", provider)),
+    }
+}
 
 /// Translate technical content to plain language
 #[tauri::command]
@@ -1410,7 +1452,6 @@ pub async fn translate_content(
         Cow::Borrowed(&content)
     };
 
-    // For llama.cpp, use Rust-native translation (no Python needed)
     let translation_text = if provider.to_lowercase() == "llamacpp" {
         translate_llamacpp(&content_for_ai, &model)
             .await
@@ -1419,14 +1460,12 @@ pub async fn translate_content(
                 format!("llama.cpp translation failed: {}", e)
             })?
     } else {
-        // Run Python translation for cloud providers
-        let result = run_python_translation(&content_for_ai, api_key.as_str(), &model, &provider)
+        translate_cloud(&content_for_ai, api_key.as_str(), &model, &provider)
             .await
             .map_err(|e| {
                 log::error!("Translation failed: error={}", e);
                 format!("Translation failed: {}", e)
-            })?;
-        result.translation.clone()
+            })?
     };
 
     log::info!("Translation completed successfully: provider={}", provider);
@@ -1511,10 +1550,9 @@ pub async fn call_ai(
             .await
             .map_err(|e| format!("llama.cpp call failed: {}", e))?
     } else {
-        run_python_translation(&content_for_ai, api_key.as_str(), &model, &provider)
+        translate_cloud(&content_for_ai, api_key.as_str(), &model, &provider)
             .await
             .map_err(|e| format!("AI call failed: {}", e))?
-            .translation
     };
 
     log::info!("call_ai completed: provider={}", provider);
