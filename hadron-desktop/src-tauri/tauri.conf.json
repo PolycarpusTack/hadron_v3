@@ -53,10 +53,7 @@
             "core:app:default",
             "core:window:default",
             "core:event:default",
-            "log:default",
-            "fs:default",
-            "fs:allow-write-text-file",
-            "fs:allow-write-file"
+            "log:default"
           ]
         },
         {

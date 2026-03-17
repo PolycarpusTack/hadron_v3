@@ -515,3 +515,24 @@ pub fn generate_report_multi(
         format: request.format,
     })
 }
+
+// ============================================================================
+// File writing — single Rust command replaces unscoped fs:allow-write-*
+// ============================================================================
+
+/// Write string content to a file path chosen by the user via the dialog plugin.
+/// This keeps file-write capability in Rust (no broad fs ACL needed in the renderer).
+#[tauri::command]
+pub async fn write_export_text(path: String, content: String) -> Result<(), String> {
+    tokio::fs::write(&path, content.as_bytes())
+        .await
+        .map_err(|e| format!("Failed to write file '{}': {}", path, e))
+}
+
+/// Write binary content to a file path chosen by the user via the dialog plugin.
+#[tauri::command]
+pub async fn write_export_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
+    tokio::fs::write(&path, &data)
+        .await
+        .map_err(|e| format!("Failed to write file '{}': {}", path, e))
+}

@@ -107,7 +107,6 @@ fn main() {
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Register global hotkey: Ctrl+Shift+H to toggle widget
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -281,6 +280,8 @@ fn main() {
             commands::export::generate_report_multi,
             commands::export::export_generic_report,
             commands::export::preview_generic_report,
+            commands::export::write_export_text,
+            commands::export::write_export_bytes,
             // ── Performance ──
             commands::performance::analyze_performance_trace,
             // ── Intelligence ──

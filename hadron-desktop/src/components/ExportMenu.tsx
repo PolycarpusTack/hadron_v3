@@ -20,7 +20,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import type { ChatMessage } from "../services/chat";
 
 // ============================================================================
@@ -187,7 +187,7 @@ export default function ExportMenu(props: ExportMenuProps) {
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
       if (filePath) {
-        await writeTextFile(filePath, content);
+        await invoke("write_export_text", { path: filePath, content });
         showSuccess("Exported as Markdown");
       }
     } catch {
@@ -204,7 +204,7 @@ export default function ExportMenu(props: ExportMenuProps) {
         filters: [{ name: "Text", extensions: ["txt"] }],
       });
       if (filePath) {
-        await writeTextFile(filePath, content);
+        await invoke("write_export_text", { path: filePath, content });
         showSuccess("Exported as Text");
       }
     } catch {
@@ -221,7 +221,7 @@ export default function ExportMenu(props: ExportMenuProps) {
         filters: [{ name: "HTML", extensions: ["html"] }],
       });
       if (filePath) {
-        await writeTextFile(filePath, content);
+        await invoke("write_export_text", { path: filePath, content });
         showSuccess("Exported as HTML");
       }
     } catch {

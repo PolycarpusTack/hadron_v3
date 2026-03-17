@@ -19,7 +19,6 @@ import { exportGoldAnswersJsonl } from "../services/gold-answers";
 import { exportSummariesBundle } from "../services/summaries";
 import { exportGoldJsonl } from "../services/api";
 import { save as tauriSave } from "@tauri-apps/plugin-dialog";
-import { writeTextFile } from "@tauri-apps/plugin-fs";
 
 interface DashboardStats {
   scanDay: number;
@@ -93,7 +92,7 @@ export default function IntelligenceDashboard({ isOpen, onClose }: IntelligenceD
         filters: [{ name: "JSONL", extensions: ["jsonl"] }],
       });
       if (filePath) {
-        await writeTextFile(filePath, jsonl);
+        await invoke("write_export_text", { path: filePath, content: jsonl });
         setExportMsg("Gold answers exported");
       }
     } catch (e) {
@@ -114,7 +113,7 @@ export default function IntelligenceDashboard({ isOpen, onClose }: IntelligenceD
         filters: [{ name: "JSONL", extensions: ["jsonl"] }],
       });
       if (filePath) {
-        await writeTextFile(filePath, bundle);
+        await invoke("write_export_text", { path: filePath, content: bundle });
         setExportMsg("RAG summaries exported");
       }
     } catch (e) {
@@ -139,7 +138,7 @@ export default function IntelligenceDashboard({ isOpen, onClose }: IntelligenceD
         filters: [{ name: "JSONL", extensions: ["jsonl"] }],
       });
       if (filePath) {
-        await writeTextFile(filePath, result.jsonlContent);
+        await invoke("write_export_text", { path: filePath, content: result.jsonlContent });
         setExportMsg(`Exported ${result.totalExported} gold analyses for fine-tuning`);
       }
     } catch (e) {

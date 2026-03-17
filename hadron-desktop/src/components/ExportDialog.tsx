@@ -23,7 +23,6 @@ import type { ExportSource, ExportResponse, ReportAudience } from "../types";
 import { previewReport, exportGenericReport, previewGenericReport } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
 import { save as tauriSave } from "@tauri-apps/plugin-dialog";
-import { writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
 import logger from "../services/logger";
 import { STORAGE_KEYS } from "../utils/config";
@@ -292,9 +291,9 @@ export default function ExportDialog({ source, isOpen, onClose }: ExportDialogPr
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
-      await writeFile(filePath, bytes);
+      await invoke("write_export_bytes", { path: filePath, data: Array.from(bytes) });
     } else {
-      await writeTextFile(filePath, result.content);
+      await invoke("write_export_text", { path: filePath, content: result.content });
     }
   };
 

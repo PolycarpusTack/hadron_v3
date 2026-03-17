@@ -31,7 +31,7 @@ import { getStoredProvider, getStoredModel } from "../services/api";
 import { getApiKey } from "../services/secure-storage";
 import { getJiraConfig } from "../services/jira";
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import Button from "./ui/Button";
 
 // ============================================================================
@@ -184,7 +184,7 @@ export default function SummaryPanel({
         ],
       });
       if (filePath) {
-        await writeTextFile(filePath, content);
+        await invoke("write_export_text", { path: filePath, content });
         setSuccessMsg(`Exported as .${ext}`);
       }
     } catch (e) {
