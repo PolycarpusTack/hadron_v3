@@ -1,0 +1,268 @@
+{
+  "audit_date": "2026-03-09",
+  "codebase_version": "4.3.0",
+  "bugs": [
+    {
+      "id": "B1",
+      "severity": "high",
+      "file": "src/ai_service.rs",
+      "lines": "81",
+      "cwe": "CWE-129",
+      "root_cause": "Non-UTF8-safe byte slicing panics on multi-byte characters",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B2",
+      "severity": "high",
+      "file": "src/chat_tools.rs",
+      "lines": "1203,1208,1363",
+      "cwe": "CWE-129",
+      "root_cause": "Non-UTF8-safe byte slicing panics on multi-byte characters",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B3",
+      "severity": "high",
+      "file": "src/chat_commands.rs",
+      "lines": "1016",
+      "cwe": "CWE-129",
+      "root_cause": "Non-UTF8-safe byte slicing panics on multi-byte characters",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B4",
+      "severity": "high",
+      "file": "src/release_notes_service.rs",
+      "lines": "604",
+      "cwe": "CWE-129",
+      "root_cause": "Non-UTF8-safe byte slicing panics on multi-byte characters",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B5",
+      "severity": "high",
+      "file": "src/ai_service.rs",
+      "lines": "2668",
+      "cwe": "CWE-129",
+      "root_cause": "Non-UTF8-safe byte slicing panics on multi-byte AI response content",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B6",
+      "severity": "high",
+      "file": "src/evidence_extractor.rs",
+      "lines": "210",
+      "cwe": "CWE-191",
+      "root_cause": "Integer underflow in usize subtraction when evidence_size > raw_bytes",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B7",
+      "severity": "medium",
+      "file": "src/evidence_extractor.rs",
+      "lines": "308,320",
+      "cwe": null,
+      "root_cause": "Trimming markers pushed beyond max_lines limit without bounds check",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B8",
+      "severity": "medium",
+      "file": "src/jira_poller.rs",
+      "lines": "467,473,484",
+      "cwe": null,
+      "root_cause": "std::sync::Mutex lock().unwrap() panics if lock is poisoned",
+      "fixed": true,
+      "test_added": false
+    },
+    {
+      "id": "B9",
+      "severity": "low",
+      "file": "src/ticket_embeddings.rs",
+      "lines": "38-56",
+      "cwe": "CWE-362",
+      "root_cause": "Non-atomic DELETE+INSERT upsert has race window",
+      "fixed": true,
+      "test_added": false
+    },
+    {
+      "id": "B10",
+      "severity": "low",
+      "file": "src/model_fetcher.rs",
+      "lines": "115-126",
+      "cwe": null,
+      "root_cause": "Duplicate if/else branches (dead code logic)",
+      "fixed": true,
+      "test_added": false
+    },
+    {
+      "id": "B11",
+      "severity": "low",
+      "file": "src/migrations.rs",
+      "lines": "1154",
+      "cwe": null,
+      "root_cause": "Test hardcodes migration count instead of using constant",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B12",
+      "severity": "low",
+      "file": "src/commands/common/helpers.rs",
+      "lines": "111-266",
+      "cwe": null,
+      "root_cause": "Function defined after #[cfg(test)] module",
+      "fixed": true,
+      "test_added": false
+    },
+    {
+      "id": "B13",
+      "severity": "high",
+      "file": "src/jira_deep_analysis.rs",
+      "lines": "193",
+      "cwe": "CWE-129",
+      "root_cause": "Non-UTF8-safe byte slicing panics on multi-byte AI response",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B14",
+      "severity": "high",
+      "file": "src/retrieval/opensearch.rs",
+      "lines": "164",
+      "cwe": "CWE-129",
+      "root_cause": "Non-UTF8-safe byte slicing panics on multi-byte text in log debug",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "B15",
+      "severity": "high",
+      "file": "hadron-web/crates/hadron-server/src/routes/chat.rs",
+      "lines": "76",
+      "cwe": "CWE-129",
+      "root_cause": "Non-UTF8-safe byte slicing panics on multi-byte session title",
+      "fixed": true,
+      "test_added": false
+    },
+    {
+      "id": "B16",
+      "severity": "medium",
+      "file": "src/database.rs",
+      "lines": "120-127",
+      "cwe": null,
+      "root_cause": "PRAGMA foreign_keys never enabled — CASCADE constraints non-functional",
+      "fixed": true,
+      "test_added": false
+    }
+  ],
+  "security_issues": [
+    {
+      "id": "S1",
+      "severity": "medium",
+      "file": "multiple",
+      "lines": "multiple",
+      "cwe": "CWE-134",
+      "root_cause": "Panic on multi-byte input is a denial-of-service vector",
+      "fixed": true,
+      "test_added": true
+    },
+    {
+      "id": "S2",
+      "severity": "low",
+      "file": "hadron-web/crates/hadron-server/src/integrations/opensearch.rs",
+      "lines": "66",
+      "cwe": "CWE-918",
+      "root_cause": "Admin-configured OpenSearch URL enables potential SSRF",
+      "fixed": false,
+      "test_added": false
+    },
+    {
+      "id": "S3",
+      "severity": "low",
+      "file": "hadron-web/crates/hadron-server/src/integrations/opensearch.rs",
+      "lines": "61",
+      "cwe": "CWE-295",
+      "root_cause": "tls_skip_verify flag allows bypassing TLS verification",
+      "fixed": false,
+      "test_added": false
+    }
+  ],
+  "unsafe_blocks": [
+    {
+      "file": "src/crash_handler.rs",
+      "lines": "184-186",
+      "disposition": "sound",
+      "justification": "Once::call_once with Win32 SetUnhandledExceptionFilter — called exactly once"
+    },
+    {
+      "file": "src/crash_handler.rs",
+      "lines": "221-228",
+      "disposition": "sound",
+      "justification": "FFI type declarations matching Win32 API spec"
+    },
+    {
+      "file": "src/crash_handler.rs",
+      "lines": "242-296",
+      "disposition": "sound",
+      "justification": "SEH handler with null checks, returns EXCEPTION_CONTINUE_SEARCH, only writes crash log"
+    }
+  ],
+  "tests_added": {
+    "unit": 15,
+    "integration": 0,
+    "property_based": 0,
+    "doc_tests": 0
+  },
+  "test_results": {
+    "desktop_total": 116,
+    "desktop_passed": 116,
+    "desktop_failed": 0,
+    "web_total": 10,
+    "web_passed": 10,
+    "web_failed": 0,
+    "previously_failing": 5,
+    "new_tests": 15
+  },
+  "commands": [
+    { "command": "cargo tree --duplicates", "status": "executed" },
+    { "command": "cargo audit", "status": "not available" },
+    { "command": "cargo deny check", "status": "not available (no deny.toml)" },
+    { "command": "cargo fmt --check", "status": "executed" },
+    { "command": "cargo clippy --all-targets -- -W clippy::all", "status": "executed" },
+    { "command": "cargo check", "status": "executed" },
+    { "command": "cargo test", "status": "executed" },
+    { "command": "cargo check (hadron-web)", "status": "executed" },
+    { "command": "cargo clippy (hadron-web)", "status": "executed" },
+    { "command": "cargo test (hadron-web)", "status": "executed" },
+    { "command": "cargo doc --no-deps", "status": "not executed" },
+    { "command": "cargo miri test", "status": "not executed" }
+  ],
+  "remaining_risks": [
+    "No cargo-audit in CI — no automated vulnerability scanning",
+    "Duplicate reqwest versions (0.11 + 0.12) increase attack surface",
+    "OpenSearch SSRF via admin-configured URL",
+    "No rate limiting on Tauri commands or web routes",
+    "No fuzzing infrastructure",
+    "JIRA/Sentry credentials in Tauri Store accessible to process code"
+  ],
+  "follow_ups": [
+    "Install cargo-audit in CI",
+    "Add fuzz targets for parser, embedding serialization, AI response parsing",
+    "Upgrade reqwest to 0.12 (eliminate duplicate)",
+    "Add request body size limits per web route",
+    "Add rate limiting middleware to hadron-web",
+    "Add cargo clippy -D warnings to CI",
+    "Add cargo fmt --check to CI",
+    "Add integration tests for Tauri commands",
+    "Add property-based tests with proptest",
+    "Document unsafe blocks with SAFETY comments"
+  ]
+}
