@@ -8,3 +8,7 @@ jobs = 1
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-cpu=x86-64"]
 
+# Note on C/C++ dependencies: MSVC x64 defaults to SSE2-only codegen.
+# If cross-compiling from Linux with GCC/Clang, set CFLAGS="-march=x86-64"
+# in the shell environment.
+

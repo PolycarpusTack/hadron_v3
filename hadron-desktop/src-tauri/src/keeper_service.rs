@@ -159,20 +159,69 @@ fn get_field_as_string(
 }
 
 /// Extract the best API-key-like value from a Keeper record,
-/// trying standard fields first then custom fields.
+/// trying standard fields first, then custom fields, then a brute-force scan.
 fn extract_secret_value(record: &keeper_secrets_manager_core::dto::dtos::Record) -> Option<String> {
-    // Standard fields (record template built-ins)
-    get_field_as_string(record, "password", true)
+    // 1. Standard fields (record template built-ins) — most common locations
+    let result = get_field_as_string(record, "password", true)
         .or_else(|| get_field_as_string(record, "secret", true))
+        .or_else(|| get_field_as_string(record, "hiddenField", true))
+        .or_else(|| get_field_as_string(record, "note", true))
+        .or_else(|| get_field_as_string(record, "oneTimeCode", true))
         .or_else(|| get_field_as_string(record, "login", true))
-        // Custom fields (user-defined)
+        // 2. Custom fields (user-defined)
         .or_else(|| get_field_as_string(record, "password", false))
         .or_else(|| get_field_as_string(record, "secret", false))
+        .or_else(|| get_field_as_string(record, "hiddenField", false))
         .or_else(|| get_field_as_string(record, "text", false))
+        .or_else(|| get_field_as_string(record, "note", false))
         .or_else(|| get_field_as_string(record, "API Key", false))
         .or_else(|| get_field_as_string(record, "api_key", false))
         .or_else(|| get_field_as_string(record, "apiKey", false))
-        .or_else(|| get_field_as_string(record, "pinCode", false))
+        .or_else(|| get_field_as_string(record, "pinCode", false));
+
+    if result.is_some() {
+        return result;
+    }
+
+    // 3. Brute-force: scan ALL fields for any non-empty string value.
+    //    This catches records with unusual field types we didn't anticipate.
+    extract_first_value_from_record_dict(record)
+}
+
+/// Scan the raw record JSON for any field containing a non-empty string value.
+/// Tries custom fields first (more likely to contain user secrets), then standard fields.
+fn extract_first_value_from_record_dict(
+    record: &keeper_secrets_manager_core::dto::dtos::Record,
+) -> Option<String> {
+    // Try custom fields first — user-added fields are most likely to hold the API key
+    for section in &["custom", "fields"] {
+        if let Some(fields) = record.record_dict.get(*section).and_then(|v| v.as_array()) {
+            for field in fields {
+                let field_type = field.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                // Skip fields that are clearly not secrets
+                if matches!(field_type, "url" | "fileRef" | "addressRef" | "name"
+                    | "email" | "phone" | "date" | "host" | "cardRef") {
+                    continue;
+                }
+                if let Some(values) = field.get("value").and_then(|v| v.as_array()) {
+                    for val in values {
+                        if let Some(s) = val.as_str() {
+                            let trimmed = s.trim();
+                            if !trimmed.is_empty() {
+                                let label = field.get("label").and_then(|l| l.as_str()).unwrap_or("");
+                                log::info!(
+                                    "Keeper: extracted value from {}.{} (label='{}')",
+                                    section, field_type, label
+                                );
+                                return Some(trimmed.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Check if Keeper is configured (config file exists)
@@ -388,28 +437,41 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, St
         return Ok(Zeroizing::new(password));
     }
 
-    // Log available field types to help diagnose the mismatch
-    if let Some(fields) = secret.record_dict.get("fields").and_then(|v| v.as_array()) {
-        let types: Vec<&str> = fields.iter()
-            .filter_map(|f| f.get("type").and_then(|t| t.as_str()))
-            .collect();
-        log::warn!("Keeper secret '{}' standard field types: {:?}", secret.title, types);
+    // Build a diagnostic summary of all fields in the record
+    let mut field_summary = Vec::new();
+    for (section, label) in &[("fields", "standard"), ("custom", "custom")] {
+        if let Some(fields) = secret.record_dict.get(*section).and_then(|v| v.as_array()) {
+            for f in fields {
+                let ftype = f.get("type").and_then(|t| t.as_str()).unwrap_or("?");
+                let flabel = f.get("label").and_then(|l| l.as_str()).unwrap_or("");
+                let has_value = f.get("value")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().any(|v| {
+                        v.as_str().map(|s| !s.trim().is_empty()).unwrap_or(false)
+                    }))
+                    .unwrap_or(false);
+                field_summary.push(format!(
+                    "  {} type='{}' label='{}' has_value={}",
+                    label, ftype, flabel, has_value
+                ));
+            }
+        }
     }
-    if let Some(custom) = secret.record_dict.get("custom").and_then(|v| v.as_array()) {
-        let types: Vec<(&str, &str)> = custom.iter()
-            .filter_map(|f| {
-                let t = f.get("type").and_then(|t| t.as_str()).unwrap_or("?");
-                let label = f.get("label").and_then(|l| l.as_str()).unwrap_or("");
-                Some((t, label))
-            })
-            .collect();
-        log::warn!("Keeper secret '{}' custom field types: {:?}", secret.title, types);
-    }
+    let summary = field_summary.join("\n");
+    log::warn!(
+        "Keeper secret '{}' (type={}) — no API key found. Fields:\n{}",
+        secret.title, secret.record_type, summary
+    );
 
     Err(format!(
-        "No password or API key field found in Keeper secret '{}'. \
-         Check that your Keeper record has a password or secret field.",
-        secret.title
+        "No API key found in Keeper secret '{}' (type={}). Fields present: [{}]. \
+         Ensure the record has a password, secret, or hiddenField containing the API key.",
+        secret.title,
+        secret.record_type,
+        field_summary.iter()
+            .map(|s| s.trim().to_string())
+            .collect::<Vec<_>>()
+            .join("; ")
     ))
 }
 

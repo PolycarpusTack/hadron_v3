@@ -1,0 +1,9 @@
+# Never commit signing certificates or private keys
+*.pfx
+*.p12
+*.key
+*.pem
+
+# The .cer (public key) is safe to commit for reference,
+# but it's better distributed via Group Policy
+*.cer
