@@ -850,6 +850,21 @@ Detailed documentation for every major module in the system.
 
   "version-history": `# Version History
 
+## v4.4.1 — Keeper & Crash Fixes (March 2026)
+
+### Keeper Secrets Manager
+- **Fixed API key extraction** — Records using Notes fields, encryptedNotes records, and custom-labeled fields are now detected
+- **Case-insensitive label matching** — Labels like "Api Key", "api key", "token", "secret key" now match regardless of case
+- **Login field excluded** — Brute-force extraction no longer returns usernames instead of passwords
+- **Wired into model refresh & connection test** — Keeper-managed keys now work with "Refresh Models", "Test Connection", and the API key warning banner
+- **Improved diagnostics** — Extraction failures now log the full record structure including field types, labels, and top-level keys
+
+### Crash Fixes
+- **Fixed hotkey registration crash** — App no longer panics if Ctrl+Shift+H is already registered (e.g. from a previous unclean exit); unregisters first, catches errors gracefully
+- **SDK errors logged** — Keeper SDK errors are now logged at trace level instead of being silently swallowed
+
+---
+
 ## v4.4.0 — Stability & Safety (March 2026)
 
 This release focuses on **runtime stability**, fixing crash-causing bugs and hardening the codebase against real-world failure conditions. All issues were identified through a systematic runtime stability audit.
