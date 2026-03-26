@@ -144,7 +144,7 @@ fn value_to_string(value: serde_json::Value) -> Option<String> {
     }
 }
 
-/// Try to get a field value as Option<String>, ignoring errors
+/// Try to get a field value as Option<String>, logging SDK errors instead of silently swallowing them
 fn get_field_as_string(
     record: &keeper_secrets_manager_core::dto::dtos::Record,
     field_type: &str,
@@ -155,20 +155,30 @@ fn get_field_as_string(
     } else {
         record.get_custom_field_value(field_type, true)
     };
-    result.ok().and_then(value_to_string)
+    match result {
+        Ok(value) => value_to_string(value),
+        Err(e) => {
+            log::trace!(
+                "Keeper: field '{}' (standard={}) not found on '{}': {}",
+                field_type, is_standard, record.title, format_keeper_error(e)
+            );
+            None
+        }
+    }
 }
 
 /// Extract the best API-key-like value from a Keeper record,
-/// trying standard fields first, then custom fields, then a brute-force scan.
+/// trying standard fields first, then custom fields, then notes, then a brute-force scan.
 fn extract_secret_value(record: &keeper_secrets_manager_core::dto::dtos::Record) -> Option<String> {
     // 1. Standard fields (record template built-ins) — most common locations
+    //    Note: "login" is intentionally excluded — it holds usernames, not API keys
     let result = get_field_as_string(record, "password", true)
         .or_else(|| get_field_as_string(record, "secret", true))
         .or_else(|| get_field_as_string(record, "hiddenField", true))
         .or_else(|| get_field_as_string(record, "note", true))
         .or_else(|| get_field_as_string(record, "oneTimeCode", true))
-        .or_else(|| get_field_as_string(record, "login", true))
-        // 2. Custom fields (user-defined)
+        // 2. Custom fields (user-defined) — SDK label match is case-sensitive,
+        //    so we also do a case-insensitive scan below in Stage 4
         .or_else(|| get_field_as_string(record, "password", false))
         .or_else(|| get_field_as_string(record, "secret", false))
         .or_else(|| get_field_as_string(record, "hiddenField", false))
@@ -183,9 +193,77 @@ fn extract_secret_value(record: &keeper_secrets_manager_core::dto::dtos::Record)
         return result;
     }
 
-    // 3. Brute-force: scan ALL fields for any non-empty string value.
+    // 3. Top-level notes — encryptedNotes records and the Notes field on
+    //    standard records store the value at record_dict["notes"] as a plain
+    //    string, not inside the "fields" or "custom" arrays.
+    if let Some(notes) = record
+        .record_dict
+        .get("notes")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        log::info!("Keeper: extracted value from top-level notes field");
+        return Some(notes.trim().to_string());
+    }
+
+    // 4. Case-insensitive label scan — the SDK's field_search uses exact
+    //    case-sensitive matching, so labels like "Api Key" or "api key" are
+    //    missed by Stage 2. Scan custom+standard fields for labels that
+    //    match common API key names case-insensitively.
+    if let Some(value) = extract_by_label_case_insensitive(record) {
+        return Some(value);
+    }
+
+    // 5. Brute-force: scan ALL fields for any non-empty string value.
     //    This catches records with unusual field types we didn't anticipate.
     extract_first_value_from_record_dict(record)
+}
+
+/// Case-insensitive label scan for common API key field names.
+/// The Keeper SDK's field_search uses exact case matching, so "Api Key" != "API Key".
+/// This function scans the raw record_dict to find fields by label regardless of case.
+fn extract_by_label_case_insensitive(
+    record: &keeper_secrets_manager_core::dto::dtos::Record,
+) -> Option<String> {
+    const KEY_LABELS: &[&str] = &[
+        "api key", "api_key", "apikey", "secret", "secret key", "token",
+        "access token", "api token", "auth token", "password", "key",
+    ];
+
+    // Check custom fields first, then standard fields
+    for section in &["custom", "fields"] {
+        if let Some(fields) = record.record_dict.get(*section).and_then(|v| v.as_array()) {
+            for field in fields {
+                let label = field.get("label").and_then(|l| l.as_str()).unwrap_or("");
+                let label_lower = label.to_lowercase();
+                if KEY_LABELS.iter().any(|k| label_lower == *k) {
+                    if let Some(value) = extract_field_value(field) {
+                        log::info!(
+                            "Keeper: extracted value via case-insensitive label match '{}' in {}",
+                            label, section
+                        );
+                        return Some(value);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Extract the first non-empty string value from a field's "value" array.
+fn extract_field_value(field: &serde_json::Value) -> Option<String> {
+    field
+        .get("value")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| {
+            arr.iter().find_map(|val| {
+                val.as_str()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+            })
+        })
 }
 
 /// Scan the raw record JSON for any field containing a non-empty string value.
@@ -200,23 +278,16 @@ fn extract_first_value_from_record_dict(
                 let field_type = field.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 // Skip fields that are clearly not secrets
                 if matches!(field_type, "url" | "fileRef" | "addressRef" | "name"
-                    | "email" | "phone" | "date" | "host" | "cardRef") {
+                    | "email" | "phone" | "date" | "host" | "cardRef" | "login") {
                     continue;
                 }
-                if let Some(values) = field.get("value").and_then(|v| v.as_array()) {
-                    for val in values {
-                        if let Some(s) = val.as_str() {
-                            let trimmed = s.trim();
-                            if !trimmed.is_empty() {
-                                let label = field.get("label").and_then(|l| l.as_str()).unwrap_or("");
-                                log::info!(
-                                    "Keeper: extracted value from {}.{} (label='{}')",
-                                    section, field_type, label
-                                );
-                                return Some(trimmed.to_string());
-                            }
-                        }
-                    }
+                if let Some(value) = extract_field_value(field) {
+                    let label = field.get("label").and_then(|l| l.as_str()).unwrap_or("");
+                    log::info!(
+                        "Keeper: extracted value from {}.{} (label='{}')",
+                        section, field_type, label
+                    );
+                    return Some(value);
                 }
             }
         }
@@ -393,6 +464,11 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, St
                             secret.title
                         );
                         return Ok(Zeroizing::new(password.clone()));
+                    } else {
+                        log::warn!(
+                            "Keeper: cache hit for '{}' (type={}) but no key was extracted — re-fetching",
+                            secret.title, secret.record_type
+                        );
                     }
                 }
             } else {
@@ -439,6 +515,18 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, St
 
     // Build a diagnostic summary of all fields in the record
     let mut field_summary = Vec::new();
+
+    // Show top-level record_dict keys so we can see what's available
+    let top_keys: Vec<&String> = secret.record_dict.keys().collect();
+    field_summary.push(format!("  record_dict keys: {:?}", top_keys));
+
+    // Check for top-level notes
+    let has_notes = secret.record_dict.get("notes")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    field_summary.push(format!("  top-level notes: present={}", has_notes));
+
     for (section, label) in &[("fields", "standard"), ("custom", "custom")] {
         if let Some(fields) = secret.record_dict.get(*section).and_then(|v| v.as_array()) {
             for f in fields {
@@ -448,18 +536,30 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, St
                     .and_then(|v| v.as_array())
                     .map(|arr| arr.iter().any(|v| {
                         v.as_str().map(|s| !s.trim().is_empty()).unwrap_or(false)
+                            || v.is_object() // flag structured values that value_to_string skips
                     }))
                     .unwrap_or(false);
+                let value_types: Vec<String> = f.get("value")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().map(|v| match v {
+                        serde_json::Value::String(_) => "string".to_string(),
+                        serde_json::Value::Object(_) => "object".to_string(),
+                        serde_json::Value::Number(_) => "number".to_string(),
+                        serde_json::Value::Bool(_) => "bool".to_string(),
+                        serde_json::Value::Array(_) => "array".to_string(),
+                        serde_json::Value::Null => "null".to_string(),
+                    }).collect())
+                    .unwrap_or_default();
                 field_summary.push(format!(
-                    "  {} type='{}' label='{}' has_value={}",
-                    label, ftype, flabel, has_value
+                    "  {} type='{}' label='{}' has_value={} value_types={:?}",
+                    label, ftype, flabel, has_value, value_types
                 ));
             }
         }
     }
     let summary = field_summary.join("\n");
     log::warn!(
-        "Keeper secret '{}' (type={}) — no API key found. Fields:\n{}",
+        "Keeper secret '{}' (type={}) — no API key found. Record structure:\n{}",
         secret.title, secret.record_type, summary
     );
 

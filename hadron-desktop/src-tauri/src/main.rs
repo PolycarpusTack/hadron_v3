@@ -113,10 +113,15 @@ fn main() {
             use std::sync::atomic::{AtomicU64, Ordering};
             use std::sync::Arc;
 
+            let shortcut_mgr = app.global_shortcut();
+
+            // Unregister first in case a previous instance didn't clean up
+            let _ = shortcut_mgr.unregister("CmdOrCtrl+Shift+H");
+
             let last_toggle = Arc::new(AtomicU64::new(0));
             let last_toggle_ref = Arc::clone(&last_toggle);
 
-            app.global_shortcut().on_shortcut("CmdOrCtrl+Shift+H", move |app, _shortcut, event| {
+            if let Err(e) = shortcut_mgr.on_shortcut("CmdOrCtrl+Shift+H", move |app, _shortcut, event| {
                 if event.state == ShortcutState::Pressed {
                     // Debounce: ignore presses within 300ms of the last one
                     let now = std::time::SystemTime::now()
@@ -135,7 +140,9 @@ fn main() {
                         }
                     });
                 }
-            })?;
+            }) {
+                log::warn!("Failed to register Ctrl+Shift+H hotkey: {} — widget toggle unavailable", e);
+            }
 
             log::info!(
                 "Hadron {} started (crash logging active)",
