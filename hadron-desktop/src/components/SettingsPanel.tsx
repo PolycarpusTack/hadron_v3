@@ -7,7 +7,7 @@ import { isJiraEnabled } from "../services/jira";
 import { isSentryEnabled } from "../services/sentry";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI, autoTagAnalyses } from "../services/api";
 import { invoke } from "@tauri-apps/api/core";
-import { getKeeperConfig, type KeeperConfig } from "../services/keeper";
+import { getKeeperConfig, getKeeperSecretForProvider, type KeeperConfig } from "../services/keeper";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import logger from '../services/logger';
 import { AI_PROVIDERS, getDefaultModelForProvider, getCuratedModelsForProvider, MODEL_CACHE_TTL_MS } from '../constants/providers';
@@ -306,16 +306,22 @@ export default function SettingsPanel({
       const apiKey = provider === "llamacpp"
         ? ""
         : (provider === "openai" ? openaiKey : provider === "anthropic" ? anthropicKey : zaiKey);
-      if (provider === "llamacpp" || apiKey) {
-        listModelsAPI(provider, apiKey).then((models) => {
+      // Also check Keeper for the API key
+      const refreshWithKeeper = async () => {
+        const keeperUid = provider !== "llamacpp"
+          ? await getKeeperSecretForProvider(provider)
+          : null;
+        if (provider === "llamacpp" || apiKey || keeperUid) {
+          const models = await listModelsAPI(provider, apiKey || "", keeperUid);
           const newCacheData = { models, timestamp: Date.now() };
           localStorage.setItem(providerModelsCacheKey(provider), JSON.stringify(newCacheData));
           setCachedModels(prev => ({ ...prev, [provider]: models as ModelOption[] }));
           logger.info('Auto-refreshed model list', { provider, count: models.length });
-        }).catch((err) => {
-          logger.warn('Background model refresh failed', { provider, error: String(err) });
-        });
-      }
+        }
+      };
+      refreshWithKeeper().catch((err) => {
+        logger.warn('Background model refresh failed', { provider, error: String(err) });
+      });
     }
   }
 
@@ -458,14 +464,17 @@ export default function SettingsPanel({
       const apiKey = settings.provider === "llamacpp"
         ? ""
         : settings.apiKeys[settings.provider as keyof typeof settings.apiKeys];
+      const keeperUid = settings.provider !== "llamacpp"
+        ? await getKeeperSecretForProvider(settings.provider)
+        : null;
 
-      if (settings.provider !== "llamacpp" && !apiKey) {
+      if (settings.provider !== "llamacpp" && !apiKey && !keeperUid) {
         setConnectionTestResult("Please enter an API key first");
         setIsRefreshingModels(false);
         return;
       }
 
-      const models = await listModelsAPI(settings.provider, apiKey);
+      const models = await listModelsAPI(settings.provider, apiKey || "", keeperUid);
 
       const cacheData = {
         models: models,
@@ -498,14 +507,17 @@ export default function SettingsPanel({
       const apiKey = settings.provider === "llamacpp"
         ? ""
         : settings.apiKeys[settings.provider as keyof typeof settings.apiKeys];
+      const keeperUid = settings.provider !== "llamacpp"
+        ? await getKeeperSecretForProvider(settings.provider)
+        : null;
 
-      if (settings.provider !== "llamacpp" && !apiKey) {
+      if (settings.provider !== "llamacpp" && !apiKey && !keeperUid) {
         setConnectionTestResult("Please enter an API key first");
         setIsTestingConnection(false);
         return;
       }
 
-      const result = await testConnectionAPI(settings.provider, apiKey);
+      const result = await testConnectionAPI(settings.provider, apiKey || "", keeperUid);
       setConnectionTestResult(result.message);
 
       if (result.success && (result.models_count || 0) > 0) {

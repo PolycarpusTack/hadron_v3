@@ -29,6 +29,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { STORAGE_KEYS, getBooleanSetting } from "./utils/config";
 import { getApiKey, migrateFromLocalStorage } from "./services/secure-storage";
+import { isKeeperEnabledForProvider } from "./services/keeper";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAppState } from "./hooks/useAppState";
 import { retryOperation, getUserFriendlyErrorMessage, getRecoverySuggestions } from "./utils/errorHandling";
@@ -281,16 +282,18 @@ function App() {
       // Run migration from localStorage to encrypted storage
       await migrateFromLocalStorage();
 
-      // Load API key from encrypted storage
+      // Load API key from encrypted storage or check Keeper
       const provider = getStoredProvider();
       const storedKey = await getApiKey(provider);
+      const keeperActive = !storedKey && await isKeeperEnabledForProvider(provider);
 
       // Load theme (non-sensitive, keep in localStorage for now)
       const storedTheme = localStorage.getItem(STORAGE_KEYS.THEME);
       const isDark = storedTheme === "dark" || storedTheme === null;
 
-      // Initialize state
-      actions.initComplete(storedKey || '', isDark);
+      // Initialize state — use a sentinel value when Keeper provides the key
+      // so the rest of the app knows an API key is available
+      actions.initComplete(storedKey || (keeperActive ? 'keeper-managed' : ''), isDark);
 
       // Apply theme to document
       if (isDark) {
@@ -556,8 +559,11 @@ function App() {
   const handleSettingsChange = useCallback(async () => {
     const provider = getStoredProvider();
     const newApiKey = await getApiKey(provider);
+    const keeperActive = !newApiKey && await isKeeperEnabledForProvider(provider);
     if (newApiKey) {
       actions.setApiKey(newApiKey);
+    } else if (keeperActive) {
+      actions.setApiKey('keeper-managed');
     }
     const jiraStatus = await isJiraEnabled();
     setJiraEnabled(jiraStatus);

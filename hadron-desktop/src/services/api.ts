@@ -565,12 +565,12 @@ export interface ConnectionTestResult {
   models_count?: number;
 }
 
-export async function listModels(provider: string, apiKey: string): Promise<ProviderModel[]> {
-  return await invoke<ProviderModel[]>("list_models", { provider, apiKey });
+export async function listModels(provider: string, apiKey: string, keeperSecretUid?: string | null): Promise<ProviderModel[]> {
+  return await invoke<ProviderModel[]>("list_models", { provider, apiKey, keeperSecretUid: keeperSecretUid ?? null });
 }
 
-export async function testConnection(provider: string, apiKey: string): Promise<ConnectionTestResult> {
-  return await invoke<ConnectionTestResult>("test_connection", { provider, apiKey });
+export async function testConnection(provider: string, apiKey: string, keeperSecretUid?: string | null): Promise<ConnectionTestResult> {
+  return await invoke<ConnectionTestResult>("test_connection", { provider, apiKey, keeperSecretUid: keeperSecretUid ?? null });
 }
 
 // -------- Cache Utilities --------
