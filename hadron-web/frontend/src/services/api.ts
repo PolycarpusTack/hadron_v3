@@ -429,6 +429,21 @@ export interface SimilarTicketMatch {
 }
 
 // ============================================================================
+// JIRA Poller Types
+// ============================================================================
+
+export interface PollerConfigStatus {
+  running: boolean;
+  enabled: boolean;
+  jqlFilter: string;
+  intervalMins: number;
+  jiraBaseUrl: string;
+  jiraEmail: string;
+  hasApiToken: boolean;
+  lastPolledAt: string | null;
+}
+
+// ============================================================================
 // HTTP helpers
 // ============================================================================
 
@@ -925,6 +940,41 @@ class ApiClient {
       rating,
       notes,
     });
+  }
+
+  // === JIRA Poller (Admin) ===
+
+  async getPollerConfig(): Promise<PollerConfigStatus> {
+    return this.request("GET", "/admin/jira-poller");
+  }
+
+  async updatePollerConfig(config: {
+    enabled?: boolean;
+    jqlFilter?: string;
+    intervalMins?: number;
+    jiraBaseUrl?: string;
+    jiraEmail?: string;
+    jiraApiToken?: string;
+  }): Promise<void> {
+    return this.request("PUT", "/admin/jira-poller", config);
+  }
+
+  async startPoller(): Promise<void> {
+    return this.request("POST", "/admin/jira-poller/start");
+  }
+
+  async stopPoller(): Promise<void> {
+    return this.request("POST", "/admin/jira-poller/stop");
+  }
+
+  // === JIRA Subscriptions ===
+
+  async getUserSubscriptions(): Promise<string[]> {
+    return this.request("GET", "/jira/subscriptions");
+  }
+
+  async setUserSubscriptions(projectKeys: string[]): Promise<string[]> {
+    return this.request("PUT", "/jira/subscriptions", { projectKeys });
   }
 
   // === Admin ===
