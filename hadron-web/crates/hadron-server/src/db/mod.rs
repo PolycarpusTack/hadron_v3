@@ -2667,3 +2667,176 @@ pub async fn delete_ticket_brief(pool: &PgPool, jira_key: &str) -> HadronResult<
 
     Ok(())
 }
+
+// ============================================================================
+// Ticket Embeddings (duplicate detection)
+// ============================================================================
+
+/// Deterministic hash of a JIRA key to use as source_id in the embeddings table.
+fn jira_key_to_source_id(jira_key: &str) -> i64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    jira_key.hash(&mut hasher);
+    hasher.finish() as i64
+}
+
+/// Build embedding text from brief data (AI-generated fields preferred) or raw ticket data.
+pub fn build_ticket_embedding_text(
+    title: &str,
+    description: &str,
+    brief_json: Option<&str>,
+) -> String {
+    // Try to extract AI-generated fields from brief_json
+    if let Some(json_str) = brief_json {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+            let mut parts = Vec::new();
+
+            if let Some(summary) = val.pointer("/analysis/plain_summary").and_then(|v| v.as_str()) {
+                if !summary.is_empty() {
+                    parts.push(summary.to_string());
+                }
+            }
+            if let Some(root_cause) = val.pointer("/analysis/technical/root_cause").and_then(|v| v.as_str()) {
+                if !root_cause.is_empty() {
+                    parts.push(root_cause.to_string());
+                }
+            }
+            if let Some(impact) = val.pointer("/triage/customer_impact").and_then(|v| v.as_str()) {
+                if !impact.is_empty() {
+                    parts.push(impact.to_string());
+                }
+            }
+
+            if !parts.is_empty() {
+                return format!("{}\n\n{}", title, parts.join("\n\n"));
+            }
+        }
+    }
+
+    // Fallback: title + description
+    if description.is_empty() {
+        title.to_string()
+    } else {
+        format!("{}\n\n{}", title, description)
+    }
+}
+
+/// Store a ticket embedding in the existing embeddings table with source_type='ticket'.
+pub async fn store_ticket_embedding(
+    pool: &PgPool,
+    jira_key: &str,
+    embedding: &[f32],
+    content: &str,
+) -> HadronResult<i64> {
+    let source_id = jira_key_to_source_id(jira_key);
+    let metadata = serde_json::json!({ "jira_key": jira_key });
+    store_embedding(pool, source_id, "ticket", embedding, content, Some(&metadata)).await
+}
+
+/// Result of a similar ticket search.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimilarTicketMatch {
+    pub jira_key: String,
+    pub title: String,
+    pub similarity: f64,
+    pub severity: Option<String>,
+    pub category: Option<String>,
+}
+
+/// Find tickets similar to the given embedding vector.
+pub async fn find_similar_tickets(
+    pool: &PgPool,
+    embedding: &[f32],
+    exclude_key: &str,
+    threshold: f64,
+    limit: i64,
+) -> HadronResult<Vec<SimilarTicketMatch>> {
+    let vec_str = format!(
+        "[{}]",
+        embedding
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+
+    let exclude_source_id = jira_key_to_source_id(exclude_key);
+
+    let rows: Vec<(String, String, f64, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT
+            (e.metadata->>'jira_key')::text as jira_key,
+            COALESCE(tb.title, '') as title,
+            1 - (e.embedding <=> $1::vector) as similarity,
+            tb.severity,
+            tb.category
+         FROM embeddings e
+         LEFT JOIN ticket_briefs tb ON (e.metadata->>'jira_key') = tb.jira_key
+         WHERE e.source_type = 'ticket'
+           AND e.source_id != $4
+           AND 1 - (e.embedding <=> $1::vector) > $3
+         ORDER BY e.embedding <=> $1::vector
+         LIMIT $2",
+    )
+    .bind(&vec_str)
+    .bind(limit)
+    .bind(threshold)
+    .bind(exclude_source_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(jira_key, title, similarity, severity, category)| SimilarTicketMatch {
+            jira_key,
+            title,
+            similarity,
+            severity,
+            category,
+        })
+        .collect())
+}
+
+// ============================================================================
+// JIRA Round-Trip (posting + feedback)
+// ============================================================================
+
+/// Mark a ticket brief as posted to JIRA.
+pub async fn mark_posted_to_jira(pool: &PgPool, jira_key: &str) -> HadronResult<()> {
+    sqlx::query(
+        "UPDATE ticket_briefs SET posted_to_jira = true, posted_at = NOW(), updated_at = NOW()
+         WHERE jira_key = $1",
+    )
+    .bind(jira_key)
+    .execute(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(())
+}
+
+/// Update engineer feedback on a ticket brief.
+pub async fn update_engineer_feedback(
+    pool: &PgPool,
+    jira_key: &str,
+    rating: Option<i16>,
+    notes: Option<&str>,
+) -> HadronResult<()> {
+    sqlx::query(
+        "UPDATE ticket_briefs SET
+            engineer_rating = COALESCE($2, engineer_rating),
+            engineer_notes = COALESCE($3, engineer_notes),
+            updated_at = NOW()
+         WHERE jira_key = $1",
+    )
+    .bind(jira_key)
+    .bind(rating)
+    .bind(notes)
+    .execute(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(())
+}
