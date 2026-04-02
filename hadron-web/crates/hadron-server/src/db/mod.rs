@@ -2255,11 +2255,12 @@ pub async fn bulk_add_tags(
 }
 
 // ============================================================================
-// Global Settings (for patterns)
+// Global Settings (for patterns) — JSON value variant
 // ============================================================================
 
-pub async fn get_global_setting(pool: &PgPool, key: &str) -> HadronResult<Option<serde_json::Value>> {
-    let row: Option<(serde_json::Value,)> = sqlx::query_as(
+/// Get a global setting as a JSON value (used by pattern rules stored as JSON arrays).
+pub async fn get_global_setting_json(pool: &PgPool, key: &str) -> HadronResult<Option<serde_json::Value>> {
+    let row: Option<(String,)> = sqlx::query_as(
         "SELECT value FROM global_settings WHERE key = $1",
     )
     .bind(key)
@@ -2267,16 +2268,27 @@ pub async fn get_global_setting(pool: &PgPool, key: &str) -> HadronResult<Option
     .await
     .map_err(|e| HadronError::database(e.to_string()))?;
 
-    Ok(row.map(|r| r.0))
+    match row {
+        None => Ok(None),
+        Some((s,)) if s.is_empty() => Ok(None),
+        Some((s,)) => {
+            let v: serde_json::Value = serde_json::from_str(&s)
+                .map_err(|e| HadronError::database(format!("JSON parse error for key {key}: {e}")))?;
+            Ok(Some(v))
+        }
+    }
 }
 
-pub async fn set_global_setting(pool: &PgPool, key: &str, value: &serde_json::Value) -> HadronResult<()> {
+/// Set a global setting from a JSON value (used by pattern rules stored as JSON arrays).
+pub async fn set_global_setting_json(pool: &PgPool, key: &str, value: &serde_json::Value) -> HadronResult<()> {
+    let text = serde_json::to_string(value)
+        .map_err(|e| HadronError::database(format!("JSON serialize error: {e}")))?;
     sqlx::query(
         "INSERT INTO global_settings (key, value) VALUES ($1, $2)
          ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now()",
     )
     .bind(key)
-    .bind(value)
+    .bind(text)
     .execute(pool)
     .await
     .map_err(|e| HadronError::database(e.to_string()))?;
@@ -2469,4 +2481,83 @@ impl From<UserListRow> for User {
             last_login_at: r.last_login_at,
         }
     }
+}
+
+// ============================================================================
+// Global Settings
+// ============================================================================
+
+pub async fn get_global_setting(pool: &PgPool, key: &str) -> HadronResult<Option<String>> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT value FROM global_settings WHERE key = $1")
+            .bind(key)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(row.map(|(v,)| v))
+}
+
+pub async fn set_global_setting(
+    pool: &PgPool,
+    key: &str,
+    value: &str,
+    user_id: Uuid,
+) -> HadronResult<()> {
+    sqlx::query(
+        "INSERT INTO global_settings (key, value, updated_at, updated_by)
+         VALUES ($1, $2, NOW(), $3)
+         ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW(), updated_by = $3",
+    )
+    .bind(key)
+    .bind(value)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(())
+}
+
+/// Load server-side AI configuration from global_settings.
+/// Returns None if no API key is configured for the active provider.
+pub async fn get_server_ai_config(
+    pool: &PgPool,
+) -> HadronResult<Option<crate::ai::AiConfig>> {
+    use crate::ai::{AiConfig, AiProvider};
+
+    let provider_str = get_global_setting(pool, "ai_provider")
+        .await?
+        .unwrap_or_else(|| "openai".to_string());
+
+    let provider = AiProvider::from_str(&provider_str);
+
+    let (key_setting, model_setting) = match provider {
+        AiProvider::OpenAi => ("ai_api_key_openai", "ai_model_openai"),
+        AiProvider::Anthropic => ("ai_api_key_anthropic", "ai_model_anthropic"),
+    };
+
+    let encrypted_key = get_global_setting(pool, key_setting).await?;
+    let model = get_global_setting(pool, model_setting)
+        .await?
+        .unwrap_or_else(|| match provider {
+            AiProvider::OpenAi => "gpt-4o".to_string(),
+            AiProvider::Anthropic => "claude-sonnet-4-20250514".to_string(),
+        });
+
+    // Decrypt the API key — empty means not configured
+    let api_key = match encrypted_key {
+        Some(enc) if !enc.is_empty() => crate::crypto::decrypt_value(&enc)?,
+        _ => return Ok(None),
+    };
+
+    if api_key.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(AiConfig {
+        provider,
+        api_key,
+        model,
+    }))
 }

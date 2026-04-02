@@ -18,7 +18,7 @@ use super::AppError;
 const PATTERNS_KEY: &str = "pattern_rules";
 
 async fn load_rules(state: &AppState) -> Result<Vec<PatternRule>, super::AppError> {
-    let val = db::get_global_setting(&state.db, PATTERNS_KEY).await?;
+    let val = db::get_global_setting_json(&state.db, PATTERNS_KEY).await?;
     match val {
         Some(v) => {
             let rules: Vec<PatternRule> = serde_json::from_value(v)
@@ -32,7 +32,7 @@ async fn load_rules(state: &AppState) -> Result<Vec<PatternRule>, super::AppErro
 async fn save_rules(state: &AppState, rules: &[PatternRule]) -> Result<(), super::AppError> {
     let val = serde_json::to_value(rules)
         .map_err(|e| AppError(hadron_core::error::HadronError::internal(e.to_string())))?;
-    db::set_global_setting(&state.db, PATTERNS_KEY, &val).await?;
+    db::set_global_setting_json(&state.db, PATTERNS_KEY, &val).await?;
     Ok(())
 }
 
