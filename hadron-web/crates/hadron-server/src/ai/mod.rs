@@ -8,7 +8,7 @@ pub mod tools;
 // Re-export core types so existing `use crate::ai::*` imports keep working
 pub use hadron_core::ai::{AiConfig, AiMessage, AiProvider};
 pub use hadron_core::ai::prompts::{
-    CRASH_ANALYSIS_PROMPT, CHAT_SYSTEM_PROMPT, CODE_ANALYSIS_PROMPT,
+    CRASH_ANALYSIS_PROMPT, CHAT_SYSTEM_PROMPT,
 };
 
 use hadron_core::error::{HadronError, HadronResult};

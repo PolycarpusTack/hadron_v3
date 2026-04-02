@@ -5,6 +5,7 @@
 mod admin;
 mod analyses;
 mod analytics;
+mod code_analysis;
 mod chat;
 mod export;
 mod feedback;
@@ -117,6 +118,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/sentry/projects", get(integrations::sentry_projects))
         .route("/sentry/issues", get(integrations::sentry_issues))
         .route("/sentry/issues/{id}/event", get(integrations::sentry_event))
+        // Code Analysis
+        .route("/code-analysis", post(code_analysis::analyze_code))
+        .route("/code-analysis/stream", post(code_analysis::analyze_code_stream))
         // Patterns (Admin)
         .route("/admin/patterns", get(patterns::list_patterns))
         .route("/admin/patterns", post(patterns::create_pattern))

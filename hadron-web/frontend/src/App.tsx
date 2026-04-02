@@ -20,6 +20,7 @@ import { ReleaseNotesView } from "./components/release-notes/ReleaseNotesView";
 import { SignaturesView } from "./components/signatures/SignaturesView";
 import { AnalyticsDashboard } from "./components/analytics/AnalyticsDashboard";
 import { SentryPanel } from "./components/sentry/SentryPanel";
+import { CodeAnalyzerView } from "./components/code-analyzer/CodeAnalyzerView";
 
 type View =
   | "analyze"
@@ -31,6 +32,7 @@ type View =
   | "team"
   | "releases"
   | "sentry"
+  | "code-analyzer"
   | "settings"
   | "admin";
 
@@ -129,6 +131,7 @@ function AuthenticatedApp() {
     requireLead?: boolean;
   }[] = [
     { key: "analyze", label: "Analyze" },
+    { key: "code-analyzer", label: "Code Analyzer" },
     { key: "history", label: "History" },
     { key: "chat", label: "Ask Hadron" },
     { key: "search", label: "Search" },
@@ -199,6 +202,7 @@ function AuthenticatedApp() {
         {activeView === "analyze" && (
           <AnalyzeView apiKey={apiKey} model={model} provider={provider} />
         )}
+        {activeView === "code-analyzer" && <CodeAnalyzerView />}
         {activeView === "history" && <HistoryView apiKey={apiKey} />}
         {activeView === "chat" && (
           <ChatView apiKey={apiKey} model={model} provider={provider} />

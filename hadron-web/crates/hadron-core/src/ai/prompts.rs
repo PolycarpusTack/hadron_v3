@@ -37,69 +37,74 @@ You help users understand crash logs, debug issues, and find solutions. You have
 
 Be concise, technical, and actionable. Reference specific modules and methods when relevant."#;
 
-/// System prompt for 6-tab code analysis (Phase 1a).
-pub const CODE_ANALYSIS_PROMPT: &str = r#"You are Hadron, an expert code analyzer. Analyze the provided source code and return a JSON response with this exact structure:
+/// Build the full code analysis prompt — matches desktop's buildCodeAnalysisPrompt.
+pub fn build_code_analysis_prompt(code: &str, filename: &str, language: &str) -> String {
+    format!(r#"You are an expert code reviewer. Analyze this {language} code and return a comprehensive JSON response.
 
-{
-  "overview": {
-    "summary": "2-3 sentence summary of what this code does",
-    "language": "detected programming language",
-    "linesOfCode": 0,
-    "complexity": "LOW|MEDIUM|HIGH",
-    "purpose": "brief purpose description"
-  },
-  "walkthrough": [
-    {
-      "section": "Section name",
-      "startLine": 1,
-      "endLine": 10,
-      "explanation": "What this section does",
-      "keyPoints": ["point 1", "point 2"]
-    }
-  ],
+FILENAME: {filename}
+LANGUAGE: {language}
+
+CODE:
+{code}
+
+Return a JSON object with this EXACT structure:
+{{
+  "summary": "2-3 sentence description of what this code does and its purpose",
   "issues": [
-    {
-      "id": "ISS-001",
-      "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
-      "category": "Bug|Performance|Security|Style|Logic|Error Handling",
-      "title": "Brief issue title",
-      "description": "Detailed explanation",
+    {{
+      "id": 1,
+      "severity": "critical|high|medium|low",
+      "category": "security|performance|error|best-practice",
       "line": 42,
-      "suggestion": "How to fix it"
-    }
+      "title": "Short issue title",
+      "description": "What's wrong and why it matters",
+      "technical": "Technical details and evidence from the code",
+      "fix": "Suggested fix with code example",
+      "complexity": "Low|Medium|High",
+      "impact": "Real-world impact if not fixed"
+    }}
   ],
-  "optimized": {
-    "code": "The full optimized version of the code",
-    "changes": ["Change 1 description", "Change 2 description"]
-  },
-  "quality": {
+  "walkthrough": [
+    {{
+      "lines": "1-10",
+      "title": "Section name",
+      "code": "the actual code snippet for these lines",
+      "whatItDoes": "Clear explanation of what this code does",
+      "whyItMatters": "Why this section is important",
+      "evidence": "Specific code tokens/patterns that support the explanation",
+      "dependencies": [{{"name": "dep name", "type": "import|variable|function|table", "note": "brief note"}}],
+      "impact": "What happens if this code is changed or removed",
+      "testability": "How to test this section",
+      "eli5": "Simple analogy a beginner would understand",
+      "quality": "Code quality observations for this section"
+    }}
+  ],
+  "optimizedCode": "Improved version of the full code with issues fixed, or null if no improvements needed",
+  "qualityScores": {{
     "overall": 75,
-    "readability": 80,
-    "maintainability": 70,
-    "reliability": 75,
     "security": 65,
-    "performance": 80
-  },
+    "performance": 80,
+    "maintainability": 70,
+    "bestPractices": 60
+  }},
   "glossary": [
-    {
-      "term": "Term name",
-      "definition": "What it means in this context",
-      "relatedTerms": ["related1"]
-    }
+    {{"term": "Technical term used", "definition": "Clear definition"}}
   ]
+}}
+
+IMPORTANT INSTRUCTIONS:
+1. Find ALL issues - security vulnerabilities, performance problems, bugs, and best practice violations
+2. Create walkthrough sections for logical code blocks (imports, functions, classes, etc.)
+3. Be specific with line numbers and code references
+4. Provide actionable fixes with actual code
+5. Return ONLY valid JSON, no markdown or additional text"#)
 }
 
-Analyze thoroughly. Every issue must have a specific line number. Quality scores are 0-100.
-Return ONLY valid JSON, no markdown formatting."#;
-
 /// Build the messages array for a code analysis request.
-pub fn build_code_analysis_messages(code: &str, language: &str) -> Vec<AiMessage> {
+pub fn build_code_analysis_messages(code: &str, filename: &str, language: &str) -> Vec<AiMessage> {
     vec![AiMessage {
         role: "user".to_string(),
-        content: format!(
-            "Analyze this {} code:\n\n```{}\n{}\n```",
-            language, language, code
-        ),
+        content: build_code_analysis_prompt(code, filename, language),
     }]
 }
 
@@ -117,11 +122,12 @@ mod tests {
 
     #[test]
     fn test_build_code_analysis_messages() {
-        let msgs = build_code_analysis_messages("fn main() {}", "rust");
+        let msgs = build_code_analysis_messages("fn main() {}", "test.rs", "rust");
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].role, "user");
         assert!(msgs[0].content.contains("rust"));
         assert!(msgs[0].content.contains("fn main() {}"));
+        assert!(msgs[0].content.contains("test.rs"));
     }
 
     #[test]

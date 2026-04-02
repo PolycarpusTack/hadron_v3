@@ -6,7 +6,9 @@
 pub mod types;
 pub mod prompts;
 pub mod parsers;
+pub mod detect_language;
 
 pub use types::{AiConfig, AiMessage, AiProvider};
 pub use prompts::*;
 pub use parsers::*;
+pub use detect_language::detect_language;
