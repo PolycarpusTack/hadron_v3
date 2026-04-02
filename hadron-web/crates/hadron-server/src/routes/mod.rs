@@ -11,6 +11,7 @@ mod export;
 mod feedback;
 mod gold;
 mod integrations;
+mod jira_analysis;
 mod notes;
 mod patterns;
 mod release_notes;
@@ -113,6 +114,10 @@ pub fn api_router() -> Router<AppState> {
         .route("/jira/tickets", post(integrations::jira_create_ticket))
         .route("/jira/search", post(integrations::jira_search))
         .route("/jira/test", post(integrations::jira_test))
+        // JIRA Deep Analysis
+        .route("/jira/issues/{key}/detail", post(jira_analysis::fetch_issue))
+        .route("/jira/issues/{key}/analyze", post(jira_analysis::analyze_issue))
+        .route("/jira/issues/{key}/analyze/stream", post(jira_analysis::analyze_issue_stream))
         // Sentry integration
         .route("/sentry/test", post(integrations::sentry_test))
         .route("/sentry/projects", get(integrations::sentry_projects))
