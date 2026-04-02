@@ -1,0 +1,350 @@
+/**
+ * JiraAnalyzerView
+ * Orchestrator for JIRA Deep Analysis — credential management, ticket fetch,
+ * AI streaming, and structured report display.
+ *
+ * Web port of the desktop JiraTicketAnalyzer component.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import { useAiStream } from "../../hooks/useAiStream";
+import { api, type JiraCredentials, type JiraTicketDetail, type JiraDeepResult } from "../../services/api";
+import { useToast } from "../Toast";
+import JiraAnalysisReport from "./JiraAnalysisReport";
+
+const LS_JIRA_URL = "hadron_jira_url";
+const LS_JIRA_EMAIL = "hadron_jira_email";
+const LS_JIRA_TOKEN = "hadron_jira_token";
+
+// Regex to extract a JIRA ticket key from a URL like /browse/PROJ-123
+const TICKET_KEY_RE = /\/browse\/([A-Z][A-Z0-9_]+-\d+)/i;
+
+export function JiraAnalyzerView() {
+  // Credentials — seeded from localStorage
+  const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem(LS_JIRA_URL) ?? "");
+  const [email, setEmail] = useState(() => localStorage.getItem(LS_JIRA_EMAIL) ?? "");
+  const [apiToken, setApiToken] = useState(() => localStorage.getItem(LS_JIRA_TOKEN) ?? "");
+
+  // Ticket state
+  const [ticketKey, setTicketKey] = useState("");
+  const [ticket, setTicket] = useState<JiraTicketDetail | null>(null);
+  const [fetching, setFetching] = useState(false);
+
+  // Analysis state
+  const [result, setResult] = useState<JiraDeepResult | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  const { streamAi, content, isStreaming, error, reset } = useAiStream();
+  const toast = useToast();
+
+  // Persist credentials on change
+  useEffect(() => { localStorage.setItem(LS_JIRA_URL, baseUrl); }, [baseUrl]);
+  useEffect(() => { localStorage.setItem(LS_JIRA_EMAIL, email); }, [email]);
+  useEffect(() => { localStorage.setItem(LS_JIRA_TOKEN, apiToken); }, [apiToken]);
+
+  // Auto-extract ticket key when user pastes a JIRA URL
+  function handleTicketKeyChange(value: string) {
+    const match = value.match(TICKET_KEY_RE);
+    if (match) {
+      setTicketKey(match[1].toUpperCase());
+    } else {
+      setTicketKey(value.toUpperCase());
+    }
+  }
+
+  // Parse AI response on stream completion
+  useEffect(() => {
+    if (isStreaming || !content) return;
+
+    try {
+      const parsed = JSON.parse(content) as JiraDeepResult;
+      setResult(parsed);
+      setParseError(null);
+      return;
+    } catch {
+      // Try extracting JSON object from raw content
+    }
+
+    const match = content.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]) as JiraDeepResult;
+        setResult(parsed);
+        setParseError(null);
+        return;
+      } catch {
+        // Both strategies failed
+      }
+    }
+
+    setParseError("Failed to parse AI response. The raw output is shown below.");
+  }, [content, isStreaming]);
+
+  const credentials: JiraCredentials = { baseUrl, email, apiToken };
+
+  const handleFetch = useCallback(async () => {
+    const key = ticketKey.trim();
+    if (!key) return;
+    setFetching(true);
+    setTicket(null);
+    setResult(null);
+    setParseError(null);
+    reset();
+    try {
+      const detail = await api.fetchJiraIssueDetail(key, credentials);
+      setTicket(detail);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to fetch ticket",
+      );
+    } finally {
+      setFetching(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticketKey, baseUrl, email, apiToken, reset, toast]);
+
+  const handleAnalyze = useCallback(() => {
+    if (!ticket) return;
+    setResult(null);
+    setParseError(null);
+    streamAi(`/jira/issues/${encodeURIComponent(ticket.key)}/analyze/stream`, {
+      credentials: { baseUrl, email, apiToken },
+    });
+  }, [ticket, baseUrl, email, apiToken, streamAi]);
+
+  const handleClear = useCallback(() => {
+    reset();
+    setTicket(null);
+    setTicketKey("");
+    setResult(null);
+    setParseError(null);
+  }, [reset]);
+
+  const canFetch = ticketKey.trim().length > 0 && baseUrl.trim().length > 0;
+  const canAnalyze = !!ticket && !isStreaming;
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-slate-200">JIRA Deep Analysis</h1>
+        <button
+          onClick={handleClear}
+          className="rounded-md border border-slate-600 px-3 py-1 text-sm text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+        >
+          Clear
+        </button>
+      </div>
+
+      {/* Credentials + Ticket input */}
+      <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 space-y-3">
+        {/* JIRA URL */}
+        <div className="flex items-center gap-3">
+          <label className="w-24 text-sm text-slate-400 flex-shrink-0">JIRA URL:</label>
+          <input
+            type="text"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://yourorg.atlassian.net"
+            className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+
+        {/* Email */}
+        <div className="flex items-center gap-3">
+          <label className="w-24 text-sm text-slate-400 flex-shrink-0">Email:</label>
+          <input
+            type="text"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com"
+            className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+
+        {/* API Token */}
+        <div className="flex items-center gap-3">
+          <label className="w-24 text-sm text-slate-400 flex-shrink-0">API Token:</label>
+          <input
+            type="password"
+            value={apiToken}
+            onChange={(e) => setApiToken(e.target.value)}
+            placeholder="JIRA API token"
+            className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+
+        {/* Ticket key + Fetch button */}
+        <div className="flex items-center gap-3 pt-1 border-t border-slate-700">
+          <label className="w-24 text-sm text-slate-400 flex-shrink-0">Ticket:</label>
+          <input
+            type="text"
+            value={ticketKey}
+            onChange={(e) => handleTicketKeyChange(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && canFetch && handleFetch()}
+            placeholder="PROJ-123 or paste URL"
+            className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+          />
+          <button
+            onClick={handleFetch}
+            disabled={!canFetch || fetching}
+            className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {fetching ? "Fetching…" : "Fetch"}
+          </button>
+        </div>
+      </div>
+
+      {/* Ticket preview card */}
+      {ticket && (
+        <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 space-y-3">
+          {/* Key + summary row */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <a
+                href={ticket.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-mono font-semibold text-blue-400 hover:underline"
+              >
+                {ticket.key}
+              </a>
+              <p className="text-base font-medium text-slate-200 mt-0.5 leading-snug">
+                {ticket.summary}
+              </p>
+            </div>
+            {/* Deep Analyze button */}
+            <button
+              onClick={handleAnalyze}
+              disabled={!canAnalyze}
+              className="flex-shrink-0 rounded-md bg-purple-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isStreaming ? "Analyzing…" : "Deep Analyze"}
+            </button>
+          </div>
+
+          {/* Status / priority / type badges */}
+          <div className="flex flex-wrap gap-2">
+            <Badge color="blue">{ticket.issueType}</Badge>
+            <Badge color="slate">{ticket.status}</Badge>
+            {ticket.priority && <Badge color="amber">{ticket.priority}</Badge>}
+          </div>
+
+          {/* Components + labels as pills */}
+          {(ticket.components.length > 0 || ticket.labels.length > 0) && (
+            <div className="flex flex-wrap gap-1.5">
+              {ticket.components.map((c) => (
+                <span
+                  key={c}
+                  className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-xs text-indigo-300"
+                >
+                  {c}
+                </span>
+              ))}
+              {ticket.labels.map((l) => (
+                <span
+                  key={l}
+                  className="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300"
+                >
+                  {l}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Description (truncated 3 lines) */}
+          {ticket.description && (
+            <p className="text-sm text-slate-400 leading-relaxed line-clamp-3">
+              {ticket.description}
+            </p>
+          )}
+
+          {/* Comment count */}
+          {ticket.comments.length > 0 && (
+            <p className="text-xs text-slate-500">
+              {ticket.comments.length} comment{ticket.comments.length !== 1 ? "s" : ""}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Streaming indicator */}
+      {isStreaming && (
+        <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm text-purple-400">
+            <svg
+              className="h-4 w-4 animate-spin"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+            Analyzing ticket…
+          </div>
+          {content && (
+            <pre className="max-h-[200px] overflow-y-auto rounded bg-slate-900 p-2 text-xs text-slate-400">
+              {content}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {/* Stream error */}
+      {!isStreaming && error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+
+      {/* Parse error */}
+      {!isStreaming && parseError && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+          <p className="mb-2 text-sm font-medium text-yellow-400">{parseError}</p>
+          <pre className="max-h-[300px] overflow-y-auto rounded bg-slate-900 p-2 text-xs text-slate-400">
+            {content}
+          </pre>
+        </div>
+      )}
+
+      {/* Analysis report */}
+      {result && ticket && (
+        <JiraAnalysisReport
+          result={result}
+          jiraKey={ticket.key}
+          category={ticket.issueType}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Internal helpers ────────────────────────────────────────────────────────
+
+type BadgeColor = "blue" | "slate" | "amber";
+
+const badgeStyles: Record<BadgeColor, string> = {
+  blue: "bg-blue-500/20 text-blue-300",
+  slate: "bg-slate-700 text-slate-300",
+  amber: "bg-amber-500/20 text-amber-300",
+};
+
+function Badge({ color, children }: { color: BadgeColor; children: React.ReactNode }) {
+  return (
+    <span className={`rounded px-2 py-0.5 text-xs font-medium ${badgeStyles[color]}`}>
+      {children}
+    </span>
+  );
+}
