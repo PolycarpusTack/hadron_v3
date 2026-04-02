@@ -5,7 +5,7 @@
  */
 
 import { useState, type ReactNode } from "react";
-import type { JiraBriefResult } from "../../services/api";
+import { api, type JiraBriefResult, type JiraCredentials, type TicketBriefRow, type SimilarTicketMatch } from "../../services/api";
 import { QualityGauge } from "../code-analyzer/shared/QualityGauge";
 import TriageBadgePanel from "./TriageBadgePanel";
 
@@ -32,15 +32,36 @@ const CATEGORY_COLORS: Record<string, string> = {
 interface TicketBriefPanelProps {
   jiraKey: string;
   result: JiraBriefResult;
+  jiraCredentials: JiraCredentials;
+  briefRow: TicketBriefRow | null;
+  onBriefUpdated?: () => void;
 }
 
 type BriefTab = "brief" | "analysis";
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function TicketBriefPanel({ jiraKey, result }: TicketBriefPanelProps) {
+export default function TicketBriefPanel({
+  jiraKey,
+  result,
+  jiraCredentials,
+  briefRow,
+  onBriefUpdated,
+}: TicketBriefPanelProps) {
   const [tab, setTab] = useState<BriefTab>("brief");
   const [checkedActions, setCheckedActions] = useState<Set<number>>(new Set());
+
+  // Similar tickets state
+  const [similarTickets, setSimilarTickets] = useState<SimilarTicketMatch[]>([]);
+  const [searchingSimilar, setSearchingSimilar] = useState(false);
+
+  // Post-to-JIRA state
+  const [posting, setPosting] = useState(false);
+
+  // Feedback state
+  const [rating, setRating] = useState<number>(briefRow?.engineerRating || 0);
+  const [notes, setNotes] = useState(briefRow?.engineerNotes || "");
+  const [showNotes, setShowNotes] = useState(false);
 
   function toggleAction(i: number) {
     setCheckedActions((prev) => {
@@ -51,6 +72,46 @@ export default function TicketBriefPanel({ jiraKey, result }: TicketBriefPanelPr
     });
   }
 
+  // ─── Handlers ───────────────────────────────────────────────────────────────
+
+  const handleFindSimilar = async () => {
+    setSearchingSimilar(true);
+    try {
+      const results = await api.findSimilarTickets(jiraKey, jiraCredentials, 0.65, 5);
+      setSimilarTickets(results);
+    } catch {
+      // silently fail — not critical
+    } finally {
+      setSearchingSimilar(false);
+    }
+  };
+
+  const handlePostToJira = async () => {
+    if (!window.confirm(`Post this brief as a comment on ${jiraKey}?`)) return;
+    setPosting(true);
+    try {
+      await api.postBriefToJira(jiraKey, jiraCredentials);
+      onBriefUpdated?.();
+    } catch {
+      // error feedback could be added here
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const handleRating = async (value: number) => {
+    setRating(value);
+    await api.submitEngineerFeedback(jiraKey, value).catch(() => {});
+    onBriefUpdated?.();
+  };
+
+  const handleNotesBlur = async () => {
+    if (notes !== (briefRow?.engineerNotes || "")) {
+      await api.submitEngineerFeedback(jiraKey, undefined, notes).catch(() => {});
+      onBriefUpdated?.();
+    }
+  };
+
   // Adapt labels for non-bug ticket types
   const isBugLike = ["Bug", "Security", "Performance"].includes(result.triage.category);
   const labelErrorType = isBugLike ? "Error Type" : "Type";
@@ -60,30 +121,83 @@ export default function TicketBriefPanel({ jiraKey, result }: TicketBriefPanelPr
   return (
     <div className="bg-slate-800/50 rounded-lg border border-slate-700 overflow-hidden">
       {/* Panel header */}
-      <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <IconFileText className="w-4 h-4 text-indigo-400" />
-          <span className="text-sm font-semibold text-white">
-            Investigation Brief — {jiraKey}
-          </span>
+      <div className="px-4 py-3 border-b border-slate-700">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <IconFileText className="w-4 h-4 text-indigo-400" />
+            <span className="text-sm font-semibold text-white">
+              Investigation Brief — {jiraKey}
+            </span>
+          </div>
+
+          {/* Actions: tab switcher + post button + stars */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Star rating */}
+            <div className="flex gap-0.5">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => handleRating(star)}
+                  className={`text-lg leading-none ${star <= rating ? "text-yellow-400" : "text-slate-600"} hover:text-yellow-300 transition-colors`}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+
+            {/* Notes toggle */}
+            <button
+              onClick={() => setShowNotes(!showNotes)}
+              className="text-xs text-slate-400 hover:text-slate-300 transition-colors"
+            >
+              {showNotes ? "Hide Notes" : "Notes"}
+            </button>
+
+            {/* Post to JIRA */}
+            <button
+              onClick={handlePostToJira}
+              disabled={posting || !!briefRow?.postedToJira}
+              className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              {briefRow?.postedToJira
+                ? `Posted ${briefRow.postedAt ? new Date(briefRow.postedAt).toLocaleDateString() : ""}`
+                : posting
+                  ? "Posting..."
+                  : "Post to JIRA"}
+            </button>
+
+            {/* Tab switcher */}
+            <div className="flex gap-1 bg-slate-900 rounded-lg p-0.5">
+              {(["brief", "analysis"] as BriefTab[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`px-3 py-1 text-xs rounded-md transition capitalize ${
+                    tab === t
+                      ? "bg-indigo-600 text-white font-medium"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {t === "brief" ? "Brief" : "Analysis"}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex gap-1 bg-slate-900 rounded-lg p-0.5">
-          {(["brief", "analysis"] as BriefTab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-3 py-1 text-xs rounded-md transition capitalize ${
-                tab === t
-                  ? "bg-indigo-600 text-white font-medium"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              {t === "brief" ? "Brief" : "Analysis"}
-            </button>
-          ))}
-        </div>
+        {/* Notes textarea (shown when toggled) */}
+        {showNotes && (
+          <div className="mt-2">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onBlur={handleNotesBlur}
+              placeholder="Engineer notes..."
+              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-500"
+              rows={3}
+            />
+          </div>
+        )}
       </div>
 
       {/* Brief tab */}
@@ -222,6 +336,47 @@ export default function TicketBriefPanel({ jiraKey, result }: TicketBriefPanelPr
               {result.triage.rationale}
             </p>
           </Section>
+
+          {/* Similar Tickets */}
+          <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-slate-300">Similar Tickets</h4>
+              <button
+                onClick={handleFindSimilar}
+                disabled={searchingSimilar}
+                className="rounded-md bg-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-600 disabled:opacity-50 transition-colors"
+              >
+                {searchingSimilar ? "Searching..." : "Find Similar"}
+              </button>
+            </div>
+            {similarTickets.length > 0 ? (
+              <div className="space-y-2">
+                {similarTickets.map((t) => (
+                  <div
+                    key={t.jiraKey}
+                    className="flex items-center justify-between rounded-md border border-slate-700 bg-slate-800/50 p-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-xs text-blue-400 flex-shrink-0">{t.jiraKey}</span>
+                      {t.severity && (
+                        <span className="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400 flex-shrink-0">
+                          {t.severity}
+                        </span>
+                      )}
+                      <span className="text-sm text-slate-300 truncate">{t.title}</span>
+                    </div>
+                    <span className="text-xs text-slate-400 flex-shrink-0 ml-2">
+                      {Math.round(t.similarity * 100)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : searchingSimilar ? null : (
+              <p className="text-xs text-slate-500">
+                Click "Find Similar" to search for duplicate tickets.
+              </p>
+            )}
+          </div>
         </div>
       )}
 

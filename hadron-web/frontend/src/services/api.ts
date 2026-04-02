@@ -420,6 +420,14 @@ export interface TicketBriefRow {
   updatedAt: string;
 }
 
+export interface SimilarTicketMatch {
+  jiraKey: string;
+  title: string;
+  similarity: number;
+  severity: string | null;
+  category: string | null;
+}
+
 // ============================================================================
 // HTTP helpers
 // ============================================================================
@@ -882,6 +890,41 @@ class ApiClient {
 
   async deleteTicketBrief(key: string): Promise<void> {
     return this.request("DELETE", `/jira/briefs/${encodeURIComponent(key)}`);
+  }
+
+  // === JIRA Similar Tickets + Round-Trip ===
+
+  async findSimilarTickets(
+    key: string,
+    credentials: JiraCredentials,
+    threshold?: number,
+    limit?: number,
+  ): Promise<SimilarTicketMatch[]> {
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/similar`, {
+      credentials,
+      threshold,
+      limit,
+    });
+  }
+
+  async postBriefToJira(
+    key: string,
+    credentials: JiraCredentials,
+  ): Promise<void> {
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/post-brief`, {
+      credentials,
+    });
+  }
+
+  async submitEngineerFeedback(
+    key: string,
+    rating?: number,
+    notes?: string,
+  ): Promise<void> {
+    return this.request("PUT", `/jira/briefs/${encodeURIComponent(key)}/feedback`, {
+      rating,
+      notes,
+    });
   }
 
   // === Admin ===
