@@ -275,3 +275,169 @@ fn capitalize(s: &str) -> String {
         None => String::new(),
     }
 }
+
+/// Fetch full issue detail including description and comments.
+pub async fn fetch_issue_detail(
+    config: &JiraConfig,
+    key: &str,
+) -> HadronResult<hadron_core::ai::jira_analysis::JiraTicketDetail> {
+    let client = build_client()?;
+
+    // Validate key format (PROJ-123)
+    if !key.chars().all(|c| c.is_alphanumeric() || c == '-') {
+        return Err(HadronError::Validation(format!("Invalid JIRA key: {key}")));
+    }
+
+    let url = format!(
+        "{}/rest/api/3/issue/{}?fields=summary,description,status,priority,issuetype,components,labels,comment",
+        config.base_url.trim_end_matches('/'),
+        key
+    );
+
+    let resp = client
+        .get(&url)
+        .basic_auth(&config.email, Some(&config.api_token))
+        .send()
+        .await
+        .map_err(|e| HadronError::external_service(format!("JIRA fetch failed: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(HadronError::external_service(format!(
+            "JIRA returned {status}: {body}"
+        )));
+    }
+
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| HadronError::external_service(format!("Failed to parse JIRA response: {e}")))?;
+
+    let fields = &data["fields"];
+
+    let description = extract_adf_text(&fields["description"]);
+
+    let comments: Vec<String> = fields["comment"]["comments"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|c| extract_adf_text(&c["body"]))
+                .filter(|t| !t.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let components: Vec<String> = fields["components"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|c| c["name"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let labels: Vec<String> = fields["labels"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|l| l.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let browse_url = format!(
+        "{}/browse/{}",
+        config.base_url.trim_end_matches('/'),
+        key
+    );
+
+    Ok(hadron_core::ai::jira_analysis::JiraTicketDetail {
+        key: key.to_string(),
+        summary: fields["summary"].as_str().unwrap_or("").to_string(),
+        description,
+        issue_type: fields["issuetype"]["name"].as_str().unwrap_or("Bug").to_string(),
+        priority: fields["priority"]["name"].as_str().map(|s| s.to_string()),
+        status: fields["status"]["name"].as_str().unwrap_or("").to_string(),
+        components,
+        labels,
+        comments,
+        url: browse_url,
+    })
+}
+
+/// Extract plain text from JIRA's Atlassian Document Format (ADF).
+///
+/// ADF is a nested JSON structure. This does a simple recursive text extraction.
+/// Falls back to treating the value as a plain string if it's not ADF.
+fn extract_adf_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Object(obj) => {
+            // ADF document: { "type": "doc", "content": [...] }
+            if let Some(content) = obj.get("content") {
+                extract_adf_content(content)
+            } else if let Some(text) = obj.get("text") {
+                text.as_str().unwrap_or("").to_string()
+            } else {
+                String::new()
+            }
+        }
+        serde_json::Value::Null => String::new(),
+        _ => value.to_string(),
+    }
+}
+
+fn extract_adf_content(content: &serde_json::Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(arr) = content.as_array() {
+        for node in arr {
+            let node_type = node["type"].as_str().unwrap_or("");
+            match node_type {
+                "text" => {
+                    if let Some(text) = node["text"].as_str() {
+                        parts.push(text.to_string());
+                    }
+                }
+                "hardBreak" => parts.push("\n".to_string()),
+                "paragraph" | "heading" | "blockquote" | "listItem" | "tableCell" => {
+                    if let Some(inner) = node.get("content") {
+                        let text = extract_adf_content(inner);
+                        if !text.is_empty() {
+                            parts.push(text);
+                        }
+                    }
+                    if node_type == "paragraph" || node_type == "heading" {
+                        parts.push("\n".to_string());
+                    }
+                }
+                "bulletList" | "orderedList" | "table" | "tableRow" => {
+                    if let Some(inner) = node.get("content") {
+                        let text = extract_adf_content(inner);
+                        if !text.is_empty() {
+                            parts.push(text);
+                        }
+                    }
+                }
+                "codeBlock" => {
+                    if let Some(inner) = node.get("content") {
+                        let text = extract_adf_content(inner);
+                        if !text.is_empty() {
+                            parts.push(format!("\n```\n{}\n```\n", text));
+                        }
+                    }
+                }
+                _ => {
+                    // Unknown node type — try extracting content recursively
+                    if let Some(inner) = node.get("content") {
+                        let text = extract_adf_content(inner);
+                        if !text.is_empty() {
+                            parts.push(text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    parts.join("")
+}
