@@ -17,6 +17,7 @@ mod integrations;
 mod middleware;
 mod routes;
 mod sse;
+mod jira_poller;
 mod crypto;
 
 #[cfg(test)]
@@ -29,6 +30,7 @@ pub struct AppState {
     pub auth_config: auth::AuthConfig,
     pub jwks_cache: auth::JwksCache,
     pub dev_mode: bool,
+    pub poller: jira_poller::PollerState,
 }
 
 #[tokio::main]
@@ -95,7 +97,12 @@ async fn main() -> anyhow::Result<()> {
         auth_config,
         jwks_cache: auth::JwksCache::new(),
         dev_mode,
+        poller: jira_poller::PollerState::new(),
     };
+
+    // Clone before state is moved into router
+    let pool_for_poller = state.db.clone();
+    let poller_for_start = state.poller.clone();
 
     // Build router
     let mut app = Router::new()
@@ -119,6 +126,15 @@ async fn main() -> anyhow::Result<()> {
         );
     } else {
         tracing::info!("No frontend build found at {}, API-only mode", static_dir.display());
+    }
+
+    // Auto-start JIRA poller if configured
+    {
+        let pool_clone = pool_for_poller;
+        let poller_clone = poller_for_start;
+        tokio::spawn(async move {
+            jira_poller::start_poller(pool_clone, &poller_clone).await;
+        });
     }
 
     // Start server

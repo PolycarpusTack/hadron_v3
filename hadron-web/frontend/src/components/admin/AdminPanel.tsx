@@ -6,8 +6,9 @@ import { TagManager } from "../tags/TagManager";
 import { GoldManagement } from "../gold/GoldManagement";
 import { PatternManager } from "./PatternManager";
 import { AiConfigPanel } from "./AiConfigPanel";
+import { JiraPollerPanel } from "./JiraPollerPanel";
 
-type AdminTab = "users" | "ai-config" | "audit" | "tags" | "gold" | "patterns" | "training";
+type AdminTab = "users" | "ai-config" | "audit" | "tags" | "gold" | "patterns" | "training" | "jira-poller";
 
 export function AdminPanel() {
   const toast = useToast();
@@ -66,6 +67,7 @@ export function AdminPanel() {
     { key: "gold", label: "Gold Standard" },
     { key: "patterns", label: "Patterns" },
     { key: "training", label: "Training Data" },
+    { key: "jira-poller", label: "JIRA Poller" },
   ];
 
   if (loading) {
@@ -97,6 +99,7 @@ export function AdminPanel() {
       {activeTab === "tags" && <TagManager />}
       {activeTab === "gold" && <GoldManagement />}
       {activeTab === "patterns" && <PatternManager />}
+      {activeTab === "jira-poller" && <JiraPollerPanel />}
 
       {activeTab === "training" && (
         <div className="rounded-lg border border-slate-700 bg-slate-800 p-6 text-center">

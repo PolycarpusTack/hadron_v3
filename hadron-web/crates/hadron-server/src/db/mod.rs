@@ -2840,3 +2840,130 @@ pub async fn update_engineer_feedback(
 
     Ok(())
 }
+
+// ============================================================================
+// JIRA Poller Config
+// ============================================================================
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct PollerConfigRow {
+    pub enabled: bool,
+    pub jql_filter: String,
+    pub interval_mins: i32,
+    pub last_polled_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub jira_base_url: String,
+    pub jira_email: String,
+    pub jira_api_token: String,
+}
+
+pub async fn get_poller_config(pool: &PgPool) -> HadronResult<PollerConfigRow> {
+    let row = sqlx::query_as::<_, PollerConfigRow>(
+        "SELECT enabled, jql_filter, interval_mins, last_polled_at,
+                jira_base_url, jira_email, jira_api_token
+         FROM jira_poller_config WHERE id = 1",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(row)
+}
+
+pub async fn update_poller_config(
+    pool: &PgPool,
+    enabled: Option<bool>,
+    jql_filter: Option<&str>,
+    interval_mins: Option<i32>,
+    jira_base_url: Option<&str>,
+    jira_email: Option<&str>,
+    jira_api_token: Option<&str>,
+    user_id: Uuid,
+) -> HadronResult<()> {
+    sqlx::query(
+        "UPDATE jira_poller_config SET
+            enabled = COALESCE($1, enabled),
+            jql_filter = COALESCE($2, jql_filter),
+            interval_mins = COALESCE($3, interval_mins),
+            jira_base_url = COALESCE($4, jira_base_url),
+            jira_email = COALESCE($5, jira_email),
+            jira_api_token = COALESCE($6, jira_api_token),
+            updated_by = $7,
+            updated_at = NOW()
+         WHERE id = 1",
+    )
+    .bind(enabled)
+    .bind(jql_filter)
+    .bind(interval_mins)
+    .bind(jira_base_url)
+    .bind(jira_email)
+    .bind(jira_api_token)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(())
+}
+
+pub async fn update_poller_last_polled(pool: &PgPool) -> HadronResult<()> {
+    sqlx::query("UPDATE jira_poller_config SET last_polled_at = NOW() WHERE id = 1")
+        .execute(pool)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?;
+    Ok(())
+}
+
+// ============================================================================
+// User Project Subscriptions
+// ============================================================================
+
+pub async fn get_user_subscriptions(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> HadronResult<Vec<String>> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT project_key FROM user_project_subscriptions WHERE user_id = $1 ORDER BY project_key",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(rows.into_iter().map(|(k,)| k).collect())
+}
+
+pub async fn set_user_subscriptions(
+    pool: &PgPool,
+    user_id: Uuid,
+    project_keys: &[String],
+) -> HadronResult<()> {
+    // Delete all existing, then insert new
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?;
+
+    sqlx::query("DELETE FROM user_project_subscriptions WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?;
+
+    for key in project_keys {
+        sqlx::query(
+            "INSERT INTO user_project_subscriptions (user_id, project_key) VALUES ($1, $2)",
+        )
+        .bind(user_id)
+        .bind(key)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?;
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(())
+}
