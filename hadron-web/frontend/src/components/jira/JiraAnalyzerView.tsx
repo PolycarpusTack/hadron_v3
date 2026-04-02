@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAiStream } from "../../hooks/useAiStream";
-import { api, type JiraCredentials, type JiraTicketDetail, type JiraDeepResult, type JiraTriageResult, type JiraBriefResult } from "../../services/api";
+import { api, type JiraCredentials, type JiraTicketDetail, type JiraDeepResult, type JiraTriageResult, type JiraBriefResult, type TicketBriefRow } from "../../services/api";
 import { useToast } from "../Toast";
 import JiraAnalysisReport from "./JiraAnalysisReport";
 import TriageBadgePanel from "./TriageBadgePanel";
@@ -40,6 +40,7 @@ export function JiraAnalyzerView() {
   const [triageResult, setTriageResult] = useState<JiraTriageResult | null>(null);
   const [triaging, setTriaging] = useState(false);
   const [briefResult, setBriefResult] = useState<JiraBriefResult | null>(null);
+  const [cachedBrief, setCachedBrief] = useState<TicketBriefRow | null>(null);
 
   const { streamAi, content, isStreaming, error, reset } = useAiStream();
   const toast = useToast();
@@ -85,6 +86,7 @@ export function JiraAnalyzerView() {
       // Reload the full cached brief from DB (server persisted triage + brief together)
       if (ticket) {
         api.getTicketBrief(ticket.key).then((cached) => {
+          setCachedBrief(cached);
           if (cached?.briefJson) {
             try { setBriefResult(JSON.parse(cached.briefJson)); } catch {}
           }
@@ -116,6 +118,7 @@ export function JiraAnalyzerView() {
       setTicket(detail);
       // Load cached brief/triage from DB
       const cached = await api.getTicketBrief(key);
+      setCachedBrief(cached);
       if (cached?.triageJson) {
         try { setTriageResult(JSON.parse(cached.triageJson)); } catch {}
       }
@@ -392,7 +395,16 @@ export function JiraAnalyzerView() {
 
       {/* Brief panel (triage + deep analysis combined) */}
       {briefResult && ticket && (
-        <TicketBriefPanel jiraKey={ticket.key} result={briefResult} />
+        <TicketBriefPanel
+            jiraKey={ticket.key}
+            result={briefResult}
+            jiraCredentials={{ baseUrl, email, apiToken }}
+            briefRow={cachedBrief}
+            onBriefUpdated={async () => {
+              const updated = await api.getTicketBrief(ticket.key);
+              setCachedBrief(updated);
+            }}
+          />
       )}
 
       {/* Triage-only panel (shown when no brief yet) */}
