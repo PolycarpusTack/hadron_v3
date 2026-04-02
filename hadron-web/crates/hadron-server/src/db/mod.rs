@@ -2561,3 +2561,109 @@ pub async fn get_server_ai_config(
         model,
     }))
 }
+
+// ============================================================================
+// Ticket Briefs
+// ============================================================================
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct TicketBriefRow {
+    pub jira_key: String,
+    pub title: String,
+    pub severity: Option<String>,
+    pub category: Option<String>,
+    pub tags: Option<String>,
+    pub triage_json: Option<String>,
+    pub brief_json: Option<String>,
+    pub posted_to_jira: bool,
+    pub posted_at: Option<DateTime<Utc>>,
+    pub engineer_rating: Option<i16>,
+    pub engineer_notes: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+pub async fn upsert_ticket_brief(
+    pool: &PgPool,
+    jira_key: &str,
+    title: &str,
+    severity: Option<&str>,
+    category: Option<&str>,
+    tags: Option<&str>,
+    triage_json: Option<&str>,
+    brief_json: Option<&str>,
+) -> HadronResult<()> {
+    sqlx::query(
+        "INSERT INTO ticket_briefs (jira_key, title, severity, category, tags, triage_json, brief_json, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (jira_key) DO UPDATE SET
+            title = EXCLUDED.title,
+            severity = COALESCE(EXCLUDED.severity, ticket_briefs.severity),
+            category = COALESCE(EXCLUDED.category, ticket_briefs.category),
+            tags = COALESCE(EXCLUDED.tags, ticket_briefs.tags),
+            triage_json = COALESCE(EXCLUDED.triage_json, ticket_briefs.triage_json),
+            brief_json = COALESCE(EXCLUDED.brief_json, ticket_briefs.brief_json),
+            updated_at = NOW()",
+    )
+    .bind(jira_key)
+    .bind(title)
+    .bind(severity)
+    .bind(category)
+    .bind(tags)
+    .bind(triage_json)
+    .bind(brief_json)
+    .execute(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(())
+}
+
+pub async fn get_ticket_brief(
+    pool: &PgPool,
+    jira_key: &str,
+) -> HadronResult<Option<TicketBriefRow>> {
+    let row = sqlx::query_as::<_, TicketBriefRow>(
+        "SELECT jira_key, title, severity, category, tags, triage_json, brief_json,
+                posted_to_jira, posted_at, engineer_rating, engineer_notes, created_at, updated_at
+         FROM ticket_briefs WHERE jira_key = $1",
+    )
+    .bind(jira_key)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(row)
+}
+
+pub async fn get_ticket_briefs_batch(
+    pool: &PgPool,
+    jira_keys: &[String],
+) -> HadronResult<Vec<TicketBriefRow>> {
+    if jira_keys.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = sqlx::query_as::<_, TicketBriefRow>(
+        "SELECT jira_key, title, severity, category, tags, triage_json, brief_json,
+                posted_to_jira, posted_at, engineer_rating, engineer_notes, created_at, updated_at
+         FROM ticket_briefs WHERE jira_key = ANY($1)",
+    )
+    .bind(jira_keys)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(rows)
+}
+
+pub async fn delete_ticket_brief(pool: &PgPool, jira_key: &str) -> HadronResult<()> {
+    sqlx::query("DELETE FROM ticket_briefs WHERE jira_key = $1")
+        .bind(jira_key)
+        .execute(pool)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(())
+}
