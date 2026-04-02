@@ -8,9 +8,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAiStream } from "../../hooks/useAiStream";
-import { api, type JiraCredentials, type JiraTicketDetail, type JiraDeepResult } from "../../services/api";
+import { api, type JiraCredentials, type JiraTicketDetail, type JiraDeepResult, type JiraTriageResult, type JiraBriefResult } from "../../services/api";
 import { useToast } from "../Toast";
 import JiraAnalysisReport from "./JiraAnalysisReport";
+import TriageBadgePanel from "./TriageBadgePanel";
+import TicketBriefPanel from "./TicketBriefPanel";
 
 const LS_JIRA_URL = "hadron_jira_url";
 const LS_JIRA_EMAIL = "hadron_jira_email";
@@ -34,6 +36,11 @@ export function JiraAnalyzerView() {
   const [result, setResult] = useState<JiraDeepResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
 
+  // Triage + brief state
+  const [triageResult, setTriageResult] = useState<JiraTriageResult | null>(null);
+  const [triaging, setTriaging] = useState(false);
+  const [briefResult, setBriefResult] = useState<JiraBriefResult | null>(null);
+
   const { streamAi, content, isStreaming, error, reset } = useAiStream();
   const toast = useToast();
 
@@ -56,28 +63,40 @@ export function JiraAnalyzerView() {
   useEffect(() => {
     if (isStreaming || !content) return;
 
+    let parsed: JiraDeepResult | null = null;
+
     try {
-      const parsed = JSON.parse(content) as JiraDeepResult;
-      setResult(parsed);
-      setParseError(null);
-      return;
+      parsed = JSON.parse(content) as JiraDeepResult;
     } catch {
       // Try extracting JSON object from raw content
-    }
-
-    const match = content.match(/\{[\s\S]*\}/);
-    if (match) {
-      try {
-        const parsed = JSON.parse(match[0]) as JiraDeepResult;
-        setResult(parsed);
-        setParseError(null);
-        return;
-      } catch {
-        // Both strategies failed
+      const match = content.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          parsed = JSON.parse(match[0]) as JiraDeepResult;
+        } catch {
+          // Both strategies failed
+        }
       }
     }
 
-    setParseError("Failed to parse AI response. The raw output is shown below.");
+    if (parsed) {
+      setResult(parsed);
+      setParseError(null);
+      // Reload the full cached brief from DB (server persisted triage + brief together)
+      if (ticket) {
+        api.getTicketBrief(ticket.key).then((cached) => {
+          if (cached?.briefJson) {
+            try { setBriefResult(JSON.parse(cached.briefJson)); } catch {}
+          }
+          if (cached?.triageJson) {
+            try { setTriageResult(JSON.parse(cached.triageJson)); } catch {}
+          }
+        }).catch(() => {/* ignore */});
+      }
+    } else {
+      setParseError("Failed to parse AI response. The raw output is shown below.");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, isStreaming]);
 
   const credentials: JiraCredentials = { baseUrl, email, apiToken };
@@ -89,10 +108,20 @@ export function JiraAnalyzerView() {
     setTicket(null);
     setResult(null);
     setParseError(null);
+    setTriageResult(null);
+    setBriefResult(null);
     reset();
     try {
       const detail = await api.fetchJiraIssueDetail(key, credentials);
       setTicket(detail);
+      // Load cached brief/triage from DB
+      const cached = await api.getTicketBrief(key);
+      if (cached?.triageJson) {
+        try { setTriageResult(JSON.parse(cached.triageJson)); } catch {}
+      }
+      if (cached?.briefJson) {
+        try { setBriefResult(JSON.parse(cached.briefJson)); } catch {}
+      }
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to fetch ticket",
@@ -102,6 +131,30 @@ export function JiraAnalyzerView() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketKey, baseUrl, email, apiToken, reset, toast]);
+
+  const handleTriage = async () => {
+    if (!ticket) return;
+    setTriaging(true);
+    try {
+      const creds = { baseUrl, email, apiToken };
+      const res = await api.triageJiraIssue(ticket.key, creds);
+      setTriageResult(res);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Triage failed");
+    } finally {
+      setTriaging(false);
+    }
+  };
+
+  const handleBrief = () => {
+    if (!ticket) return;
+    setResult(null); // clear the Phase 1b deep result if any
+    setBriefResult(null);
+    setParseError(null);
+    streamAi(`/jira/issues/${encodeURIComponent(ticket.key)}/brief/stream`, {
+      credentials: { baseUrl, email, apiToken },
+    });
+  };
 
   const handleAnalyze = useCallback(() => {
     if (!ticket) return;
@@ -118,10 +171,12 @@ export function JiraAnalyzerView() {
     setTicketKey("");
     setResult(null);
     setParseError(null);
+    setTriageResult(null);
+    setBriefResult(null);
   }, [reset]);
 
   const canFetch = ticketKey.trim().length > 0 && baseUrl.trim().length > 0;
-  const canAnalyze = !!ticket && !isStreaming;
+  const canAnalyze = !!ticket && !isStreaming && !triaging;
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -213,14 +268,30 @@ export function JiraAnalyzerView() {
                 {ticket.summary}
               </p>
             </div>
-            {/* Deep Analyze button */}
-            <button
-              onClick={handleAnalyze}
-              disabled={!canAnalyze}
-              className="flex-shrink-0 rounded-md bg-purple-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isStreaming ? "Analyzing…" : "Deep Analyze"}
-            </button>
+            {/* Action buttons */}
+            <div className="flex flex-shrink-0 gap-2">
+              <button
+                onClick={handleTriage}
+                disabled={!canAnalyze || triaging}
+                className="rounded-md bg-amber-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {triaging ? "Triaging…" : "Triage"}
+              </button>
+              <button
+                onClick={handleBrief}
+                disabled={!canAnalyze}
+                className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isStreaming ? "Generating…" : "Generate Brief"}
+              </button>
+              <button
+                onClick={handleAnalyze}
+                disabled={!canAnalyze}
+                className="rounded-md bg-purple-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isStreaming ? "Analyzing…" : "Deep Analyze"}
+              </button>
+            </div>
           </div>
 
           {/* Status / priority / type badges */}
@@ -319,7 +390,17 @@ export function JiraAnalyzerView() {
         </div>
       )}
 
-      {/* Analysis report */}
+      {/* Brief panel (triage + deep analysis combined) */}
+      {briefResult && ticket && (
+        <TicketBriefPanel jiraKey={ticket.key} result={briefResult} />
+      )}
+
+      {/* Triage-only panel (shown when no brief yet) */}
+      {!briefResult && triageResult && (
+        <TriageBadgePanel result={triageResult} />
+      )}
+
+      {/* Deep analysis report (from Phase 1b direct streaming) */}
       {result && ticket && (
         <JiraAnalysisReport
           result={result}
