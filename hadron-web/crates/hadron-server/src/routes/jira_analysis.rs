@@ -207,6 +207,25 @@ pub async fn generate_brief(
     )
     .await;
 
+    // Fire-and-forget: generate embedding for similarity search
+    let pool_clone = state.db.clone();
+    let key_clone = key.clone();
+    let title_clone = ticket.summary.clone();
+    let brief_json_clone = brief_json.clone();
+    let api_key_clone = ai_config.api_key.clone();
+    tokio::spawn(async move {
+        let embed_text = crate::db::build_ticket_embedding_text(&title_clone, "", Some(&brief_json_clone));
+        match crate::integrations::embeddings::generate_embedding(&embed_text, &api_key_clone).await {
+            Ok(embedding) => {
+                let _ = crate::db::store_ticket_embedding(&pool_clone, &key_clone, &embedding, &embed_text).await;
+                tracing::debug!("Ticket embedding generated for {key_clone}");
+            }
+            Err(e) => {
+                tracing::warn!("Failed to generate embedding for {key_clone}: {e}");
+            }
+        }
+    });
+
     Ok(Json(brief_result))
 }
 
@@ -295,5 +314,153 @@ pub async fn delete_brief(
     Path(key): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     crate::db::delete_ticket_brief(&state.db, &key).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+// ============================================================================
+// Similar Tickets (embeddings)
+// ============================================================================
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimilarTicketsRequest {
+    pub credentials: JiraCredentials,
+    pub threshold: Option<f64>,
+    pub limit: Option<i64>,
+}
+
+/// POST /api/jira/issues/{key}/similar — find similar tickets via embeddings.
+pub async fn find_similar_tickets(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    Json(req): Json<SimilarTicketsRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let threshold = req.threshold.unwrap_or(0.65);
+    let limit = req.limit.unwrap_or(5).min(20);
+
+    // Load the brief to build embedding text
+    let brief_row = crate::db::get_ticket_brief(&state.db, &key).await?;
+
+    let title = brief_row.as_ref().map(|b| b.title.as_str()).unwrap_or(&key);
+    let brief_json = brief_row.as_ref().and_then(|b| b.brief_json.as_deref());
+
+    // Get or generate embedding
+    let embed_text = crate::db::build_ticket_embedding_text(title, "", brief_json);
+
+    // Resolve AI config for embedding API call (uses OpenAI)
+    let ai_config = super::analyses::resolve_ai_config(
+        &state.db,
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    let embedding = crate::integrations::embeddings::generate_embedding(
+        &embed_text,
+        &ai_config.api_key,
+    )
+    .await?;
+
+    // Store embedding for future searches (fire-and-forget pattern)
+    let pool_clone = state.db.clone();
+    let key_clone = key.clone();
+    let embed_clone = embedding.clone();
+    let text_clone = embed_text.clone();
+    tokio::spawn(async move {
+        let _ = crate::db::store_ticket_embedding(
+            &pool_clone,
+            &key_clone,
+            &embed_clone,
+            &text_clone,
+        )
+        .await;
+    });
+
+    let similar = crate::db::find_similar_tickets(
+        &state.db,
+        &embedding,
+        &key,
+        threshold,
+        limit,
+    )
+    .await?;
+
+    Ok(Json(similar))
+}
+
+// ============================================================================
+// Post Brief to JIRA
+// ============================================================================
+
+/// POST /api/jira/issues/{key}/post-brief — format and post brief as JIRA comment.
+pub async fn post_brief_to_jira(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    Json(req): Json<FetchIssueRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // Load brief from DB
+    let brief_row = crate::db::get_ticket_brief(&state.db, &key)
+        .await?
+        .ok_or_else(|| {
+            AppError(hadron_core::error::HadronError::not_found(
+                format!("No brief found for {key}"),
+            ))
+        })?;
+
+    let brief_json_str = brief_row.brief_json.ok_or_else(|| {
+        AppError(hadron_core::error::HadronError::Validation(
+            "Brief has no analysis data. Generate a brief first.".to_string(),
+        ))
+    })?;
+
+    let brief: hadron_core::ai::JiraBriefResult = serde_json::from_str(&brief_json_str)
+        .map_err(|e| {
+            AppError(hadron_core::error::HadronError::Parse(format!(
+                "Failed to parse stored brief: {e}"
+            )))
+        })?;
+
+    // Format as wiki markup
+    let markup = jira::format_brief_as_jira_markup(&brief, &key);
+
+    // Post to JIRA
+    let config = to_jira_config(&req.credentials);
+    jira::post_jira_comment(&config, &key, &markup).await?;
+
+    // Mark as posted
+    crate::db::mark_posted_to_jira(&state.db, &key).await?;
+
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+// ============================================================================
+// Engineer Feedback
+// ============================================================================
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedbackRequest {
+    pub rating: Option<i16>,
+    pub notes: Option<String>,
+}
+
+/// PUT /api/jira/briefs/{key}/feedback — update engineer rating and notes.
+pub async fn submit_feedback(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    Json(req): Json<FeedbackRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    crate::db::update_engineer_feedback(
+        &state.db,
+        &key,
+        req.rating,
+        req.notes.as_deref(),
+    )
+    .await?;
+
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
