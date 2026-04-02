@@ -21,6 +21,7 @@ import { SignaturesView } from "./components/signatures/SignaturesView";
 import { AnalyticsDashboard } from "./components/analytics/AnalyticsDashboard";
 import { SentryPanel } from "./components/sentry/SentryPanel";
 import { CodeAnalyzerView } from "./components/code-analyzer/CodeAnalyzerView";
+import { JiraAnalyzerView } from "./components/jira/JiraAnalyzerView";
 
 type View =
   | "analyze"
@@ -33,6 +34,7 @@ type View =
   | "releases"
   | "sentry"
   | "code-analyzer"
+  | "jira-analyzer"
   | "settings"
   | "admin";
 
@@ -132,6 +134,7 @@ function AuthenticatedApp() {
   }[] = [
     { key: "analyze", label: "Analyze" },
     { key: "code-analyzer", label: "Code Analyzer" },
+    { key: "jira-analyzer", label: "JIRA Analyzer" },
     { key: "history", label: "History" },
     { key: "chat", label: "Ask Hadron" },
     { key: "search", label: "Search" },
@@ -203,6 +206,7 @@ function AuthenticatedApp() {
           <AnalyzeView apiKey={apiKey} model={model} provider={provider} />
         )}
         {activeView === "code-analyzer" && <CodeAnalyzerView />}
+        {activeView === "jira-analyzer" && <JiraAnalyzerView />}
         {activeView === "history" && <HistoryView apiKey={apiKey} />}
         {activeView === "chat" && (
           <ChatView apiKey={apiKey} model={model} provider={provider} />
