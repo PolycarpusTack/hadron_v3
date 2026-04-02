@@ -22,6 +22,7 @@ import { AnalyticsDashboard } from "./components/analytics/AnalyticsDashboard";
 import { SentryPanel } from "./components/sentry/SentryPanel";
 import { CodeAnalyzerView } from "./components/code-analyzer/CodeAnalyzerView";
 import { JiraAnalyzerView } from "./components/jira/JiraAnalyzerView";
+import { JiraProjectFeed } from "./components/jira/JiraProjectFeed";
 
 type View =
   | "analyze"
@@ -35,6 +36,7 @@ type View =
   | "sentry"
   | "code-analyzer"
   | "jira-analyzer"
+  | "jira-feed"
   | "settings"
   | "admin";
 
@@ -135,6 +137,7 @@ function AuthenticatedApp() {
     { key: "analyze", label: "Analyze" },
     { key: "code-analyzer", label: "Code Analyzer" },
     { key: "jira-analyzer", label: "JIRA Analyzer" },
+    { key: "jira-feed", label: "JIRA Feed" },
     { key: "history", label: "History" },
     { key: "chat", label: "Ask Hadron" },
     { key: "search", label: "Search" },
@@ -207,6 +210,7 @@ function AuthenticatedApp() {
         )}
         {activeView === "code-analyzer" && <CodeAnalyzerView />}
         {activeView === "jira-analyzer" && <JiraAnalyzerView />}
+        {activeView === "jira-feed" && <JiraProjectFeed />}
         {activeView === "history" && <HistoryView apiKey={apiKey} />}
         {activeView === "chat" && (
           <ChatView apiKey={apiKey} model={model} provider={provider} />
