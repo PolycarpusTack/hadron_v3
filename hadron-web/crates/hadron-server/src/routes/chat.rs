@@ -202,7 +202,7 @@ pub async fn chat_send(
         }
     });
 
-    Ok(sse::chat_stream_response(rx))
+    Ok(sse::stream_response(rx))
 }
 
 #[derive(Deserialize)]

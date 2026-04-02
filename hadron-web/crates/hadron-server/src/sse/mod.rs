@@ -1,7 +1,8 @@
-//! Server-Sent Events for streaming chat and long-running operations.
+//! Server-Sent Events for streaming AI responses and long-running operations.
 
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures::stream::Stream;
+use futures::StreamExt;
 use hadron_core::models::ChatStreamEvent;
 use std::convert::Infallible;
 use std::time::Duration;
@@ -12,7 +13,7 @@ use tokio_stream::wrappers::ReceiverStream;
 ///
 /// The caller spawns a task that sends `ChatStreamEvent` into the `tx` side.
 /// This function wraps the `rx` side into an Axum SSE response.
-pub fn chat_stream_response(
+pub fn stream_response(
     rx: mpsc::Receiver<ChatStreamEvent>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let stream = ReceiverStream::new(rx).map(|event| {
@@ -27,5 +28,42 @@ pub fn chat_stream_response(
     )
 }
 
-// Re-export for convenience
-use futures::StreamExt;
+/// Convenience: spawn an AI streaming call and return the SSE response.
+///
+/// This eliminates the channel-setup boilerplate in every streaming route.
+pub fn stream_ai_completion(
+    config: hadron_core::ai::AiConfig,
+    messages: Vec<hadron_core::ai::AiMessage>,
+    system_prompt: Option<String>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let (tx, rx) = mpsc::channel::<ChatStreamEvent>(100);
+
+    tokio::spawn(async move {
+        let result = crate::ai::stream_completion(
+            &config,
+            messages,
+            system_prompt.as_deref(),
+            tx.clone(),
+        )
+        .await;
+
+        match result {
+            Ok(_) => {
+                let _ = tx
+                    .send(ChatStreamEvent::Done {
+                        session_id: String::new(),
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let _ = tx
+                    .send(ChatStreamEvent::Error {
+                        message: e.client_message(),
+                    })
+                    .await;
+            }
+        }
+    });
+
+    stream_response(rx)
+}
