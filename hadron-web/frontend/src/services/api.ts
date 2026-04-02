@@ -259,6 +259,21 @@ export interface BulkResult {
   affected: number;
 }
 
+export interface AiConfigStatus {
+  provider: string;
+  modelOpenai: string;
+  modelAnthropic: string;
+  hasOpenaiKey: boolean;
+  hasAnthropicKey: boolean;
+}
+
+export interface AiConfigTestResult {
+  success: boolean;
+  provider?: string;
+  model?: string;
+  error?: string;
+}
+
 // ============================================================================
 // HTTP helpers
 // ============================================================================
@@ -701,6 +716,26 @@ class ApiClient {
     if (options?.action) params.set("action", options.action);
     const qs = params.toString();
     return this.request("GET", `/admin/audit-log${qs ? `?${qs}` : ""}`);
+  }
+
+  // === AI Config (Admin) ===
+
+  async getAiConfigStatus(): Promise<AiConfigStatus> {
+    return this.request("GET", "/admin/ai-config");
+  }
+
+  async updateAiConfig(config: {
+    provider?: string;
+    modelOpenai?: string;
+    modelAnthropic?: string;
+    apiKeyOpenai?: string;
+    apiKeyAnthropic?: string;
+  }): Promise<void> {
+    return this.request("PUT", "/admin/ai-config", config);
+  }
+
+  async testAiConfig(): Promise<AiConfigTestResult> {
+    return this.request("POST", "/admin/ai-config/test");
   }
 
   // === Tags ===
