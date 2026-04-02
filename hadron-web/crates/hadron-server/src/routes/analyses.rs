@@ -179,7 +179,7 @@ async fn run_analysis_with_config(
     content: &str,
     filename: &str,
     ai_config: &AiConfig,
-    analysis_mode: Option<&str>,
+    _analysis_mode: Option<&str>,
 ) -> Result<AnalysisResponse, AppError> {
     let start = Instant::now();
 
@@ -206,10 +206,8 @@ async fn run_analysis_with_config(
         "Analyze this crash log:\n\n{ai_content}"
     );
 
-    let system_prompt = match analysis_mode {
-        Some("code_review") => ai::CODE_ANALYSIS_PROMPT,
-        _ => ai::CRASH_ANALYSIS_PROMPT,
-    };
+    // Code review analyses now use a dedicated route; crash analysis is the default here.
+    let system_prompt = ai::CRASH_ANALYSIS_PROMPT;
 
     let ai_response = ai::complete(
         ai_config,
