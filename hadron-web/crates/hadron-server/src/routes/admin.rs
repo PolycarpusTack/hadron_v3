@@ -180,3 +180,145 @@ pub async fn export_training_data(
         jsonl,
     ))
 }
+
+// ============================================================================
+// AI Configuration (Admin)
+// ============================================================================
+
+/// Response for GET /api/admin/ai-config — never returns actual API keys.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiConfigStatusResponse {
+    pub provider: String,
+    pub model_openai: String,
+    pub model_anthropic: String,
+    pub has_openai_key: bool,
+    pub has_anthropic_key: bool,
+}
+
+pub async fn get_ai_config(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+
+    let provider = db::get_global_setting(&state.db, "ai_provider")
+        .await?
+        .unwrap_or_else(|| "openai".to_string());
+    let model_openai = db::get_global_setting(&state.db, "ai_model_openai")
+        .await?
+        .unwrap_or_else(|| "gpt-4o".to_string());
+    let model_anthropic = db::get_global_setting(&state.db, "ai_model_anthropic")
+        .await?
+        .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+
+    let openai_key = db::get_global_setting(&state.db, "ai_api_key_openai")
+        .await?
+        .unwrap_or_default();
+    let anthropic_key = db::get_global_setting(&state.db, "ai_api_key_anthropic")
+        .await?
+        .unwrap_or_default();
+
+    Ok(Json(AiConfigStatusResponse {
+        provider,
+        model_openai,
+        model_anthropic,
+        has_openai_key: !openai_key.is_empty(),
+        has_anthropic_key: !anthropic_key.is_empty(),
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAiConfigRequest {
+    pub provider: Option<String>,
+    pub model_openai: Option<String>,
+    pub model_anthropic: Option<String>,
+    pub api_key_openai: Option<String>,
+    pub api_key_anthropic: Option<String>,
+}
+
+pub async fn update_ai_config(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateAiConfigRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+
+    if let Some(ref provider) = req.provider {
+        if provider != "openai" && provider != "anthropic" {
+            return Err(AppError(hadron_core::error::HadronError::validation(
+                "provider must be 'openai' or 'anthropic'",
+            )));
+        }
+        db::set_global_setting(&state.db, "ai_provider", provider, user.user.id).await?;
+    }
+
+    if let Some(ref model) = req.model_openai {
+        db::set_global_setting(&state.db, "ai_model_openai", model, user.user.id).await?;
+    }
+
+    if let Some(ref model) = req.model_anthropic {
+        db::set_global_setting(&state.db, "ai_model_anthropic", model, user.user.id).await?;
+    }
+
+    if let Some(ref key) = req.api_key_openai {
+        let encrypted = crate::crypto::encrypt_value(key)?;
+        db::set_global_setting(&state.db, "ai_api_key_openai", &encrypted, user.user.id).await?;
+    }
+
+    if let Some(ref key) = req.api_key_anthropic {
+        let encrypted = crate::crypto::encrypt_value(key)?;
+        db::set_global_setting(&state.db, "ai_api_key_anthropic", &encrypted, user.user.id).await?;
+    }
+
+    // Audit log
+    let _ = db::write_audit_log(
+        &state.db,
+        user.user.id,
+        "admin.ai_config_updated",
+        "global_settings",
+        None,
+        &serde_json::json!({
+            "provider_changed": req.provider.is_some(),
+            "openai_key_changed": req.api_key_openai.is_some(),
+            "anthropic_key_changed": req.api_key_anthropic.is_some(),
+        }),
+        None,
+    )
+    .await;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn test_ai_config(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+
+    let config = db::get_server_ai_config(&state.db).await?;
+    let config = config.ok_or_else(|| {
+        AppError(hadron_core::error::HadronError::validation(
+            "No AI API key configured. Save a key first.",
+        ))
+    })?;
+
+    // Send a minimal completion to test the key
+    let test_messages = vec![crate::ai::AiMessage {
+        role: "user".to_string(),
+        content: "Reply with exactly: OK".to_string(),
+    }];
+
+    match crate::ai::complete(&config, test_messages, None).await {
+        Ok(_) => Ok(Json(serde_json::json!({
+            "success": true,
+            "provider": format!("{:?}", config.provider),
+            "model": config.model,
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
+            "success": false,
+            "error": e.client_message(),
+        }))),
+    }
+}

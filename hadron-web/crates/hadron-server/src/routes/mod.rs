@@ -130,6 +130,10 @@ pub fn api_router() -> Router<AppState> {
         .route("/admin/users/{id}/role", put(admin::admin_update_role))
         .route("/admin/analyses", get(admin::admin_all_analyses))
         .route("/admin/audit-log", get(admin::admin_audit_log))
+        // Admin: AI configuration
+        .route("/admin/ai-config", get(admin::get_ai_config))
+        .route("/admin/ai-config", put(admin::update_ai_config))
+        .route("/admin/ai-config/test", post(admin::test_ai_config))
 }
 
 // ============================================================================
