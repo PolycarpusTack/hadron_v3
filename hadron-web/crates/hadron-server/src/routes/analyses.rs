@@ -16,7 +16,7 @@ use hadron_core::models::*;
 use super::AppError;
 
 /// Resolve AI config: prefer request-provided key, fall back to server-side config.
-async fn resolve_ai_config(
+pub(crate) async fn resolve_ai_config(
     pool: &sqlx::PgPool,
     api_key: Option<&str>,
     model: Option<&str>,
