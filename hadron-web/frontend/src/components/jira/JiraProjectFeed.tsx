@@ -115,6 +115,10 @@ export function JiraProjectFeed() {
   // Expanded rows
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
+  // Subscriptions
+  const [subscriptions, setSubscriptions] = useState<string[]>([]);
+  const [newSubKey, setNewSubKey] = useState("");
+
   // Triage progress
   const [triageProgress, setTriageProgress] = useState<{
     current: number;
@@ -122,6 +126,14 @@ export function JiraProjectFeed() {
     currentKey: string;
   } | null>(null);
   const triageCancelledRef = useRef(false);
+
+  // ============================================================
+  // Load subscriptions on mount
+  // ============================================================
+
+  useEffect(() => {
+    api.getUserSubscriptions().then(setSubscriptions).catch(() => {});
+  }, []);
 
   // ============================================================
   // Search debounce
@@ -200,7 +212,14 @@ export function JiraProjectFeed() {
   // Filtered issues
   // ============================================================
 
-  const filteredIssues = issues.filter((issue) => {
+  const filteredBySubscription =
+    subscriptions.length > 0
+      ? issues.filter((i) =>
+          subscriptions.some((sub) => i.key.startsWith(sub + "-")),
+        )
+      : issues;
+
+  const filteredIssues = filteredBySubscription.filter((issue) => {
     // Search filter
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
@@ -349,6 +368,70 @@ export function JiraProjectFeed() {
               ) : (
                 "Load Issues"
               )}
+            </button>
+          </div>
+        </div>
+
+        {/* Subscription management */}
+        <div className="mt-4 space-y-2">
+          <span className="text-xs font-medium text-slate-400">Your Subscriptions</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {subscriptions.map((sub) => (
+              <span
+                key={sub}
+                className="inline-flex items-center gap-1 bg-indigo-500/20 text-indigo-400 rounded-md px-2 py-0.5 text-xs"
+              >
+                {sub}
+                <button
+                  onClick={() => {
+                    const updated = subscriptions.filter((k) => k !== sub);
+                    api.setUserSubscriptions(updated).catch(() => {});
+                    setSubscriptions(updated);
+                  }}
+                  className="ml-0.5 hover:text-indigo-200 transition-colors"
+                  aria-label={`Remove ${sub}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {subscriptions.length === 0 && (
+              <span className="text-xs text-slate-600">No subscriptions — all projects shown</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={newSubKey}
+              onChange={(e) => setNewSubKey(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const key = newSubKey.trim().toUpperCase();
+                  if (key && !subscriptions.includes(key)) {
+                    const updated = [...subscriptions, key];
+                    api.setUserSubscriptions(updated).catch(() => {});
+                    setSubscriptions(updated);
+                  }
+                  setNewSubKey("");
+                }
+              }}
+              placeholder="PROJECT KEY"
+              className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1 font-mono text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none w-32"
+            />
+            <button
+              onClick={() => {
+                const key = newSubKey.trim().toUpperCase();
+                if (key && !subscriptions.includes(key)) {
+                  const updated = [...subscriptions, key];
+                  api.setUserSubscriptions(updated).catch(() => {});
+                  setSubscriptions(updated);
+                }
+                setNewSubKey("");
+              }}
+              disabled={!newSubKey.trim()}
+              className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Add
             </button>
           </div>
         </div>
