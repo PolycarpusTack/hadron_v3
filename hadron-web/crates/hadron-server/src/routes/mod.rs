@@ -12,6 +12,7 @@ mod feedback;
 mod gold;
 mod integrations;
 mod jira_analysis;
+mod jira_poller;
 mod notes;
 mod patterns;
 mod release_notes;
@@ -155,6 +156,14 @@ pub fn api_router() -> Router<AppState> {
         .route("/admin/ai-config", get(admin::get_ai_config))
         .route("/admin/ai-config", put(admin::update_ai_config))
         .route("/admin/ai-config/test", post(admin::test_ai_config))
+        // Admin: JIRA Poller
+        .route("/admin/jira-poller", get(jira_poller::get_poller_config))
+        .route("/admin/jira-poller", put(jira_poller::update_poller_config))
+        .route("/admin/jira-poller/start", post(jira_poller::start_poller))
+        .route("/admin/jira-poller/stop", post(jira_poller::stop_poller))
+        // User: JIRA Subscriptions
+        .route("/jira/subscriptions", get(jira_poller::get_subscriptions))
+        .route("/jira/subscriptions", put(jira_poller::set_subscriptions))
 }
 
 // ============================================================================
