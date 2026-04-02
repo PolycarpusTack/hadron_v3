@@ -208,7 +208,7 @@ async fn run_analysis_with_config(
 
     let system_prompt = match analysis_mode {
         Some("code_review") => ai::CODE_ANALYSIS_PROMPT,
-        _ => ai::ANALYSIS_SYSTEM_PROMPT,
+        _ => ai::CRASH_ANALYSIS_PROMPT,
     };
 
     let ai_response = ai::complete(

@@ -1,8 +1,15 @@
-//! AI service abstraction for analysis and chat.
+//! AI service — HTTP transport for OpenAI and Anthropic APIs.
 //!
-//! Supports OpenAI and Anthropic providers with streaming token delivery.
+//! Types and prompts come from hadron_core::ai. This module handles
+//! the actual HTTP calls (reqwest) and SSE stream parsing.
 
 pub mod tools;
+
+// Re-export core types so existing `use crate::ai::*` imports keep working
+pub use hadron_core::ai::{AiConfig, AiMessage, AiProvider};
+pub use hadron_core::ai::prompts::{
+    CRASH_ANALYSIS_PROMPT, CHAT_SYSTEM_PROMPT, CODE_ANALYSIS_PROMPT,
+};
 
 use hadron_core::error::{HadronError, HadronResult};
 use hadron_core::models::ChatStreamEvent;
@@ -10,41 +17,11 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-/// AI provider configuration.
-#[derive(Debug, Clone)]
-pub struct AiConfig {
-    pub provider: AiProvider,
-    pub api_key: String,
-    pub model: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AiProvider {
-    OpenAi,
-    Anthropic,
-}
-
-impl AiProvider {
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "anthropic" | "claude" => AiProvider::Anthropic,
-            _ => AiProvider::OpenAi,
-        }
+fn api_url(provider: AiProvider) -> &'static str {
+    match provider {
+        AiProvider::OpenAi => "https://api.openai.com/v1/chat/completions",
+        AiProvider::Anthropic => "https://api.anthropic.com/v1/messages",
     }
-
-    fn api_url(&self) -> &'static str {
-        match self {
-            AiProvider::OpenAi => "https://api.openai.com/v1/chat/completions",
-            AiProvider::Anthropic => "https://api.anthropic.com/v1/messages",
-        }
-    }
-}
-
-/// Message for AI API calls.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AiMessage {
-    pub role: String,
-    pub content: String,
 }
 
 /// Non-streaming AI completion.
@@ -151,7 +128,7 @@ async fn complete_openai(
     };
 
     let resp = client
-        .post(AiProvider::OpenAi.api_url())
+        .post(api_url(AiProvider::OpenAi))
         .bearer_auth(&config.api_key)
         .json(&body)
         .send()
@@ -202,7 +179,7 @@ async fn stream_openai(
     };
 
     let resp = client
-        .post(AiProvider::OpenAi.api_url())
+        .post(api_url(AiProvider::OpenAi))
         .bearer_auth(&config.api_key)
         .json(&body)
         .send()
@@ -310,7 +287,7 @@ async fn complete_anthropic(
     };
 
     let resp = client
-        .post(AiProvider::Anthropic.api_url())
+        .post(api_url(AiProvider::Anthropic))
         .header("x-api-key", &config.api_key)
         .header("anthropic-version", "2023-06-01")
         .json(&body)
@@ -353,7 +330,7 @@ async fn stream_anthropic(
     };
 
     let resp = client
-        .post(AiProvider::Anthropic.api_url())
+        .post(api_url(AiProvider::Anthropic))
         .header("x-api-key", &config.api_key)
         .header("anthropic-version", "2023-06-01")
         .json(&body)
@@ -406,59 +383,3 @@ async fn stream_anthropic(
 
     Ok(full_content)
 }
-
-/// System prompt for crash analysis.
-pub const ANALYSIS_SYSTEM_PROMPT: &str = r#"You are Hadron, an expert crash log analyzer for the WHATS'ON / MediaGeniX broadcast management system.
-
-Analyze the provided crash log and return a JSON response with this exact structure:
-{
-  "error_type": "The exception/error class name",
-  "error_message": "Brief description of the error",
-  "severity": "CRITICAL|HIGH|MEDIUM|LOW",
-  "component": "The affected module (PSI, BM, PL, WOn, EX, or null)",
-  "root_cause": "Technical explanation of why the crash occurred",
-  "suggested_fixes": ["Fix 1", "Fix 2", "Fix 3"],
-  "confidence": "HIGH|MEDIUM|LOW"
-}
-
-Focus on:
-1. Identifying the exact exception type and where it originated
-2. Tracing the call chain from the error back to application code
-3. Distinguishing application bugs from framework/environmental issues
-4. Providing actionable, specific fix suggestions
-
-Return ONLY valid JSON, no markdown formatting."#;
-
-/// System prompt for code review / analysis mode.
-pub const CODE_ANALYSIS_PROMPT: &str = r#"You are Hadron, an expert code reviewer for the WHATS'ON / MediaGeniX broadcast management system.
-
-Analyze the provided code and return a JSON response with this exact structure:
-{
-  "error_type": "The category of code issue (e.g. 'Performance', 'Security', 'Logic Error', 'Code Smell')",
-  "error_message": "Brief summary of the main finding",
-  "severity": "CRITICAL|HIGH|MEDIUM|LOW",
-  "component": "The affected module (PSI, BM, PL, WOn, EX, or null)",
-  "root_cause": "Detailed explanation of the code quality issue",
-  "suggested_fixes": ["Fix 1", "Fix 2", "Fix 3"],
-  "confidence": "HIGH|MEDIUM|LOW"
-}
-
-Focus on:
-1. Logic errors, race conditions, and null/bounds issues
-2. Performance bottlenecks (N+1 queries, unnecessary allocations)
-3. Security concerns (injection, authorization bypasses)
-4. Adherence to project conventions and idioms
-5. Providing actionable, specific improvement suggestions
-
-Return ONLY valid JSON, no markdown formatting."#;
-
-/// System prompt for chat interactions.
-pub const CHAT_SYSTEM_PROMPT: &str = r#"You are Hadron, an AI assistant specialized in crash analysis and support for the WHATS'ON / MediaGeniX broadcast management system.
-
-You help users understand crash logs, debug issues, and find solutions. You have deep knowledge of:
-- WHATS'ON architecture (PSI, BM, PL, WOn, EX modules)
-- Common crash patterns and their resolutions
-- Database issues (Oracle, PostgreSQL)
-- Smalltalk/VisualWorks runtime errors
-
-Be concise, technical, and actionable. Reference specific modules and methods when relevant."#;
