@@ -334,6 +334,59 @@ export interface GlossaryTerm {
 }
 
 // ============================================================================
+// JIRA Deep Analysis Types
+// ============================================================================
+
+export interface JiraTicketDetail {
+  key: string;
+  summary: string;
+  description: string;
+  issueType: string;
+  priority: string | null;
+  status: string;
+  components: string[];
+  labels: string[];
+  comments: string[];
+  url: string;
+}
+
+export interface JiraDeepResult {
+  plain_summary: string;
+  quality: {
+    score: number;
+    verdict: string;
+    strengths: string[];
+    gaps: string[];
+  };
+  technical: {
+    root_cause: string;
+    affected_areas: string[];
+    error_type: string;
+    severity_estimate: string;
+    confidence: string;
+    confidence_rationale: string;
+  };
+  open_questions: string[];
+  recommended_actions: {
+    priority: string;
+    action: string;
+    rationale: string;
+  }[];
+  risk: {
+    user_impact: string;
+    blast_radius: string;
+    urgency: string;
+    do_nothing_risk: string;
+  };
+}
+
+export interface JiraCredentials {
+  baseUrl: string;
+  email: string;
+  apiToken: string;
+}
+
+// ============================================================================
 // HTTP helpers
 // ============================================================================
 
@@ -736,6 +789,26 @@ class ApiClient {
       baseUrl,
       email,
       apiToken,
+    });
+  }
+
+  // === JIRA Deep Analysis ===
+
+  async fetchJiraIssueDetail(
+    key: string,
+    credentials: JiraCredentials,
+  ): Promise<JiraTicketDetail> {
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/detail`, {
+      credentials,
+    });
+  }
+
+  async analyzeJiraIssue(
+    key: string,
+    credentials: JiraCredentials,
+  ): Promise<JiraDeepResult> {
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/analyze`, {
+      credentials,
     });
   }
 
