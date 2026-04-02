@@ -98,13 +98,29 @@ pub async fn chat_send(
     // Create SSE channel
     let (tx, rx) = mpsc::channel::<ChatStreamEvent>(100);
 
-    // Build AI config
-    let ai_config = AiConfig {
-        provider: AiProvider::from_str(
-            req.provider.as_deref().unwrap_or("openai"),
-        ),
-        api_key: req.api_key.clone(),
-        model: req.model.unwrap_or_else(|| "gpt-4o".to_string()),
+    // Build AI config — prefer request key, fall back to server-side config
+    let ai_config = if let Some(ref key) = req.api_key {
+        if !key.is_empty() {
+            AiConfig {
+                provider: AiProvider::from_str(req.provider.as_deref().unwrap_or("openai")),
+                api_key: key.clone(),
+                model: req.model.unwrap_or_else(|| "gpt-4o".to_string()),
+            }
+        } else {
+            db::get_server_ai_config(&state.db)
+                .await
+                .map_err(AppError::from)?
+                .ok_or_else(|| AppError(HadronError::validation(
+                    "No AI configuration available. Ask an admin to configure API keys, or provide your own.",
+                )))?
+        }
+    } else {
+        db::get_server_ai_config(&state.db)
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError(HadronError::validation(
+                "No AI configuration available. Ask an admin to configure API keys, or provide your own.",
+            )))?
     };
 
     // Convert messages
