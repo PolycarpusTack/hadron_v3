@@ -387,6 +387,40 @@ export interface JiraCredentials {
 }
 
 // ============================================================================
+// JIRA Triage & Brief Types
+// ============================================================================
+
+export interface JiraTriageResult {
+  severity: string;
+  category: string;
+  customer_impact: string;
+  tags: string[];
+  confidence: string;
+  rationale: string;
+}
+
+export interface JiraBriefResult {
+  triage: JiraTriageResult;
+  analysis: JiraDeepResult;
+}
+
+export interface TicketBriefRow {
+  jiraKey: string;
+  title: string;
+  severity: string | null;
+  category: string | null;
+  tags: string | null;
+  triageJson: string | null;
+  briefJson: string | null;
+  postedToJira: boolean;
+  postedAt: string | null;
+  engineerRating: number | null;
+  engineerNotes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================================
 // HTTP helpers
 // ============================================================================
 
@@ -810,6 +844,44 @@ class ApiClient {
     return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/analyze`, {
       credentials,
     });
+  }
+
+  // === JIRA Triage & Brief ===
+
+  async triageJiraIssue(
+    key: string,
+    credentials: JiraCredentials,
+  ): Promise<JiraTriageResult> {
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/triage`, {
+      credentials,
+    });
+  }
+
+  async generateJiraBrief(
+    key: string,
+    credentials: JiraCredentials,
+  ): Promise<JiraBriefResult> {
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/brief`, {
+      credentials,
+    });
+  }
+
+  async getTicketBrief(key: string): Promise<TicketBriefRow | null> {
+    try {
+      return await this.request("GET", `/jira/briefs/${encodeURIComponent(key)}`);
+    } catch (e) {
+      if (e instanceof HadronApiError && e.isNotFound) return null;
+      throw e;
+    }
+  }
+
+  async getTicketBriefsBatch(keys: string[]): Promise<TicketBriefRow[]> {
+    if (keys.length === 0) return [];
+    return this.request("POST", "/jira/briefs/batch", { jiraKeys: keys });
+  }
+
+  async deleteTicketBrief(key: string): Promise<void> {
+    return this.request("DELETE", `/jira/briefs/${encodeURIComponent(key)}`);
   }
 
   // === Admin ===

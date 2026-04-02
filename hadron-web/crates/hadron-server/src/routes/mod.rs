@@ -118,6 +118,14 @@ pub fn api_router() -> Router<AppState> {
         .route("/jira/issues/{key}/detail", post(jira_analysis::fetch_issue))
         .route("/jira/issues/{key}/analyze", post(jira_analysis::analyze_issue))
         .route("/jira/issues/{key}/analyze/stream", post(jira_analysis::analyze_issue_stream))
+        // JIRA Triage & Brief
+        .route("/jira/issues/{key}/triage", post(jira_analysis::triage_issue))
+        .route("/jira/issues/{key}/brief", post(jira_analysis::generate_brief))
+        .route("/jira/issues/{key}/brief/stream", post(jira_analysis::generate_brief_stream))
+        // JIRA Briefs CRUD
+        .route("/jira/briefs/{key}", get(jira_analysis::get_brief))
+        .route("/jira/briefs/{key}", delete(jira_analysis::delete_brief))
+        .route("/jira/briefs/batch", post(jira_analysis::get_briefs_batch))
         // Sentry integration
         .route("/sentry/test", post(integrations::sentry_test))
         .route("/sentry/projects", get(integrations::sentry_projects))
