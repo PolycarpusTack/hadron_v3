@@ -17,6 +17,7 @@ mod integrations;
 mod middleware;
 mod routes;
 mod sse;
+mod crypto;
 
 #[cfg(test)]
 mod test_helpers;

@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod ai_response;
 pub mod analysis;
 pub mod error;

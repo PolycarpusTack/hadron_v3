@@ -15,6 +15,31 @@ use hadron_core::models::*;
 
 use super::AppError;
 
+/// Resolve AI config: prefer request-provided key, fall back to server-side config.
+async fn resolve_ai_config(
+    pool: &sqlx::PgPool,
+    api_key: Option<&str>,
+    model: Option<&str>,
+    provider: Option<&str>,
+) -> Result<crate::ai::AiConfig, AppError> {
+    if let Some(key) = api_key {
+        if !key.is_empty() {
+            return Ok(crate::ai::AiConfig {
+                provider: AiProvider::from_str(provider.unwrap_or("openai")),
+                api_key: key.to_string(),
+                model: model.unwrap_or("gpt-4o").to_string(),
+            });
+        }
+    }
+    crate::db::get_server_ai_config(pool)
+        .await?
+        .ok_or_else(|| {
+            AppError(hadron_core::error::HadronError::validation(
+                "No AI configuration available. Ask an admin to configure API keys, or provide your own.",
+            ))
+        })
+}
+
 pub async fn list_analyses(
     user: AuthenticatedUser,
     State(state): State<AppState>,
@@ -107,15 +132,19 @@ pub async fn upload_and_analyze(
 
     let content = file_content
         .ok_or_else(|| AppError(hadron_core::error::HadronError::validation("No file uploaded")))?;
-    let api_key = api_key
-        .ok_or_else(|| AppError(hadron_core::error::HadronError::validation("api_key required")))?;
 
     let filename = filename.unwrap_or_else(|| "uploaded_file.txt".to_string());
     let model = model.unwrap_or_else(|| "gpt-4o".to_string());
     let provider_str = provider.unwrap_or_else(|| "openai".to_string());
 
+    let ai_config = resolve_ai_config(
+        &state.db,
+        api_key.as_deref(),
+        Some(&model),
+        Some(&provider_str),
+    ).await?;
     let result =
-        run_analysis(&state, &user, &content, &filename, &api_key, &model, &provider_str, None).await?;
+        run_analysis_with_config(&state, &user, &content, &filename, &ai_config, None).await?;
 
     Ok((StatusCode::CREATED, Json(result)))
 }
@@ -130,22 +159,26 @@ pub async fn analyze_content(
     let provider = req.provider.unwrap_or_else(|| "openai".to_string());
     let mode = req.analysis_mode.as_deref();
 
+    let ai_config = resolve_ai_config(
+        &state.db,
+        req.api_key.as_deref(),
+        Some(&req.model),
+        Some(&provider),
+    ).await?;
     let result =
-        run_analysis(&state, &user, &req.content, &filename, &req.api_key, &req.model, &provider, mode)
+        run_analysis_with_config(&state, &user, &req.content, &filename, &ai_config, mode)
             .await?;
 
     Ok((StatusCode::CREATED, Json(result)))
 }
 
 /// Shared analysis logic for both upload and paste paths.
-async fn run_analysis(
+async fn run_analysis_with_config(
     state: &AppState,
     user: &AuthenticatedUser,
     content: &str,
     filename: &str,
-    api_key: &str,
-    model: &str,
-    provider: &str,
+    ai_config: &AiConfig,
     analysis_mode: Option<&str>,
 ) -> Result<AnalysisResponse, AppError> {
     let start = Instant::now();
@@ -169,24 +202,17 @@ async fn run_analysis(
         }
     };
 
-    // Call AI
-    let ai_config = AiConfig {
-        provider: AiProvider::from_str(provider),
-        api_key: api_key.to_string(),
-        model: model.to_string(),
-    };
-
     let prompt = format!(
         "Analyze this crash log:\n\n{ai_content}"
     );
 
     let system_prompt = match analysis_mode {
         Some("code_review") => ai::CODE_ANALYSIS_PROMPT,
-        _ => ai::ANALYSIS_SYSTEM_PROMPT,
+        _ => ai::CRASH_ANALYSIS_PROMPT,
     };
 
     let ai_response = ai::complete(
-        &ai_config,
+        ai_config,
         vec![AiMessage {
             role: "user".to_string(),
             content: prompt,
@@ -249,14 +275,14 @@ async fn run_analysis(
         "analysis.create",
         "analysis",
         Some(&id.to_string()),
-        &serde_json::json!({ "filename": filename, "model": model, "provider": provider }),
+        &serde_json::json!({ "filename": filename, "model": &ai_config.model, "provider": format!("{:?}", ai_config.provider) }),
         None,
     )
     .await;
 
     // Fire-and-forget: generate embedding in background
     let pool_clone = state.db.clone();
-    let api_key_clone = api_key.to_string();
+    let api_key_clone = ai_config.api_key.clone();
     let response_clone = response.clone();
     let final_id = id;
     tokio::spawn(async move {

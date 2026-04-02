@@ -48,3 +48,10 @@ dotenvy = "0.15"
 
 # Pattern matching
 regex = "1"
+
+# Encoding
+hex = { workspace = true }
+
+# Encryption
+aes-gcm = "0.10"
+rand = "0.8"

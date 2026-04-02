@@ -5,8 +5,9 @@ import { AuditLogView } from "./AuditLogView";
 import { TagManager } from "../tags/TagManager";
 import { GoldManagement } from "../gold/GoldManagement";
 import { PatternManager } from "./PatternManager";
+import { AiConfigPanel } from "./AiConfigPanel";
 
-type AdminTab = "users" | "audit" | "tags" | "gold" | "patterns" | "training";
+type AdminTab = "users" | "ai-config" | "audit" | "tags" | "gold" | "patterns" | "training";
 
 export function AdminPanel() {
   const toast = useToast();
@@ -59,6 +60,7 @@ export function AdminPanel() {
 
   const tabs: { key: AdminTab; label: string }[] = [
     { key: "users", label: "Users" },
+    { key: "ai-config", label: "AI Config" },
     { key: "audit", label: "Audit Log" },
     { key: "tags", label: "Tags" },
     { key: "gold", label: "Gold Standard" },
@@ -91,6 +93,7 @@ export function AdminPanel() {
       </div>
 
       {activeTab === "audit" && <AuditLogView />}
+      {activeTab === "ai-config" && <AiConfigPanel />}
       {activeTab === "tags" && <TagManager />}
       {activeTab === "gold" && <GoldManagement />}
       {activeTab === "patterns" && <PatternManager />}
