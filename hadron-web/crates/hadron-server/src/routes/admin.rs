@@ -379,6 +379,54 @@ pub async fn update_sentry_config(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ============================================================================
+// Style Guide (Admin)
+// ============================================================================
+
+pub async fn get_style_guide(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let custom = db::get_global_setting(&state.db, "release_notes_style_guide")
+        .await?
+        .filter(|s| !s.is_empty());
+    let is_custom = custom.is_some();
+    let guide = custom.unwrap_or_else(|| hadron_core::ai::DEFAULT_STYLE_GUIDE.to_string());
+    Ok(Json(serde_json::json!({
+        "content": guide,
+        "isCustom": is_custom,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateStyleGuideRequest {
+    pub content: String,
+}
+
+pub async fn update_style_guide(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateStyleGuideRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+    db::set_global_setting(&state.db, "release_notes_style_guide", &req.content, user.user.id).await?;
+    let _ = db::write_audit_log(
+        &state.db, user.user.id, "admin.style_guide_updated",
+        "global_settings", None,
+        &serde_json::json!({"length": req.content.len()}), None,
+    ).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_style_guide(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+    db::set_global_setting(&state.db, "release_notes_style_guide", "", user.user.id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn test_ai_config(
     user: AuthenticatedUser,
     State(state): State<AppState>,
