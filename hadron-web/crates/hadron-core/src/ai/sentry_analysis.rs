@@ -856,6 +856,203 @@ fn detect_stack_overflow(
     })
 }
 
+// ============================================================================
+// Prompt, Message Builder, and Parser
+// ============================================================================
+
+pub const SENTRY_ANALYSIS_SYSTEM_PROMPT: &str = r#"You are an expert software debugger analyzing a Sentry error event.
+
+OUTPUT FORMAT: Respond ONLY with valid JSON matching this exact schema. No markdown, no prose outside JSON.
+
+{
+  "error_type": "The exception class or error category (e.g. TypeError, NullPointerException, DatabaseError)",
+  "error_message": "The primary error message text",
+  "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+  "root_cause": "Your best analysis of the root cause based on the stack frames, breadcrumbs, and context",
+  "suggested_fixes": ["Concrete fix #1", "Concrete fix #2"],
+  "component": "The top-level component or service where the error originates",
+  "confidence": "High|Medium|Low",
+  "pattern_type": "The dominant error pattern if applicable (e.g. Deadlock, N+1 Query, Memory Leak, Unhandled Promise, Race Condition, etc.) or empty string",
+  "user_impact": "Description of how end-users are affected",
+  "breadcrumb_analysis": "Summary of what the breadcrumb trail reveals about the sequence of events leading to the error",
+  "recommendations": [
+    {
+      "priority": "Immediate|Short-term|Long-term",
+      "title": "Short title for the recommendation",
+      "description": "Detailed description of what to do and why",
+      "effort": "Low|Medium|High",
+      "code_snippet": "Optional illustrative code fix or null"
+    }
+  ]
+}
+
+SEVERITY GUIDE:
+- CRITICAL: data loss, security breach, or complete service outage
+- HIGH: major feature broken or significant portion of users affected
+- MEDIUM: degraded functionality with a workaround available
+- LOW: cosmetic issue, rare edge case, or negligible user impact
+
+ANALYSIS GUIDANCE:
+- Stack frames tagged [APP] are application code — focus your root cause analysis here.
+- Stack frames tagged [LIB] are library/framework code — useful for context but rarely the root cause.
+- Read the breadcrumb trail chronologically to reconstruct the sequence of events before the crash.
+- Use the event count (Events / Users affected) to calibrate severity: high counts indicate widespread impact.
+- Use DETECTED PATTERNS (automated) as hints, but apply your own judgment — they may have false positives.
+- If the exception chain has multiple exceptions, the innermost cause is usually the true root cause.
+
+Be direct and specific. Avoid generic advice. Reference actual function names, file paths, and error messages from the provided data."#;
+
+/// Build a structured prompt from the Sentry issue, event, and detected patterns.
+pub fn build_sentry_analysis_user_prompt(
+    issue: &SentryIssueDetail,
+    event: &SentryEventDetail,
+    patterns: &[DetectedPattern],
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    // === SENTRY ISSUE ===
+    parts.push("=== SENTRY ISSUE ===".to_string());
+    parts.push(format!("ID: {}", issue.id));
+    parts.push(format!("Short ID: {}", issue.short_id));
+    parts.push(format!("Title: {}", issue.title));
+    parts.push(format!("Level: {}", issue.level));
+    parts.push(format!("Status: {}", issue.status));
+    if let Some(platform) = &issue.platform {
+        parts.push(format!("Platform: {}", platform));
+    }
+    if let Some(culprit) = &issue.culprit {
+        parts.push(format!("Culprit: {}", culprit));
+    }
+    if let Some(count) = &issue.count {
+        parts.push(format!("Events: {}", count));
+    }
+    if let Some(user_count) = &issue.user_count {
+        parts.push(format!("Users affected: {}", user_count));
+    }
+    if let Some(first_seen) = &issue.first_seen {
+        parts.push(format!("First seen: {}", first_seen));
+    }
+    if let Some(last_seen) = &issue.last_seen {
+        parts.push(format!("Last seen: {}", last_seen));
+    }
+
+    // === EXCEPTION CHAIN ===
+    if !event.exceptions.is_empty() {
+        parts.push(String::new());
+        parts.push("=== EXCEPTION CHAIN ===".to_string());
+        for (i, exc) in event.exceptions.iter().enumerate() {
+            let exc_type = exc.exception_type.as_deref().unwrap_or("(unknown)");
+            let exc_value = exc.value.as_deref().unwrap_or("(no message)");
+            let exc_module = exc.module.as_deref().unwrap_or("(unknown module)");
+            parts.push(format!("[Exception {}] {}: {} (module: {})", i + 1, exc_type, exc_value, exc_module));
+
+            if let Some(frames) = &exc.stacktrace {
+                // Show frames in reverse (innermost first)
+                for frame in frames.iter().rev() {
+                    let tag = if frame.in_app.unwrap_or(false) { "[APP]" } else { "[LIB]" };
+                    let filename = frame.filename.as_deref().unwrap_or("?");
+                    let function = frame.function.as_deref().unwrap_or("?");
+                    let line = frame.line_no.map(|n| n.to_string()).unwrap_or_else(|| "?".to_string());
+                    parts.push(format!("  {} {}:{} in {}", tag, filename, line, function));
+                    if let Some(ctx) = &frame.context_line {
+                        parts.push(format!("    > {}", ctx.trim()));
+                    }
+                }
+            }
+        }
+    }
+
+    // === BREADCRUMBS (chronological) ===
+    if !event.breadcrumbs.is_empty() {
+        parts.push(String::new());
+        parts.push("=== BREADCRUMBS (chronological) ===".to_string());
+        for crumb in &event.breadcrumbs {
+            let ts = crumb.timestamp.as_deref().unwrap_or("?");
+            let cat = crumb.category.as_deref().unwrap_or("?");
+            let lvl = crumb.level.as_deref().unwrap_or("info");
+            let msg = crumb.message.as_deref().unwrap_or("(no message)");
+            parts.push(format!("[{}] [{}] [{}] {}", ts, cat, lvl, msg));
+        }
+    }
+
+    // === TAGS ===
+    let user_tags: Vec<&SentryTag> = event
+        .tags
+        .iter()
+        .filter(|t| !t.key.starts_with("sentry:"))
+        .collect();
+    if !user_tags.is_empty() {
+        parts.push(String::new());
+        parts.push("=== TAGS ===".to_string());
+        for tag in user_tags {
+            parts.push(format!("{}: {}", tag.key, tag.value));
+        }
+    }
+
+    // === RUNTIME CONTEXT ===
+    if event.contexts.is_object() {
+        if let Some(obj) = event.contexts.as_object() {
+            if !obj.is_empty() {
+                parts.push(String::new());
+                parts.push("=== RUNTIME CONTEXT ===".to_string());
+                for (section_name, section_val) in obj {
+                    parts.push(format!("[{}]", section_name));
+                    if let Some(section_obj) = section_val.as_object() {
+                        for (k, v) in section_obj.iter().take(5) {
+                            let val_str = match v {
+                                serde_json::Value::String(s) => s.clone(),
+                                other => other.to_string(),
+                            };
+                            parts.push(format!("  {}: {}", k, val_str));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // === DETECTED PATTERNS (automated) ===
+    if !patterns.is_empty() {
+        parts.push(String::new());
+        parts.push("=== DETECTED PATTERNS (automated) ===".to_string());
+        for p in patterns {
+            let confidence_pct = (p.confidence * 100.0).round() as u32;
+            parts.push(format!("Pattern: {} ({}% confidence)", p.pattern_type, confidence_pct));
+            for ev in &p.evidence {
+                parts.push(format!("  Evidence: {}", ev));
+            }
+        }
+    }
+
+    parts.join("\n")
+}
+
+/// Build the system prompt + messages for an AI call.
+pub fn build_sentry_analysis_messages(
+    issue: &SentryIssueDetail,
+    event: &SentryEventDetail,
+    patterns: &[DetectedPattern],
+) -> (String, Vec<super::types::AiMessage>) {
+    let system = SENTRY_ANALYSIS_SYSTEM_PROMPT.to_string();
+    let user_content = build_sentry_analysis_user_prompt(issue, event, patterns);
+    let messages = vec![super::types::AiMessage {
+        role: "user".to_string(),
+        content: user_content,
+    }];
+    (system, messages)
+}
+
+/// Parse AI response into SentryAnalysisResult.
+pub fn parse_sentry_analysis(raw: &str) -> crate::error::HadronResult<SentryAnalysisResult> {
+    let json_str = super::parsers::strip_markdown_fences(raw);
+    serde_json::from_str(json_str).map_err(|e| {
+        let preview = &json_str[..json_str.len().min(300)];
+        crate::error::HadronError::Parse(format!(
+            "Failed to parse Sentry analysis: {e}. Preview: {preview}"
+        ))
+    })
+}
+
 // ── Orchestrator ─────────────────────────────────────────────────────────────
 
 /// Run all 11 pattern detectors and return matches sorted by confidence (desc).
@@ -1188,5 +1385,148 @@ mod tests {
                 window[1].confidence
             );
         }
+    }
+
+    // ── Prompt / message builder / parser tests ────────────────────────────
+
+    fn make_issue_detail(id: &str, short_id: &str, title: &str) -> SentryIssueDetail {
+        SentryIssueDetail {
+            id: id.to_string(),
+            short_id: short_id.to_string(),
+            title: title.to_string(),
+            level: "error".to_string(),
+            status: "unresolved".to_string(),
+            count: Some("150".to_string()),
+            user_count: Some(23),
+            ..Default::default()
+        }
+    }
+
+    fn make_event_with_breadcrumb_and_exception(
+        crumb_category: &str,
+        crumb_message: &str,
+        exc_type: &str,
+        exc_value: &str,
+    ) -> SentryEventDetail {
+        SentryEventDetail {
+            breadcrumbs: vec![SentryBreadcrumb {
+                timestamp: Some("2026-04-03T10:00:00Z".to_string()),
+                category: Some(crumb_category.to_string()),
+                message: Some(crumb_message.to_string()),
+                level: Some("info".to_string()),
+                ..Default::default()
+            }],
+            exceptions: vec![SentryException {
+                exception_type: Some(exc_type.to_string()),
+                value: Some(exc_value.to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_build_sentry_analysis_prompt() {
+        let issue = make_issue_detail("12345", "PROJ-42", "TypeError: undefined is not a function");
+        let event = make_event_with_breadcrumb_and_exception(
+            "http",
+            "GET /api/data",
+            "TypeError",
+            "undefined is not a function",
+        );
+        let prompt = build_sentry_analysis_user_prompt(&issue, &event, &[]);
+        assert!(prompt.contains("PROJ-42"), "Should contain short_id");
+        assert!(prompt.contains("TypeError"), "Should contain exception type");
+        assert!(prompt.contains("GET /api/data"), "Should contain breadcrumb message");
+        assert!(prompt.contains("Events: 150"), "Should contain event count");
+        assert!(prompt.contains("Users affected: 23"), "Should contain user count");
+    }
+
+    #[test]
+    fn test_build_sentry_analysis_messages() {
+        let issue = SentryIssueDetail {
+            id: "1".to_string(),
+            short_id: "T-1".to_string(),
+            title: "Simple error".to_string(),
+            ..Default::default()
+        };
+        let event = SentryEventDetail::default();
+        let (system, messages) = build_sentry_analysis_messages(&issue, &event, &[]);
+        assert!(
+            system.contains("expert software debugger"),
+            "System prompt should identify the role"
+        );
+        assert_eq!(messages.len(), 1, "Should produce exactly one user message");
+        assert_eq!(messages[0].role, "user");
+    }
+
+    #[test]
+    fn test_parse_sentry_analysis_result() {
+        let input = r#"{
+            "errorType": "NullPointerException",
+            "errorMessage": "Cannot access field on null object",
+            "severity": "HIGH",
+            "rootCause": "Uninitialized user object passed to render method",
+            "suggestedFixes": ["Add null check before access", "Use Optional wrapper"],
+            "component": "UserDashboard",
+            "confidence": "High",
+            "patternType": "",
+            "userImpact": "Dashboard fails to load for logged-in users",
+            "breadcrumbAnalysis": "User navigated to /dashboard, API call succeeded, then render crashed",
+            "recommendations": [
+                {
+                    "priority": "Immediate",
+                    "title": "Add null guard",
+                    "description": "Check user != null before calling render",
+                    "effort": "Low",
+                    "codeSnippet": "if (user == null) return;"
+                },
+                {
+                    "priority": "Short-term",
+                    "title": "Improve API contract",
+                    "description": "Ensure API never returns null user on success",
+                    "effort": "Medium",
+                    "codeSnippet": null
+                }
+            ]
+        }"#;
+        let result = parse_sentry_analysis(input).unwrap();
+        assert_eq!(result.error_type, "NullPointerException");
+        assert_eq!(result.severity, "HIGH");
+        assert_eq!(result.suggested_fixes.len(), 2);
+        assert_eq!(result.recommendations.len(), 2);
+        assert_eq!(result.recommendations[0].effort, "Low");
+    }
+
+    #[test]
+    fn test_parse_sentry_analysis_defaults() {
+        let input = r#"{"errorType": "Error"}"#;
+        let result = parse_sentry_analysis(input).unwrap();
+        assert_eq!(result.error_type, "Error");
+        assert!(result.root_cause.is_empty(), "root_cause should default to empty");
+        assert!(result.suggested_fixes.is_empty(), "suggested_fixes should default to empty");
+        assert!(result.recommendations.is_empty(), "recommendations should default to empty");
+    }
+
+    #[test]
+    fn test_parse_sentry_analysis_with_markdown_fences() {
+        let raw = "```json\n{\"errorType\": \"ValueError\"}\n```";
+        let result = parse_sentry_analysis(raw).unwrap();
+        assert_eq!(result.error_type, "ValueError");
+    }
+
+    #[test]
+    fn test_prompt_includes_patterns() {
+        let issue = make_issue_detail("99", "DB-1", "deadlock in database");
+        let event = SentryEventDetail::default();
+        let patterns = vec![DetectedPattern {
+            pattern_type: PatternType::Deadlock,
+            confidence: 0.9,
+            evidence: vec!["Keyword match: \"deadlock\"".to_string()],
+        }];
+        let prompt = build_sentry_analysis_user_prompt(&issue, &event, &patterns);
+        assert!(prompt.contains("DETECTED PATTERNS"), "Should include patterns section header");
+        assert!(prompt.contains("Deadlock"), "Should include pattern name");
+        assert!(prompt.contains("90%"), "Should include confidence percentage");
     }
 }
