@@ -17,6 +17,7 @@ mod notes;
 mod sentry_analysis;
 mod patterns;
 mod release_notes;
+mod release_notes_gen;
 mod signatures;
 mod tags;
 
@@ -109,6 +110,10 @@ pub fn api_router() -> Router<AppState> {
         .route("/release-notes/{id}", put(release_notes::update_release_note))
         .route("/release-notes/{id}", delete(release_notes::delete_release_note))
         .route("/release-notes/{id}/publish", post(release_notes::publish_release_note))
+        // Release notes AI generation pipeline
+        .route("/release-notes/preview-tickets", post(release_notes_gen::preview_tickets))
+        .route("/release-notes/generate/stream", post(release_notes_gen::generate_stream))
+        .route("/release-notes/generate", post(release_notes_gen::generate))
         // OpenSearch integration
         .route("/search/opensearch", post(integrations::opensearch_search))
         .route("/search/opensearch/test", post(integrations::opensearch_test))

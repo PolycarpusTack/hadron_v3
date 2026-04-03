@@ -548,6 +548,127 @@ pub fn format_brief_as_jira_markup(
     lines.join("\n")
 }
 
+/// Search JIRA issues for release notes generation, returning typed `ReleaseNoteTicket` values.
+///
+/// Requests extra fields (description, components, labels) and paginates up to 500 tickets.
+pub async fn search_issues_for_release_notes(
+    config: &JiraConfig,
+    jql: &str,
+) -> HadronResult<Vec<hadron_core::ai::ReleaseNoteTicket>> {
+    let client = build_client()?;
+    let max_per_page: u32 = 50;
+    let cap: u32 = 500;
+    let mut start_at: u32 = 0;
+    let mut all_tickets: Vec<hadron_core::ai::ReleaseNoteTicket> = Vec::new();
+
+    let url = format!(
+        "{}/rest/api/3/search/jql",
+        config.base_url.trim_end_matches('/')
+    );
+
+    loop {
+        let resp = client
+            .post(&url)
+            .basic_auth(&config.email, Some(&config.api_token))
+            .json(&serde_json::json!({
+                "jql": jql,
+                "startAt": start_at,
+                "maxResults": max_per_page,
+                "fields": [
+                    "summary",
+                    "status",
+                    "priority",
+                    "issuetype",
+                    "description",
+                    "components",
+                    "labels"
+                ]
+            }))
+            .send()
+            .await
+            .map_err(|e| HadronError::external_service(format!("Jira search failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(HadronError::external_service(format!(
+                "Jira returned {status}: {body}"
+            )));
+        }
+
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| HadronError::external_service(format!("Failed to parse response: {e}")))?;
+
+        let total = data["total"].as_u64().unwrap_or(0) as u32;
+        let issues = data["issues"].as_array().cloned().unwrap_or_default();
+
+        if issues.is_empty() {
+            break;
+        }
+
+        for issue in &issues {
+            let fields = &issue["fields"];
+            let key = issue["key"].as_str().unwrap_or("").to_string();
+
+            let description = {
+                let raw = &fields["description"];
+                if raw.is_null() {
+                    None
+                } else {
+                    let text = extract_adf_text(raw);
+                    if text.is_empty() { None } else { Some(text) }
+                }
+            };
+
+            let components: Vec<String> = fields["components"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|c| c["name"].as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let labels: Vec<String> = fields["labels"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|l| l.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            all_tickets.push(hadron_core::ai::ReleaseNoteTicket {
+                key,
+                summary: fields["summary"].as_str().unwrap_or("").to_string(),
+                description,
+                issue_type: fields["issuetype"]["name"]
+                    .as_str()
+                    .unwrap_or("Bug")
+                    .to_string(),
+                priority: fields["priority"]["name"]
+                    .as_str()
+                    .unwrap_or("Medium")
+                    .to_string(),
+                status: fields["status"]["name"].as_str().unwrap_or("").to_string(),
+                components,
+                labels,
+                ..Default::default()
+            });
+        }
+
+        start_at += issues.len() as u32;
+
+        if start_at >= total || start_at >= cap {
+            break;
+        }
+    }
+
+    Ok(all_tickets)
+}
+
 fn extract_adf_content(content: &serde_json::Value) -> String {
     let mut parts = Vec::new();
     if let Some(arr) = content.as_array() {
