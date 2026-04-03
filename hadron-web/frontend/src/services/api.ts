@@ -111,6 +111,7 @@ export interface ReleaseNote {
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;
+  aiInsights: AiInsights | null;
 }
 
 export interface SimilarAnalysis {

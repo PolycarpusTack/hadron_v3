@@ -480,7 +480,7 @@ pub async fn create_release_note(
     let row: ReleaseNoteRow = sqlx::query_as(
         "INSERT INTO release_notes (user_id, title, version, content, format)
          VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at",
+         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights",
     )
     .bind(user_id)
     .bind(title)
@@ -509,7 +509,7 @@ pub async fn get_release_notes(
     .map_err(|e| HadronError::database(e.to_string()))?;
 
     let rows: Vec<ReleaseNoteRow> = sqlx::query_as(
-        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at
+        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights
          FROM release_notes
          WHERE user_id = $1
          ORDER BY created_at DESC
@@ -531,7 +531,7 @@ pub async fn get_release_note(
     user_id: Uuid,
 ) -> HadronResult<ReleaseNote> {
     let row: ReleaseNoteRow = sqlx::query_as(
-        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at
+        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights
          FROM release_notes
          WHERE id = $1 AND user_id = $2",
     )
@@ -565,7 +565,7 @@ pub async fn update_release_note(
              content = COALESCE($5, content),
              format = COALESCE($6, format)
          WHERE id = $1 AND user_id = $2
-         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at",
+         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights",
     )
     .bind(id)
     .bind(user_id)
@@ -610,7 +610,7 @@ pub async fn publish_release_note(
         "UPDATE release_notes
          SET is_published = TRUE
          WHERE id = $1 AND user_id = $2
-         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at",
+         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights",
     )
     .bind(id)
     .bind(user_id)
@@ -1017,6 +1017,7 @@ pub struct ReleaseNote {
     pub is_published: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub ai_insights: Option<serde_json::Value>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1030,6 +1031,7 @@ struct ReleaseNoteRow {
     is_published: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    ai_insights: Option<serde_json::Value>,
 }
 
 impl From<ReleaseNoteRow> for ReleaseNote {
@@ -1044,6 +1046,7 @@ impl From<ReleaseNoteRow> for ReleaseNote {
             is_published: r.is_published,
             created_at: r.created_at,
             updated_at: r.updated_at,
+            ai_insights: r.ai_insights,
         }
     }
 }
