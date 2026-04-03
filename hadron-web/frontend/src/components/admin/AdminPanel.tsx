@@ -8,8 +8,9 @@ import { PatternManager } from "./PatternManager";
 import { AiConfigPanel } from "./AiConfigPanel";
 import { JiraPollerPanel } from "./JiraPollerPanel";
 import { SentryConfigPanel } from "./SentryConfigPanel";
+import { StyleGuidePanel } from "./StyleGuidePanel";
 
-type AdminTab = "users" | "ai-config" | "audit" | "tags" | "gold" | "patterns" | "training" | "jira-poller" | "sentry";
+type AdminTab = "users" | "ai-config" | "audit" | "tags" | "gold" | "patterns" | "training" | "jira-poller" | "sentry" | "style-guide";
 
 export function AdminPanel() {
   const toast = useToast();
@@ -70,6 +71,7 @@ export function AdminPanel() {
     { key: "training", label: "Training Data" },
     { key: "jira-poller", label: "JIRA Poller" },
     { key: "sentry", label: "Sentry" },
+    { key: "style-guide", label: "Style Guide" },
   ];
 
   if (loading) {
@@ -103,6 +105,7 @@ export function AdminPanel() {
       {activeTab === "patterns" && <PatternManager />}
       {activeTab === "jira-poller" && <JiraPollerPanel />}
       {activeTab === "sentry" && <SentryConfigPanel />}
+      {activeTab === "style-guide" && <StyleGuidePanel />}
 
       {activeTab === "training" && (
         <div className="rounded-lg border border-slate-700 bg-slate-800 p-6 text-center">

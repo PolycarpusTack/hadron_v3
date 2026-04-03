@@ -480,7 +480,7 @@ pub async fn create_release_note(
     let row: ReleaseNoteRow = sqlx::query_as(
         "INSERT INTO release_notes (user_id, title, version, content, format)
          VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at",
+         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights",
     )
     .bind(user_id)
     .bind(title)
@@ -509,7 +509,7 @@ pub async fn get_release_notes(
     .map_err(|e| HadronError::database(e.to_string()))?;
 
     let rows: Vec<ReleaseNoteRow> = sqlx::query_as(
-        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at
+        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights
          FROM release_notes
          WHERE user_id = $1
          ORDER BY created_at DESC
@@ -531,7 +531,7 @@ pub async fn get_release_note(
     user_id: Uuid,
 ) -> HadronResult<ReleaseNote> {
     let row: ReleaseNoteRow = sqlx::query_as(
-        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at
+        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights
          FROM release_notes
          WHERE id = $1 AND user_id = $2",
     )
@@ -565,7 +565,7 @@ pub async fn update_release_note(
              content = COALESCE($5, content),
              format = COALESCE($6, format)
          WHERE id = $1 AND user_id = $2
-         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at",
+         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights",
     )
     .bind(id)
     .bind(user_id)
@@ -610,7 +610,7 @@ pub async fn publish_release_note(
         "UPDATE release_notes
          SET is_published = TRUE
          WHERE id = $1 AND user_id = $2
-         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at",
+         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights",
     )
     .bind(id)
     .bind(user_id)
@@ -1017,6 +1017,7 @@ pub struct ReleaseNote {
     pub is_published: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub ai_insights: Option<serde_json::Value>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1030,6 +1031,7 @@ struct ReleaseNoteRow {
     is_published: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    ai_insights: Option<serde_json::Value>,
 }
 
 impl From<ReleaseNoteRow> for ReleaseNote {
@@ -1044,6 +1046,7 @@ impl From<ReleaseNoteRow> for ReleaseNote {
             is_published: r.is_published,
             created_at: r.created_at,
             updated_at: r.updated_at,
+            ai_insights: r.ai_insights,
         }
     }
 }
@@ -3030,6 +3033,103 @@ pub async fn insert_sentry_analysis(
     .bind(confidence)
     .bind(component)
     .bind(full_data)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(row.0)
+}
+
+// ============================================================================
+// JIRA Config Helper
+// ============================================================================
+
+/// Load JIRA config from the poller_config table, decrypting the API token.
+///
+/// Returns a `JiraConfig` with an empty `project_key` (caller should set it).
+/// Returns `HadronError::Validation` if JIRA has not been configured.
+pub async fn get_jira_config_from_poller(
+    pool: &PgPool,
+) -> HadronResult<crate::integrations::jira::JiraConfig> {
+    let poller = get_poller_config(pool).await?;
+    if poller.jira_base_url.is_empty() || poller.jira_email.is_empty() || poller.jira_api_token.is_empty() {
+        return Err(HadronError::validation(
+            "JIRA is not configured. Set up JIRA in the admin panel.",
+        ));
+    }
+    let api_token = crate::crypto::decrypt_value(&poller.jira_api_token)?;
+    Ok(crate::integrations::jira::JiraConfig {
+        base_url: poller.jira_base_url,
+        email: poller.jira_email,
+        api_token,
+        project_key: String::new(),
+    })
+}
+
+// ============================================================================
+// AI Release Notes Persistence
+// ============================================================================
+
+/// Insert an AI-generated release note into the release_notes table.
+///
+/// Sets `content`, `markdown_content`, and `original_ai_content` all to
+/// `markdown_content` on creation (the editor may diverge later).
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_ai_release_note(
+    pool: &PgPool,
+    user_id: Uuid,
+    title: &str,
+    fix_version: &str,
+    content_type: &str,
+    markdown_content: &str,
+    ticket_keys: &serde_json::Value,
+    ticket_count: i32,
+    jql_filter: Option<&str>,
+    module_filter: Option<&serde_json::Value>,
+    ai_model: Option<&str>,
+    ai_provider: Option<&str>,
+    tokens_used: i64,
+    cost: f64,
+    generation_duration_ms: i64,
+    ai_insights: Option<&serde_json::Value>,
+) -> HadronResult<i64> {
+    let row: (i64,) = sqlx::query_as(
+        "INSERT INTO release_notes (
+            user_id, title, fix_version, content_type,
+            content, markdown_content, original_ai_content,
+            format, status,
+            ticket_keys, ticket_count,
+            jql_filter, module_filter,
+            ai_model, ai_provider,
+            tokens_used, cost, generation_duration_ms,
+            ai_insights
+         ) VALUES (
+            $1, $2, $3, $4,
+            $5, $5, $5,
+            'markdown', 'draft',
+            $6, $7,
+            $8, $9,
+            $10, $11,
+            $12, $13, $14,
+            $15
+         )
+         RETURNING id",
+    )
+    .bind(user_id)
+    .bind(title)
+    .bind(fix_version)
+    .bind(content_type)
+    .bind(markdown_content)
+    .bind(ticket_keys)
+    .bind(ticket_count)
+    .bind(jql_filter)
+    .bind(module_filter)
+    .bind(ai_model)
+    .bind(ai_provider)
+    .bind(tokens_used)
+    .bind(cost)
+    .bind(generation_duration_ms)
+    .bind(ai_insights)
     .fetch_one(pool)
     .await
     .map_err(|e| HadronError::database(e.to_string()))?;

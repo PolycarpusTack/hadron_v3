@@ -111,6 +111,7 @@ export interface ReleaseNote {
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;
+  aiInsights: AiInsights | null;
 }
 
 export interface SimilarAnalysis {
@@ -441,6 +442,52 @@ export interface PollerConfigStatus {
   jiraEmail: string;
   hasApiToken: boolean;
   lastPolledAt: string | null;
+}
+
+// ── Release Notes AI Generation Types ─────────────────────────────────
+
+export interface JiraFixVersion {
+  id: string;
+  name: string;
+  released: boolean;
+  releaseDate: string | null;
+}
+
+export interface ReleaseNotesGenerateRequest {
+  fixVersion: string;
+  contentType: 'features' | 'fixes' | 'both';
+  projectKey?: string;
+  jqlFilter?: string;
+  moduleFilter?: string[];
+  enrichment: {
+    rewriteDescriptions: boolean;
+    generateKeywords: boolean;
+    classifyModules: boolean;
+    detectBreakingChanges: boolean;
+  };
+}
+
+export interface ReleaseNoteTicketPreview {
+  key: string;
+  summary: string;
+  issueType: string;
+  priority: string;
+  status: string;
+  components: string[];
+  labels: string[];
+}
+
+export interface AiInsights {
+  qualityScore: number;
+  suggestions: string[];
+  moduleBreakdown: Record<string, number>;
+  ticketCoverage: number;
+  breakingChanges: string[];
+}
+
+export interface StyleGuideResponse {
+  content: string;
+  isCustom: boolean;
 }
 
 // ============================================================================
@@ -1468,6 +1515,32 @@ class ApiClient {
 
   async deleteSentryAnalysis(id: number): Promise<void> {
     return this.request("DELETE", `/sentry/analyses/${id}`);
+  }
+
+  // ── Release Notes AI Generation ─────────────────────────────────
+
+  async getJiraFixVersions(project: string): Promise<JiraFixVersion[]> {
+    return this.request("GET", `/jira/fix-versions/${encodeURIComponent(project)}`);
+  }
+
+  async previewReleaseNotesTickets(config: ReleaseNotesGenerateRequest): Promise<ReleaseNoteTicketPreview[]> {
+    return this.request("POST", "/release-notes/preview-tickets", config);
+  }
+
+  async generateReleaseNotes(config: ReleaseNotesGenerateRequest): Promise<{ releaseNoteId: number; ticketCount: number; markdownContent: string }> {
+    return this.request("POST", "/release-notes/generate", config);
+  }
+
+  async getStyleGuide(): Promise<StyleGuideResponse> {
+    return this.request("GET", "/admin/style-guide");
+  }
+
+  async updateStyleGuide(content: string): Promise<void> {
+    return this.request("PUT", "/admin/style-guide", { content });
+  }
+
+  async deleteStyleGuide(): Promise<void> {
+    return this.request("DELETE", "/admin/style-guide");
   }
 }
 

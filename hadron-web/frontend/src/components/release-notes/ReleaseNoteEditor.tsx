@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
-import { api } from "../../services/api";
+import { api, type AiInsights } from "../../services/api";
 import { useToast } from "../Toast";
+import { ReleaseNotesInsights } from "./ReleaseNotesInsights";
+
+type ViewMode = 'edit' | 'preview';
 
 interface ReleaseNoteEditorProps {
   noteId: number | null;
@@ -21,6 +24,8 @@ export function ReleaseNoteEditor({
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [isPublished, setIsPublished] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('edit');
+  const [aiInsights, setAiInsights] = useState<AiInsights | null>(null);
 
   useEffect(() => {
     if (noteId) {
@@ -32,6 +37,7 @@ export function ReleaseNoteEditor({
           setFormat(note.format);
           setContent(note.content);
           setIsPublished(note.isPublished);
+          setAiInsights(note.aiInsights ?? null);
         })
         .catch((e) =>
           toast.error(
@@ -44,6 +50,7 @@ export function ReleaseNoteEditor({
       setFormat("markdown");
       setContent("");
       setIsPublished(false);
+      setAiInsights(null);
     }
   }, [noteId]);
 
@@ -91,6 +98,11 @@ export function ReleaseNoteEditor({
       setPublishing(false);
     }
   };
+
+  const viewModes: { key: ViewMode; label: string }[] = [
+    { key: 'edit', label: 'Edit' },
+    { key: 'preview', label: 'Preview' },
+  ];
 
   return (
     <div className="space-y-4">
@@ -142,13 +154,30 @@ export function ReleaseNoteEditor({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* View mode toggle */}
+      <div className="flex items-center gap-1">
+        {viewModes.map((mode) => (
+          <button
+            key={mode.key}
+            onClick={() => setViewMode(mode.key)}
+            className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+              viewMode === mode.key
+                ? 'bg-slate-600 text-white'
+                : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+            }`}
+          >
+            {mode.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content area */}
+      {viewMode === 'edit' ? (
         <div>
-          <label className="mb-1 block text-sm text-slate-400">Content</label>
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            rows={16}
+            rows={20}
             placeholder={
               format === "markdown"
                 ? "## Changes\n\n- Feature A\n- Bug fix B"
@@ -157,17 +186,15 @@ export function ReleaseNoteEditor({
             className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 font-mono text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
           />
         </div>
-        <div>
-          <label className="mb-1 block text-sm text-slate-400">Preview</label>
-          <div className="h-[calc(16*1.5rem+1rem)] overflow-y-auto rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">
-            {format === "markdown" ? (
-              <div className="whitespace-pre-wrap">{content || "Nothing to preview"}</div>
-            ) : (
-              <pre className="whitespace-pre-wrap">{content || "Nothing to preview"}</pre>
-            )}
-          </div>
+      ) : (
+        <div className="min-h-[30rem] overflow-y-auto rounded-md border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-300">
+          {content ? (
+            <div className="whitespace-pre-wrap">{content}</div>
+          ) : (
+            <span className="text-slate-500">Nothing to preview</span>
+          )}
         </div>
-      </div>
+      )}
 
       <div className="flex items-center gap-3">
         <button
@@ -208,6 +235,14 @@ export function ReleaseNoteEditor({
           </button>
         )}
       </div>
+
+      {/* AI Insights panel — shown only when insights are available */}
+      {aiInsights && (
+        <div className="mt-6 border-t border-slate-700 pt-6">
+          <h4 className="mb-4 text-sm font-semibold text-slate-300">AI Insights</h4>
+          <ReleaseNotesInsights insights={aiInsights} />
+        </div>
+      )}
     </div>
   );
 }

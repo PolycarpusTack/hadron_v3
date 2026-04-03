@@ -197,6 +197,21 @@ pub struct JiraTestRequest {
     api_token: String,
 }
 
+pub async fn jira_fix_versions(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(project): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let mut config = crate::db::get_jira_config_from_poller(&state.db)
+        .await
+        .map_err(AppError)?;
+    config.project_key = project.clone();
+    let versions = jira::list_fix_versions(&config, &project)
+        .await
+        .map_err(AppError)?;
+    Ok(Json(versions))
+}
+
 // ============================================================================
 // Sentry
 // ============================================================================

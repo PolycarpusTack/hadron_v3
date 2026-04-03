@@ -17,6 +17,7 @@ mod notes;
 mod sentry_analysis;
 mod patterns;
 mod release_notes;
+mod release_notes_gen;
 mod signatures;
 mod tags;
 
@@ -109,6 +110,10 @@ pub fn api_router() -> Router<AppState> {
         .route("/release-notes/{id}", put(release_notes::update_release_note))
         .route("/release-notes/{id}", delete(release_notes::delete_release_note))
         .route("/release-notes/{id}/publish", post(release_notes::publish_release_note))
+        // Release notes AI generation pipeline
+        .route("/release-notes/preview-tickets", post(release_notes_gen::preview_tickets))
+        .route("/release-notes/generate/stream", post(release_notes_gen::generate_stream))
+        .route("/release-notes/generate", post(release_notes_gen::generate))
         // OpenSearch integration
         .route("/search/opensearch", post(integrations::opensearch_search))
         .route("/search/opensearch/test", post(integrations::opensearch_test))
@@ -116,6 +121,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/jira/tickets", post(integrations::jira_create_ticket))
         .route("/jira/search", post(integrations::jira_search))
         .route("/jira/test", post(integrations::jira_test))
+        .route("/jira/fix-versions/{project}", get(integrations::jira_fix_versions))
         // JIRA Deep Analysis
         .route("/jira/issues/{key}/detail", post(jira_analysis::fetch_issue))
         .route("/jira/issues/{key}/analyze", post(jira_analysis::analyze_issue))
@@ -167,6 +173,10 @@ pub fn api_router() -> Router<AppState> {
         // Admin: Sentry configuration
         .route("/admin/sentry", get(admin::get_sentry_config))
         .route("/admin/sentry", put(admin::update_sentry_config))
+        // Admin: Style Guide
+        .route("/admin/style-guide", get(admin::get_style_guide))
+        .route("/admin/style-guide", put(admin::update_style_guide))
+        .route("/admin/style-guide", delete(admin::delete_style_guide))
         // Admin: JIRA Poller
         .route("/admin/jira-poller", get(jira_poller::get_poller_config))
         .route("/admin/jira-poller", put(jira_poller::update_poller_config))
