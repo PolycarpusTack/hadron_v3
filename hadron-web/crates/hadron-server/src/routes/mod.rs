@@ -14,6 +14,7 @@ mod integrations;
 mod jira_analysis;
 mod jira_poller;
 mod notes;
+mod sentry_analysis;
 mod patterns;
 mod release_notes;
 mod signatures;
@@ -137,6 +138,12 @@ pub fn api_router() -> Router<AppState> {
         .route("/sentry/issues", get(integrations::sentry_issues))
         .route("/sentry/issues/{id}", get(integrations::sentry_issue))
         .route("/sentry/issues/{id}/event", get(integrations::sentry_event))
+        // Sentry analysis
+        .route("/sentry/issues/{id}/analyze/stream", post(sentry_analysis::analyze_issue_stream))
+        .route("/sentry/issues/{id}/analyze", post(sentry_analysis::analyze_issue))
+        .route("/sentry/analyses", get(sentry_analysis::list_analyses))
+        .route("/sentry/analyses/{id}", get(sentry_analysis::get_analysis))
+        .route("/sentry/analyses/{id}", delete(sentry_analysis::delete_analysis))
         // Code Analysis
         .route("/code-analysis", post(code_analysis::analyze_code))
         .route("/code-analysis/stream", post(code_analysis::analyze_code_stream))
