@@ -1,4 +1,3 @@
-import React from 'react';
 import { SentryIssue } from '../../services/api';
 import { formatCount, formatRelativeTime } from './sentryHelpers';
 

@@ -55,11 +55,11 @@ export function SentryConfigPanel() {
   const handleTest = async () => {
     setTesting(true);
     try {
-      const result = await api.testSentryConnection({ baseUrl, organization, authToken: authToken || undefined });
-      if ((result as { success: boolean; error?: string }).success) {
+      const result = await api.testSentryConnection({ baseUrl, organization, authToken: authToken || '' });
+      if (result.connected) {
         toast.success("Sentry connection successful");
       } else {
-        toast.error(`Connection failed: ${(result as { success: boolean; error?: string }).error ?? "unknown error"}`);
+        toast.error("Connection failed: unable to reach Sentry");
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Test failed");

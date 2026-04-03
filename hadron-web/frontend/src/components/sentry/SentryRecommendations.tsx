@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { SentryRecommendation } from '../../services/api';
 import { getPriorityColor, getEffortColor } from './sentryHelpers';
 

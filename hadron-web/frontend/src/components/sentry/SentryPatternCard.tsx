@@ -1,4 +1,3 @@
-import React from 'react';
 import { DetectedPattern } from '../../services/api';
 import { getPatternIcon, getPatternLabel } from './sentryHelpers';
 

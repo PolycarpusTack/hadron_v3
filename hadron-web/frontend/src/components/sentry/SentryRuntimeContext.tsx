@@ -1,4 +1,3 @@
-import React from 'react';
 import { SentryTag } from '../../services/api';
 
 interface SentryRuntimeContextProps {

@@ -1,4 +1,3 @@
-import React from 'react';
 import { SentryBreadcrumb } from '../../services/api';
 
 interface SentryBreadcrumbTimelineProps {

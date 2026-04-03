@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { SentryAnalysisFullData } from '../../services/api';
 import { getSeverityColor } from './sentryHelpers';
 import { SentryPatternCard } from './SentryPatternCard';
