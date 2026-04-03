@@ -14,6 +14,7 @@ mod integrations;
 mod jira_analysis;
 mod jira_poller;
 mod notes;
+mod sentry_analysis;
 mod patterns;
 mod release_notes;
 mod signatures;
@@ -135,7 +136,14 @@ pub fn api_router() -> Router<AppState> {
         .route("/sentry/test", post(integrations::sentry_test))
         .route("/sentry/projects", get(integrations::sentry_projects))
         .route("/sentry/issues", get(integrations::sentry_issues))
+        .route("/sentry/issues/{id}", get(integrations::sentry_issue))
         .route("/sentry/issues/{id}/event", get(integrations::sentry_event))
+        // Sentry analysis
+        .route("/sentry/issues/{id}/analyze/stream", post(sentry_analysis::analyze_issue_stream))
+        .route("/sentry/issues/{id}/analyze", post(sentry_analysis::analyze_issue))
+        .route("/sentry/analyses", get(sentry_analysis::list_analyses))
+        .route("/sentry/analyses/{id}", get(sentry_analysis::get_analysis))
+        .route("/sentry/analyses/{id}", delete(sentry_analysis::delete_analysis))
         // Code Analysis
         .route("/code-analysis", post(code_analysis::analyze_code))
         .route("/code-analysis/stream", post(code_analysis::analyze_code_stream))
@@ -156,6 +164,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/admin/ai-config", get(admin::get_ai_config))
         .route("/admin/ai-config", put(admin::update_ai_config))
         .route("/admin/ai-config/test", post(admin::test_ai_config))
+        // Admin: Sentry configuration
+        .route("/admin/sentry", get(admin::get_sentry_config))
+        .route("/admin/sentry", put(admin::update_sentry_config))
         // Admin: JIRA Poller
         .route("/admin/jira-poller", get(jira_poller::get_poller_config))
         .route("/admin/jira-poller", put(jira_poller::update_poller_config))

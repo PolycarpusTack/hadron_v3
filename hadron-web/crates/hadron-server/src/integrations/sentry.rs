@@ -90,6 +90,37 @@ pub async fn list_issues(
     Ok(issues)
 }
 
+pub async fn fetch_issue(config: &SentryConfig, issue_id: &str) -> HadronResult<serde_json::Value> {
+    let client = Client::new();
+    let url = format!(
+        "{}/api/0/issues/{}/",
+        config.base_url.trim_end_matches('/'),
+        issue_id
+    );
+
+    let resp = client
+        .get(&url)
+        .bearer_auth(&config.auth_token)
+        .send()
+        .await
+        .map_err(|e| HadronError::Http(e.to_string()))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(HadronError::Http(format!(
+            "Sentry API error {status}: {body}"
+        )));
+    }
+
+    let issue: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| HadronError::Http(e.to_string()))?;
+
+    Ok(issue)
+}
+
 pub async fn fetch_latest_event(
     config: &SentryConfig,
     issue_id: &str,

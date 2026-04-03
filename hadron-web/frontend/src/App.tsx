@@ -19,7 +19,7 @@ import { AdminPanel } from "./components/admin/AdminPanel";
 import { ReleaseNotesView } from "./components/release-notes/ReleaseNotesView";
 import { SignaturesView } from "./components/signatures/SignaturesView";
 import { AnalyticsDashboard } from "./components/analytics/AnalyticsDashboard";
-import { SentryPanel } from "./components/sentry/SentryPanel";
+import { SentryAnalyzerView } from "./components/sentry/SentryAnalyzerView";
 import { CodeAnalyzerView } from "./components/code-analyzer/CodeAnalyzerView";
 import { JiraAnalyzerView } from "./components/jira/JiraAnalyzerView";
 import { JiraProjectFeed } from "./components/jira/JiraProjectFeed";
@@ -232,7 +232,7 @@ function AuthenticatedApp() {
         {activeView === "analytics" && <AnalyticsDashboard />}
         {activeView === "team" && <TeamFeedView />}
         {activeView === "releases" && <ReleaseNotesView />}
-        {activeView === "sentry" && <SentryPanel />}
+        {activeView === "sentry" && <SentryAnalyzerView />}
         {activeView === "settings" && (
           <SettingsView
             apiKey={apiKey}

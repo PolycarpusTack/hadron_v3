@@ -2967,3 +2967,123 @@ pub async fn set_user_subscriptions(
 
     Ok(())
 }
+
+// ============================================================================
+// Sentry Configuration & Analysis Persistence
+// ============================================================================
+
+/// Load Sentry config from global_settings. Returns None if any required field is missing.
+pub async fn get_sentry_config(
+    pool: &PgPool,
+) -> HadronResult<Option<hadron_core::models::SentryConfig>> {
+    let base_url = get_global_setting(pool, "sentry_base_url")
+        .await?
+        .unwrap_or_default();
+    let organization = get_global_setting(pool, "sentry_organization")
+        .await?
+        .unwrap_or_default();
+    let encrypted_token = get_global_setting(pool, "sentry_auth_token")
+        .await?
+        .unwrap_or_default();
+
+    if base_url.is_empty() || organization.is_empty() || encrypted_token.is_empty() {
+        return Ok(None);
+    }
+
+    let auth_token = crate::crypto::decrypt_value(&encrypted_token)?;
+
+    Ok(Some(hadron_core::models::SentryConfig {
+        base_url,
+        auth_token,
+        organization,
+    }))
+}
+
+/// Insert a Sentry analysis record into the analyses table.
+pub async fn insert_sentry_analysis(
+    pool: &PgPool,
+    user_id: Uuid,
+    filename: &str,
+    error_type: Option<&str>,
+    error_message: Option<&str>,
+    severity: Option<&str>,
+    root_cause: Option<&str>,
+    suggested_fixes: Option<&serde_json::Value>,
+    confidence: Option<&str>,
+    component: Option<&str>,
+    full_data: Option<&serde_json::Value>,
+) -> HadronResult<i64> {
+    let row: (i64,) = sqlx::query_as(
+        "INSERT INTO analyses (
+            user_id, filename, analysis_type, error_type, error_message,
+            severity, root_cause, suggested_fixes, confidence, component, full_data
+         ) VALUES ($1, $2, 'sentry', $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING id",
+    )
+    .bind(user_id)
+    .bind(filename)
+    .bind(error_type)
+    .bind(error_message)
+    .bind(severity)
+    .bind(root_cause)
+    .bind(suggested_fixes)
+    .bind(confidence)
+    .bind(component)
+    .bind(full_data)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(row.0)
+}
+
+/// Paginated list of Sentry analyses for a user.
+/// Returns (rows as JSON, total count).
+pub async fn get_sentry_analyses(
+    pool: &PgPool,
+    user_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> HadronResult<(Vec<serde_json::Value>, i64)> {
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM analyses
+         WHERE user_id = $1 AND analysis_type = 'sentry' AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    let rows = sqlx::query(
+        "SELECT id, filename, error_type, severity, confidence, component, full_data, analyzed_at
+         FROM analyses
+         WHERE user_id = $1 AND analysis_type = 'sentry' AND deleted_at IS NULL
+         ORDER BY analyzed_at DESC
+         LIMIT $2 OFFSET $3",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    let items: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|row| {
+            use sqlx::Row;
+            let analyzed_at: chrono::DateTime<chrono::Utc> = row.get("analyzed_at");
+            serde_json::json!({
+                "id": row.get::<i64, _>("id"),
+                "filename": row.get::<String, _>("filename"),
+                "errorType": row.get::<Option<String>, _>("error_type"),
+                "severity": row.get::<Option<String>, _>("severity"),
+                "confidence": row.get::<Option<String>, _>("confidence"),
+                "component": row.get::<Option<String>, _>("component"),
+                "analyzedAt": analyzed_at.to_rfc3339(),
+            })
+        })
+        .collect();
+
+    Ok((items, total.0))
+}

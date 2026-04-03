@@ -10,6 +10,7 @@ pub mod detect_language;
 pub mod jira_analysis;
 pub mod jira_triage;
 pub mod jira_brief;
+pub mod sentry_analysis;
 
 pub use types::{AiConfig, AiMessage, AiProvider};
 pub use prompts::*;
@@ -18,3 +19,4 @@ pub use detect_language::detect_language;
 pub use jira_analysis::*;
 pub use jira_triage::*;
 pub use jira_brief::*;
+pub use sentry_analysis::*;
