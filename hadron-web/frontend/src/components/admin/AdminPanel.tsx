@@ -7,8 +7,9 @@ import { GoldManagement } from "../gold/GoldManagement";
 import { PatternManager } from "./PatternManager";
 import { AiConfigPanel } from "./AiConfigPanel";
 import { JiraPollerPanel } from "./JiraPollerPanel";
+import { SentryConfigPanel } from "./SentryConfigPanel";
 
-type AdminTab = "users" | "ai-config" | "audit" | "tags" | "gold" | "patterns" | "training" | "jira-poller";
+type AdminTab = "users" | "ai-config" | "audit" | "tags" | "gold" | "patterns" | "training" | "jira-poller" | "sentry";
 
 export function AdminPanel() {
   const toast = useToast();
@@ -68,6 +69,7 @@ export function AdminPanel() {
     { key: "patterns", label: "Patterns" },
     { key: "training", label: "Training Data" },
     { key: "jira-poller", label: "JIRA Poller" },
+    { key: "sentry", label: "Sentry" },
   ];
 
   if (loading) {
@@ -100,6 +102,7 @@ export function AdminPanel() {
       {activeTab === "gold" && <GoldManagement />}
       {activeTab === "patterns" && <PatternManager />}
       {activeTab === "jira-poller" && <JiraPollerPanel />}
+      {activeTab === "sentry" && <SentryConfigPanel />}
 
       {activeTab === "training" && (
         <div className="rounded-lg border border-slate-700 bg-slate-800 p-6 text-center">
