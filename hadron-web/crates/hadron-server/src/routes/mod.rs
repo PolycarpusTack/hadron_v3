@@ -135,6 +135,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/sentry/test", post(integrations::sentry_test))
         .route("/sentry/projects", get(integrations::sentry_projects))
         .route("/sentry/issues", get(integrations::sentry_issues))
+        .route("/sentry/issues/{id}", get(integrations::sentry_issue))
         .route("/sentry/issues/{id}/event", get(integrations::sentry_event))
         // Code Analysis
         .route("/code-analysis", post(code_analysis::analyze_code))

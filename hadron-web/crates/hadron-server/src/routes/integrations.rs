@@ -213,8 +213,16 @@ pub async fn sentry_test(
 
 pub async fn sentry_projects(
     _user: AuthenticatedUser,
-    Json(config): Json<SentryConfig>,
+    State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
+    let config = crate::db::get_sentry_config(&state.db)
+        .await
+        .map_err(|e| AppError(e))?
+        .ok_or_else(|| {
+            AppError(hadron_core::error::HadronError::Validation(
+                "Sentry is not configured. Ask an admin to configure it.".to_string(),
+            ))
+        })?;
     let projects = sentry::list_projects(&config)
         .await
         .map_err(|e| AppError(e))?;
@@ -230,20 +238,55 @@ pub struct SentryIssuesQuery {
 
 pub async fn sentry_issues(
     _user: AuthenticatedUser,
+    State(state): State<AppState>,
     Query(params): Query<SentryIssuesQuery>,
-    Json(config): Json<SentryConfig>,
 ) -> Result<impl IntoResponse, AppError> {
+    let config = crate::db::get_sentry_config(&state.db)
+        .await
+        .map_err(|e| AppError(e))?
+        .ok_or_else(|| {
+            AppError(hadron_core::error::HadronError::Validation(
+                "Sentry is not configured. Ask an admin to configure it.".to_string(),
+            ))
+        })?;
     let issues = sentry::list_issues(&config, &params.project, params.limit.unwrap_or(25))
         .await
         .map_err(|e| AppError(e))?;
     Ok(Json(issues))
 }
 
+pub async fn sentry_issue(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(issue_id): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let config = crate::db::get_sentry_config(&state.db)
+        .await
+        .map_err(|e| AppError(e))?
+        .ok_or_else(|| {
+            AppError(hadron_core::error::HadronError::Validation(
+                "Sentry is not configured. Ask an admin to configure it.".to_string(),
+            ))
+        })?;
+    let issue = sentry::fetch_issue(&config, &issue_id)
+        .await
+        .map_err(|e| AppError(e))?;
+    Ok(Json(issue))
+}
+
 pub async fn sentry_event(
     _user: AuthenticatedUser,
+    State(state): State<AppState>,
     Path(issue_id): Path<String>,
-    Json(config): Json<SentryConfig>,
 ) -> Result<impl IntoResponse, AppError> {
+    let config = crate::db::get_sentry_config(&state.db)
+        .await
+        .map_err(|e| AppError(e))?
+        .ok_or_else(|| {
+            AppError(hadron_core::error::HadronError::Validation(
+                "Sentry is not configured. Ask an admin to configure it.".to_string(),
+            ))
+        })?;
     let event = sentry::fetch_latest_event(&config, &issue_id)
         .await
         .map_err(|e| AppError(e))?;
