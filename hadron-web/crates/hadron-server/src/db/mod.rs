@@ -3037,6 +3037,103 @@ pub async fn insert_sentry_analysis(
     Ok(row.0)
 }
 
+// ============================================================================
+// JIRA Config Helper
+// ============================================================================
+
+/// Load JIRA config from the poller_config table, decrypting the API token.
+///
+/// Returns a `JiraConfig` with an empty `project_key` (caller should set it).
+/// Returns `HadronError::Validation` if JIRA has not been configured.
+pub async fn get_jira_config_from_poller(
+    pool: &PgPool,
+) -> HadronResult<crate::integrations::jira::JiraConfig> {
+    let poller = get_poller_config(pool).await?;
+    if poller.jira_base_url.is_empty() || poller.jira_email.is_empty() || poller.jira_api_token.is_empty() {
+        return Err(HadronError::validation(
+            "JIRA is not configured. Set up JIRA in the admin panel.",
+        ));
+    }
+    let api_token = crate::crypto::decrypt_value(&poller.jira_api_token)?;
+    Ok(crate::integrations::jira::JiraConfig {
+        base_url: poller.jira_base_url,
+        email: poller.jira_email,
+        api_token,
+        project_key: String::new(),
+    })
+}
+
+// ============================================================================
+// AI Release Notes Persistence
+// ============================================================================
+
+/// Insert an AI-generated release note into the release_notes table.
+///
+/// Sets `content`, `markdown_content`, and `original_ai_content` all to
+/// `markdown_content` on creation (the editor may diverge later).
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_ai_release_note(
+    pool: &PgPool,
+    user_id: Uuid,
+    title: &str,
+    fix_version: &str,
+    content_type: &str,
+    markdown_content: &str,
+    ticket_keys: &serde_json::Value,
+    ticket_count: i32,
+    jql_filter: Option<&str>,
+    module_filter: Option<&serde_json::Value>,
+    ai_model: Option<&str>,
+    ai_provider: Option<&str>,
+    tokens_used: i64,
+    cost: f64,
+    generation_duration_ms: i64,
+    ai_insights: Option<&serde_json::Value>,
+) -> HadronResult<i64> {
+    let row: (i64,) = sqlx::query_as(
+        "INSERT INTO release_notes (
+            user_id, title, fix_version, content_type,
+            content, markdown_content, original_ai_content,
+            format, status,
+            ticket_keys, ticket_count,
+            jql_filter, module_filter,
+            ai_model, ai_provider,
+            tokens_used, cost, generation_duration_ms,
+            ai_insights
+         ) VALUES (
+            $1, $2, $3, $4,
+            $5, $5, $5,
+            'markdown', 'draft',
+            $6, $7,
+            $8, $9,
+            $10, $11,
+            $12, $13, $14,
+            $15
+         )
+         RETURNING id",
+    )
+    .bind(user_id)
+    .bind(title)
+    .bind(fix_version)
+    .bind(content_type)
+    .bind(markdown_content)
+    .bind(ticket_keys)
+    .bind(ticket_count)
+    .bind(jql_filter)
+    .bind(module_filter)
+    .bind(ai_model)
+    .bind(ai_provider)
+    .bind(tokens_used)
+    .bind(cost)
+    .bind(generation_duration_ms)
+    .bind(ai_insights)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(row.0)
+}
+
 /// Paginated list of Sentry analyses for a user.
 /// Returns (rows as JSON, total count).
 pub async fn get_sentry_analyses(

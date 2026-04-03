@@ -116,6 +116,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/jira/tickets", post(integrations::jira_create_ticket))
         .route("/jira/search", post(integrations::jira_search))
         .route("/jira/test", post(integrations::jira_test))
+        .route("/jira/fix-versions/{project}", get(integrations::jira_fix_versions))
         // JIRA Deep Analysis
         .route("/jira/issues/{key}/detail", post(jira_analysis::fetch_issue))
         .route("/jira/issues/{key}/analyze", post(jira_analysis::analyze_issue))
@@ -167,6 +168,10 @@ pub fn api_router() -> Router<AppState> {
         // Admin: Sentry configuration
         .route("/admin/sentry", get(admin::get_sentry_config))
         .route("/admin/sentry", put(admin::update_sentry_config))
+        // Admin: Style Guide
+        .route("/admin/style-guide", get(admin::get_style_guide))
+        .route("/admin/style-guide", put(admin::update_style_guide))
+        .route("/admin/style-guide", delete(admin::delete_style_guide))
         // Admin: JIRA Poller
         .route("/admin/jira-poller", get(jira_poller::get_poller_config))
         .route("/admin/jira-poller", put(jira_poller::update_poller_config))

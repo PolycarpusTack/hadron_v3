@@ -261,6 +261,67 @@ pub async fn test_connection(config: &JiraConfig) -> HadronResult<bool> {
     Ok(resp.status().is_success())
 }
 
+/// Jira fix version (release version) metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraFixVersion {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub released: bool,
+    pub release_date: Option<String>,
+}
+
+/// List all fix versions for a Jira project.
+pub async fn list_fix_versions(
+    config: &JiraConfig,
+    project_key: &str,
+) -> HadronResult<Vec<JiraFixVersion>> {
+    let client = build_client()?;
+
+    let url = format!(
+        "{}/rest/api/3/project/{}/versions",
+        config.base_url.trim_end_matches('/'),
+        project_key
+    );
+
+    let resp = client
+        .get(&url)
+        .basic_auth(&config.email, Some(&config.api_token))
+        .send()
+        .await
+        .map_err(|e| HadronError::external_service(format!("JIRA versions request failed: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(HadronError::external_service(format!(
+            "JIRA returned {status}: {body}"
+        )));
+    }
+
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| HadronError::external_service(format!("Failed to parse JIRA versions response: {e}")))?;
+
+    let versions = data
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|v| JiraFixVersion {
+                    id: v["id"].as_str().unwrap_or("").to_string(),
+                    name: v["name"].as_str().unwrap_or("").to_string(),
+                    released: v["released"].as_bool().unwrap_or(false),
+                    release_date: v["releaseDate"].as_str().map(|s| s.to_string()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(versions)
+}
+
 fn build_client() -> HadronResult<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
