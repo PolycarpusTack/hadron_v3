@@ -444,6 +444,125 @@ export interface PollerConfigStatus {
 }
 
 // ============================================================================
+// Sentry Analysis Types
+// ============================================================================
+
+export interface SentryConfigStatus {
+  baseUrl: string;
+  organization: string;
+  hasAuthToken: boolean;
+  configured: boolean;
+}
+
+export interface UpdateSentryConfigRequest {
+  baseUrl?: string;
+  organization?: string;
+  authToken?: string;
+}
+
+export interface SentryProject {
+  id: string;
+  slug: string;
+  name: string;
+}
+
+export interface SentryIssue {
+  id: string;
+  title: string;
+  culprit: string | null;
+  level: string;
+  count: string;
+  firstSeen: string;
+  lastSeen: string;
+  status: string;
+  shortId?: string;
+  platform?: string | null;
+  userCount?: number | null;
+  permalink?: string | null;
+}
+
+export interface SentryAnalysisSummary {
+  id: number;
+  filename: string;
+  errorType: string | null;
+  severity: string | null;
+  confidence: string | null;
+  component: string | null;
+  analyzedAt: string;
+}
+
+export interface SentryAnalysisResult {
+  errorType: string;
+  errorMessage: string;
+  severity: string;
+  rootCause: string;
+  suggestedFixes: string[];
+  component: string;
+  confidence: string;
+  patternType: string;
+  userImpact: string;
+  breadcrumbAnalysis: string;
+  recommendations: SentryRecommendation[];
+}
+
+export interface SentryRecommendation {
+  priority: string;
+  title: string;
+  description: string;
+  effort: string;
+  codeSnippet: string | null;
+}
+
+export interface DetectedPattern {
+  patternType: string;
+  confidence: number;
+  evidence: string[];
+}
+
+export interface SentryBreadcrumb {
+  timestamp: string | null;
+  category: string | null;
+  message: string | null;
+  level: string | null;
+  data: Record<string, unknown> | null;
+  type: string | null;
+}
+
+export interface SentryException {
+  type: string | null;
+  value: string | null;
+  module: string | null;
+  stacktrace: SentryFrame[] | null;
+}
+
+export interface SentryFrame {
+  filename: string | null;
+  function: string | null;
+  lineNo: number | null;
+  colNo: number | null;
+  contextLine: string | null;
+  inApp: boolean | null;
+  module: string | null;
+}
+
+export interface SentryTag {
+  key: string;
+  value: string;
+}
+
+export interface SentryAnalysisFullData {
+  issue: SentryIssue;
+  event: {
+    breadcrumbs: SentryBreadcrumb[];
+    exceptions: SentryException[];
+    tags: SentryTag[];
+    contexts: Record<string, unknown>;
+  };
+  patterns: DetectedPattern[];
+  aiResult: SentryAnalysisResult;
+}
+
+// ============================================================================
 // HTTP helpers
 // ============================================================================
 
@@ -1282,6 +1401,73 @@ class ApiClient {
       throw new HadronApiError(response.status, "Export failed", "EXPORT_FAILED");
     }
     return response.text();
+  }
+
+  // === Sentry Admin Config ===
+
+  async getSentryConfigStatus(): Promise<SentryConfigStatus> {
+    return this.request("GET", "/admin/sentry");
+  }
+
+  async updateSentryConfig(config: UpdateSentryConfigRequest): Promise<void> {
+    return this.request("PUT", "/admin/sentry", config);
+  }
+
+  async testSentryConnection(config: {
+    baseUrl: string;
+    authToken: string;
+    organization: string;
+  }): Promise<{ connected: boolean }> {
+    return this.request("POST", "/sentry/test", config);
+  }
+
+  // === Sentry Browse ===
+
+  async getSentryProjects(): Promise<SentryProject[]> {
+    return this.request("GET", "/sentry/projects");
+  }
+
+  async getSentryIssues(
+    project: string,
+    limit?: number,
+  ): Promise<SentryIssue[]> {
+    const params = new URLSearchParams({ project });
+    if (limit) params.set("limit", String(limit));
+    return this.request("GET", `/sentry/issues?${params}`);
+  }
+
+  async getSentryIssue(issueId: string): Promise<SentryIssue> {
+    return this.request("GET", `/sentry/issues/${encodeURIComponent(issueId)}`);
+  }
+
+  async getSentryEvent(issueId: string): Promise<unknown> {
+    return this.request("GET", `/sentry/issues/${encodeURIComponent(issueId)}/event`);
+  }
+
+  // === Sentry Analysis ===
+
+  async analyzeSentryIssue(
+    issueId: string,
+  ): Promise<{ id: number; result: SentryAnalysisResult }> {
+    return this.request("POST", `/sentry/issues/${encodeURIComponent(issueId)}/analyze`);
+  }
+
+  async getSentryAnalyses(
+    limit?: number,
+    offset?: number,
+  ): Promise<{ items: SentryAnalysisSummary[]; total: number }> {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", String(limit));
+    if (offset) params.set("offset", String(offset));
+    return this.request("GET", `/sentry/analyses?${params}`);
+  }
+
+  async getSentryAnalysis(id: number): Promise<unknown> {
+    return this.request("GET", `/sentry/analyses/${id}`);
+  }
+
+  async deleteSentryAnalysis(id: number): Promise<void> {
+    return this.request("DELETE", `/sentry/analyses/${id}`);
   }
 }
 
