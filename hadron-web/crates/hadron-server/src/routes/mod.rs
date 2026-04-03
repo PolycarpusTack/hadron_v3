@@ -156,6 +156,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/admin/ai-config", get(admin::get_ai_config))
         .route("/admin/ai-config", put(admin::update_ai_config))
         .route("/admin/ai-config/test", post(admin::test_ai_config))
+        // Admin: Sentry configuration
+        .route("/admin/sentry", get(admin::get_sentry_config))
+        .route("/admin/sentry", put(admin::update_sentry_config))
         // Admin: JIRA Poller
         .route("/admin/jira-poller", get(jira_poller::get_poller_config))
         .route("/admin/jira-poller", put(jira_poller::update_poller_config))

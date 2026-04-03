@@ -291,6 +291,94 @@ pub async fn update_ai_config(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ============================================================================
+// Sentry Configuration (Admin)
+// ============================================================================
+
+/// Response for GET /api/admin/sentry — never returns the actual auth token.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SentryConfigStatus {
+    pub base_url: String,
+    pub organization: String,
+    pub has_auth_token: bool,
+    pub configured: bool,
+}
+
+pub async fn get_sentry_config(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+
+    let base_url = db::get_global_setting(&state.db, "sentry_base_url")
+        .await?
+        .unwrap_or_default();
+    let organization = db::get_global_setting(&state.db, "sentry_organization")
+        .await?
+        .unwrap_or_default();
+    let auth_token = db::get_global_setting(&state.db, "sentry_auth_token")
+        .await?
+        .unwrap_or_default();
+
+    let configured = !base_url.is_empty() && !organization.is_empty() && !auth_token.is_empty();
+
+    Ok(Json(SentryConfigStatus {
+        base_url,
+        organization,
+        has_auth_token: !auth_token.is_empty(),
+        configured,
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSentryConfigRequest {
+    pub base_url: Option<String>,
+    pub organization: Option<String>,
+    pub auth_token: Option<String>,
+}
+
+pub async fn update_sentry_config(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateSentryConfigRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+
+    if let Some(ref base_url) = req.base_url {
+        db::set_global_setting(&state.db, "sentry_base_url", base_url, user.user.id).await?;
+    }
+
+    if let Some(ref organization) = req.organization {
+        db::set_global_setting(&state.db, "sentry_organization", organization, user.user.id)
+            .await?;
+    }
+
+    if let Some(ref token) = req.auth_token {
+        let encrypted = crate::crypto::encrypt_value(token)?;
+        db::set_global_setting(&state.db, "sentry_auth_token", &encrypted, user.user.id).await?;
+    }
+
+    // Audit log
+    let _ = db::write_audit_log(
+        &state.db,
+        user.user.id,
+        "admin.sentry_config_updated",
+        "global_settings",
+        None,
+        &serde_json::json!({
+            "base_url_changed": req.base_url.is_some(),
+            "organization_changed": req.organization.is_some(),
+            "auth_token_changed": req.auth_token.is_some(),
+        }),
+        None,
+    )
+    .await;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn test_ai_config(
     user: AuthenticatedUser,
     State(state): State<AppState>,
