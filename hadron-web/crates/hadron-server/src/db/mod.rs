@@ -480,7 +480,8 @@ pub async fn create_release_note(
     let row: ReleaseNoteRow = sqlx::query_as(
         "INSERT INTO release_notes (user_id, title, version, content, format)
          VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights",
+         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights,
+                   status, checklist_state, reviewed_by, reviewed_at, published_at, markdown_content",
     )
     .bind(user_id)
     .bind(title)
@@ -509,7 +510,8 @@ pub async fn get_release_notes(
     .map_err(|e| HadronError::database(e.to_string()))?;
 
     let rows: Vec<ReleaseNoteRow> = sqlx::query_as(
-        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights
+        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights,
+                status, checklist_state, reviewed_by, reviewed_at, published_at, markdown_content
          FROM release_notes
          WHERE user_id = $1
          ORDER BY created_at DESC
@@ -531,7 +533,8 @@ pub async fn get_release_note(
     user_id: Uuid,
 ) -> HadronResult<ReleaseNote> {
     let row: ReleaseNoteRow = sqlx::query_as(
-        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights
+        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights,
+                status, checklist_state, reviewed_by, reviewed_at, published_at, markdown_content
          FROM release_notes
          WHERE id = $1 AND user_id = $2",
     )
@@ -565,7 +568,8 @@ pub async fn update_release_note(
              content = COALESCE($5, content),
              format = COALESCE($6, format)
          WHERE id = $1 AND user_id = $2
-         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights",
+         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights,
+                   status, checklist_state, reviewed_by, reviewed_at, published_at, markdown_content",
     )
     .bind(id)
     .bind(user_id)
@@ -610,7 +614,8 @@ pub async fn publish_release_note(
         "UPDATE release_notes
          SET is_published = TRUE
          WHERE id = $1 AND user_id = $2
-         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights",
+         RETURNING id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights,
+                   status, checklist_state, reviewed_by, reviewed_at, published_at, markdown_content",
     )
     .bind(id)
     .bind(user_id)
@@ -620,6 +625,73 @@ pub async fn publish_release_note(
     .ok_or_else(|| HadronError::not_found(format!("Release note {id} not found")))?;
 
     Ok(row.into())
+}
+
+pub async fn update_release_note_status(
+    pool: &PgPool,
+    id: i64,
+    _user_id: Uuid,
+    status: &str,
+    reviewed_by: Option<Uuid>,
+    reviewed_at: Option<DateTime<Utc>>,
+    published_at: Option<DateTime<Utc>>,
+) -> HadronResult<()> {
+    let result = sqlx::query(
+        "UPDATE release_notes
+         SET status = $1, reviewed_by = $2, reviewed_at = $3, published_at = $4
+         WHERE id = $5 AND deleted_at IS NULL",
+    )
+    .bind(status)
+    .bind(reviewed_by)
+    .bind(reviewed_at)
+    .bind(published_at)
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err(HadronError::not_found(format!("Release note {id} not found")));
+    }
+
+    Ok(())
+}
+
+pub async fn update_release_note_checklist(
+    pool: &PgPool,
+    id: i64,
+    _user_id: Uuid,
+    checklist: &serde_json::Value,
+) -> HadronResult<()> {
+    let result = sqlx::query(
+        "UPDATE release_notes
+         SET checklist_state = $1
+         WHERE id = $2 AND deleted_at IS NULL",
+    )
+    .bind(checklist)
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err(HadronError::not_found(format!("Release note {id} not found")));
+    }
+
+    Ok(())
+}
+
+pub async fn get_release_note_owner(pool: &PgPool, id: i64) -> HadronResult<Uuid> {
+    let row: (Uuid,) = sqlx::query_as(
+        "SELECT user_id FROM release_notes WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?
+    .ok_or_else(|| HadronError::not_found(format!("Release note {id} not found")))?;
+
+    Ok(row.0)
 }
 
 // ============================================================================
@@ -1018,6 +1090,12 @@ pub struct ReleaseNote {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub ai_insights: Option<serde_json::Value>,
+    pub status: Option<String>,
+    pub checklist_state: Option<serde_json::Value>,
+    pub reviewed_by: Option<Uuid>,
+    pub reviewed_at: Option<DateTime<Utc>>,
+    pub published_at: Option<DateTime<Utc>>,
+    pub markdown_content: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1032,6 +1110,12 @@ struct ReleaseNoteRow {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     ai_insights: Option<serde_json::Value>,
+    status: Option<String>,
+    checklist_state: Option<serde_json::Value>,
+    reviewed_by: Option<Uuid>,
+    reviewed_at: Option<DateTime<Utc>>,
+    published_at: Option<DateTime<Utc>>,
+    markdown_content: Option<String>,
 }
 
 impl From<ReleaseNoteRow> for ReleaseNote {
@@ -1047,6 +1131,12 @@ impl From<ReleaseNoteRow> for ReleaseNote {
             created_at: r.created_at,
             updated_at: r.updated_at,
             ai_insights: r.ai_insights,
+            status: r.status,
+            checklist_state: r.checklist_state,
+            reviewed_by: r.reviewed_by,
+            reviewed_at: r.reviewed_at,
+            published_at: r.published_at,
+            markdown_content: r.markdown_content,
         }
     }
 }

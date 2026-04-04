@@ -378,7 +378,124 @@ pub fn build_generation_messages(
 }
 
 // ============================================================================
-// 7. Tests
+// 7. Compliance Types
+// ============================================================================
+
+// ── Compliance Types ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ComplianceReport {
+    #[serde(default)]
+    pub terminology_violations: Vec<TerminologyViolation>,
+    #[serde(default)]
+    pub structure_violations: Vec<StructureViolation>,
+    #[serde(default)]
+    pub screenshot_suggestions: Vec<ScreenshotSuggestion>,
+    #[serde(default)]
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminologyViolation {
+    #[serde(default)]
+    pub term: String,
+    #[serde(default)]
+    pub correct_term: String,
+    #[serde(default)]
+    pub context: String,
+    #[serde(default)]
+    pub suggestion: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StructureViolation {
+    #[serde(default)]
+    pub rule: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub location: String,
+    #[serde(default)]
+    pub suggestion: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotSuggestion {
+    #[serde(default)]
+    pub location: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+// ============================================================================
+// 8. Default checklist
+// ============================================================================
+
+pub const DEFAULT_CHECKLIST_ITEMS: &[&str] = &[
+    "Title is concise and searchable",
+    "Correctly labelled as feature or bug fix",
+    "Base fix version correctly entered",
+    "Base ticket linked (both sides for Cloud)",
+    "Keywords entered (including UPGRADE if needed)",
+    "Administration checkbox set if applicable",
+    "WHATS'ON module entered",
+    "In the appropriate epic",
+    "Features adapted into sentences in epic",
+    "Purpose of feature/fix is clear",
+    "Screenshots use deployed images (not DEV)",
+    "Correct WHATS'ON terminology used",
+];
+
+// ============================================================================
+// 9. Compliance prompt, builder, parser
+// ============================================================================
+
+pub const COMPLIANCE_SYSTEM_PROMPT: &str = r#"You are a release notes style guide auditor. Given a release notes draft and a style guide, check compliance and return ONLY valid JSON:
+
+{
+  "terminologyViolations": [
+    { "term": "wrong term", "correctTerm": "correct term", "context": "surrounding text", "suggestion": "fix description" }
+  ],
+  "structureViolations": [
+    { "rule": "rule violated", "description": "what is wrong", "location": "where", "suggestion": "how to fix" }
+  ],
+  "screenshotSuggestions": [
+    { "location": "where to insert", "description": "what to screenshot", "reason": "why" }
+  ],
+  "score": 85
+}
+
+Scoring: Start at 100. Terminology violation: -3 each. Structure violation: -5 each. Screenshots don't affect score. Minimum 0."#;
+
+pub fn build_compliance_messages(
+    markdown: &str,
+    style_guide: &str,
+) -> (String, Vec<super::types::AiMessage>) {
+    let system = format!("{}\n\n=== STYLE GUIDE ===\n{}", COMPLIANCE_SYSTEM_PROMPT, style_guide);
+    let user_content = format!("Audit the following release notes draft:\n\n{}", truncate_chars(markdown, 50000));
+    let messages = vec![super::types::AiMessage {
+        role: "user".to_string(),
+        content: user_content,
+    }];
+    (system, messages)
+}
+
+pub fn parse_compliance_response(raw: &str) -> HadronResult<ComplianceReport> {
+    let json_str = super::parsers::strip_markdown_fences(raw);
+    serde_json::from_str(json_str).map_err(|e| {
+        let preview = &json_str[..json_str.len().min(300)];
+        HadronError::Parse(format!("Failed to parse compliance response: {e}. Preview: {preview}"))
+    })
+}
+
+// ============================================================================
+// 10. Tests
 // ============================================================================
 
 #[cfg(test)]
@@ -580,5 +697,57 @@ mod tests {
             "User message should contain ticket count, got: {}",
             &user_msg[..200.min(user_msg.len())]
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Compliance prompt tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_build_compliance_prompt() {
+        let (system, messages) = build_compliance_messages("## Release Notes\nContent here", "Test guide");
+        assert!(system.contains("style guide auditor"));
+        assert!(system.contains("Test guide"));
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].content.contains("Release Notes"));
+    }
+
+    #[test]
+    fn test_parse_compliance_response() {
+        let json = r#"{
+            "terminologyViolations": [
+                { "term": "customers", "correctTerm": "users", "context": "for our customers", "suggestion": "Replace with users" }
+            ],
+            "structureViolations": [
+                { "rule": "Fix format", "description": "Missing Previously", "location": "Line 5", "suggestion": "Start with Previously" }
+            ],
+            "screenshotSuggestions": [
+                { "location": "After section 2", "description": "New dialog", "reason": "UI change" }
+            ],
+            "score": 82.0
+        }"#;
+        let report = parse_compliance_response(json).unwrap();
+        assert_eq!(report.terminology_violations.len(), 1);
+        assert_eq!(report.terminology_violations[0].term, "customers");
+        assert_eq!(report.structure_violations.len(), 1);
+        assert_eq!(report.screenshot_suggestions.len(), 1);
+        assert!((report.score - 82.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_parse_compliance_defaults() {
+        let json = r#"{"score": 100}"#;
+        let report = parse_compliance_response(json).unwrap();
+        assert!(report.terminology_violations.is_empty());
+        assert!(report.structure_violations.is_empty());
+        assert!((report.score - 100.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_default_checklist_items() {
+        assert_eq!(DEFAULT_CHECKLIST_ITEMS.len(), 12);
+        for item in DEFAULT_CHECKLIST_ITEMS {
+            assert!(!item.is_empty());
+        }
     }
 }
