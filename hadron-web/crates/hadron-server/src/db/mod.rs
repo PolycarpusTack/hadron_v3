@@ -502,7 +502,7 @@ pub async fn get_release_notes(
     offset: i64,
 ) -> HadronResult<(Vec<ReleaseNote>, i64)> {
     let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM release_notes WHERE user_id = $1",
+        "SELECT COUNT(*) FROM release_notes WHERE user_id = $1 AND deleted_at IS NULL",
     )
     .bind(user_id)
     .fetch_one(pool)
@@ -513,7 +513,7 @@ pub async fn get_release_notes(
         "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights,
                 status, checklist_state, reviewed_by, reviewed_at, published_at, markdown_content
          FROM release_notes
-         WHERE user_id = $1
+         WHERE user_id = $1 AND deleted_at IS NULL
          ORDER BY created_at DESC
          LIMIT $2 OFFSET $3",
     )
@@ -525,6 +525,24 @@ pub async fn get_release_notes(
     .map_err(|e| HadronError::database(e.to_string()))?;
 
     Ok((rows.into_iter().map(Into::into).collect(), total.0))
+}
+
+/// Fetch a release note by ID without filtering by user_id.
+/// Used by leads/admins who need to access notes they don't own (approval, compliance, publish).
+pub async fn get_release_note_by_id(pool: &PgPool, id: i64) -> HadronResult<ReleaseNote> {
+    let row: ReleaseNoteRow = sqlx::query_as(
+        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights,
+                status, checklist_state, reviewed_by, reviewed_at, published_at, markdown_content
+         FROM release_notes
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?
+    .ok_or_else(|| HadronError::not_found(format!("Release note {id} not found")))?;
+
+    Ok(row.into())
 }
 
 pub async fn get_release_note(

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api, SentryAnalysisFullData } from '../../services/api';
+import { api, SentryAnalysisFullData, SentryAnalysisDetail } from '../../services/api';
 import { useAiStream } from '../../hooks/useAiStream';
 import { SentryIssueBrowser } from './SentryIssueBrowser';
 import { SentryQuickImport } from './SentryQuickImport';
@@ -37,23 +37,20 @@ export function SentryAnalyzerView() {
   useEffect(() => {
     if (!isStreaming && content && analyzing) {
       setAnalyzing(false);
-      try {
-        // The streamed content is the raw AI response; after streaming completes,
-        // fetch the latest persisted analysis from the server.
-        JSON.parse(content); // validate it is parseable JSON
-        api.getSentryAnalyses(1).then(({ items }: { items: Array<{ id: number }> }) => {
+      (async () => {
+        try {
+          const { items } = await api.getSentryAnalyses(1);
           if (items.length > 0) {
-            api.getSentryAnalysis(items[0].id).then((full: any) => {
-              if (full.fullData) {
-                setAnalysisData(full.fullData as SentryAnalysisFullData);
-                setShowDetail(true);
-              }
-            });
+            const full: SentryAnalysisDetail = await api.getSentryAnalysis(items[0].id);
+            if (full.fullData) {
+              setAnalysisData(full.fullData);
+              setShowDetail(true);
+            }
           }
-        });
-      } catch {
-        setError('Failed to parse analysis result');
-      }
+        } catch {
+          setError('Failed to load analysis result');
+        }
+      })();
     }
   }, [isStreaming, content, analyzing]);
 
@@ -66,9 +63,9 @@ export function SentryAnalyzerView() {
 
   const handleViewAnalysis = async (id: number) => {
     try {
-      const full: any = await api.getSentryAnalysis(id);
+      const full: SentryAnalysisDetail = await api.getSentryAnalysis(id);
       if (full.fullData) {
-        setAnalysisData(full.fullData as SentryAnalysisFullData);
+        setAnalysisData(full.fullData);
         setShowDetail(true);
       }
     } catch (e) {

@@ -489,7 +489,11 @@ pub fn build_compliance_messages(
 pub fn parse_compliance_response(raw: &str) -> HadronResult<ComplianceReport> {
     let json_str = super::parsers::strip_markdown_fences(raw);
     serde_json::from_str(json_str).map_err(|e| {
-        let preview = &json_str[..json_str.len().min(300)];
+        let mut end = json_str.len().min(300);
+        while end > 0 && !json_str.is_char_boundary(end) {
+            end -= 1;
+        }
+        let preview = &json_str[..end];
         HadronError::Parse(format!("Failed to parse compliance response: {e}. Preview: {preview}"))
     })
 }

@@ -154,4 +154,3 @@ export function SentryExceptionChain({ exceptions }: SentryExceptionChainProps) 
   );
 }
 
-export default SentryExceptionChain;

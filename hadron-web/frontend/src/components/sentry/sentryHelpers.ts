@@ -83,6 +83,10 @@ export function getPatternIcon(patternType: string): string {
   return icons[patternType] || '\u{1F50D}';
 }
 
+export function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export function getPatternLabel(patternType: string): string {
   const labels: Record<string, string> = {
     deadlock: 'Deadlock', n_plus_one: 'N+1 Query', memory_leak: 'Memory Leak',

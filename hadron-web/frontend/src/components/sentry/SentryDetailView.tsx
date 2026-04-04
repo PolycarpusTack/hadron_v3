@@ -25,8 +25,9 @@ const TABS = [
 
 export default function SentryDetailView({ data, onBack }: SentryDetailViewProps) {
   const [activeTab, setActiveTab] = useState(0);
+  const [copied, setCopied] = useState(false);
 
-  function handleCopyReport() {
+  async function handleCopyReport() {
     const lines = [
       `Sentry Analysis: ${data.issue.title}`,
       `Severity: ${data.aiResult.severity}`,
@@ -39,7 +40,13 @@ export default function SentryDetailView({ data, onBack }: SentryDetailViewProps
       'Suggested Fixes:',
       ...data.aiResult.suggestedFixes.map((f, i) => `${i + 1}. ${f}`),
     ];
-    navigator.clipboard.writeText(lines.join('\n'));
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard write failed (e.g. permissions denied) — silently ignore
+    }
   }
 
   return (
@@ -109,7 +116,7 @@ export default function SentryDetailView({ data, onBack }: SentryDetailViewProps
               d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
             />
           </svg>
-          Copy Report
+          {copied ? 'Copied!' : 'Copy Report'}
         </button>
       </div>
 

@@ -116,4 +116,3 @@ export function SentryIssueRow({ issue, onAnalyze }: SentryIssueRowProps) {
   );
 }
 
-export default SentryIssueRow;

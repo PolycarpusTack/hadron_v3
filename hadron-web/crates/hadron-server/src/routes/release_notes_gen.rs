@@ -53,9 +53,19 @@ fn build_jql(config: &ReleaseNotesConfig, default_project: &str) -> String {
         }
     }
     let project = config.project_key.as_deref().unwrap_or(default_project);
+    // Sanitize: only allow alphanumeric, dash, underscore, dot — prevents JQL injection.
+    let safe_project: String = project
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    let safe_version: String = config
+        .fix_version
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.' || *c == ' ')
+        .collect();
     format!(
         "project = \"{}\" AND fixVersion = \"{}\"",
-        project, config.fix_version
+        safe_project, safe_version
     )
 }
 
