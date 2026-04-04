@@ -112,6 +112,12 @@ export interface ReleaseNote {
   createdAt: string;
   updatedAt: string;
   aiInsights: AiInsights | null;
+  status: string | null;
+  checklistState: ChecklistItem[] | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  publishedAt: string | null;
+  markdownContent: string | null;
 }
 
 export interface SimilarAnalysis {
@@ -487,6 +493,50 @@ export interface AiInsights {
 
 export interface StyleGuideResponse {
   content: string;
+  isCustom: boolean;
+}
+
+// ── Release Notes Review & Compliance Types ───────────────────────────
+
+export interface ComplianceReport {
+  terminologyViolations: TerminologyViolation[];
+  structureViolations: StructureViolation[];
+  screenshotSuggestions: ScreenshotSuggestion[];
+  score: number;
+}
+
+export interface TerminologyViolation {
+  term: string;
+  correctTerm: string;
+  context: string;
+  suggestion: string;
+}
+
+export interface StructureViolation {
+  rule: string;
+  description: string;
+  location: string;
+  suggestion: string;
+}
+
+export interface ScreenshotSuggestion {
+  location: string;
+  description: string;
+  reason: string;
+}
+
+export interface ChecklistItem {
+  item: string;
+  checked: boolean;
+}
+
+export interface ChecklistResponse {
+  items: ChecklistItem[];
+  complete: boolean;
+}
+
+export interface ChecklistConfigResponse {
+  items: string[];
   isCustom: boolean;
 }
 
@@ -1541,6 +1591,36 @@ class ApiClient {
 
   async deleteStyleGuide(): Promise<void> {
     return this.request("DELETE", "/admin/style-guide");
+  }
+
+  // ── Release Notes Review & Compliance ───────────────────────────
+
+  async updateReleaseNoteStatus(id: number, status: string): Promise<void> {
+    return this.request("PUT", `/release-notes/${id}/status`, { status });
+  }
+
+  async getReleaseNoteChecklist(id: number): Promise<ChecklistResponse> {
+    return this.request("GET", `/release-notes/${id}/checklist`);
+  }
+
+  async updateReleaseNoteChecklist(id: number, items: ChecklistItem[]): Promise<void> {
+    return this.request("PUT", `/release-notes/${id}/checklist`, items);
+  }
+
+  async runComplianceCheck(id: number): Promise<ComplianceReport> {
+    return this.request("POST", `/release-notes/${id}/compliance`);
+  }
+
+  async getChecklistConfig(): Promise<ChecklistConfigResponse> {
+    return this.request("GET", "/admin/checklist-config");
+  }
+
+  async updateChecklistConfig(items: string[]): Promise<void> {
+    return this.request("PUT", "/admin/checklist-config", { items });
+  }
+
+  async deleteChecklistConfig(): Promise<void> {
+    return this.request("DELETE", "/admin/checklist-config");
   }
 }
 
