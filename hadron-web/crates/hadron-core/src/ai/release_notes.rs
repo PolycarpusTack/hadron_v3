@@ -495,7 +495,124 @@ pub fn parse_compliance_response(raw: &str) -> HadronResult<ComplianceReport> {
 }
 
 // ============================================================================
-// 10. Tests
+// 10. Markdown → Confluence conversion
+// ============================================================================
+
+/// Convert a Markdown string to Confluence wiki markup line by line.
+///
+/// Rules applied in order:
+/// - Heading prefixes (`######` → `h6.` … `#` → `h1.`)
+/// - Table separator lines (starts with `|`, contains `---`): skipped
+/// - Table header rows (starts with `|`, next line is a separator):
+///   pipe tokens become `||` and bold markers (`**`) are stripped
+/// - Table body rows (starts with `|`): passed through unchanged
+/// - Lines containing `**`: `**` replaced with `*`
+/// - Bullet points: leading `- ` replaced with `* `
+/// - Code fences: ` ``` ` → `{code}`, ` ```lang` → `{code:language=lang}`
+/// - Everything else: passed through
+pub fn markdown_to_confluence(markdown: &str) -> String {
+    let lines: Vec<&str> = markdown.lines().collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+
+    let is_table_separator = |line: &str| -> bool {
+        line.trim_start().starts_with('|') && line.contains("---")
+    };
+
+    let mut i = 0usize;
+    while i < lines.len() {
+        let line = lines[i];
+
+        // ── Headings ──────────────────────────────────────────────────────
+        let heading_levels = [
+            ("######", "h6."),
+            ("#####", "h5."),
+            ("####", "h4."),
+            ("###", "h3."),
+            ("##", "h2."),
+            ("#", "h1."),
+        ];
+        let mut matched_heading = false;
+        for (prefix, replacement) in &heading_levels {
+            if line.starts_with(prefix) {
+                let rest = line[prefix.len()..].trim_start();
+                out.push(format!("{} {}", replacement, rest));
+                matched_heading = true;
+                break;
+            }
+        }
+        if matched_heading {
+            i += 1;
+            continue;
+        }
+
+        // ── Table rows ────────────────────────────────────────────────────
+        if line.trim_start().starts_with('|') {
+            // Skip separator lines entirely.
+            if is_table_separator(line) {
+                i += 1;
+                continue;
+            }
+
+            // Determine whether the *next non-blank* line is a separator
+            // (making this line a header row).
+            let next_is_separator = lines
+                .get(i + 1)
+                .map(|nl| is_table_separator(nl))
+                .unwrap_or(false);
+
+            if next_is_separator {
+                // Header row: replace `| ` → `|| ` and ` |` → ` ||`,
+                // then strip bold markers from header cell text.
+                let converted = line
+                    .replace("| ", "|| ")
+                    .replace(" |", " ||")
+                    .replace("**", "");
+                out.push(converted);
+            } else {
+                // Body row: pass through unchanged.
+                out.push(line.to_string());
+            }
+            i += 1;
+            continue;
+        }
+
+        // ── Code fences ───────────────────────────────────────────────────
+        if line.trim_start().starts_with("```") {
+            let fence_content = line.trim_start().trim_start_matches('`');
+            let lang = fence_content.trim();
+            if lang.is_empty() {
+                out.push("{code}".to_string());
+            } else {
+                out.push(format!("{{code:language={}}}", lang));
+            }
+            i += 1;
+            continue;
+        }
+
+        // ── Bullet points ─────────────────────────────────────────────────
+        if line.starts_with("- ") {
+            out.push(format!("* {}", &line[2..]));
+            i += 1;
+            continue;
+        }
+
+        // ── Bold markers ──────────────────────────────────────────────────
+        if line.contains("**") {
+            out.push(line.replace("**", "*"));
+            i += 1;
+            continue;
+        }
+
+        // ── Pass-through ──────────────────────────────────────────────────
+        out.push(line.to_string());
+        i += 1;
+    }
+
+    out.join("\n")
+}
+
+// ============================================================================
+// 11. Tests
 // ============================================================================
 
 #[cfg(test)]
@@ -749,5 +866,60 @@ mod tests {
         for item in DEFAULT_CHECKLIST_ITEMS {
             assert!(!item.is_empty());
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // markdown_to_confluence tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_markdown_to_confluence_headings() {
+        let md = "# Heading 1\n## Heading 2\n### Heading 3\n#### Heading 4\n##### Heading 5\n###### Heading 6";
+        let result = markdown_to_confluence(md);
+        assert!(result.contains("h1. Heading 1"), "h1 not found in: {}", result);
+        assert!(result.contains("h2. Heading 2"), "h2 not found in: {}", result);
+        assert!(result.contains("h3. Heading 3"), "h3 not found in: {}", result);
+        assert!(result.contains("h4. Heading 4"), "h4 not found in: {}", result);
+        assert!(result.contains("h5. Heading 5"), "h5 not found in: {}", result);
+        assert!(result.contains("h6. Heading 6"), "h6 not found in: {}", result);
+    }
+
+    #[test]
+    fn test_markdown_to_confluence_tables() {
+        let md = "| **Module** | **Ticket** |\n| --- | --- |\n| Auth | PROJ-1 |";
+        let result = markdown_to_confluence(md);
+        // Header row should use || delimiters and have bold markers stripped.
+        assert!(result.contains("|| Module"), "header cells should use || in: {}", result);
+        assert!(!result.contains("**"), "bold markers should be stripped in: {}", result);
+        // Separator line should be absent entirely.
+        assert!(!result.contains("---"), "separator line should be skipped in: {}", result);
+        // Body row preserved.
+        assert!(result.contains("| Auth | PROJ-1 |"), "body row should be preserved in: {}", result);
+    }
+
+    #[test]
+    fn test_markdown_to_confluence_bold_bullets() {
+        let md = "**Important note**\n- First item\n- Second item";
+        let result = markdown_to_confluence(md);
+        // Double asterisks become single.
+        assert!(result.contains("*Important note*"), "bold should become single asterisk in: {}", result);
+        // Bullet dashes become asterisks.
+        assert!(result.contains("* First item"), "bullet dash should become * in: {}", result);
+        assert!(result.contains("* Second item"), "bullet dash should become * in: {}", result);
+    }
+
+    #[test]
+    fn test_markdown_to_confluence_code_blocks() {
+        let md_no_lang = "```\nsome code\n```";
+        let result_no_lang = markdown_to_confluence(md_no_lang);
+        assert!(result_no_lang.contains("{code}"), "plain fence should become {{code}} in: {}", result_no_lang);
+
+        let md_with_lang = "```rust\nfn main() {}\n```";
+        let result_with_lang = markdown_to_confluence(md_with_lang);
+        assert!(
+            result_with_lang.contains("{code:language=rust}"),
+            "language fence should become {{code:language=rust}} in: {}",
+            result_with_lang
+        );
     }
 }

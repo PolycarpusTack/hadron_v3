@@ -481,6 +481,70 @@ pub async fn delete_checklist_config(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ============================================================================
+// Confluence Configuration (Admin)
+// ============================================================================
+
+/// Response for GET /api/admin/confluence — never returns credentials.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfluenceConfigStatus {
+    pub space_key: String,
+    pub parent_page_id: String,
+    pub configured: bool,
+}
+
+pub async fn get_confluence_config(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let space_key = db::get_global_setting(&state.db, "confluence_space_key")
+        .await?
+        .unwrap_or_default();
+    let parent_page_id = db::get_global_setting(&state.db, "confluence_parent_page_id")
+        .await?
+        .unwrap_or_default();
+
+    let configured = !space_key.is_empty();
+
+    Ok(Json(ConfluenceConfigStatus {
+        space_key,
+        parent_page_id,
+        configured,
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateConfluenceConfigRequest {
+    pub space_key: Option<String>,
+    pub parent_page_id: Option<String>,
+}
+
+pub async fn update_confluence_config(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateConfluenceConfigRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+
+    if let Some(ref space_key) = req.space_key {
+        db::set_global_setting(&state.db, "confluence_space_key", space_key, user.user.id).await?;
+    }
+
+    if let Some(ref parent_page_id) = req.parent_page_id {
+        db::set_global_setting(
+            &state.db,
+            "confluence_parent_page_id",
+            parent_page_id,
+            user.user.id,
+        )
+        .await?;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn test_ai_config(
     user: AuthenticatedUser,
     State(state): State<AppState>,

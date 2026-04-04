@@ -271,6 +271,78 @@ pub async fn update_checklist(
 }
 
 // ============================================================================
+// Confluence Export & Publish
+// ============================================================================
+
+pub async fn export_confluence(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    let note = db::get_release_note(&state.db, id, user.user.id)
+        .await
+        .map_err(AppError)?;
+
+    let markdown = note
+        .markdown_content
+        .as_deref()
+        .unwrap_or(&note.content);
+
+    let wiki_text = hadron_core::ai::markdown_to_confluence(markdown);
+
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        wiki_text,
+    ))
+}
+
+pub async fn publish_confluence(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    let note = db::get_release_note(&state.db, id, user.user.id)
+        .await
+        .map_err(AppError)?;
+
+    let space_key = db::get_global_setting(&state.db, "confluence_space_key")
+        .await?
+        .unwrap_or_default();
+
+    if space_key.is_empty() {
+        return Err(AppError(hadron_core::error::HadronError::validation(
+            "Confluence space key is not configured. Ask an admin to set it.",
+        )));
+    }
+
+    let parent_page_id = db::get_global_setting(&state.db, "confluence_parent_page_id")
+        .await?
+        .unwrap_or_default();
+
+    let jira_config = db::get_jira_config_from_poller(&state.db).await?;
+
+    let markdown = note
+        .markdown_content
+        .as_deref()
+        .unwrap_or(&note.content);
+
+    let wiki_text = hadron_core::ai::markdown_to_confluence(markdown);
+
+    let result = crate::integrations::confluence::publish_page(
+        &jira_config.base_url,
+        &jira_config.email,
+        &jira_config.api_token,
+        &space_key,
+        &parent_page_id,
+        &note.title,
+        &wiki_text,
+    )
+    .await?;
+
+    Ok(Json(result))
+}
+
+// ============================================================================
 // Compliance Check
 // ============================================================================
 

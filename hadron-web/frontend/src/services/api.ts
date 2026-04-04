@@ -541,6 +541,22 @@ export interface ChecklistConfigResponse {
 }
 
 // ============================================================================
+// Confluence Types
+// ============================================================================
+
+export interface ConfluencePageResult {
+  id: string;
+  url: string;
+  created: boolean;
+}
+
+export interface ConfluenceConfig {
+  spaceKey: string;
+  parentPageId: string;
+  configured: boolean;
+}
+
+// ============================================================================
 // Sentry Analysis Types
 // ============================================================================
 
@@ -1621,6 +1637,36 @@ class ApiClient {
 
   async deleteChecklistConfig(): Promise<void> {
     return this.request("DELETE", "/admin/checklist-config");
+  }
+
+  // === Confluence Export / Publish ===
+
+  async exportConfluence(id: number): Promise<string> {
+    const headers = await this.headers();
+    const response = await fetch(`${API_BASE}/release-notes/${id}/export/confluence`, {
+      method: "POST",
+      headers,
+    });
+    if (!response.ok) {
+      const error: ApiError = await response.json().catch(() => ({
+        error: `HTTP ${response.status}`,
+        code: "UNKNOWN",
+      }));
+      throw new HadronApiError(response.status, error.error, error.code);
+    }
+    return response.text();
+  }
+
+  async publishToConfluence(id: number): Promise<ConfluencePageResult> {
+    return this.request("POST", `/release-notes/${id}/publish/confluence`);
+  }
+
+  async getConfluenceConfig(): Promise<ConfluenceConfig> {
+    return this.request("GET", "/admin/confluence");
+  }
+
+  async updateConfluenceConfig(config: { spaceKey?: string; parentPageId?: string }): Promise<void> {
+    return this.request("PUT", "/admin/confluence", config);
   }
 }
 

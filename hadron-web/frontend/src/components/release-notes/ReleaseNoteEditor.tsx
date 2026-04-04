@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type AiInsights, type ReleaseNote } from "../../services/api";
+import { api, type AiInsights, type ReleaseNote, type ConfluencePageResult } from "../../services/api";
 import { useToast } from "../Toast";
 import { ReleaseNotesInsights } from "./ReleaseNotesInsights";
 import { ReleaseNotesReview } from './ReleaseNotesReview';
@@ -34,6 +34,9 @@ export function ReleaseNoteEditor({
   const [aiInsights, setAiInsights] = useState<AiInsights | null>(null);
   const [note, setNote] = useState<ReleaseNote | null>(null);
   const [showCompliance, setShowCompliance] = useState(false);
+  const [confluenceConfigured, setConfluenceConfigured] = useState(false);
+  const [publishingConfluence, setPublishingConfluence] = useState(false);
+  const [confluenceResult, setConfluenceResult] = useState<{ url: string; created: boolean } | null>(null);
 
   function applyNote(loaded: ReleaseNote) {
     setNote(loaded);
@@ -65,6 +68,10 @@ export function ReleaseNoteEditor({
       setAiInsights(null);
     }
   }, [noteId]);
+
+  useEffect(() => {
+    api.getConfluenceConfig().then(c => setConfluenceConfigured(c.configured)).catch(() => {});
+  }, []);
 
   async function handleReload() {
     if (noteId) {
@@ -124,6 +131,35 @@ export function ReleaseNoteEditor({
       setPublishing(false);
     }
   };
+
+  async function handleExportConfluence() {
+    if (!noteId) return;
+    try {
+      const text = await api.exportConfluence(noteId);
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title || 'release-notes'}-confluence.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to export Confluence markup");
+    }
+  }
+
+  async function handlePublishConfluence() {
+    if (!noteId) return;
+    setPublishingConfluence(true);
+    setConfluenceResult(null);
+    try {
+      const result: ConfluencePageResult = await api.publishToConfluence(noteId);
+      setConfluenceResult(result);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to publish to Confluence");
+    }
+    setPublishingConfluence(false);
+  }
 
   const viewModes: { key: ViewMode; label: string }[] = [
     { key: 'edit', label: 'Edit' },
@@ -258,6 +294,23 @@ export function ReleaseNoteEditor({
         )}
         {noteId && (
           <button
+            onClick={handleExportConfluence}
+            className="rounded-md border border-amber-600 px-3 py-1.5 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-600/10"
+          >
+            Export Confluence
+          </button>
+        )}
+        {noteId && confluenceConfigured && (
+          <button
+            onClick={handlePublishConfluence}
+            disabled={publishingConfluence}
+            className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+          >
+            {publishingConfluence ? "Publishing..." : "Publish to Confluence"}
+          </button>
+        )}
+        {noteId && (
+          <button
             onClick={async () => {
               try {
                 await api.deleteReleaseNote(noteId);
@@ -275,6 +328,15 @@ export function ReleaseNoteEditor({
           </button>
         )}
       </div>
+
+      {confluenceResult && (
+        <div className="text-sm text-green-700 bg-green-50 p-2 rounded">
+          {confluenceResult.created ? 'Page created' : 'Page updated'}:{' '}
+          <a href={confluenceResult.url} target="_blank" rel="noopener noreferrer" className="underline">
+            View in Confluence
+          </a>
+        </div>
+      )}
 
       {/* Compliance panel */}
       {showCompliance && noteId && (
