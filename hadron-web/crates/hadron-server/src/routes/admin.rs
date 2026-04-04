@@ -427,6 +427,60 @@ pub async fn delete_style_guide(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ============================================================================
+// Checklist Config (Admin)
+// ============================================================================
+
+pub async fn get_checklist_config(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let custom = db::get_global_setting(&state.db, "release_notes_checklist")
+        .await?
+        .filter(|s| !s.is_empty());
+    let is_custom = custom.is_some();
+    let items: Vec<String> = if let Some(ref json_str) = custom {
+        serde_json::from_str(json_str).unwrap_or_else(|_| {
+            hadron_core::ai::DEFAULT_CHECKLIST_ITEMS
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        })
+    } else {
+        hadron_core::ai::DEFAULT_CHECKLIST_ITEMS
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    };
+    Ok(Json(serde_json::json!({ "items": items, "isCustom": is_custom })))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateChecklistConfigRequest {
+    pub items: Vec<String>,
+}
+
+pub async fn update_checklist_config(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateChecklistConfigRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+    let json = serde_json::to_string(&req.items)
+        .map_err(|e| AppError(hadron_core::error::HadronError::validation(e.to_string())))?;
+    db::set_global_setting(&state.db, "release_notes_checklist", &json, user.user.id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_checklist_config(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+    db::set_global_setting(&state.db, "release_notes_checklist", "", user.user.id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn test_ai_config(
     user: AuthenticatedUser,
     State(state): State<AppState>,
