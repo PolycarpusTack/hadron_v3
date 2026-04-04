@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { api, type AiInsights } from "../../services/api";
+import { api, type AiInsights, type ReleaseNote } from "../../services/api";
 import { useToast } from "../Toast";
 import { ReleaseNotesInsights } from "./ReleaseNotesInsights";
+import { ReleaseNotesReview } from './ReleaseNotesReview';
+import { ReleaseNotesCompliance } from './ReleaseNotesCompliance';
 
 type ViewMode = 'edit' | 'preview';
 
@@ -9,12 +11,16 @@ interface ReleaseNoteEditorProps {
   noteId: number | null;
   onSaved: () => void;
   onCancel: () => void;
+  currentUserId?: string;
+  currentUserRole?: string;
 }
 
 export function ReleaseNoteEditor({
   noteId,
   onSaved,
   onCancel,
+  currentUserId,
+  currentUserRole,
 }: ReleaseNoteEditorProps) {
   const toast = useToast();
   const [title, setTitle] = useState("");
@@ -26,25 +32,31 @@ export function ReleaseNoteEditor({
   const [isPublished, setIsPublished] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
   const [aiInsights, setAiInsights] = useState<AiInsights | null>(null);
+  const [note, setNote] = useState<ReleaseNote | null>(null);
+  const [showCompliance, setShowCompliance] = useState(false);
+
+  function applyNote(loaded: ReleaseNote) {
+    setNote(loaded);
+    setTitle(loaded.title);
+    setVersion(loaded.version || "");
+    setFormat(loaded.format);
+    setContent(loaded.markdownContent || loaded.content);
+    setIsPublished(loaded.isPublished);
+    setAiInsights(loaded.aiInsights ?? null);
+  }
 
   useEffect(() => {
     if (noteId) {
       api
         .getReleaseNote(noteId)
-        .then((note) => {
-          setTitle(note.title);
-          setVersion(note.version || "");
-          setFormat(note.format);
-          setContent(note.content);
-          setIsPublished(note.isPublished);
-          setAiInsights(note.aiInsights ?? null);
-        })
+        .then(applyNote)
         .catch((e) =>
           toast.error(
             e instanceof Error ? e.message : "Failed to load release note",
           ),
         );
     } else {
+      setNote(null);
       setTitle("");
       setVersion("");
       setFormat("markdown");
@@ -53,6 +65,20 @@ export function ReleaseNoteEditor({
       setAiInsights(null);
     }
   }, [noteId]);
+
+  async function handleReload() {
+    if (noteId) {
+      try {
+        const loaded = await api.getReleaseNote(noteId);
+        applyNote(loaded);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to reload note");
+      }
+    }
+  }
+
+  const isReadOnly =
+    note?.status === 'approved' || note?.status === 'published';
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -126,7 +152,8 @@ export function ReleaseNoteEditor({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Release note title"
-            className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+            readOnly={isReadOnly}
+            className={`w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none ${isReadOnly ? 'cursor-not-allowed opacity-70' : ''}`}
           />
         </div>
         <div className="flex gap-4">
@@ -137,7 +164,8 @@ export function ReleaseNoteEditor({
               value={version}
               onChange={(e) => setVersion(e.target.value)}
               placeholder="e.g. 4.1.0"
-              className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+              readOnly={isReadOnly}
+              className={`w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none ${isReadOnly ? 'cursor-not-allowed opacity-70' : ''}`}
             />
           </div>
           <div>
@@ -145,7 +173,8 @@ export function ReleaseNoteEditor({
             <select
               value={format}
               onChange={(e) => setFormat(e.target.value)}
-              className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none"
+              disabled={isReadOnly}
+              className={`rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none ${isReadOnly ? 'cursor-not-allowed opacity-70' : ''}`}
             >
               <option value="markdown">Markdown</option>
               <option value="plain">Plain text</option>
@@ -178,12 +207,13 @@ export function ReleaseNoteEditor({
             value={content}
             onChange={(e) => setContent(e.target.value)}
             rows={20}
+            readOnly={isReadOnly}
             placeholder={
               format === "markdown"
                 ? "## Changes\n\n- Feature A\n- Bug fix B"
                 : "Write release notes here..."
             }
-            className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 font-mono text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+            className={`w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 font-mono text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none ${isReadOnly ? 'cursor-not-allowed bg-slate-900' : ''}`}
           />
         </div>
       ) : (
@@ -197,14 +227,16 @@ export function ReleaseNoteEditor({
       )}
 
       <div className="flex items-center gap-3">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? "Saving..." : "Save"}
-        </button>
-        {noteId && !isPublished && (
+        {!isReadOnly && (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        )}
+        {noteId && !isPublished && !isReadOnly && (
           <button
             onClick={handlePublish}
             disabled={publishing}
@@ -215,6 +247,14 @@ export function ReleaseNoteEditor({
         )}
         {isPublished && (
           <span className="text-sm text-green-400">Published</span>
+        )}
+        {noteId && (
+          <button
+            onClick={() => setShowCompliance(!showCompliance)}
+            className="rounded-md px-3 py-1.5 text-sm bg-amber-100 text-amber-800 hover:bg-amber-200"
+          >
+            {showCompliance ? 'Hide Compliance' : 'Compliance Check'}
+          </button>
         )}
         {noteId && (
           <button
@@ -235,6 +275,29 @@ export function ReleaseNoteEditor({
           </button>
         )}
       </div>
+
+      {/* Compliance panel */}
+      {showCompliance && noteId && (
+        <div className="rounded-lg border border-amber-700/40 bg-slate-800/60 p-4">
+          <h4 className="mb-4 text-sm font-semibold text-slate-300">Compliance Check</h4>
+          <ReleaseNotesCompliance noteId={noteId} />
+        </div>
+      )}
+
+      {/* Review workflow */}
+      {noteId && note?.status !== undefined && (
+        <div className="mt-4 border-t border-slate-700 pt-4">
+          <h4 className="mb-4 text-sm font-semibold text-slate-300">Review Workflow</h4>
+          <ReleaseNotesReview
+            noteId={noteId}
+            status={note?.status ?? null}
+            noteOwnerId={note?.userId ?? ''}
+            currentUserId={currentUserId || ''}
+            currentUserRole={currentUserRole || 'analyst'}
+            onStatusChange={handleReload}
+          />
+        </div>
+      )}
 
       {/* AI Insights panel — shown only when insights are available */}
       {aiInsights && (

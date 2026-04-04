@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type ReleaseNote, type PaginatedResponse } from "../../services/api";
+import { api, type ReleaseNote, type PaginatedResponse, type UserProfile } from "../../services/api";
 import { ReleaseNoteEditor } from "./ReleaseNoteEditor";
 import ReleaseNotesGenerator from "./ReleaseNotesGenerator";
 import { ReleaseNotesStyleGuide } from "./ReleaseNotesStyleGuide";
@@ -15,6 +15,11 @@ export function ReleaseNotesView() {
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    api.getMe().then(setProfile).catch(() => {/* silently ignore — user info is optional */});
+  }, []);
 
   const limit = 20;
 
@@ -61,6 +66,8 @@ export function ReleaseNotesView() {
             loadNotes();
           }}
           onCancel={() => setEditingId(null)}
+          currentUserId={profile?.id}
+          currentUserRole={profile?.role}
         />
       </div>
     );
