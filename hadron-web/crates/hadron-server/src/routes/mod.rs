@@ -115,6 +115,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/release-notes/{id}/checklist", get(release_notes::get_checklist))
         .route("/release-notes/{id}/checklist", put(release_notes::update_checklist))
         .route("/release-notes/{id}/compliance", post(release_notes::run_compliance_check))
+        // Release notes Confluence export & publish
+        .route("/release-notes/{id}/export/confluence", post(release_notes::export_confluence))
+        .route("/release-notes/{id}/publish/confluence", post(release_notes::publish_confluence))
         // Release notes AI generation pipeline
         .route("/release-notes/preview-tickets", post(release_notes_gen::preview_tickets))
         .route("/release-notes/generate/stream", post(release_notes_gen::generate_stream))
@@ -186,6 +189,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/admin/checklist-config", get(admin::get_checklist_config))
         .route("/admin/checklist-config", put(admin::update_checklist_config))
         .route("/admin/checklist-config", delete(admin::delete_checklist_config))
+        // Admin: Confluence configuration
+        .route("/admin/confluence", get(admin::get_confluence_config))
+        .route("/admin/confluence", put(admin::update_confluence_config))
         // Admin: JIRA Poller
         .route("/admin/jira-poller", get(jira_poller::get_poller_config))
         .route("/admin/jira-poller", put(jira_poller::update_poller_config))
