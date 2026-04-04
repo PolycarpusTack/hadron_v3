@@ -147,4 +147,3 @@ export function SentryPatternCard({ patterns, aiPatternType }: SentryPatternCard
   );
 }
 
-export default SentryPatternCard;

@@ -159,4 +159,3 @@ export function SentryIssueBrowser({ onAnalyze }: SentryIssueBrowserProps) {
   );
 }
 
-export default SentryIssueBrowser;

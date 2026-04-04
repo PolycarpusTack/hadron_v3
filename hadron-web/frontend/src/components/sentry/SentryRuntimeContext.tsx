@@ -1,4 +1,5 @@
 import { SentryTag } from '../../services/api';
+import { capitalize } from './sentryHelpers';
 
 interface SentryRuntimeContextProps {
   contexts: Record<string, unknown>;
@@ -6,10 +7,6 @@ interface SentryRuntimeContextProps {
 }
 
 const KNOWN_SECTIONS = ['os', 'browser', 'device', 'runtime'];
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 function isStringRecord(val: unknown): val is Record<string, unknown> {
   return typeof val === 'object' && val !== null && !Array.isArray(val);

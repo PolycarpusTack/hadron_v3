@@ -62,15 +62,18 @@ export function ReleaseNotesReview({
       i === index ? { ...item, checked: !item.checked } : item,
     );
     setChecklist(updated);
-    const allChecked = updated.every((item) => item.checked);
-    setComplete(allChecked);
+    setComplete(updated.every((item) => item.checked));
     try {
       await api.updateReleaseNoteChecklist(noteId, updated);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update checklist');
-      // Revert on failure
-      setChecklist(checklist);
-      setComplete(checklist.every((item) => item.checked));
+    } catch {
+      // Reload from server on error to get authoritative state
+      try {
+        const data = await api.getReleaseNoteChecklist(noteId);
+        setChecklist(data.items);
+        setComplete(data.complete);
+      } catch (reloadErr) {
+        setError(reloadErr instanceof Error ? reloadErr.message : 'Failed to sync checklist');
+      }
     }
   };
 

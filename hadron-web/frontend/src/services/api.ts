@@ -675,6 +675,16 @@ export interface SentryAnalysisFullData {
   aiResult: SentryAnalysisResult;
 }
 
+export interface SentryAnalysisDetail {
+  id: number;
+  filename: string;
+  errorType: string | null;
+  severity: string | null;
+  fullData: SentryAnalysisFullData | null;
+  analyzedAt: string;
+  [key: string]: unknown;
+}
+
 // ============================================================================
 // HTTP helpers
 // ============================================================================
@@ -1575,8 +1585,8 @@ class ApiClient {
     return this.request("GET", `/sentry/analyses?${params}`);
   }
 
-  async getSentryAnalysis(id: number): Promise<unknown> {
-    return this.request("GET", `/sentry/analyses/${id}`);
+  async getSentryAnalysis(id: number): Promise<SentryAnalysisDetail> {
+    return this.request<SentryAnalysisDetail>("GET", `/sentry/analyses/${id}`);
   }
 
   async deleteSentryAnalysis(id: number): Promise<void> {

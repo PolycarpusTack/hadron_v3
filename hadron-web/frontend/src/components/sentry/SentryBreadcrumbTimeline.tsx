@@ -106,4 +106,3 @@ export function SentryBreadcrumbTimeline({ breadcrumbs }: SentryBreadcrumbTimeli
   );
 }
 
-export default SentryBreadcrumbTimeline;

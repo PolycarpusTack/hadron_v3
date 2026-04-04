@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { SentryRecommendation } from '../../services/api';
-import { getPriorityColor, getEffortColor } from './sentryHelpers';
+import { getPriorityColor, getEffortColor, capitalize } from './sentryHelpers';
 
 interface SentryRecommendationsProps {
   recommendations: SentryRecommendation[];
@@ -13,10 +13,6 @@ function priorityBorderColor(priority: string): string {
     case 'low': return 'border-l-green-500';
     default: return 'border-l-gray-400';
   }
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 interface RecommendationCardProps {
