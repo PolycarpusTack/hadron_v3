@@ -276,7 +276,7 @@ pub async fn update_checklist(
 // ============================================================================
 
 pub async fn export_confluence(
-    user: AuthenticatedUser,
+    _user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -364,7 +364,7 @@ pub async fn publish_confluence(
 // ============================================================================
 
 pub async fn run_compliance_check(
-    user: AuthenticatedUser,
+    _user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
