@@ -51,8 +51,13 @@ pub async fn analyze_issue_stream(
         crate::integrations::sentry::fetch_latest_event(&sentry_config, &issue_id).await?;
 
     // Normalize and detect patterns
-    let issue: hadron_core::ai::SentryIssueDetail =
-        serde_json::from_value(issue_json.clone()).unwrap_or_default();
+    let issue: hadron_core::ai::SentryIssueDetail = match serde_json::from_value(issue_json) {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::warn!("Failed to deserialize Sentry issue, using defaults: {e}");
+            hadron_core::ai::SentryIssueDetail::default()
+        }
+    };
     let event = hadron_core::ai::normalize_sentry_event(&event_json);
     let patterns = hadron_core::ai::detect_sentry_patterns(&issue, &event);
 
@@ -83,35 +88,43 @@ pub async fn analyze_issue_stream(
 
         match result {
             Ok(full_text) => {
-                // Persist to DB (best-effort)
-                if let Ok(analysis_result) = hadron_core::ai::parse_sentry_analysis(&full_text) {
-                    let full_data = serde_json::json!({
-                        "issue": issue_for_persist,
-                        "event": event_for_persist,
-                        "patterns": patterns_for_persist,
-                        "aiResult": analysis_result,
-                    });
-                    let fixes_json =
-                        serde_json::to_value(&analysis_result.suggested_fixes).ok();
-                    let filename = if issue_for_persist.short_id.is_empty() {
-                        format!("sentry-{}", issue_for_persist.id)
-                    } else {
-                        issue_for_persist.short_id.clone()
-                    };
-                    let _ = crate::db::insert_sentry_analysis(
-                        &db_pool,
-                        user_id,
-                        &filename,
-                        Some(&analysis_result.error_type),
-                        Some(&analysis_result.error_message),
-                        Some(&analysis_result.severity),
-                        Some(&analysis_result.root_cause),
-                        fixes_json.as_ref(),
-                        Some(&analysis_result.confidence),
-                        Some(&analysis_result.component),
-                        Some(&full_data),
-                    )
-                    .await;
+                // Persist to DB (best-effort, log failures instead of silently discarding).
+                match hadron_core::ai::parse_sentry_analysis(&full_text) {
+                    Ok(analysis_result) => {
+                        let full_data = serde_json::json!({
+                            "issue": issue_for_persist,
+                            "event": event_for_persist,
+                            "patterns": patterns_for_persist,
+                            "aiResult": analysis_result,
+                        });
+                        let fixes_json =
+                            serde_json::to_value(&analysis_result.suggested_fixes).ok();
+                        let filename = if issue_for_persist.short_id.is_empty() {
+                            format!("sentry-{}", issue_for_persist.id)
+                        } else {
+                            issue_for_persist.short_id.clone()
+                        };
+                        if let Err(e) = crate::db::insert_sentry_analysis(
+                            &db_pool,
+                            user_id,
+                            &filename,
+                            Some(&analysis_result.error_type),
+                            Some(&analysis_result.error_message),
+                            Some(&analysis_result.severity),
+                            Some(&analysis_result.root_cause),
+                            fixes_json.as_ref(),
+                            Some(&analysis_result.confidence),
+                            Some(&analysis_result.component),
+                            Some(&full_data),
+                        )
+                        .await
+                        {
+                            tracing::warn!("Failed to persist Sentry analysis: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to parse Sentry analysis response: {e}");
+                    }
                 }
                 let _ = tx
                     .send(hadron_core::models::ChatStreamEvent::Done {
@@ -160,8 +173,13 @@ pub async fn analyze_issue(
         crate::integrations::sentry::fetch_latest_event(&sentry_config, &issue_id).await?;
 
     // Normalize and detect patterns
-    let issue: hadron_core::ai::SentryIssueDetail =
-        serde_json::from_value(issue_json.clone()).unwrap_or_default();
+    let issue: hadron_core::ai::SentryIssueDetail = match serde_json::from_value(issue_json) {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::warn!("Failed to deserialize Sentry issue, using defaults: {e}");
+            hadron_core::ai::SentryIssueDetail::default()
+        }
+    };
     let event = hadron_core::ai::normalize_sentry_event(&event_json);
     let patterns = hadron_core::ai::detect_sentry_patterns(&issue, &event);
 
@@ -171,7 +189,7 @@ pub async fn analyze_issue(
     let raw_response = ai::complete(&ai_config, messages, Some(&system_prompt)).await?;
     let analysis_result = hadron_core::ai::parse_sentry_analysis(&raw_response)?;
 
-    // Persist to DB (best-effort)
+    // Persist to DB (best-effort, log failures instead of silently discarding).
     let full_data = serde_json::json!({
         "issue": issue,
         "event": event,
@@ -184,7 +202,7 @@ pub async fn analyze_issue(
     } else {
         issue.short_id.clone()
     };
-    let _ = crate::db::insert_sentry_analysis(
+    if let Err(e) = crate::db::insert_sentry_analysis(
         &state.db,
         user.user.id,
         &filename,
@@ -197,7 +215,10 @@ pub async fn analyze_issue(
         Some(&analysis_result.component),
         Some(&full_data),
     )
-    .await;
+    .await
+    {
+        tracing::warn!("Failed to persist Sentry analysis: {e}");
+    }
 
     Ok(Json(analysis_result))
 }

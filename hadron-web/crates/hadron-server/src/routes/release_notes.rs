@@ -149,7 +149,8 @@ pub async fn update_release_note_status(
     Path(id): Path<i64>,
     Json(req): Json<UpdateStatusRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let note = db::get_release_note(&state.db, id, user.user.id).await.map_err(AppError)?;
+    // Use get_release_note_by_id so leads/admins can approve notes they don't own.
+    let note = db::get_release_note_by_id(&state.db, id).await.map_err(AppError)?;
     let owner_id = db::get_release_note_owner(&state.db, id).await.map_err(AppError)?;
     let is_owner = user.user.id == owner_id;
 
@@ -279,7 +280,8 @@ pub async fn export_confluence(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
-    let note = db::get_release_note(&state.db, id, user.user.id)
+    // Leads/admins may export notes they don't own.
+    let note = db::get_release_note_by_id(&state.db, id)
         .await
         .map_err(AppError)?;
 
@@ -301,9 +303,24 @@ pub async fn publish_confluence(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
-    let note = db::get_release_note(&state.db, id, user.user.id)
+    // Leads/admins may publish notes they don't own.
+    let note = db::get_release_note_by_id(&state.db, id)
         .await
         .map_err(AppError)?;
+
+    // Status gate: only approved or already published notes may be pushed to Confluence.
+    let status = note.status.as_deref().unwrap_or("draft");
+    if status != "approved" && status != "published" {
+        return Err(AppError(hadron_core::error::HadronError::validation(
+            "Release notes must be approved before publishing to Confluence.",
+        )));
+    }
+
+    // Role gate: only leads and admins can publish to Confluence.
+    middleware::require_role(&user, hadron_core::models::Role::Lead)
+        .map_err(|_| AppError(hadron_core::error::HadronError::forbidden(
+            "Only leads and admins can publish to Confluence.",
+        )))?;
 
     let space_key = db::get_global_setting(&state.db, "confluence_space_key")
         .await?
@@ -351,7 +368,8 @@ pub async fn run_compliance_check(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
-    let note = db::get_release_note(&state.db, id, user.user.id)
+    // Leads/admins may run compliance on notes they don't own.
+    let note = db::get_release_note_by_id(&state.db, id)
         .await
         .map_err(AppError)?;
 

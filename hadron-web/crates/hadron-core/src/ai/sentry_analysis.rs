@@ -481,13 +481,17 @@ fn normalize_query(query: &str) -> String {
     result
 }
 
-/// Truncate a string to at most `max` bytes (byte-boundary safe for ASCII).
+/// Truncate a string to at most `max` bytes, always stopping on a valid UTF-8 char boundary.
 fn truncate_str(s: &str, max: usize) -> &str {
-    if s.len() > max {
-        &s[..max]
-    } else {
-        s
+    if s.len() <= max {
+        return s;
     }
+    // Walk back from max until we land on a char boundary.
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 // ── Individual detectors ────────────────────────────────────────────────────
@@ -1046,7 +1050,11 @@ pub fn build_sentry_analysis_messages(
 pub fn parse_sentry_analysis(raw: &str) -> crate::error::HadronResult<SentryAnalysisResult> {
     let json_str = super::parsers::strip_markdown_fences(raw);
     serde_json::from_str(json_str).map_err(|e| {
-        let preview = &json_str[..json_str.len().min(300)];
+        let mut end = json_str.len().min(300);
+        while end > 0 && !json_str.is_char_boundary(end) {
+            end -= 1;
+        }
+        let preview = &json_str[..end];
         crate::error::HadronError::Parse(format!(
             "Failed to parse Sentry analysis: {e}. Preview: {preview}"
         ))
