@@ -50,7 +50,6 @@ export function SettingsView({
   const [osPassword, setOsPassword] = useState("");
   const [jiraUrl, setJiraUrl] = useState("");
   const [jiraEmail, setJiraEmail] = useState("");
-  const [jiraToken, setJiraToken] = useState("");
   const [jiraProject, setJiraProject] = useState("");
 
   useEffect(() => {
@@ -63,7 +62,6 @@ export function SettingsView({
       if (s.opensearchPassword) setOsPassword(s.opensearchPassword as string);
       if (s.jiraUrl) setJiraUrl(s.jiraUrl as string);
       if (s.jiraEmail) setJiraEmail(s.jiraEmail as string);
-      if (s.jiraToken) setJiraToken(s.jiraToken as string);
       if (s.jiraProject) setJiraProject(s.jiraProject as string);
     }).catch((e) =>
       toast.error(
@@ -91,7 +89,6 @@ export function SettingsView({
         opensearchPassword: osPassword,
         jiraUrl,
         jiraEmail,
-        jiraToken,
         jiraProject,
       });
       toast.success("Settings saved");
@@ -113,7 +110,6 @@ export function SettingsView({
     osPassword,
     jiraUrl,
     jiraEmail,
-    jiraToken,
     jiraProject,
     toast,
   ]);
@@ -128,15 +124,6 @@ export function SettingsView({
     }
   };
 
-  const handleTestJira = async () => {
-    try {
-      const result = await api.testJira(jiraUrl, jiraEmail, jiraToken);
-      if (result.connected) toast.success("Jira connected");
-      else toast.error("Jira connection failed");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Connection failed");
-    }
-  };
 
   const availableModels = MODELS[localProvider] || MODELS.openai;
 
@@ -275,6 +262,10 @@ export function SettingsView({
         <h3 className="mb-4 text-sm font-medium text-slate-300">
           Jira Integration
         </h3>
+        <p className="mb-3 text-xs text-slate-500">
+          JIRA credentials (URL, email, API token) are admin-configured in the Admin panel under
+          JIRA Poller. These settings store non-sensitive defaults only.
+        </p>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs text-slate-400">
@@ -307,25 +298,7 @@ export function SettingsView({
               className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              API Token
-            </label>
-            <input
-              type="password"
-              value={jiraToken}
-              onChange={(e) => setJiraToken(e.target.value)}
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
         </div>
-        <button
-          onClick={handleTestJira}
-          disabled={!jiraUrl || !jiraEmail || !jiraToken}
-          className="mt-3 rounded-md border border-slate-600 px-4 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700 disabled:opacity-30"
-        >
-          Test Connection
-        </button>
       </section>
 
       {/* Save */}

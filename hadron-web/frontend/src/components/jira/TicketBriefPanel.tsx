@@ -5,7 +5,7 @@
  */
 
 import { useState, type ReactNode } from "react";
-import { api, type JiraBriefResult, type JiraCredentials, type TicketBriefRow, type SimilarTicketMatch } from "../../services/api";
+import { api, type JiraBriefResult, type TicketBriefRow, type SimilarTicketMatch } from "../../services/api";
 import { QualityGauge } from "../code-analyzer/shared/QualityGauge";
 import TriageBadgePanel from "./TriageBadgePanel";
 
@@ -32,7 +32,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 interface TicketBriefPanelProps {
   jiraKey: string;
   result: JiraBriefResult;
-  jiraCredentials: JiraCredentials;
   briefRow: TicketBriefRow | null;
   onBriefUpdated?: () => void;
 }
@@ -44,7 +43,6 @@ type BriefTab = "brief" | "analysis";
 export default function TicketBriefPanel({
   jiraKey,
   result,
-  jiraCredentials,
   briefRow,
   onBriefUpdated,
 }: TicketBriefPanelProps) {
@@ -77,7 +75,7 @@ export default function TicketBriefPanel({
   const handleFindSimilar = async () => {
     setSearchingSimilar(true);
     try {
-      const results = await api.findSimilarTickets(jiraKey, jiraCredentials, 0.65, 5);
+      const results = await api.findSimilarTickets(jiraKey, 0.65, 5);
       setSimilarTickets(results);
     } catch {
       // silently fail — not critical
@@ -90,7 +88,7 @@ export default function TicketBriefPanel({
     if (!window.confirm(`Post this brief as a comment on ${jiraKey}?`)) return;
     setPosting(true);
     try {
-      await api.postBriefToJira(jiraKey, jiraCredentials);
+      await api.postBriefToJira(jiraKey);
       onBriefUpdated?.();
     } catch {
       // error feedback could be added here
