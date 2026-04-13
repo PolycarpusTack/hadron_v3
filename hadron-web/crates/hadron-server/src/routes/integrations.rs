@@ -144,14 +144,13 @@ pub struct JiraCreateRequest {
 
 pub async fn jira_search(
     _user: AuthenticatedUser,
+    State(state): State<AppState>,
     Json(req): Json<JiraSearchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let config = jira::JiraConfig {
-        base_url: req.credentials.base_url,
-        email: req.credentials.email,
-        api_token: req.credentials.api_token,
-        project_key: req.credentials.project_key,
-    };
+    let mut config = crate::db::get_jira_config_from_poller(&state.db).await?;
+    if let Some(pk) = &req.project_key {
+        config.project_key = pk.clone();
+    }
 
     let result = jira::search_issues(
         &config,
@@ -167,10 +166,10 @@ pub async fn jira_search(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JiraSearchRequest {
-    credentials: JiraCredentials,
-    jql: Option<String>,
-    text: Option<String>,
-    max_results: Option<u32>,
+    pub project_key: Option<String>,
+    pub jql: Option<String>,
+    pub text: Option<String>,
+    pub max_results: Option<u32>,
 }
 
 pub async fn jira_test(

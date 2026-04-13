@@ -1,26 +1,17 @@
 /**
  * JiraProjectFeed
  * Self-contained view for browsing JIRA project issues with batch triage support.
- * Reads JIRA credentials from localStorage (same keys as desktop).
+ * JIRA credentials are admin-configured server-side — no localStorage reads.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "../../services/api";
 import type {
   JiraIssue,
-  JiraCredentials,
   TicketBriefRow,
   JiraTriageResult,
 } from "../../services/api";
 import { useToast } from "../Toast";
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const LS_JIRA_URL = "hadron_jira_url";
-const LS_JIRA_EMAIL = "hadron_jira_email";
-const LS_JIRA_TOKEN = "hadron_jira_token";
 
 const SEVERITY_BADGE: Record<string, string> = {
   Critical: "bg-red-500/20 text-red-400 border-red-500/30",
@@ -39,14 +30,6 @@ const SEVERITY_DOT: Record<string, string> = {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-function getCredsFromStorage(): JiraCredentials | null {
-  const baseUrl = localStorage.getItem(LS_JIRA_URL) || "";
-  const email = localStorage.getItem(LS_JIRA_EMAIL) || "";
-  const apiToken = localStorage.getItem(LS_JIRA_TOKEN) || "";
-  if (!baseUrl || !email || !apiToken) return null;
-  return { baseUrl, email, apiToken };
-}
 
 function parseTags(tagsStr: string | null): string[] {
   if (!tagsStr) return [];
@@ -87,9 +70,6 @@ function StatusBadge({ status }: { status: string }) {
 
 export function JiraProjectFeed() {
   const toast = useToast();
-
-  // JIRA credentials from localStorage
-  const [creds] = useState<JiraCredentials | null>(getCredsFromStorage);
 
   // Project key input
   const [projectKey, setProjectKey] = useState("");
@@ -159,10 +139,6 @@ export function JiraProjectFeed() {
       toast.error("Enter a project key first");
       return;
     }
-    if (!creds) {
-      toast.error("JIRA credentials not configured — go to Settings");
-      return;
-    }
 
     setLoading(true);
     setIssues([]);
@@ -171,7 +147,7 @@ export function JiraProjectFeed() {
 
     try {
       const result = await api.searchJira(
-        { ...creds, projectKey: key },
+        key,
         { jql: `project = ${key} ORDER BY updated DESC`, maxResults: 50 },
       );
       setIssues(result.issues);
@@ -193,7 +169,7 @@ export function JiraProjectFeed() {
     } finally {
       setLoading(false);
     }
-  }, [projectKey, creds, toast]);
+  }, [projectKey, toast]);
 
   // ============================================================
   // Toggle row expansion
@@ -245,10 +221,6 @@ export function JiraProjectFeed() {
   // ============================================================
 
   async function handleTriageAll() {
-    if (!creds) {
-      toast.error("JIRA credentials not configured");
-      return;
-    }
     if (filteredIssues.length === 0) {
       toast.info("No issues to triage");
       return;
@@ -272,7 +244,7 @@ export function JiraProjectFeed() {
       setTriageProgress({ current: i + 1, total: filteredIssues.length, currentKey: issue.key });
 
       try {
-        const result: JiraTriageResult = await api.triageJiraIssue(issue.key, creds);
+        const result: JiraTriageResult = await api.triageJiraIssue(issue.key);
 
         // Update briefsMap with the new triage result
         setBriefsMap((prev) => {
@@ -324,19 +296,11 @@ export function JiraProjectFeed() {
   // Render
   // ============================================================
 
-  const hasCreds = !!creds;
-
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="rounded-xl border border-slate-700 bg-slate-800 p-4">
         <h2 className="text-lg font-bold text-white mb-4">JIRA Project Feed</h2>
-
-        {!hasCreds && (
-          <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
-            JIRA credentials not configured. Go to Settings and enter your JIRA URL, email, and API token.
-          </div>
-        )}
 
         {/* Project key input */}
         <div className="flex items-center gap-3">
@@ -350,14 +314,13 @@ export function JiraProjectFeed() {
               onChange={(e) => setProjectKey(e.target.value.toUpperCase())}
               onKeyDown={(e) => e.key === "Enter" && handleLoadIssues()}
               placeholder="e.g. PROJ"
-              disabled={!hasCreds}
-              className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 font-mono text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 font-mono text-sm text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div className="flex items-end">
             <button
               onClick={handleLoadIssues}
-              disabled={!hasCreds || loading || !projectKey.trim()}
+              disabled={loading || !projectKey.trim()}
               className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? (
@@ -463,7 +426,7 @@ export function JiraProjectFeed() {
             ) : (
               <button
                 onClick={handleTriageAll}
-                disabled={!hasCreds || filteredIssues.length === 0}
+                disabled={filteredIssues.length === 0}
                 className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ZapIcon className="h-4 w-4" />

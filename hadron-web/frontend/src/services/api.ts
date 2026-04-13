@@ -1164,12 +1164,7 @@ class ApiClient {
   }
 
   async searchJira(
-    credentials: {
-      baseUrl: string;
-      email: string;
-      apiToken: string;
-      projectKey: string;
-    },
+    projectKey: string,
     options?: {
       jql?: string;
       text?: string;
@@ -1177,7 +1172,7 @@ class ApiClient {
     },
   ): Promise<{ issues: JiraIssue[]; total: number }> {
     return this.request("POST", "/jira/search", {
-      credentials,
+      projectKey,
       ...options,
     });
   }
@@ -1198,40 +1193,28 @@ class ApiClient {
 
   async fetchJiraIssueDetail(
     key: string,
-    credentials: JiraCredentials,
   ): Promise<JiraTicketDetail> {
-    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/detail`, {
-      credentials,
-    });
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/detail`, {});
   }
 
   async analyzeJiraIssue(
     key: string,
-    credentials: JiraCredentials,
   ): Promise<JiraDeepResult> {
-    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/analyze`, {
-      credentials,
-    });
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/analyze`, {});
   }
 
   // === JIRA Triage & Brief ===
 
   async triageJiraIssue(
     key: string,
-    credentials: JiraCredentials,
   ): Promise<JiraTriageResult> {
-    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/triage`, {
-      credentials,
-    });
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/triage`, {});
   }
 
   async generateJiraBrief(
     key: string,
-    credentials: JiraCredentials,
   ): Promise<JiraBriefResult> {
-    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/brief`, {
-      credentials,
-    });
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/brief`, {});
   }
 
   async getTicketBrief(key: string): Promise<TicketBriefRow | null> {
@@ -1256,12 +1239,10 @@ class ApiClient {
 
   async findSimilarTickets(
     key: string,
-    credentials: JiraCredentials,
     threshold?: number,
     limit?: number,
   ): Promise<SimilarTicketMatch[]> {
     return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/similar`, {
-      credentials,
       threshold,
       limit,
     });
@@ -1269,11 +1250,8 @@ class ApiClient {
 
   async postBriefToJira(
     key: string,
-    credentials: JiraCredentials,
   ): Promise<void> {
-    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/post-brief`, {
-      credentials,
-    });
+    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/post-brief`);
   }
 
   async submitEngineerFeedback(

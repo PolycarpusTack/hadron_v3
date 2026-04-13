@@ -2235,19 +2235,27 @@ pub async fn advanced_search_analyses(
 pub async fn get_analytics_dashboard(
     pool: &PgPool,
     user_id: Option<Uuid>,
+    team_id: Option<Uuid>,
     days: i64,
 ) -> HadronResult<AnalyticsDashboard> {
-    let user_filter = if user_id.is_some() {
-        "AND user_id = $1"
+    // Determine the WHERE clause fragment and the bind value ($1).
+    // Priority: user_id > team_id > global (no filter).
+    let (user_filter, bind_id) = if let Some(uid) = user_id {
+        ("AND user_id = $1", Some(uid))
+    } else if let Some(tid) = team_id {
+        (
+            "AND user_id IN (SELECT id FROM users WHERE team_id = $1)",
+            Some(tid),
+        )
     } else {
-        ""
+        ("", None)
     };
 
     // Total analyses
     let total_sql = format!("SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL {user_filter}");
     let mut total_q = sqlx::query_as::<_, (i64,)>(&total_sql);
-    if let Some(uid) = user_id {
-        total_q = total_q.bind(uid);
+    if let Some(id) = bind_id {
+        total_q = total_q.bind(id);
     }
     let total = total_q.fetch_one(pool).await.map_err(|e| HadronError::database(e.to_string()))?.0;
 
@@ -2256,8 +2264,8 @@ pub async fn get_analytics_dashboard(
         "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL AND analyzed_at >= now() - interval '7 days' {user_filter}"
     );
     let mut week_q = sqlx::query_as::<_, (i64,)>(&week_sql);
-    if let Some(uid) = user_id {
-        week_q = week_q.bind(uid);
+    if let Some(id) = bind_id {
+        week_q = week_q.bind(id);
     }
     let this_week = week_q.fetch_one(pool).await.map_err(|e| HadronError::database(e.to_string()))?.0;
 
@@ -2266,8 +2274,8 @@ pub async fn get_analytics_dashboard(
         "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL AND analyzed_at >= now() - interval '30 days' {user_filter}"
     );
     let mut month_q = sqlx::query_as::<_, (i64,)>(&month_sql);
-    if let Some(uid) = user_id {
-        month_q = month_q.bind(uid);
+    if let Some(id) = bind_id {
+        month_q = month_q.bind(id);
     }
     let this_month = month_q.fetch_one(pool).await.map_err(|e| HadronError::database(e.to_string()))?.0;
 
@@ -2278,8 +2286,8 @@ pub async fn get_analytics_dashboard(
          GROUP BY severity ORDER BY count DESC"
     );
     let mut sev_q = sqlx::query_as::<_, CountByFieldRow>(&sev_sql);
-    if let Some(uid) = user_id {
-        sev_q = sev_q.bind(uid);
+    if let Some(id) = bind_id {
+        sev_q = sev_q.bind(id);
     }
     let severity_distribution: Vec<CountByField> = sev_q
         .fetch_all(pool)
@@ -2296,8 +2304,8 @@ pub async fn get_analytics_dashboard(
          GROUP BY component ORDER BY count DESC LIMIT 10"
     );
     let mut comp_q = sqlx::query_as::<_, CountByFieldRow>(&comp_sql);
-    if let Some(uid) = user_id {
-        comp_q = comp_q.bind(uid);
+    if let Some(id) = bind_id {
+        comp_q = comp_q.bind(id);
     }
     let component_distribution: Vec<CountByField> = comp_q
         .fetch_all(pool)
@@ -2314,8 +2322,8 @@ pub async fn get_analytics_dashboard(
          GROUP BY error_type ORDER BY count DESC LIMIT 10"
     );
     let mut et_q = sqlx::query_as::<_, CountByFieldRow>(&et_sql);
-    if let Some(uid) = user_id {
-        et_q = et_q.bind(uid);
+    if let Some(id) = bind_id {
+        et_q = et_q.bind(id);
     }
     let error_type_top: Vec<CountByField> = et_q
         .fetch_all(pool)
@@ -2334,8 +2342,8 @@ pub async fn get_analytics_dashboard(
          ORDER BY analyzed_at::date"
     );
     let mut trend_q = sqlx::query_as::<_, CountByFieldRow>(&trend_sql);
-    if let Some(uid) = user_id {
-        trend_q = trend_q.bind(uid);
+    if let Some(id) = bind_id {
+        trend_q = trend_q.bind(id);
     }
     let daily_trend: Vec<DailyCount> = trend_q
         .fetch_all(pool)

@@ -1,4 +1,7 @@
 //! JIRA deep analysis handlers — fetch ticket, analyze, stream.
+//!
+//! All handlers read JIRA credentials from the server-side poller config
+//! (admin-configured, encrypted at rest). Clients no longer supply credentials.
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
@@ -7,7 +10,8 @@ use serde::Deserialize;
 
 use crate::ai;
 use crate::auth::AuthenticatedUser;
-use crate::integrations::jira::{self, JiraConfig};
+use crate::db;
+use crate::integrations::jira;
 use crate::sse;
 use crate::AppState;
 
@@ -15,41 +19,17 @@ use super::AppError;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JiraCredentials {
-    pub base_url: String,
-    pub email: String,
-    pub api_token: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FetchIssueRequest {
-    pub credentials: JiraCredentials,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AnalyzeRequest {
-    pub credentials: JiraCredentials,
     pub api_key: Option<String>,
-}
-
-fn to_jira_config(creds: &JiraCredentials) -> JiraConfig {
-    JiraConfig {
-        base_url: creds.base_url.clone(),
-        email: creds.email.clone(),
-        api_token: creds.api_token.clone(),
-        project_key: String::new(), // Not needed for single-issue fetch
-    }
 }
 
 /// POST /api/jira/issues/{key}/detail — fetch full ticket detail.
 pub async fn fetch_issue(
     _user: AuthenticatedUser,
+    State(state): State<AppState>,
     Path(key): Path<String>,
-    Json(req): Json<FetchIssueRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let config = to_jira_config(&req.credentials);
+    let config = db::get_jira_config_from_poller(&state.db).await?;
     let detail = jira::fetch_issue_detail(&config, &key).await?;
     Ok(Json(detail))
 }
@@ -61,7 +41,7 @@ pub async fn analyze_issue(
     Path(key): Path<String>,
     Json(req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let config = to_jira_config(&req.credentials);
+    let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
     let ai_config = super::analyses::resolve_ai_config(
@@ -87,7 +67,7 @@ pub async fn analyze_issue_stream(
     Path(key): Path<String>,
     Json(req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let config = to_jira_config(&req.credentials);
+    let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
     let ai_config = super::analyses::resolve_ai_config(
@@ -114,7 +94,7 @@ pub async fn triage_issue(
     Path(key): Path<String>,
     Json(req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let config = to_jira_config(&req.credentials);
+    let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
     let ai_config = super::analyses::resolve_ai_config(
@@ -158,7 +138,7 @@ pub async fn generate_brief(
     Path(key): Path<String>,
     Json(req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let config = to_jira_config(&req.credentials);
+    let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
     let ai_config = super::analyses::resolve_ai_config(
@@ -236,7 +216,7 @@ pub async fn generate_brief_stream(
     Path(key): Path<String>,
     Json(req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let config = to_jira_config(&req.credentials);
+    let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
     let ai_config = super::analyses::resolve_ai_config(
@@ -329,7 +309,6 @@ pub async fn delete_brief(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SimilarTicketsRequest {
-    pub credentials: JiraCredentials,
     pub threshold: Option<f64>,
     pub limit: Option<i64>,
 }
@@ -404,7 +383,6 @@ pub async fn post_brief_to_jira(
     _user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(key): Path<String>,
-    Json(req): Json<FetchIssueRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Load brief from DB
     let brief_row = crate::db::get_ticket_brief(&state.db, &key)
@@ -431,8 +409,8 @@ pub async fn post_brief_to_jira(
     // Format as wiki markup
     let markup = jira::format_brief_as_jira_markup(&brief, &key);
 
-    // Post to JIRA
-    let config = to_jira_config(&req.credentials);
+    // Post to JIRA using server-side credentials
+    let config = db::get_jira_config_from_poller(&state.db).await?;
     jira::post_jira_comment(&config, &key, &markup).await?;
 
     // Mark as posted

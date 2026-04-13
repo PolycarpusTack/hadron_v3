@@ -1,31 +1,26 @@
 /**
  * JiraAnalyzerView
- * Orchestrator for JIRA Deep Analysis — credential management, ticket fetch,
- * AI streaming, and structured report display.
+ * Orchestrator for JIRA Deep Analysis — ticket fetch, AI streaming, and
+ * structured report display.
  *
- * Web port of the desktop JiraTicketAnalyzer component.
+ * JIRA credentials are admin-configured server-side (poller config).
+ * This component no longer stores or transmits credentials.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { useAiStream } from "../../hooks/useAiStream";
-import { api, type JiraCredentials, type JiraTicketDetail, type JiraDeepResult, type JiraTriageResult, type JiraBriefResult, type TicketBriefRow } from "../../services/api";
+import { api, type JiraTicketDetail, type JiraDeepResult, type JiraTriageResult, type JiraBriefResult, type TicketBriefRow, type PollerConfigStatus } from "../../services/api";
 import { useToast } from "../Toast";
 import JiraAnalysisReport from "./JiraAnalysisReport";
 import TriageBadgePanel from "./TriageBadgePanel";
 import TicketBriefPanel from "./TicketBriefPanel";
 
-const LS_JIRA_URL = "hadron_jira_url";
-const LS_JIRA_EMAIL = "hadron_jira_email";
-const LS_JIRA_TOKEN = "hadron_jira_token";
-
 // Regex to extract a JIRA ticket key from a URL like /browse/PROJ-123
 const TICKET_KEY_RE = /\/browse\/([A-Z][A-Z0-9_]+-\d+)/i;
 
 export function JiraAnalyzerView() {
-  // Credentials — seeded from localStorage
-  const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem(LS_JIRA_URL) ?? "");
-  const [email, setEmail] = useState(() => localStorage.getItem(LS_JIRA_EMAIL) ?? "");
-  const [apiToken, setApiToken] = useState(() => localStorage.getItem(LS_JIRA_TOKEN) ?? "");
+  // JIRA server-side configuration status
+  const [jiraConfigured, setJiraConfigured] = useState<boolean | null>(null);
 
   // Ticket state
   const [ticketKey, setTicketKey] = useState("");
@@ -45,10 +40,18 @@ export function JiraAnalyzerView() {
   const { streamAi, content, isStreaming, error, reset } = useAiStream();
   const toast = useToast();
 
-  // Persist credentials on change
-  useEffect(() => { localStorage.setItem(LS_JIRA_URL, baseUrl); }, [baseUrl]);
-  useEffect(() => { localStorage.setItem(LS_JIRA_EMAIL, email); }, [email]);
-  useEffect(() => { localStorage.setItem(LS_JIRA_TOKEN, apiToken); }, [apiToken]);
+  // Check whether JIRA is configured on the server on mount
+  useEffect(() => {
+    api.getPollerConfig()
+      .then((status: PollerConfigStatus) => {
+        setJiraConfigured(!!(status.jiraBaseUrl && status.jiraEmail && status.hasApiToken));
+      })
+      .catch(() => {
+        // Not an admin — can't read poller config. Assume configured and let
+        // server return a proper error on first use if not.
+        setJiraConfigured(true);
+      });
+  }, []);
 
   // Auto-extract ticket key when user pastes a JIRA URL
   function handleTicketKeyChange(value: string) {
@@ -101,8 +104,6 @@ export function JiraAnalyzerView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, isStreaming]);
 
-  const credentials: JiraCredentials = { baseUrl, email, apiToken };
-
   const handleFetch = useCallback(async () => {
     const key = ticketKey.trim();
     if (!key) return;
@@ -114,7 +115,7 @@ export function JiraAnalyzerView() {
     setBriefResult(null);
     reset();
     try {
-      const detail = await api.fetchJiraIssueDetail(key, credentials);
+      const detail = await api.fetchJiraIssueDetail(key);
       setTicket(detail);
       // Load cached brief/triage from DB
       const cached = await api.getTicketBrief(key);
@@ -133,14 +134,13 @@ export function JiraAnalyzerView() {
       setFetching(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticketKey, baseUrl, email, apiToken, reset, toast]);
+  }, [ticketKey, reset, toast]);
 
   const handleTriage = async () => {
     if (!ticket) return;
     setTriaging(true);
     try {
-      const creds = { baseUrl, email, apiToken };
-      const res = await api.triageJiraIssue(ticket.key, creds);
+      const res = await api.triageJiraIssue(ticket.key);
       setTriageResult(res);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Triage failed");
@@ -154,19 +154,15 @@ export function JiraAnalyzerView() {
     setResult(null); // clear the Phase 1b deep result if any
     setBriefResult(null);
     setParseError(null);
-    streamAi(`/jira/issues/${encodeURIComponent(ticket.key)}/brief/stream`, {
-      credentials: { baseUrl, email, apiToken },
-    });
+    streamAi(`/jira/issues/${encodeURIComponent(ticket.key)}/brief/stream`, {});
   };
 
   const handleAnalyze = useCallback(() => {
     if (!ticket) return;
     setResult(null);
     setParseError(null);
-    streamAi(`/jira/issues/${encodeURIComponent(ticket.key)}/analyze/stream`, {
-      credentials: { baseUrl, email, apiToken },
-    });
-  }, [ticket, baseUrl, email, apiToken, streamAi]);
+    streamAi(`/jira/issues/${encodeURIComponent(ticket.key)}/analyze/stream`, {});
+  }, [ticket, streamAi]);
 
   const handleClear = useCallback(() => {
     reset();
@@ -178,8 +174,25 @@ export function JiraAnalyzerView() {
     setBriefResult(null);
   }, [reset]);
 
-  const canFetch = ticketKey.trim().length > 0 && baseUrl.trim().length > 0;
+  const canFetch = ticketKey.trim().length > 0;
   const canAnalyze = !!ticket && !isStreaming && !triaging;
+
+  // Loading state while checking JIRA config
+  if (jiraConfigured === null) {
+    return (
+      <div className="flex items-center justify-center p-12 text-slate-500">
+        Checking JIRA configuration…
+      </div>
+    );
+  }
+
+  // Show banner if JIRA is not configured (non-blocking — admin may have just set it up)
+  const jiraWarningBanner = !jiraConfigured ? (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+      JIRA is not configured. Ask an admin to set up JIRA credentials in the Admin panel
+      (Admin → JIRA Poller).
+    </div>
+  ) : null;
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -194,46 +207,11 @@ export function JiraAnalyzerView() {
         </button>
       </div>
 
-      {/* Credentials + Ticket input */}
+      {jiraWarningBanner}
+
+      {/* Ticket input */}
       <div className="rounded-lg border border-slate-700 bg-slate-800 p-4 space-y-3">
-        {/* JIRA URL */}
         <div className="flex items-center gap-3">
-          <label className="w-24 text-sm text-slate-400 flex-shrink-0">JIRA URL:</label>
-          <input
-            type="text"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://yourorg.atlassian.net"
-            className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-
-        {/* Email */}
-        <div className="flex items-center gap-3">
-          <label className="w-24 text-sm text-slate-400 flex-shrink-0">Email:</label>
-          <input
-            type="text"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@company.com"
-            className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-
-        {/* API Token */}
-        <div className="flex items-center gap-3">
-          <label className="w-24 text-sm text-slate-400 flex-shrink-0">API Token:</label>
-          <input
-            type="password"
-            value={apiToken}
-            onChange={(e) => setApiToken(e.target.value)}
-            placeholder="JIRA API token"
-            className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-
-        {/* Ticket key + Fetch button */}
-        <div className="flex items-center gap-3 pt-1 border-t border-slate-700">
           <label className="w-24 text-sm text-slate-400 flex-shrink-0">Ticket:</label>
           <input
             type="text"
@@ -398,7 +376,6 @@ export function JiraAnalyzerView() {
         <TicketBriefPanel
             jiraKey={ticket.key}
             result={briefResult}
-            jiraCredentials={{ baseUrl, email, apiToken }}
             briefRow={cachedBrief}
             onBriefUpdated={async () => {
               const updated = await api.getTicketBrief(ticket.key);
