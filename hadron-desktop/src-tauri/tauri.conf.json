@@ -91,9 +91,7 @@
     "resources": [
       "../python/**/*"
     ],
-    "windows": {
-      "signCommand": "signtool sign /fd SHA256 /a /f certs/hadron-signing.pfx /p %HADRON_SIGN_PASSWORD% /t http://timestamp.digicert.com \"%1\""
-    },
+    "windows": {},
     "category": "DeveloperTool",
     "copyright": "© 2025 Hadron Team",
     "longDescription": "AI-powered support assistant with crash analysis, knowledge base search, and intelligent debugging",

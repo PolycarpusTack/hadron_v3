@@ -1,16 +1,123 @@
 //! Common helper functions shared across command modules
 
-use super::types::AnalysisProgress;
+use super::types::{AnalysisPhase, AnalysisProgress};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::borrow::Cow;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::fs as async_fs;
 
-/// Helper to emit progress events to the frontend
+/// Minimum interval (ms) between non-terminal progress emissions.
+/// Reduces IPC pressure on Windows where each app.emit() crosses a COM boundary
+/// that security products (ESET, etc.) may hook and inspect.
+const PROGRESS_DEBOUNCE_MS: u64 = 150;
+
+/// Interval (ms) for rolling rate log lines during an active analysis.
+const RATE_LOG_INTERVAL_MS: u64 = 5_000;
+
+/// Timestamp (ms since epoch) of the last non-terminal progress emission.
+static LAST_PROGRESS_EMIT_MS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+/// Timestamp (ms) when the current analysis started (reset on Reading phase).
+static ANALYSIS_START_MS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+/// Timestamp (ms) of the last rolling rate log line.
+static LAST_RATE_LOG_MS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+/// Counter of progress events emitted in the current analysis run.
+static ANALYSIS_EMIT_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+/// Counter of total progress events emitted across all analyses (for observability).
+pub static PROGRESS_EMIT_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Helper to emit progress events to the frontend.
+///
+/// Terminal events (Complete, Failed) are always emitted immediately.
+/// Non-terminal events are debounced to at most once per 150ms to reduce
+/// IPC/COM crossing frequency on Windows.
+///
+/// Observability: resets counters on `Reading` phase (analysis start),
+/// logs rolling emit rate every 5s during analysis, and logs a summary
+/// on `Complete`/`Failed`.
 pub fn emit_progress(app: &AppHandle, progress: AnalysisProgress) {
+    let now = now_ms();
+    let is_terminal = matches!(
+        progress.phase,
+        AnalysisPhase::Complete | AnalysisPhase::Failed
+    );
+
+    // Reset counters when a new analysis begins
+    if matches!(progress.phase, AnalysisPhase::Reading) {
+        ANALYSIS_START_MS.store(now, Ordering::Relaxed);
+        ANALYSIS_EMIT_COUNT.store(0, Ordering::Relaxed);
+        LAST_RATE_LOG_MS.store(now, Ordering::Relaxed);
+        log::info!("Analysis progress tracking started");
+    }
+
+    if !is_terminal {
+        let prev = LAST_PROGRESS_EMIT_MS.load(Ordering::Relaxed);
+
+        if now.saturating_sub(prev) < PROGRESS_DEBOUNCE_MS {
+            return; // skip — too soon since last emit
+        }
+        LAST_PROGRESS_EMIT_MS.store(now, Ordering::Relaxed);
+    }
+
+    let run_count = ANALYSIS_EMIT_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    PROGRESS_EMIT_COUNT.fetch_add(1, Ordering::Relaxed);
+
     if let Err(e) = app.emit("analysis-progress", &progress) {
         log::warn!("Failed to emit progress event: {}", e);
+    }
+
+    // Rolling rate log every 5 seconds during active analysis
+    if !is_terminal {
+        let last_log = LAST_RATE_LOG_MS.load(Ordering::Relaxed);
+        if now.saturating_sub(last_log) >= RATE_LOG_INTERVAL_MS {
+            LAST_RATE_LOG_MS.store(now, Ordering::Relaxed);
+            let started = ANALYSIS_START_MS.load(Ordering::Relaxed);
+            let elapsed_s = now.saturating_sub(started) as f64 / 1000.0;
+            let rate = if elapsed_s > 0.0 {
+                run_count as f64 / elapsed_s
+            } else {
+                0.0
+            };
+            log::info!(
+                "Progress IPC rate: {} emits in {:.1}s ({:.1}/s), phase: {:?}",
+                run_count,
+                elapsed_s,
+                rate,
+                progress.phase
+            );
+        }
+    }
+
+    // Summary on analysis completion
+    if is_terminal {
+        let started = ANALYSIS_START_MS.load(Ordering::Relaxed);
+        let elapsed_s = now.saturating_sub(started) as f64 / 1000.0;
+        let rate = if elapsed_s > 0.0 {
+            run_count as f64 / elapsed_s
+        } else {
+            0.0
+        };
+        log::info!(
+            "Analysis {:?}: {} progress emits in {:.1}s ({:.1}/s, global total: {})",
+            progress.phase,
+            run_count,
+            elapsed_s,
+            rate,
+            PROGRESS_EMIT_COUNT.load(Ordering::Relaxed)
+        );
     }
 }
 

@@ -2,10 +2,14 @@ use futures::StreamExt;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tauri::Emitter;
 
 use crate::str_utils::floor_char_boundary;
+
+/// Counter of chat-stream IPC emissions (for observability / rate logging).
+pub static STREAM_EMIT_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 
 /// Shared HTTP client singleton (reqwest::Client is Arc-based, clone is cheap).
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
@@ -1563,14 +1567,29 @@ pub async fn call_provider_streaming(
     }
 
     // Read streaming response
+    // Tokens are batched before emit to reduce IPC/COM crossing frequency on Windows.
+    // Each app.emit() crosses a WebView2 COM boundary that security products may hook;
+    // batching reduces ~2000 calls to ~100-200 for a typical response.
     let mut accumulated = String::new();
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
+    let mut token_batch = String::new();
+    let mut token_count_in_batch: usize = 0;
+    let mut stream_emits: u64 = 0; // local counter for this request
+
+    const BATCH_TOKEN_LIMIT: usize = 8;
+    const BATCH_BYTE_LIMIT: usize = 96;
+    const MAX_SSE_BUFFER_BYTES: usize = 2_000_000;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Stream read error: {}", e))?;
         let chunk_str = String::from_utf8_lossy(&chunk);
         buffer.push_str(&chunk_str);
+
+        // P0.3: Hard guard against unbounded SSE buffer growth
+        if buffer.len() > MAX_SSE_BUFFER_BYTES {
+            return Err("SSE buffer exceeded safety limit (2 MB)".to_string());
+        }
 
         // Process complete lines from buffer
         while let Some(newline_pos) = buffer.find('\n') {
@@ -1590,21 +1609,32 @@ pub async fn call_provider_streaming(
             if let Some(tok) = token {
                 if !tok.is_empty() {
                     accumulated.push_str(&tok);
-                    let _ = app.emit(
-                        "chat-stream",
-                        ChatStreamEvent {
-                            token: tok,
-                            done: false,
-                            error: None,
-                            request_id: request_id.map(|s| s.to_string()),
-                        },
-                    );
+                    token_batch.push_str(&tok);
+                    token_count_in_batch += 1;
+
+                    if token_count_in_batch >= BATCH_TOKEN_LIMIT
+                        || token_batch.len() >= BATCH_BYTE_LIMIT
+                    {
+                        let payload = std::mem::take(&mut token_batch);
+                        token_count_in_batch = 0;
+
+                        let _ = app.emit(
+                            "chat-stream",
+                            ChatStreamEvent {
+                                token: payload,
+                                done: false,
+                                error: None,
+                                request_id: request_id.map(|s| s.to_string()),
+                            },
+                        );
+                        stream_emits += 1;
+                    }
                 }
             }
         }
     }
 
-    // Process any remaining buffer
+    // Process any remaining SSE buffer
     if !buffer.trim().is_empty() {
         let token = match &response_style {
             ResponseStyle::OpenAI => parse_openai_sse_token(buffer.trim()),
@@ -1613,20 +1643,28 @@ pub async fn call_provider_streaming(
         if let Some(tok) = token {
             if !tok.is_empty() {
                 accumulated.push_str(&tok);
-                let _ = app.emit(
-                    "chat-stream",
-                    ChatStreamEvent {
-                        token: tok,
-                        done: false,
-                        error: None,
-                        request_id: request_id.map(|s| s.to_string()),
-                    },
-                );
+                token_batch.push_str(&tok);
             }
         }
     }
 
-    // Emit done event
+    // Flush any remaining batched tokens
+    if !token_batch.is_empty() {
+        let payload = std::mem::take(&mut token_batch);
+        let _ = app.emit(
+            "chat-stream",
+            ChatStreamEvent {
+                token: payload,
+                done: false,
+                error: None,
+                request_id: request_id.map(|s| s.to_string()),
+            },
+        );
+        stream_emits += 1;
+    }
+
+    // Emit done event (counts as one more emit)
+    stream_emits += 1;
     let _ = app.emit(
         "chat-stream",
         ChatStreamEvent {
@@ -1635,6 +1673,15 @@ pub async fn call_provider_streaming(
             error: None,
             request_id: request_id.map(|s| s.to_string()),
         },
+    );
+
+    // Log IPC rate for observability
+    STREAM_EMIT_COUNT.fetch_add(stream_emits, Ordering::Relaxed);
+    log::info!(
+        "Streaming complete: {} IPC emits for ~{} chars (global total: {})",
+        stream_emits,
+        accumulated.len(),
+        STREAM_EMIT_COUNT.load(Ordering::Relaxed)
     );
 
     // Estimate tokens (rough: 4 chars per token)

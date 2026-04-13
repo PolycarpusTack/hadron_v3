@@ -314,10 +314,22 @@ pub async fn create_jira_ticket(
         // Try to parse JIRA error response
         let error_message =
             if let Ok(jira_error) = serde_json::from_str::<JiraErrorResponse>(&error_body) {
-                if let Some(messages) = jira_error.error_messages {
+                if let Some(messages) = jira_error.error_messages.filter(|m| !m.is_empty()) {
                     messages.join(", ")
                 } else if let Some(errors) = jira_error.errors {
-                    errors.to_string()
+                    // Flatten {"field": "msg", ...} into readable text
+                    if let Some(obj) = errors.as_object() {
+                        obj.iter()
+                            .map(|(k, v)| {
+                                let fallback = v.to_string();
+                                let msg = v.as_str().unwrap_or(&fallback);
+                                if k.is_empty() { msg.to_string() } else { format!("{}: {}", k, msg) }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    } else {
+                        errors.to_string()
+                    }
                 } else {
                     error_body.clone()
                 }
@@ -325,7 +337,7 @@ pub async fn create_jira_ticket(
                 error_body
             };
 
-        log::error!("JIRA ticket creation failed: {}", error_message);
+        log::error!("JIRA ticket creation failed (HTTP {}): {}", status.as_u16(), error_message);
 
         Ok(JiraCreateResponse {
             success: false,

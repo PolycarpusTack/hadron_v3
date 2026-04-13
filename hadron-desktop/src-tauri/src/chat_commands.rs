@@ -1617,9 +1617,12 @@ fn build_streaming_request(
 
 /// Emit text content as chunked stream events for smooth frontend rendering.
 /// Async to avoid blocking the Tokio runtime with a tight emit loop.
+///
+/// Uses ~500-char chunks to balance streaming feel against IPC pressure.
+/// Each app.emit() crosses a COM boundary on Windows; larger chunks reduce
+/// the number of crossings that security products (ESET, etc.) may hook.
 async fn emit_text_as_stream(app: &AppHandle, text: &str, request_id: Option<&str>) {
-    // Emit in ~80 char chunks for a streaming feel
-    const CHUNK_SIZE: usize = 80;
+    const CHUNK_SIZE: usize = 500;
     let chars: Vec<char> = text.chars().collect();
 
     for chunk in chars.chunks(CHUNK_SIZE) {
@@ -1634,7 +1637,7 @@ async fn emit_text_as_stream(app: &AppHandle, text: &str, request_id: Option<&st
             },
         );
         // Yield to the runtime between chunks to avoid blocking
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(15)).await;
     }
 
     // Signal completion
