@@ -49,6 +49,50 @@ pub async fn generate_embedding(text: &str, api_key: &str) -> HadronResult<Vec<f
         .ok_or_else(|| HadronError::external_service("Empty embedding response"))
 }
 
+/// Generate an embedding with exponential-backoff retry.
+///
+/// Retries on any error (including rate-limits). Delays: 1 s, 2 s, 4 s, …
+/// `max_retries` is the total number of attempts (not additional retries).
+pub async fn generate_embedding_with_retry(
+    text: &str,
+    api_key: &str,
+    max_retries: usize,
+) -> HadronResult<Vec<f32>> {
+    let mut last_err = String::new();
+    for attempt in 0..max_retries {
+        match generate_embedding(text, api_key).await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                last_err = e.to_string();
+                if attempt < max_retries - 1 {
+                    let delay = std::time::Duration::from_secs(1u64 << attempt); // 1s, 2s, 4s…
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+    Err(HadronError::external_service(format!(
+        "Embedding failed after {max_retries} attempt(s): {last_err}"
+    )))
+}
+
+/// Generate embeddings for a batch of texts, collecting all results.
+///
+/// Uses `generate_embedding_with_retry` for each item. Returns results in
+/// input order; the first error encountered aborts the batch.
+pub async fn generate_embeddings_batch(
+    texts: &[&str],
+    api_key: &str,
+    max_retries: usize,
+) -> HadronResult<Vec<Vec<f32>>> {
+    let mut results = Vec::with_capacity(texts.len());
+    for text in texts {
+        let embedding = generate_embedding_with_retry(text, api_key, max_retries).await?;
+        results.push(embedding);
+    }
+    Ok(results)
+}
+
 #[derive(Serialize)]
 struct EmbeddingRequest {
     input: String,

@@ -151,3 +151,84 @@ pub fn build_text_query(query: &str) -> serde_json::Value {
         }
     })
 }
+
+/// Build a KNN (vector) query for OpenSearch k-NN plugin.
+pub fn build_knn_query(vector: &[f32], k: usize) -> serde_json::Value {
+    serde_json::json!({
+        "size": k,
+        "query": {
+            "knn": {
+                "embedding": {
+                    "vector": vector,
+                    "k": k
+                }
+            }
+        }
+    })
+}
+
+/// Execute a KNN (vector) search against an OpenSearch cluster.
+///
+/// Returns the top-k hits with their source fields. The caller is responsible
+/// for mapping the raw `source` JSON into domain objects.
+pub async fn search_knn(
+    config: &OpenSearchConfig,
+    index: &str,
+    vector: &[f32],
+    k: usize,
+) -> HadronResult<SearchResponse> {
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(config.tls_skip_verify)
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| HadronError::external_service(format!("HTTP client error: {e}")))?;
+
+    let url = format!("{}/{}/_search", config.url.trim_end_matches('/'), index);
+    let body = build_knn_query(vector, k);
+
+    let mut req = client.post(&url).json(&body);
+
+    if let (Some(user), Some(pass)) = (&config.username, &config.password) {
+        req = req.basic_auth(user, Some(pass));
+    }
+
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| HadronError::external_service(format!("OpenSearch KNN request failed: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(HadronError::external_service(format!(
+            "OpenSearch KNN returned {status}: {body}"
+        )));
+    }
+
+    let raw: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| HadronError::external_service(format!("Failed to parse KNN response: {e}")))?;
+
+    let took = raw["took"].as_u64().unwrap_or(0);
+    let total = raw["hits"]["total"]["value"].as_u64().unwrap_or(0);
+    let hits = raw["hits"]["hits"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|h| SearchHit {
+                    index: h["_index"].as_str().unwrap_or("").to_string(),
+                    id: h["_id"].as_str().unwrap_or("").to_string(),
+                    score: h["_score"].as_f64(),
+                    source: h["_source"].clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(SearchResponse {
+        total,
+        hits,
+        took_ms: took,
+    })
+}
