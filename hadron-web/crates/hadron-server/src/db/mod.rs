@@ -3295,3 +3295,73 @@ pub async fn get_sentry_analyses(
 
     Ok((items, total.0))
 }
+
+/// Insert a performance trace analysis record.
+pub async fn insert_performance_analysis(
+    pool: &PgPool,
+    user_id: Uuid,
+    filename: &str,
+    severity: Option<&str>,
+    component: Option<&str>,
+    full_data: Option<&serde_json::Value>,
+) -> HadronResult<i64> {
+    let row: (i64,) = sqlx::query_as(
+        "INSERT INTO analyses (user_id, filename, analysis_type, severity, component, full_data)
+         VALUES ($1, $2, 'performance', $3, $4, $5) RETURNING id",
+    )
+    .bind(user_id)
+    .bind(filename)
+    .bind(severity)
+    .bind(component)
+    .bind(full_data)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+    Ok(row.0)
+}
+
+/// Paginated list of performance analyses for a user.
+/// Returns (rows as JSON, total count).
+pub async fn get_performance_analyses(
+    pool: &PgPool,
+    user_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> HadronResult<(Vec<serde_json::Value>, i64)> {
+    let count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM analyses WHERE user_id = $1 AND analysis_type = 'performance' AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    let rows = sqlx::query(
+        "SELECT id, filename, severity, component, full_data, analyzed_at
+         FROM analyses WHERE user_id = $1 AND analysis_type = 'performance' AND deleted_at IS NULL
+         ORDER BY analyzed_at DESC LIMIT $2 OFFSET $3",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    let items: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|row| {
+            use sqlx::Row;
+            let analyzed_at: chrono::DateTime<chrono::Utc> = row.get("analyzed_at");
+            serde_json::json!({
+                "id": row.get::<i64, _>("id"),
+                "filename": row.get::<String, _>("filename"),
+                "severity": row.get::<Option<String>, _>("severity"),
+                "component": row.get::<Option<String>, _>("component"),
+                "analyzedAt": analyzed_at.to_rfc3339(),
+            })
+        })
+        .collect();
+
+    Ok((items, count.0))
+}
