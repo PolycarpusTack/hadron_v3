@@ -4,6 +4,7 @@ use axum::extract::{Path, State};
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::Json;
+use serde::Deserialize;
 
 use crate::auth::AuthenticatedUser;
 use crate::db;
@@ -172,4 +173,35 @@ fn simplify_for_customer(text: &str) -> String {
         .replace("segfault", "unexpected crash")
         .replace("SIGSEGV", "memory error")
         .replace("stack overflow", "resource limit exceeded")
+}
+
+// ============================================================================
+// Generic export handler
+// ============================================================================
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenericExportRequest {
+    pub title: String,
+    pub source_type: String,
+    pub audience: Option<String>,
+    pub sections: Vec<hadron_core::export::ReportSection>,
+    pub footer: Option<String>,
+    pub format: hadron_core::export::ExportFormat,
+}
+
+pub async fn export_generic(
+    _user: AuthenticatedUser,
+    Json(req): Json<GenericExportRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let data = hadron_core::export::GenericReportData {
+        title: req.title,
+        source_type: req.source_type,
+        audience: req.audience,
+        sections: req.sections,
+        footer: req.footer,
+    };
+    let content = hadron_core::export::export_report(&data, req.format);
+    let content_type = req.format.content_type();
+    Ok(([(axum::http::header::CONTENT_TYPE, content_type)], content))
 }
