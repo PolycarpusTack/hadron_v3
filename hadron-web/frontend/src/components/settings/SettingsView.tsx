@@ -43,20 +43,9 @@ export function SettingsView({
     {},
   );
 
-  // Integration settings
-  const [osUrl, setOsUrl] = useState("");
-  const [osIndex, setOsIndex] = useState("");
-  const [osUsername, setOsUsername] = useState("");
-  const [osPassword, setOsPassword] = useState("");
-
   useEffect(() => {
     api.getSettings().then((s) => {
       setServerSettings(s);
-      // Restore integration settings
-      if (s.opensearchUrl) setOsUrl(s.opensearchUrl as string);
-      if (s.opensearchIndex) setOsIndex(s.opensearchIndex as string);
-      if (s.opensearchUsername) setOsUsername(s.opensearchUsername as string);
-      if (s.opensearchPassword) setOsPassword(s.opensearchPassword as string);
     }).catch((e) =>
       toast.error(
         e instanceof Error ? e.message : "Failed to load settings",
@@ -77,10 +66,6 @@ export function SettingsView({
         ...serverSettings,
         model: localModel,
         provider: localProvider,
-        opensearchUrl: osUrl,
-        opensearchIndex: osIndex,
-        opensearchUsername: osUsername,
-        opensearchPassword: osPassword,
       });
       toast.success("Settings saved");
     } catch (e) {
@@ -95,23 +80,8 @@ export function SettingsView({
     localProvider,
     serverSettings,
     onSettingsChange,
-    osUrl,
-    osIndex,
-    osUsername,
-    osPassword,
     toast,
   ]);
-
-  const handleTestOpenSearch = async () => {
-    try {
-      const result = await api.testOpenSearch(osUrl, osUsername || undefined, osPassword || undefined);
-      if (result.connected) toast.success("OpenSearch connected");
-      else toast.error("OpenSearch connection failed");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Connection failed");
-    }
-  };
-
 
   const availableModels = MODELS[localProvider] || MODELS.openai;
 
@@ -190,59 +160,15 @@ export function SettingsView({
 
       {/* OpenSearch Integration */}
       <section className="rounded-lg border border-slate-700 bg-slate-800 p-5">
-        <h3 className="mb-4 text-sm font-medium text-slate-300">
+        <h3 className="mb-3 text-sm font-medium text-slate-300">
           OpenSearch Integration
         </h3>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">URL</label>
-            <input
-              value={osUrl}
-              onChange={(e) => setOsUrl(e.target.value)}
-              placeholder="https://opensearch.example.com:9200"
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Default Index
-            </label>
-            <input
-              value={osIndex}
-              onChange={(e) => setOsIndex(e.target.value)}
-              placeholder="logs-*"
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Username
-            </label>
-            <input
-              value={osUsername}
-              onChange={(e) => setOsUsername(e.target.value)}
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Password
-            </label>
-            <input
-              type="password"
-              value={osPassword}
-              onChange={(e) => setOsPassword(e.target.value)}
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-        </div>
-        <button
-          onClick={handleTestOpenSearch}
-          disabled={!osUrl}
-          className="mt-3 rounded-md border border-slate-600 px-4 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700 disabled:opacity-30"
-        >
-          Test Connection
-        </button>
+        <p className="text-sm text-slate-400">
+          OpenSearch is configured via the Admin panel.
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          OpenSearch credentials (URL, index, username, password) are managed by an admin and are not editable here.
+        </p>
       </section>
 
       {/* Jira Integration */}
