@@ -26,22 +26,25 @@ pub async fn get_analytics(
 ) -> Result<impl IntoResponse, AppError> {
     let days = params.days.unwrap_or(30).min(365);
     let dashboard =
-        db::get_analytics_dashboard(&state.db, Some(user.user.id), days).await?;
+        db::get_analytics_dashboard(&state.db, Some(user.user.id), None, days).await?;
     Ok(Json(dashboard))
 }
 
-/// Team analytics (lead+).
+/// Team analytics (lead+): aggregates across all team members.
+/// Falls back to the lead's own analytics if they have no team assignment.
 pub async fn get_team_analytics(
     user: AuthenticatedUser,
     State(state): State<AppState>,
     Query(params): Query<AnalyticsQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Lead)?;
-    // For now, team analytics = same as user analytics for the lead
-    // In production, this would filter by team_id
     let days = params.days.unwrap_or(30).min(365);
-    let dashboard =
-        db::get_analytics_dashboard(&state.db, Some(user.user.id), days).await?;
+    let dashboard = if let Some(team_id) = user.user.team_id {
+        db::get_analytics_dashboard(&state.db, None, Some(team_id), days).await?
+    } else {
+        // Lead has no team assignment — return their own analytics.
+        db::get_analytics_dashboard(&state.db, Some(user.user.id), None, days).await?
+    };
     Ok(Json(dashboard))
 }
 
@@ -53,6 +56,6 @@ pub async fn get_global_analytics(
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Admin)?;
     let days = params.days.unwrap_or(30).min(365);
-    let dashboard = db::get_analytics_dashboard(&state.db, None, days).await?;
+    let dashboard = db::get_analytics_dashboard(&state.db, None, None, days).await?;
     Ok(Json(dashboard))
 }
