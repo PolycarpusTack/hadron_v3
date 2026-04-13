@@ -11,8 +11,9 @@ import { SentryConfigPanel } from "./SentryConfigPanel";
 import { StyleGuidePanel } from "./StyleGuidePanel";
 import { ChecklistConfigPanel } from "./ChecklistConfigPanel";
 import { ConfluenceConfigPanel } from "./ConfluenceConfigPanel";
+import { EmbeddingsPanel } from "./EmbeddingsPanel";
 
-type AdminTab = "users" | "ai-config" | "audit" | "tags" | "gold" | "patterns" | "training" | "jira-poller" | "sentry" | "style-guide" | "checklist" | "confluence";
+type AdminTab = "users" | "ai-config" | "audit" | "tags" | "gold" | "patterns" | "training" | "jira-poller" | "sentry" | "style-guide" | "checklist" | "confluence" | "embeddings";
 
 export function AdminPanel() {
   const toast = useToast();
@@ -76,6 +77,7 @@ export function AdminPanel() {
     { key: "style-guide", label: "Style Guide" },
     { key: "checklist", label: "Checklist" },
     { key: "confluence", label: "Confluence" },
+    { key: "embeddings", label: "Embeddings" },
   ];
 
   if (loading) {
@@ -112,6 +114,7 @@ export function AdminPanel() {
       {activeTab === "style-guide" && <StyleGuidePanel />}
       {activeTab === "checklist" && <ChecklistConfigPanel />}
       {activeTab === "confluence" && <ConfluenceConfigPanel />}
+      {activeTab === "embeddings" && <EmbeddingsPanel />}
 
       {activeTab === "training" && (
         <div className="rounded-lg border border-slate-700 bg-slate-800 p-6 text-center">
