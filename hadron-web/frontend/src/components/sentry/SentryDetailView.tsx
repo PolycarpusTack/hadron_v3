@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { SentryAnalysisFullData } from '../../services/api';
+import { SentryAnalysisFullData, ExportSection } from '../../services/api';
 import { getSeverityColor } from './sentryHelpers';
+import { ExportDialog } from '../export/ExportDialog';
 import { SentryPatternCard } from './SentryPatternCard';
 import { SentryBreadcrumbTimeline } from './SentryBreadcrumbTimeline';
 import { SentryExceptionChain } from './SentryExceptionChain';
@@ -23,9 +24,58 @@ const TABS = [
   'Recommendations',
 ];
 
+function buildExportSections(data: SentryAnalysisFullData): ExportSection[] {
+  return [
+    {
+      id: 'overview',
+      label: 'Overview',
+      content: `Error: ${data.aiResult.errorType}\nSeverity: ${data.aiResult.severity}\n\nRoot Cause:\n${data.aiResult.rootCause}\n\nSuggested Fixes:\n${data.aiResult.suggestedFixes.map((f, i) => `${i + 1}. ${f}`).join('\n')}`,
+    },
+    {
+      id: 'patterns',
+      label: 'Patterns',
+      content: data.patterns.length
+        ? data.patterns.map(p => `${p.patternType} (${(p.confidence * 100).toFixed(0)}%) - ${p.evidence.join('; ')}`).join('\n')
+        : 'No patterns detected',
+    },
+    {
+      id: 'breadcrumbs',
+      label: 'Breadcrumbs',
+      content: data.event.breadcrumbs.length
+        ? data.event.breadcrumbs.map(b => `[${b.timestamp || '?'}] ${b.category || '?'} - ${b.message || ''}`).join('\n')
+        : 'No breadcrumbs',
+    },
+    {
+      id: 'stacktrace',
+      label: 'Stack Trace',
+      content: data.event.exceptions.length
+        ? data.event.exceptions.map(e => `${e.type}: ${e.value}\n${(e.stacktrace || []).map(f => `  ${f.inApp ? '[APP]' : '[LIB]'} ${f.function || '?'} (${f.filename || '?'}:${f.lineNo || '?'})`).join('\n')}`).join('\n\n')
+        : 'No exceptions',
+    },
+    {
+      id: 'context',
+      label: 'Context',
+      content: JSON.stringify(data.event.contexts, null, 2),
+    },
+    {
+      id: 'impact',
+      label: 'Impact',
+      content: data.aiResult.userImpact,
+    },
+    {
+      id: 'recommendations',
+      label: 'Recommendations',
+      content: data.aiResult.recommendations.length
+        ? data.aiResult.recommendations.map(r => `[${r.priority}] ${r.title}\n${r.description}`).join('\n\n')
+        : 'No recommendations',
+    },
+  ];
+}
+
 export default function SentryDetailView({ data, onBack }: SentryDetailViewProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   async function handleCopyReport() {
     const lines = [
@@ -117,6 +167,21 @@ export default function SentryDetailView({ data, onBack }: SentryDetailViewProps
             />
           </svg>
           {copied ? 'Copied!' : 'Copy Report'}
+        </button>
+
+        <button
+          onClick={() => setShowExport(true)}
+          className="flex items-center gap-1 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+            />
+          </svg>
+          Export
         </button>
       </div>
 
@@ -232,6 +297,15 @@ export default function SentryDetailView({ data, onBack }: SentryDetailViewProps
           <SentryRecommendations recommendations={data.aiResult.recommendations} />
         )}
       </div>
+
+      {showExport && (
+        <ExportDialog
+          onClose={() => setShowExport(false)}
+          title={data.issue.title}
+          sourceType="sentry"
+          sections={buildExportSections(data)}
+        />
+      )}
     </div>
   );
 }
