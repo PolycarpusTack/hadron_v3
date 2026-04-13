@@ -183,7 +183,6 @@ async fn run_agent_loop(
     tx: &mpsc::Sender<ChatStreamEvent>,
 ) -> Result<(), HadronError> {
     let mut messages = initial_messages;
-    let mut tool_results_context = Vec::new();
 
     for iteration in 0..MAX_AGENT_ITERATIONS {
         // Non-streaming call to get full response (need structured output for tool parsing)
@@ -218,13 +217,6 @@ async fn run_agent_loop(
                     content: tool_result.clone(),
                 })
                 .await;
-
-            // Track for context
-            tool_results_context.push(format!(
-                "Tool '{}' returned: {}",
-                tool.name,
-                truncate_for_context(&tool_result, 2000)
-            ));
 
             // Feed the assistant's tool-calling message + tool result back into the conversation
             messages.push(AiMessage {
@@ -266,17 +258,14 @@ async fn run_agent_loop(
         }
     }
 
-    // Max iterations reached — do one final streaming synthesis
-    // Add context about what tools were used
-    let synthesis_note = format!(
-        "I used {} tool(s) to gather information. Here are the results:\n\n{}\n\nPlease provide a comprehensive response to the user based on these tool results.",
-        tool_results_context.len(),
-        tool_results_context.join("\n\n---\n\n")
-    );
-    messages.push(AiMessage {
-        role: "user".to_string(),
-        content: synthesis_note,
-    });
+    // Max iterations reached — nudge the AI to synthesise using what it already has.
+    // Append to the last user message (which already contains the most recent tool result)
+    // so we never create two consecutive user messages, which Anthropic rejects.
+    if let Some(last) = messages.last_mut() {
+        if last.role == "user" {
+            last.content.push_str("\n\nYou have used all available tool calls. Please provide your final comprehensive response to the user based on all the information gathered.");
+        }
+    }
 
     // Final streaming call
     let final_response = ai::stream_completion(
@@ -314,28 +303,22 @@ async fn stream_text_as_tokens(text: &str, tx: &mpsc::Sender<ChatStreamEvent>) {
             }
         }
         if !chunk.is_empty() {
-            let _ = tx
+            if tx
                 .send(ChatStreamEvent::Token {
                     content: chunk.clone(),
                 })
-                .await;
+                .await
+                .is_err()
+            {
+                // Receiver dropped — client disconnected; stop streaming.
+                return;
+            }
             // Small delay between chunks for smooth rendering
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     }
 }
 
-/// Truncate text for context injection, respecting char boundaries.
-fn truncate_for_context(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        return s;
-    }
-    let mut end = max;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
 
 async fn resolve_ai_config(pool: &sqlx::PgPool) -> Result<AiConfig, AppError> {
     db::get_server_ai_config(pool)
@@ -355,36 +338,39 @@ struct ToolCallRequest {
 }
 
 fn extract_tool_call(content: &str) -> Option<ToolCallRequest> {
-    // Look for {"tool_use": {...}} pattern in the response
-    if let Some(start) = content.find("{\"tool_use\"") {
-        let remaining = &content[start..];
-        // Find the matching closing brace
-        let mut depth = 0;
-        let mut end = 0;
-        for (i, ch) in remaining.char_indices() {
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        end = i + 1;
-                        break;
-                    }
+    // Tool calls must start at the beginning of the response (after trimming whitespace).
+    // This prevents false positives from tool results echoed in the conversation history.
+    let trimmed = content.trim();
+    if !trimmed.starts_with("{\"tool_use\"") {
+        return None;
+    }
+
+    // Find the matching closing brace on the trimmed string
+    let mut depth = 0;
+    let mut end = 0;
+    for (i, ch) in trimmed.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i + 1;
+                    break;
                 }
-                _ => {}
             }
+            _ => {}
         }
-        if end > 0 {
-            let json_str = &remaining[..end];
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
-                if let Some(tool_use) = val.get("tool_use") {
-                    let name = tool_use.get("name")?.as_str()?.to_string();
-                    let arguments = tool_use
-                        .get("arguments")
-                        .cloned()
-                        .unwrap_or(serde_json::json!({}));
-                    return Some(ToolCallRequest { name, arguments });
-                }
+    }
+    if end > 0 {
+        let json_str = &trimmed[..end];
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Some(tool_use) = val.get("tool_use") {
+                let name = tool_use.get("name")?.as_str()?.to_string();
+                let arguments = tool_use
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or(serde_json::json!({}));
+                return Some(ToolCallRequest { name, arguments });
             }
         }
     }
