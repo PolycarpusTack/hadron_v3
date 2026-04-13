@@ -541,6 +541,27 @@ export interface ChecklistConfigResponse {
 }
 
 // ============================================================================
+// Export Types
+// ============================================================================
+
+export interface ExportSection {
+  id: string;
+  label: string;
+  content: string;
+}
+
+export type ExportFormat = 'markdown' | 'html' | 'interactive_html' | 'json' | 'txt';
+
+export interface GenericExportRequest {
+  title: string;
+  sourceType: string;
+  audience?: string;
+  sections: ExportSection[];
+  footer?: string;
+  format: ExportFormat;
+}
+
+// ============================================================================
 // Confluence Types
 // ============================================================================
 
@@ -1539,6 +1560,23 @@ class ApiClient {
       method: "POST",
       headers,
       body: JSON.stringify({ format, audience }),
+    });
+    if (!response.ok) {
+      const error: ApiError = await response.json().catch(() => ({
+        error: `HTTP ${response.status}`,
+        code: "UNKNOWN",
+      }));
+      throw new HadronApiError(response.status, error.error, error.code);
+    }
+    return response.text();
+  }
+
+  async exportGenericReport(request: GenericExportRequest): Promise<string> {
+    const headers = await this.headers();
+    const response = await fetch(`${API_BASE}/export/generic`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(request),
     });
     if (!response.ok) {
       const error: ApiError = await response.json().catch(() => ({

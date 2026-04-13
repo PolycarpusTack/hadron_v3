@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { PerformanceTraceResult } from '../../services/api';
+import { PerformanceTraceResult, ExportSection } from '../../services/api';
+import { ExportDialog } from '../export/ExportDialog';
 import { getSeverityColor } from './performanceHelpers';
 import { PerformanceHeaderStats } from './PerformanceHeaderStats';
 import { PerformanceProcesses } from './PerformanceProcesses';
@@ -38,13 +39,75 @@ function Section({ title, badge, children, defaultOpen = true }: SectionProps) {
   );
 }
 
+function buildExportSections(result: PerformanceTraceResult): ExportSection[] {
+  return [
+    {
+      id: 'summary',
+      label: 'Summary',
+      content: `Severity: ${result.overallSeverity}\n${result.summary}`,
+    },
+    {
+      id: 'stats',
+      label: 'Statistics',
+      content: `CPU: ${result.derived.cpuUtilization}%\nActivity: ${result.derived.activityRatio}%\nGC Pressure: ${result.derived.gcPressure}\nSamples: ${result.header.samples}`,
+    },
+    {
+      id: 'processes',
+      label: 'Processes',
+      content: result.processes.map(p => `${p.name} @ ${p.priority}: ${p.percentage}%`).join('\n'),
+    },
+    {
+      id: 'methods',
+      label: 'Top Methods',
+      content: result.topMethods.map(m => `${m.percentage}% ${m.method} (${m.category})`).join('\n'),
+    },
+    {
+      id: 'patterns',
+      label: 'Patterns',
+      content: result.patterns.length
+        ? result.patterns.map(p => `[${p.severity}] ${p.title} (${p.confidence}%)\n${p.description}`).join('\n\n')
+        : 'No patterns',
+    },
+    {
+      id: 'scenario',
+      label: 'Scenario',
+      content: `Trigger: ${result.scenario.trigger}\n${result.scenario.action}\n\nContext: ${result.scenario.context}\n\nFactors:\n${result.scenario.contributingFactors.map(f => `- ${f}`).join('\n')}`,
+    },
+    {
+      id: 'recommendations',
+      label: 'Recommendations',
+      content: result.recommendations.map(r => `[${r.priority}] ${r.title}\n${r.description}`).join('\n\n'),
+    },
+  ];
+}
+
 interface Props {
   result: PerformanceTraceResult;
 }
 
 export function PerformanceResults({ result }: Props) {
+  const [showExport, setShowExport] = useState(false);
+
   return (
     <div className="flex flex-col gap-1">
+      {/* Toolbar */}
+      <div className="flex justify-end mb-1">
+        <button
+          onClick={() => setShowExport(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 border border-slate-600 rounded-md hover:bg-slate-700 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+            />
+          </svg>
+          Export
+        </button>
+      </div>
+
       {/* Section 1: Summary */}
       <Section title="Summary">
         <div className="flex flex-col gap-3">
@@ -91,6 +154,15 @@ export function PerformanceResults({ result }: Props) {
       <Section title="Recommendations" badge={`${result.recommendations.length} items`}>
         <PerformanceRecommendations recommendations={result.recommendations} />
       </Section>
+
+      {showExport && (
+        <ExportDialog
+          onClose={() => setShowExport(false)}
+          title={result.filename || 'Performance Analysis'}
+          sourceType="performance"
+          sections={buildExportSections(result)}
+        />
+      )}
     </div>
   );
 }

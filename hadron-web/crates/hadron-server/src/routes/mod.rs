@@ -62,6 +62,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/analyses/bulk", post(analyses::bulk_operation))
         // Export
         .route("/analyses/{id}/export", post(export::export_analysis))
+        .route("/export/generic", post(export::export_generic))
         // Tags
         .route("/tags", get(tags::list_tags))
         .route("/tags", post(tags::create_tag))
