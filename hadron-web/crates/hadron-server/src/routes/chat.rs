@@ -217,9 +217,11 @@ pub async fn chat_send(
     // Create or use existing session (verify ownership for existing sessions)
     let session_id = match req.session_id {
         Some(id) => {
-            // Verify the session belongs to this user
-            let sessions = db::get_chat_sessions(&state.db, user.user.id).await?;
-            if !sessions.iter().any(|s| s.id == id) {
+            // Verify the session belongs to this user (single targeted query, not O(n) scan)
+            if !db::verify_session_ownership(&state.db, &id, user.user.id)
+                .await
+                .map_err(AppError::from)?
+            {
                 return Err(AppError(HadronError::forbidden(
                     "Chat session not found or not owned by you",
                 )));
@@ -356,15 +358,6 @@ async fn run_agent_loop(
         let tool_call = extract_tool_call(&response);
 
         if let Some(tool) = tool_call {
-            // Check evidence sufficiency BEFORE executing another tool
-            if state.should_stop() {
-                tracing::debug!(
-                    "Agent stopping early: evidence sufficient after {} tools",
-                    state.iterations_used
-                );
-                break; // Fall through to synthesis
-            }
-
             // Notify client about tool use
             let _ = tx
                 .send(ChatStreamEvent::ToolUse {
@@ -402,6 +395,24 @@ async fn run_agent_loop(
                 })
                 .await;
 
+            tracing::debug!(
+                "Agent loop iteration {}: tool '{}' executed ({}ms), evidence: {} items, {} chars",
+                state.iterations_used,
+                tool.name,
+                duration_ms,
+                state.evidence.len(),
+                state.evidence_tokens,
+            );
+
+            // Check evidence sufficiency AFTER executing and recording the tool
+            if state.should_stop() {
+                tracing::debug!(
+                    "Agent stopping early: evidence sufficient after {} tools",
+                    state.iterations_used
+                );
+                break; // Fall through to synthesis
+            }
+
             // Feed the assistant's tool-calling message + tool result back
             messages.push(AiMessage {
                 role: "assistant".to_string(),
@@ -427,15 +438,6 @@ async fn run_agent_loop(
                 role: "user".to_string(),
                 content: result_msg,
             });
-
-            tracing::debug!(
-                "Agent loop iteration {}: tool '{}' executed ({}ms), evidence: {} items, {} chars",
-                state.iterations_used,
-                tool.name,
-                duration_ms,
-                state.evidence.len(),
-                state.evidence_tokens,
-            );
         } else {
             // No tool call — this is the final response. Stream it.
             stream_text_as_tokens(&response, tx).await;
@@ -489,13 +491,13 @@ async fn run_agent_loop(
 
 /// Stream pre-computed text as individual token events for smooth client-side rendering.
 async fn stream_text_as_tokens(text: &str, tx: &mpsc::Sender<ChatStreamEvent>) {
-    // Send in chunks of ~20 chars for a smooth streaming effect
+    // Send in chunks of ~40 chars for a smooth streaming effect
     let mut chars = text.chars().peekable();
-    let mut chunk = String::with_capacity(20);
+    let mut chunk = String::with_capacity(40);
 
     while chars.peek().is_some() {
         chunk.clear();
-        for _ in 0..20 {
+        for _ in 0..40 {
             if let Some(c) = chars.next() {
                 chunk.push(c);
             } else {
@@ -514,7 +516,7 @@ async fn stream_text_as_tokens(text: &str, tx: &mpsc::Sender<ChatStreamEvent>) {
                 return;
             }
             // Small delay between chunks for smooth rendering
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         }
     }
 }

@@ -337,11 +337,13 @@ pub async fn execute_tool(
                  COUNT(*) FILTER (WHERE severity = 'LOW') AS low \
                  FROM analyses \
                  WHERE created_at >= now() - $1 * interval '1 day' \
+                 AND user_id = $2 \
                  GROUP BY period ORDER BY period",
             );
 
             let rows = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(&sql)
             .bind(days)
+            .bind(user_id)
             .fetch_all(pool)
             .await;
 
@@ -374,12 +376,14 @@ pub async fn execute_tool(
                 "SELECT error_type, component, COUNT(*) AS cnt \
                  FROM analyses \
                  WHERE created_at >= now() - $1 * interval '1 day' \
+                 AND user_id = $3 \
                  GROUP BY error_type, component \
                  ORDER BY cnt DESC \
                  LIMIT $2",
             )
             .bind(days)
             .bind(limit)
+            .bind(user_id)
             .fetch_all(pool)
             .await;
 

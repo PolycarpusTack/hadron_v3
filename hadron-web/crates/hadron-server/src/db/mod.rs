@@ -231,6 +231,22 @@ pub async fn get_chat_sessions(
     Ok(rows.into_iter().map(Into::into).collect())
 }
 
+pub async fn verify_session_ownership(
+    pool: &PgPool,
+    session_id: &str,
+    user_id: Uuid,
+) -> HadronResult<bool> {
+    let row: Option<(i64,)> = sqlx::query_as(
+        "SELECT 1 FROM chat_sessions WHERE id = $1 AND user_id = $2 LIMIT 1",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+    Ok(row.is_some())
+}
+
 pub async fn create_chat_session(
     pool: &PgPool,
     user_id: Uuid,
