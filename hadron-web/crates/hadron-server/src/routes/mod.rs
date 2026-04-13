@@ -15,6 +15,7 @@ mod jira_analysis;
 mod jira_poller;
 mod notes;
 mod performance;
+mod search;
 mod sentry_analysis;
 mod patterns;
 mod release_notes;
@@ -124,6 +125,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/release-notes/preview-tickets", post(release_notes_gen::preview_tickets))
         .route("/release-notes/generate/stream", post(release_notes_gen::generate_stream))
         .route("/release-notes/generate", post(release_notes_gen::generate))
+        // Hybrid search
+        .route("/search/hybrid", post(search::search_hybrid))
+        .route("/search/knowledge-base", post(search::search_knowledge_base))
         // OpenSearch integration
         .route("/search/opensearch", post(integrations::opensearch_search))
         .route("/search/opensearch/test", post(integrations::opensearch_test))
@@ -175,6 +179,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/admin/patterns/{id}", put(patterns::update_pattern))
         .route("/admin/patterns/{id}", delete(patterns::delete_pattern))
         .route("/admin/patterns/test", post(patterns::test_patterns))
+        // Admin: embedding backfill & status
+        .route("/admin/embeddings/backfill", post(search::backfill_embeddings))
+        .route("/admin/embeddings/status", get(search::embeddings_status))
         // Admin: training data export
         .route("/admin/export/training-data", get(admin::export_training_data))
         // Admin
