@@ -23,6 +23,7 @@ import { SentryAnalyzerView } from "./components/sentry/SentryAnalyzerView";
 import { CodeAnalyzerView } from "./components/code-analyzer/CodeAnalyzerView";
 import { JiraAnalyzerView } from "./components/jira/JiraAnalyzerView";
 import { JiraProjectFeed } from "./components/jira/JiraProjectFeed";
+import { PerformanceAnalyzerView } from "./components/performance/PerformanceAnalyzerView";
 
 type View =
   | "analyze"
@@ -37,6 +38,7 @@ type View =
   | "code-analyzer"
   | "jira-analyzer"
   | "jira-feed"
+  | "performance"
   | "settings"
   | "admin";
 
@@ -146,6 +148,7 @@ function AuthenticatedApp() {
     { key: "team", label: "Team", requireLead: true },
     { key: "releases", label: "Releases" },
     { key: "sentry", label: "Sentry" },
+    { key: "performance", label: "Performance" },
     { key: "settings", label: "Settings" },
     { key: "admin", label: "Admin", requireAdmin: true },
   ];
@@ -233,6 +236,7 @@ function AuthenticatedApp() {
         {activeView === "team" && <TeamFeedView />}
         {activeView === "releases" && <ReleaseNotesView />}
         {activeView === "sentry" && <SentryAnalyzerView />}
+        {activeView === "performance" && <PerformanceAnalyzerView />}
         {activeView === "settings" && (
           <SettingsView
             apiKey={apiKey}

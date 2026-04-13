@@ -685,6 +685,66 @@ export interface SentryAnalysisDetail {
   [key: string]: unknown;
 }
 
+// ── Performance Analyzer Types ────────────────────────────────────────
+
+export interface PerformanceTraceResult {
+  filename: string;
+  user: string | null;
+  timestamp: string | null;
+  header: PerformanceHeader;
+  derived: PerfDerivedMetrics;
+  processes: ProcessInfo[];
+  topMethods: TopMethod[];
+  patterns: PerfDetectedPattern[];
+  scenario: UserScenario;
+  recommendations: PerfRecommendation[];
+  overallSeverity: string;
+  summary: string;
+}
+
+export interface PerformanceHeader {
+  samples: number; avgMsPerSample: number;
+  scavenges: number; incGcs: number;
+  stackSpills: number; markStackOverflows: number;
+  weakListOverflows: number; jitCacheSpills: number;
+  activeTime: number; otherProcesses: number;
+  realTime: number; profilingOverhead: number;
+}
+
+export interface PerfDerivedMetrics {
+  cpuUtilization: number; activityRatio: number;
+  sampleDensity: number; gcPressure: number;
+}
+
+export interface ProcessInfo {
+  name: string; priority: string;
+  percentage: number; status: string;
+}
+
+export interface TopMethod {
+  method: string; category: string; percentage: number;
+}
+
+export interface PerfDetectedPattern {
+  patternType: string; severity: string;
+  title: string; description: string; confidence: number;
+}
+
+export interface UserScenario {
+  trigger: string; action: string; context: string;
+  impactPercentage: number; contributingFactors: string[];
+}
+
+export interface PerfRecommendation {
+  recType: string; title: string; priority: string;
+  description: string; effort: string;
+}
+
+export interface PerformanceAnalysisSummary {
+  id: number; filename: string; severity: string | null;
+  component: string | null; analyzedAt: string;
+}
+
 // ============================================================================
 // HTTP helpers
 // ============================================================================
@@ -1677,6 +1737,31 @@ class ApiClient {
 
   async updateConfluenceConfig(config: { spaceKey?: string; parentPageId?: string }): Promise<void> {
     return this.request("PUT", "/admin/confluence", config);
+  }
+
+  // ── Performance Analyzer ────────────────────────────────────────
+
+  async analyzePerformanceTrace(content: string, filename: string): Promise<PerformanceTraceResult> {
+    return this.request("POST", "/performance/analyze", { content, filename });
+  }
+
+  async analyzePerformanceTraceEnriched(content: string, filename: string): Promise<PerformanceTraceResult> {
+    return this.request("POST", "/performance/analyze/enrich", { content, filename });
+  }
+
+  async getPerformanceAnalyses(limit?: number, offset?: number): Promise<{ items: PerformanceAnalysisSummary[]; total: number }> {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", String(limit));
+    if (offset) params.set("offset", String(offset));
+    return this.request("GET", `/performance/analyses?${params}`);
+  }
+
+  async getPerformanceAnalysis(id: number): Promise<{ fullData: PerformanceTraceResult }> {
+    return this.request("GET", `/performance/analyses/${id}`);
+  }
+
+  async deletePerformanceAnalysis(id: number): Promise<void> {
+    return this.request("DELETE", `/performance/analyses/${id}`);
   }
 }
 

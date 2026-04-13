@@ -12,6 +12,7 @@ pub mod jira_triage;
 pub mod jira_brief;
 pub mod sentry_analysis;
 pub mod release_notes;
+pub mod performance;
 
 pub use types::{AiConfig, AiMessage, AiProvider};
 pub use prompts::*;

@@ -14,6 +14,7 @@ mod integrations;
 mod jira_analysis;
 mod jira_poller;
 mod notes;
+mod performance;
 mod sentry_analysis;
 mod patterns;
 mod release_notes;
@@ -161,6 +162,12 @@ pub fn api_router() -> Router<AppState> {
         // Code Analysis
         .route("/code-analysis", post(code_analysis::analyze_code))
         .route("/code-analysis/stream", post(code_analysis::analyze_code_stream))
+        // Performance Analysis
+        .route("/performance/analyze", post(performance::analyze))
+        .route("/performance/analyze/enrich", post(performance::analyze_enrich))
+        .route("/performance/analyses", get(performance::list_analyses))
+        .route("/performance/analyses/{id}", get(performance::get_analysis))
+        .route("/performance/analyses/{id}", delete(performance::delete_analysis))
         // Patterns (Admin)
         .route("/admin/patterns", get(patterns::list_patterns))
         .route("/admin/patterns", post(patterns::create_pattern))
