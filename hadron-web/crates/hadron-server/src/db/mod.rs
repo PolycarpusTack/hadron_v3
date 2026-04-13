@@ -834,6 +834,99 @@ pub async fn get_embedding(pool: &PgPool, source_id: i64, source_type: &str) -> 
     }
 }
 
+/// Generic vector search across all (or a filtered) source type.
+///
+/// Returns rows as `(source_id, source_type, content, distance)` where
+/// `distance` is the cosine distance (0 = identical, 2 = opposite).
+/// Lower distance = more similar. Filter by `source_type` when provided.
+pub async fn vector_search(
+    pool: &PgPool,
+    query_embedding: &[f32],
+    limit: i64,
+    source_type: Option<&str>,
+) -> HadronResult<Vec<(i64, String, String, f64)>> {
+    let vec_str = format!(
+        "[{}]",
+        query_embedding
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+
+    let rows: Vec<(i64, String, String, f64)> = if let Some(st) = source_type {
+        sqlx::query_as(
+            "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
+             FROM embeddings
+             WHERE source_type = $2
+             ORDER BY embedding <=> $1::vector
+             LIMIT $3",
+        )
+        .bind(&vec_str)
+        .bind(st)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?
+    } else {
+        sqlx::query_as(
+            "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
+             FROM embeddings
+             ORDER BY embedding <=> $1::vector
+             LIMIT $2",
+        )
+        .bind(&vec_str)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?
+    };
+
+    Ok(rows)
+}
+
+/// Return `(total_analyses, embedded_analyses)` counts for coverage reporting.
+pub async fn get_embedding_coverage(pool: &PgPool) -> HadronResult<(i64, i64)> {
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM analyses WHERE deleted_at IS NULL",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    let embedded: (i64,) = sqlx::query_as(
+        "SELECT COUNT(DISTINCT source_id) FROM embeddings WHERE source_type = 'analysis'",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok((total.0, embedded.0))
+}
+
+/// Fetch analyses that have no embedding yet, up to `limit` rows.
+///
+/// Returns `(id, error_type, root_cause, component)` for each row.
+pub async fn get_unembedded_analyses(
+    pool: &PgPool,
+    limit: i64,
+) -> HadronResult<Vec<(i64, Option<String>, Option<String>, Option<String>)>> {
+    let rows = sqlx::query_as(
+        "SELECT a.id, a.error_type, a.root_cause, a.component
+         FROM analyses a
+         LEFT JOIN embeddings e
+           ON e.source_type = 'analysis' AND e.source_id = a.id
+         WHERE a.deleted_at IS NULL AND e.id IS NULL
+         LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(rows)
+}
+
 // ============================================================================
 // Audit Log
 // ============================================================================

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, AnalysisSummary } from "../../services/api";
+import { api, AnalysisSummary, SearchHitResult } from "../../services/api";
 import { SeverityBadge } from "../common/SeverityBadge";
 import { useToast } from "../Toast";
 
@@ -10,7 +10,9 @@ export function AdvancedSearchPanel() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isFavorite, setIsFavorite] = useState(false);
+  const [hybridSearch, setHybridSearch] = useState(false);
   const [results, setResults] = useState<AnalysisSummary[]>([]);
+  const [hybridResults, setHybridResults] = useState<SearchHitResult[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -25,22 +27,38 @@ export function AdvancedSearchPanel() {
     setLoading(true);
     setSearched(true);
     try {
-      const resp = await api.advancedSearch({
-        q: q || undefined,
-        severity: severity.length > 0 ? severity : undefined,
-        dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
-        isFavorite: isFavorite || undefined,
-        limit: 50,
-        offset: 0,
-      });
-      setResults(resp.data);
-      setTotal(resp.total);
+      if (hybridSearch) {
+        const hits = await api.searchHybrid(q || "", 50);
+        setHybridResults(hits);
+        setTotal(hits.length);
+        setResults([]);
+      } else {
+        const resp = await api.advancedSearch({
+          q: q || undefined,
+          severity: severity.length > 0 ? severity : undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          isFavorite: isFavorite || undefined,
+          limit: 50,
+          offset: 0,
+        });
+        setResults(resp.data);
+        setTotal(resp.total);
+        setHybridResults([]);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Search failed");
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatScore = (score: number) => {
+    // Scores between 0 and 1 are shown as percentages; otherwise raw value
+    if (score >= 0 && score <= 1) {
+      return `${(score * 100).toFixed(0)}%`;
+    }
+    return score.toFixed(2);
   };
 
   return (
@@ -118,6 +136,18 @@ export function AdvancedSearchPanel() {
             />
             Favorites only
           </label>
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={hybridSearch}
+              onChange={(e) => setHybridSearch(e.target.checked)}
+              className="rounded"
+            />
+            Hybrid Search
+            <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-xs font-medium text-violet-400">
+              semantic
+            </span>
+          </label>
           <button
             onClick={handleSearch}
             className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
@@ -134,29 +164,63 @@ export function AdvancedSearchPanel() {
         <div>
           <p className="mb-2 text-sm text-slate-400">
             {total} result{total !== 1 ? "s" : ""} found
+            {hybridSearch && (
+              <span className="ml-2 text-xs text-violet-400">(hybrid / semantic)</span>
+            )}
           </p>
-          <div className="space-y-1">
-            {results.map((a) => (
-              <div
-                key={a.id}
-                className="flex items-center justify-between rounded-md px-3 py-2 hover:bg-slate-800"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-slate-200">
-                    {a.filename}
+
+          {/* Hybrid results */}
+          {hybridSearch ? (
+            <div className="space-y-1">
+              {hybridResults.map((hit) => (
+                <div
+                  key={hit.id}
+                  className="flex items-center justify-between rounded-md px-3 py-2 hover:bg-slate-800"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-slate-200">{hit.title}</div>
+                    <div className="mt-0.5 truncate text-xs text-slate-500">{hit.content}</div>
+                    <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-600">
+                      <span>{hit.source}</span>
+                    </div>
                   </div>
-                  <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                    <span>
-                      {new Date(a.analyzedAt).toLocaleDateString()}
-                    </span>
-                    {a.errorType && <span>{a.errorType}</span>}
-                    {a.component && <span>{a.component}</span>}
-                  </div>
+                  <span className="ml-3 shrink-0 rounded bg-violet-500/20 px-2 py-0.5 text-xs font-medium text-violet-400">
+                    {formatScore(hit.score)}
+                  </span>
                 </div>
-                <SeverityBadge severity={a.severity} />
-              </div>
-            ))}
-          </div>
+              ))}
+              {hybridResults.length === 0 && (
+                <p className="py-4 text-center text-sm text-slate-500">No results found</p>
+              )}
+            </div>
+          ) : (
+            /* FTS results */
+            <div className="space-y-1">
+              {results.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between rounded-md px-3 py-2 hover:bg-slate-800"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-slate-200">
+                      {a.filename}
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                      <span>
+                        {new Date(a.analyzedAt).toLocaleDateString()}
+                      </span>
+                      {a.errorType && <span>{a.errorType}</span>}
+                      {a.component && <span>{a.component}</span>}
+                    </div>
+                  </div>
+                  <SeverityBadge severity={a.severity} />
+                </div>
+              ))}
+              {results.length === 0 && (
+                <p className="py-4 text-center text-sm text-slate-500">No results found</p>
+              )}
+            </div>
+          )}
         </div>
       ) : null}
     </div>

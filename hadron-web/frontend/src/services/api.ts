@@ -706,6 +706,29 @@ export interface SentryAnalysisDetail {
   [key: string]: unknown;
 }
 
+// ── RAG/Search Types ──────────────────────────────────────────────────
+
+export interface SearchHitResult {
+  id: string;
+  title: string;
+  content: string;
+  score: number;
+  source: string;
+  metadata: Record<string, string>;
+}
+
+export interface EmbeddingStatus {
+  totalAnalyses: number;
+  embedded: number;
+  coverage: number;
+}
+
+export interface BackfillResult {
+  processed: number;
+  skipped: number;
+  errors: number;
+}
+
 // ── Performance Analyzer Types ────────────────────────────────────────
 
 export interface PerformanceTraceResult {
@@ -1800,6 +1823,24 @@ class ApiClient {
 
   async deletePerformanceAnalysis(id: number): Promise<void> {
     return this.request("DELETE", `/performance/analyses/${id}`);
+  }
+
+  // === RAG / Search ===
+
+  async searchHybrid(query: string, limit?: number): Promise<SearchHitResult[]> {
+    return this.request("POST", "/search/hybrid", { query, limit });
+  }
+
+  async searchKnowledgeBase(query: string, customer?: string, limit?: number): Promise<SearchHitResult[]> {
+    return this.request("POST", "/search/knowledge-base", { query, customer, limit });
+  }
+
+  async getEmbeddingStatus(): Promise<EmbeddingStatus> {
+    return this.request("GET", "/admin/embeddings/status");
+  }
+
+  async backfillEmbeddings(): Promise<BackfillResult> {
+    return this.request("POST", "/admin/embeddings/backfill");
   }
 }
 

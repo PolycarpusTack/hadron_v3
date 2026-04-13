@@ -104,7 +104,7 @@ pub async fn analyze_issue_stream(
                         } else {
                             issue_for_persist.short_id.clone()
                         };
-                        if let Err(e) = crate::db::insert_sentry_analysis(
+                        match crate::db::insert_sentry_analysis(
                             &db_pool,
                             user_id,
                             &filename,
@@ -119,7 +119,25 @@ pub async fn analyze_issue_stream(
                         )
                         .await
                         {
-                            tracing::warn!("Failed to persist Sentry analysis: {e}");
+                            Ok(inserted_id) => {
+                                let embed_text = format!(
+                                    "{} {}",
+                                    analysis_result.error_type,
+                                    analysis_result.root_cause,
+                                )
+                                .trim()
+                                .to_string();
+                                if !embed_text.is_empty() {
+                                    crate::routes::search::spawn_embed_analysis(
+                                        db_pool.clone(),
+                                        inserted_id,
+                                        embed_text,
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to persist Sentry analysis: {e}");
+                            }
                         }
                     }
                     Err(e) => {
@@ -202,7 +220,7 @@ pub async fn analyze_issue(
     } else {
         issue.short_id.clone()
     };
-    if let Err(e) = crate::db::insert_sentry_analysis(
+    match crate::db::insert_sentry_analysis(
         &state.db,
         user.user.id,
         &filename,
@@ -217,7 +235,25 @@ pub async fn analyze_issue(
     )
     .await
     {
-        tracing::warn!("Failed to persist Sentry analysis: {e}");
+        Ok(inserted_id) => {
+            let embed_text = format!(
+                "{} {}",
+                analysis_result.error_type,
+                analysis_result.root_cause,
+            )
+            .trim()
+            .to_string();
+            if !embed_text.is_empty() {
+                crate::routes::search::spawn_embed_analysis(
+                    state.db.clone(),
+                    inserted_id,
+                    embed_text,
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to persist Sentry analysis: {e}");
+        }
     }
 
     Ok(Json(analysis_result))
