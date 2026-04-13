@@ -66,7 +66,7 @@ pub async fn analyze_enrich(
 
     // Persist (best-effort — don't fail the response on DB error)
     let full_data = serde_json::to_value(&result).ok();
-    if let Err(e) = db::insert_performance_analysis(
+    match db::insert_performance_analysis(
         &state.db,
         user.user.id,
         &req.filename,
@@ -76,7 +76,26 @@ pub async fn analyze_enrich(
     )
     .await
     {
-        tracing::warn!("Failed to persist performance analysis: {e}");
+        Ok(inserted_id) => {
+            // Build embed text from summary + severity
+            let embed_text = format!(
+                "{} {}",
+                result.summary.trim(),
+                result.overall_severity,
+            )
+            .trim()
+            .to_string();
+            if !embed_text.is_empty() {
+                crate::routes::search::spawn_embed_analysis(
+                    state.db.clone(),
+                    inserted_id,
+                    embed_text,
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to persist performance analysis: {e}");
+        }
     }
 
     Ok(Json(result))
