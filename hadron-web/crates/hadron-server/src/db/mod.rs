@@ -1606,9 +1606,10 @@ pub async fn get_archived_analyses(
     Ok((rows.into_iter().map(Into::into).collect(), total.0))
 }
 
-pub async fn permanent_delete_analysis(pool: &PgPool, id: i64) -> HadronResult<()> {
-    let result = sqlx::query("DELETE FROM analyses WHERE id = $1")
+pub async fn permanent_delete_analysis(pool: &PgPool, id: i64, user_id: Uuid) -> HadronResult<()> {
+    let result = sqlx::query("DELETE FROM analyses WHERE id = $1 AND user_id = $2")
         .bind(id)
+        .bind(user_id)
         .execute(pool)
         .await
         .map_err(|e| HadronError::database(e.to_string()))?;

@@ -3,7 +3,6 @@
 //! Generates 1536-dimensional embeddings for pgvector similarity search.
 
 use hadron_core::error::{HadronError, HadronResult};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 const EMBEDDING_MODEL: &str = "text-embedding-3-small";
@@ -11,7 +10,10 @@ const EMBEDDING_URL: &str = "https://api.openai.com/v1/embeddings";
 
 /// Generate an embedding vector for the given text.
 pub async fn generate_embedding(text: &str, api_key: &str) -> HadronResult<Vec<f32>> {
-    let client = Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| HadronError::external_service(format!("HTTP client error: {e}")))?;
 
     let body = EmbeddingRequest {
         input: text.to_string(),

@@ -498,7 +498,7 @@ pub async fn permanent_delete(
 ) -> Result<impl IntoResponse, AppError> {
     use crate::middleware::require_role;
     require_role(&user, hadron_core::models::Role::Lead)?;
-    db::permanent_delete_analysis(&state.db, id).await?;
+    db::permanent_delete_analysis(&state.db, id, user.user.id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
