@@ -24,6 +24,8 @@ import { CodeAnalyzerView } from "./components/code-analyzer/CodeAnalyzerView";
 import { JiraAnalyzerView } from "./components/jira/JiraAnalyzerView";
 import { JiraProjectFeed } from "./components/jira/JiraProjectFeed";
 import { PerformanceAnalyzerView } from "./components/performance/PerformanceAnalyzerView";
+import { FloatingElena } from "./components/widget/FloatingElena";
+import "./components/widget/elena-styles.css";
 
 type View =
   | "analyze"
@@ -247,6 +249,9 @@ function AuthenticatedApp() {
         )}
         {activeView === "admin" && <AdminPanel />}
       </main>
+
+      {/* Floating Elena quick-chat widget */}
+      <FloatingElena />
     </div>
   );
 }
