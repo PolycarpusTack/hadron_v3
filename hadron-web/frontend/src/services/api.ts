@@ -1142,10 +1142,7 @@ class ApiClient {
   // === Jira ===
 
   async createJiraTicket(
-    credentials: {
-      baseUrl: string;
-      email: string;
-      apiToken: string;
+    target: {
       projectKey: string;
     },
     ticket: {
@@ -1158,7 +1155,7 @@ class ApiClient {
     },
   ): Promise<JiraTicketResult> {
     return this.request("POST", "/jira/tickets", {
-      credentials,
+      ...target,
       ...ticket,
     });
   }

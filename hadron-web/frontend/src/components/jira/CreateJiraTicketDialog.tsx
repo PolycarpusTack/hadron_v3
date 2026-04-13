@@ -14,9 +14,6 @@ export function CreateJiraTicketDialog({
   onClose,
 }: CreateJiraTicketDialogProps) {
   const toast = useToast();
-  const [baseUrl, setBaseUrl] = useState("");
-  const [email, setEmail] = useState("");
-  const [apiToken, setApiToken] = useState("");
   const [projectKey, setProjectKey] = useState("");
   const [summary, setSummary] = useState(
     `[Hadron] ${analysis.errorType || "Crash"} in ${analysis.component || "Unknown"}`,
@@ -31,14 +28,14 @@ export function CreateJiraTicketDialog({
   if (!open) return null;
 
   const handleSubmit = async () => {
-    if (!baseUrl || !email || !apiToken || !projectKey) {
-      toast.error("All Jira connection fields are required");
+    if (!projectKey) {
+      toast.error("Project key is required");
       return;
     }
     setSubmitting(true);
     try {
       const result = await api.createJiraTicket(
-        { baseUrl, email, apiToken, projectKey },
+        { projectKey },
         {
           summary,
           description,
@@ -67,38 +64,20 @@ export function CreateJiraTicketDialog({
           Create Jira Ticket
         </h3>
 
-        {/* Jira credentials */}
+        {/* Project key */}
         <div className="mb-4 space-y-3">
           <h4 className="text-xs font-medium uppercase text-slate-400">
-            Jira Connection
+            Jira Project
           </h4>
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://your-org.atlassian.net"
-              className="rounded-md border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-            <input
-              value={projectKey}
-              onChange={(e) => setProjectKey(e.target.value)}
-              placeholder="Project key (e.g. HAD)"
-              className="rounded-md border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              className="rounded-md border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-            <input
-              type="password"
-              value={apiToken}
-              onChange={(e) => setApiToken(e.target.value)}
-              placeholder="API token"
-              className="rounded-md border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
+          <p className="text-xs text-slate-500">
+            JIRA credentials are configured by your admin. Specify the target project key below.
+          </p>
+          <input
+            value={projectKey}
+            onChange={(e) => setProjectKey(e.target.value)}
+            placeholder="Project key (e.g. HAD)"
+            className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+          />
         </div>
 
         {/* Ticket details */}

@@ -80,15 +80,6 @@ pub async fn opensearch_test(
 // Jira
 // ============================================================================
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JiraCredentials {
-    base_url: String,
-    email: String,
-    api_token: String,
-    project_key: String,
-}
-
 pub async fn jira_create_ticket(
     user: AuthenticatedUser,
     State(state): State<AppState>,
@@ -96,12 +87,8 @@ pub async fn jira_create_ticket(
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Lead)?;
 
-    let config = jira::JiraConfig {
-        base_url: req.credentials.base_url,
-        email: req.credentials.email,
-        api_token: req.credentials.api_token,
-        project_key: req.credentials.project_key,
-    };
+    let mut config = db::get_jira_config_from_poller(&state.db).await?;
+    config.project_key = req.project_key;
 
     let ticket_req = jira::CreateTicketRequest {
         config_id: None,
@@ -133,7 +120,7 @@ pub async fn jira_create_ticket(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JiraCreateRequest {
-    credentials: JiraCredentials,
+    project_key: String,
     summary: String,
     description: String,
     priority: Option<String>,

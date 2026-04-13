@@ -17,11 +17,12 @@ use crate::AppState;
 
 use super::AppError;
 
-#[derive(Deserialize)]
+/// Empty request body — kept so handlers that accept `Json(req)` still compile
+/// when clients send `{}` or no body. Credentials come from the server-side
+/// poller config only; clients cannot override the AI key.
+#[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct AnalyzeRequest {
-    pub api_key: Option<String>,
-}
+pub struct AnalyzeRequest {}
 
 /// POST /api/jira/issues/{key}/detail — fetch full ticket detail.
 pub async fn fetch_issue(
@@ -39,18 +40,12 @@ pub async fn analyze_issue(
     _user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(key): Path<String>,
-    Json(req): Json<AnalyzeRequest>,
+    Json(_req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(
-        &state.db,
-        req.api_key.as_deref(),
-        None,
-        None,
-    )
-    .await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
 
     let (system_prompt, messages) = hadron_core::ai::build_jira_deep_messages(&ticket);
 
@@ -65,18 +60,12 @@ pub async fn analyze_issue_stream(
     _user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(key): Path<String>,
-    Json(req): Json<AnalyzeRequest>,
+    Json(_req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(
-        &state.db,
-        req.api_key.as_deref(),
-        None,
-        None,
-    )
-    .await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
 
     let (system_prompt, messages) = hadron_core::ai::build_jira_deep_messages(&ticket);
 
@@ -92,18 +81,12 @@ pub async fn triage_issue(
     _user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(key): Path<String>,
-    Json(req): Json<AnalyzeRequest>,
+    Json(_req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(
-        &state.db,
-        req.api_key.as_deref(),
-        None,
-        None,
-    )
-    .await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
 
     let (system_prompt, messages) = hadron_core::ai::build_jira_triage_messages(&ticket);
     let raw_response = ai::complete(&ai_config, messages, Some(&system_prompt)).await?;
@@ -136,18 +119,12 @@ pub async fn generate_brief(
     _user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(key): Path<String>,
-    Json(req): Json<AnalyzeRequest>,
+    Json(_req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(
-        &state.db,
-        req.api_key.as_deref(),
-        None,
-        None,
-    )
-    .await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
 
     // Run triage + deep analysis in parallel
     let (triage_sys, triage_msgs) = hadron_core::ai::build_jira_triage_messages(&ticket);
@@ -214,18 +191,12 @@ pub async fn generate_brief_stream(
     _user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(key): Path<String>,
-    Json(req): Json<AnalyzeRequest>,
+    Json(_req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(
-        &state.db,
-        req.api_key.as_deref(),
-        None,
-        None,
-    )
-    .await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
 
     // Run triage first (fast, ~2-3s)
     let (triage_sys, triage_msgs) = hadron_core::ai::build_jira_triage_messages(&ticket);

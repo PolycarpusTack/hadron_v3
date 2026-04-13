@@ -48,9 +48,6 @@ export function SettingsView({
   const [osIndex, setOsIndex] = useState("");
   const [osUsername, setOsUsername] = useState("");
   const [osPassword, setOsPassword] = useState("");
-  const [jiraUrl, setJiraUrl] = useState("");
-  const [jiraEmail, setJiraEmail] = useState("");
-  const [jiraProject, setJiraProject] = useState("");
 
   useEffect(() => {
     api.getSettings().then((s) => {
@@ -60,9 +57,6 @@ export function SettingsView({
       if (s.opensearchIndex) setOsIndex(s.opensearchIndex as string);
       if (s.opensearchUsername) setOsUsername(s.opensearchUsername as string);
       if (s.opensearchPassword) setOsPassword(s.opensearchPassword as string);
-      if (s.jiraUrl) setJiraUrl(s.jiraUrl as string);
-      if (s.jiraEmail) setJiraEmail(s.jiraEmail as string);
-      if (s.jiraProject) setJiraProject(s.jiraProject as string);
     }).catch((e) =>
       toast.error(
         e instanceof Error ? e.message : "Failed to load settings",
@@ -87,9 +81,6 @@ export function SettingsView({
         opensearchIndex: osIndex,
         opensearchUsername: osUsername,
         opensearchPassword: osPassword,
-        jiraUrl,
-        jiraEmail,
-        jiraProject,
       });
       toast.success("Settings saved");
     } catch (e) {
@@ -108,9 +99,6 @@ export function SettingsView({
     osIndex,
     osUsername,
     osPassword,
-    jiraUrl,
-    jiraEmail,
-    jiraProject,
     toast,
   ]);
 
@@ -259,46 +247,16 @@ export function SettingsView({
 
       {/* Jira Integration */}
       <section className="rounded-lg border border-slate-700 bg-slate-800 p-5">
-        <h3 className="mb-4 text-sm font-medium text-slate-300">
+        <h3 className="mb-3 text-sm font-medium text-slate-300">
           Jira Integration
         </h3>
-        <p className="mb-3 text-xs text-slate-500">
-          JIRA credentials (URL, email, API token) are admin-configured in the Admin panel under
-          JIRA Poller. These settings store non-sensitive defaults only.
+        <p className="text-sm text-slate-400">
+          JIRA is configured via the Admin panel.
         </p>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Base URL
-            </label>
-            <input
-              value={jiraUrl}
-              onChange={(e) => setJiraUrl(e.target.value)}
-              placeholder="https://your-org.atlassian.net"
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Default Project Key
-            </label>
-            <input
-              value={jiraProject}
-              onChange={(e) => setJiraProject(e.target.value)}
-              placeholder="HAD"
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">Email</label>
-            <input
-              value={jiraEmail}
-              onChange={(e) => setJiraEmail(e.target.value)}
-              placeholder="your@email.com"
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          JIRA credentials (URL, email, API token, project key) are managed by an admin under
+          JIRA Poller settings and are not editable here.
+        </p>
       </section>
 
       {/* Save */}
