@@ -1,7 +1,8 @@
 //! Chat tool definitions and execution.
 //!
 //! Provides tools the AI can call during chat: search_analyses, get_analysis_detail,
-//! search_knowledge_base, search_similar_analyses.
+//! search_knowledge_base, search_similar_analyses, get_top_signatures, get_trend_data,
+//! get_error_patterns, search_jira, search_gold_answers, compare_analyses.
 
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -100,6 +101,112 @@ pub fn chat_tools() -> Vec<ToolDefinition> {
                 "required": ["analysis_id"]
             }),
         },
+        // --- New tools for operational reasoning ---
+        ToolDefinition {
+            name: "get_top_signatures".to_string(),
+            description: "Get the most frequently occurring crash signatures. Useful for identifying recurring issues and their current status.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max signatures to return (default 10)"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by status: new, investigating, fix_in_progress, fixed, wont_fix, duplicate (optional)"
+                    }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "get_trend_data".to_string(),
+            description: "Get analysis trend data grouped by day or week. Shows how many analyses were performed over time and severity distribution. Useful for spotting increases in errors.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of days to look back (default 30)"
+                    },
+                    "group_by": {
+                        "type": "string",
+                        "description": "'day' or 'week' (default 'day')"
+                    }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "get_error_patterns".to_string(),
+            description: "Get the most common error types and components across all analyses. Useful for identifying systemic issues.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Look-back period in days (default 30)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max patterns to return (default 10)"
+                    }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "search_jira".to_string(),
+            description: "Search JIRA tickets by text query or JQL. Useful for finding related tickets, checking fix versions, or looking up specific issues.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search text or JQL query"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 10)"
+                    }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDefinition {
+            name: "search_gold_answers".to_string(),
+            description: "Search gold-standard (verified correct) analyses. These are human-verified analyses that serve as reference answers. Use when you want to check if a similar issue has been expertly diagnosed before.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 5)"
+                    }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDefinition {
+            name: "compare_analyses".to_string(),
+            description: "Compare two analyses side by side to identify similarities and differences. Useful for determining if two crashes have the same root cause.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "analysis_id_1": {
+                        "type": "integer",
+                        "description": "First analysis ID"
+                    },
+                    "analysis_id_2": {
+                        "type": "integer",
+                        "description": "Second analysis ID"
+                    }
+                },
+                "required": ["analysis_id_1", "analysis_id_2"]
+            }),
+        },
     ]
 }
 
@@ -167,6 +274,274 @@ pub async fn execute_tool(
 
             execute_similar_search(pool, user_id, analysis_id, limit, threshold).await
         }
+        "get_top_signatures" => {
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
+            let status = args.get("status").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+            let rows = if let Some(ref s) = status {
+                sqlx::query_as::<_, (String, String, i32, String, String)>(
+                    "SELECT hash, canonical, occurrence_count, status, last_seen_at::text \
+                     FROM crash_signatures WHERE status = $1 \
+                     ORDER BY occurrence_count DESC LIMIT $2",
+                )
+                .bind(s)
+                .bind(limit)
+                .fetch_all(pool)
+                .await
+            } else {
+                sqlx::query_as::<_, (String, String, i32, String, String)>(
+                    "SELECT hash, canonical, occurrence_count, status, last_seen_at::text \
+                     FROM crash_signatures \
+                     ORDER BY occurrence_count DESC LIMIT $1",
+                )
+                .bind(limit)
+                .fetch_all(pool)
+                .await
+            };
+
+            match rows {
+                Ok(rows) => {
+                    let results: Vec<serde_json::Value> = rows
+                        .into_iter()
+                        .map(|(hash, canonical, count, status, last_seen)| {
+                            serde_json::json!({
+                                "hash": hash,
+                                "signature": canonical,
+                                "occurrence_count": count,
+                                "status": status,
+                                "last_seen": last_seen,
+                            })
+                        })
+                        .collect();
+                    serde_json::to_string_pretty(&results).map_err(|e| e.to_string())
+                }
+                Err(e) => Err(format!("Failed to query signatures: {e}")),
+            }
+        }
+
+        "get_trend_data" => {
+            let days = args.get("days").and_then(|v| v.as_i64()).unwrap_or(30);
+            let group_by = args
+                .get("group_by")
+                .and_then(|v| v.as_str())
+                .unwrap_or("day");
+            // date_trunc requires a literal string; these are hardcoded so no injection risk
+            let trunc = if group_by == "week" { "week" } else { "day" };
+
+            let sql = format!(
+                "SELECT date_trunc('{trunc}', created_at)::date::text AS period, \
+                 COUNT(*) AS total, \
+                 COUNT(*) FILTER (WHERE severity = 'CRITICAL') AS critical, \
+                 COUNT(*) FILTER (WHERE severity = 'HIGH') AS high, \
+                 COUNT(*) FILTER (WHERE severity = 'MEDIUM') AS medium, \
+                 COUNT(*) FILTER (WHERE severity = 'LOW') AS low \
+                 FROM analyses \
+                 WHERE created_at >= now() - $1 * interval '1 day' \
+                 GROUP BY period ORDER BY period",
+            );
+
+            let rows = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(&sql)
+            .bind(days)
+            .fetch_all(pool)
+            .await;
+
+            match rows {
+                Ok(rows) => {
+                    let results: Vec<serde_json::Value> = rows
+                        .into_iter()
+                        .map(|(period, total, critical, high, medium, low)| {
+                            serde_json::json!({
+                                "period": period,
+                                "total": total,
+                                "critical": critical.unwrap_or(0),
+                                "high": high.unwrap_or(0),
+                                "medium": medium.unwrap_or(0),
+                                "low": low.unwrap_or(0),
+                            })
+                        })
+                        .collect();
+                    serde_json::to_string_pretty(&results).map_err(|e| e.to_string())
+                }
+                Err(e) => Err(format!("Failed to query trends: {e}")),
+            }
+        }
+
+        "get_error_patterns" => {
+            let days = args.get("days").and_then(|v| v.as_i64()).unwrap_or(30);
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
+
+            let rows = sqlx::query_as::<_, (Option<String>, Option<String>, i64)>(
+                "SELECT error_type, component, COUNT(*) AS cnt \
+                 FROM analyses \
+                 WHERE created_at >= now() - $1 * interval '1 day' \
+                 GROUP BY error_type, component \
+                 ORDER BY cnt DESC \
+                 LIMIT $2",
+            )
+            .bind(days)
+            .bind(limit)
+            .fetch_all(pool)
+            .await;
+
+            match rows {
+                Ok(rows) => {
+                    let results: Vec<serde_json::Value> = rows
+                        .into_iter()
+                        .map(|(error_type, component, cnt)| {
+                            serde_json::json!({
+                                "error_type": error_type.unwrap_or_else(|| "unknown".to_string()),
+                                "component": component.unwrap_or_else(|| "unknown".to_string()),
+                                "count": cnt,
+                            })
+                        })
+                        .collect();
+                    serde_json::to_string_pretty(&results).map_err(|e| e.to_string())
+                }
+                Err(e) => Err(format!("Failed to query error patterns: {e}")),
+            }
+        }
+
+        "search_jira" => {
+            let query = args
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let limit = args
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(10) as u32;
+
+            // Try to get JIRA config from poller settings
+            let jira_config = match db::get_jira_config_from_poller(pool).await {
+                Ok(cfg) => cfg,
+                Err(_) => {
+                    return Ok(
+                        "JIRA is not configured on this server. Ask an admin to set up JIRA credentials in the admin panel."
+                            .to_string(),
+                    );
+                }
+            };
+
+            // Determine if query looks like JQL (contains operators)
+            let is_jql = query.contains('=')
+                || query.contains("ORDER BY")
+                || query.contains("AND")
+                || query.contains("OR");
+
+            let result = if is_jql {
+                crate::integrations::jira::search_issues(&jira_config, Some(query), None, limit)
+                    .await
+            } else {
+                crate::integrations::jira::search_issues(&jira_config, None, Some(query), limit)
+                    .await
+            };
+
+            match result {
+                Ok(resp) => serde_json::to_string_pretty(&resp)
+                    .map_err(|e| e.to_string()),
+                Err(e) => Err(format!("JIRA search failed: {}", e.client_message())),
+            }
+        }
+
+        "search_gold_answers" => {
+            let query = args
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(5);
+
+            let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<String>, f64, String)>(
+                "SELECT a.id, a.filename, a.error_type, a.root_cause, a.component, \
+                        g.quality_score, a.created_at::text \
+                 FROM gold_analyses g \
+                 JOIN analyses a ON a.id = g.analysis_id \
+                 WHERE a.filename ILIKE '%' || $1 || '%' \
+                    OR a.error_type ILIKE '%' || $1 || '%' \
+                    OR a.root_cause ILIKE '%' || $1 || '%' \
+                    OR a.component ILIKE '%' || $1 || '%' \
+                 ORDER BY g.quality_score DESC \
+                 LIMIT $2",
+            )
+            .bind(query)
+            .bind(limit)
+            .fetch_all(pool)
+            .await;
+
+            match rows {
+                Ok(rows) => {
+                    let results: Vec<serde_json::Value> = rows
+                        .into_iter()
+                        .map(|(id, filename, error_type, root_cause, component, score, created)| {
+                            serde_json::json!({
+                                "analysis_id": id,
+                                "filename": filename,
+                                "error_type": error_type,
+                                "root_cause": root_cause,
+                                "component": component,
+                                "quality_score": score,
+                                "created_at": created,
+                                "is_gold_standard": true,
+                            })
+                        })
+                        .collect();
+                    if results.is_empty() {
+                        Ok("No gold-standard analyses found matching that query.".to_string())
+                    } else {
+                        serde_json::to_string_pretty(&results).map_err(|e| e.to_string())
+                    }
+                }
+                Err(e) => Err(format!("Failed to search gold analyses: {e}")),
+            }
+        }
+
+        "compare_analyses" => {
+            let id1 = args
+                .get("analysis_id_1")
+                .and_then(|v| v.as_i64())
+                .ok_or("analysis_id_1 is required")?;
+            let id2 = args
+                .get("analysis_id_2")
+                .and_then(|v| v.as_i64())
+                .ok_or("analysis_id_2 is required")?;
+
+            let a1 = db::get_analysis_by_id(pool, id1, user_id)
+                .await
+                .map_err(|e| format!("Analysis {} not found: {}", id1, e.client_message()))?;
+            let a2 = db::get_analysis_by_id(pool, id2, user_id)
+                .await
+                .map_err(|e| format!("Analysis {} not found: {}", id2, e.client_message()))?;
+
+            let comparison = serde_json::json!({
+                "analysis_1": {
+                    "id": a1.id,
+                    "filename": a1.filename,
+                    "error_type": a1.error_type,
+                    "error_message": a1.error_message,
+                    "severity": a1.severity,
+                    "component": a1.component,
+                    "root_cause": a1.root_cause,
+                    "confidence": a1.confidence,
+                    "created_at": a1.created_at.to_string(),
+                },
+                "analysis_2": {
+                    "id": a2.id,
+                    "filename": a2.filename,
+                    "error_type": a2.error_type,
+                    "error_message": a2.error_message,
+                    "severity": a2.severity,
+                    "component": a2.component,
+                    "root_cause": a2.root_cause,
+                    "confidence": a2.confidence,
+                    "created_at": a2.created_at.to_string(),
+                },
+                "same_error_type": a1.error_type == a2.error_type,
+                "same_component": a1.component == a2.component,
+                "same_severity": a1.severity == a2.severity,
+            });
+
+            serde_json::to_string_pretty(&comparison).map_err(|e| e.to_string())
+        }
+
         _ => Err(format!("Unknown tool: {tool_name}")),
     }
 }
