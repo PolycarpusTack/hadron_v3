@@ -152,3 +152,15 @@ hadron-desktop/WHATS_ON_Crash_Analyzer_Enhanced*.html
 # Git Worktrees
 # ----------------------------------------------
 .worktrees/
+
+# ----------------------------------------------
+# Tool caches and MCP artifacts
+# ----------------------------------------------
+.codex
+.playwright-mcp/
+
+# ----------------------------------------------
+# Docker volumes and data
+# ----------------------------------------------
+pgdata/
+hadron-web/pgdata/
