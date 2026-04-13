@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import { SentryIssue } from '../../services/api';
 import { api } from '../../services/api';
 import { SentryIssueRow } from './SentryIssueRow';
@@ -51,7 +51,7 @@ export function SentryQuickImport({ onAnalyze }: SentryQuickImportProps) {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       handleFetch();
     }

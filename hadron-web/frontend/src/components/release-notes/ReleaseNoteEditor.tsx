@@ -312,6 +312,7 @@ export function ReleaseNoteEditor({
         {noteId && (
           <button
             onClick={async () => {
+              if (!window.confirm('Are you sure you want to delete this release note?')) return;
               try {
                 await api.deleteReleaseNote(noteId);
                 toast.success("Release note deleted");

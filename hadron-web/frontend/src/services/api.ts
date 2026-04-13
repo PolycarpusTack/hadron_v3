@@ -703,7 +703,6 @@ export interface SentryAnalysisDetail {
   severity: string | null;
   fullData: SentryAnalysisFullData | null;
   analyzedAt: string;
-  [key: string]: unknown;
 }
 
 // ── RAG/Search Types ──────────────────────────────────────────────────

@@ -12,7 +12,7 @@ export function OptimizedTab({ code }: { code: string | null }) {
   }
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(code);
+    navigator.clipboard.writeText(code).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

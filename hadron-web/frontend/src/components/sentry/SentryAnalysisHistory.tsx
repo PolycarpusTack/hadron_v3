@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, type MouseEvent } from 'react';
 import { SentryAnalysisSummary } from '../../services/api';
 import { api } from '../../services/api';
 import { getSeverityColor, formatRelativeTime } from './sentryHelpers';
@@ -29,7 +29,7 @@ export function SentryAnalysisHistory({ onView }: SentryAnalysisHistoryProps) {
     loadAnalyses();
   }, []);
 
-  const handleDelete = async (e: React.MouseEvent, id: number) => {
+  const handleDelete = async (e: MouseEvent, id: number) => {
     e.stopPropagation();
     setDeletingId(id);
     try {
