@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ChangeEvent } from 'react';
 import { SentryProject, SentryIssue } from '../../services/api';
 import { api } from '../../services/api';
 import { SentryIssueRow } from './SentryIssueRow';
@@ -54,7 +54,7 @@ export function SentryIssueBrowser({ onAnalyze }: SentryIssueBrowserProps) {
     }
   }, []);
 
-  const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleProjectChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const slug = e.target.value;
     setSelectedProject(slug);
     setIssues([]);

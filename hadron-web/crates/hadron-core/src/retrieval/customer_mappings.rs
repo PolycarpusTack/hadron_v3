@@ -105,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn all_48_customers_are_mapped() {
+    fn all_51_customers_are_mapped() {
         let known = [
             "aetn", "aeus", "ajl", "ajmn", "altice", "amcn", "bbc", "br", "bsf", "bsq",
             "bts", "bx1", "cbc", "curi", "dazn", "disco", "disney plus", "dmc", "dpg", "dr",

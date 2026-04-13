@@ -217,9 +217,11 @@ pub async fn jira_fix_versions(
 // ============================================================================
 
 pub async fn sentry_test(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     Json(config): Json<SentryConfig>,
 ) -> Result<impl IntoResponse, AppError> {
+    crate::middleware::require_role(&user, hadron_core::models::Role::Lead)
+        .map_err(|_| AppError(hadron_core::error::HadronError::forbidden("Only leads and admins can test Sentry connections.")))?;
     let ok = sentry::test_connection(&config)
         .await
         .map_err(|e| AppError(e))?;

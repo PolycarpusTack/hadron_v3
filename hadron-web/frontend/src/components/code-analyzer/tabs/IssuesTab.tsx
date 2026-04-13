@@ -64,7 +64,7 @@ export function IssuesTab({
   };
 
   const copyFix = (issue: CodeIssue) => {
-    navigator.clipboard.writeText(issue.fix);
+    navigator.clipboard.writeText(issue.fix).catch(() => {});
     setCopied(issue.id);
     if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
     copyTimeoutRef.current = setTimeout(() => setCopied(null), 2000);

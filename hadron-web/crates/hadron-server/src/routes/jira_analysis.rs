@@ -303,6 +303,11 @@ pub async fn get_briefs_batch(
     State(state): State<AppState>,
     Json(req): Json<BatchBriefsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    if req.jira_keys.len() > 200 {
+        return Err(AppError(hadron_core::error::HadronError::validation(
+            "Maximum 200 keys per batch request.",
+        )));
+    }
     let briefs = crate::db::get_ticket_briefs_batch(&state.db, &req.jira_keys).await?;
     Ok(Json(briefs))
 }

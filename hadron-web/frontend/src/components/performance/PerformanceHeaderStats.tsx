@@ -34,7 +34,7 @@ export function PerformanceHeaderStats({ header, derived }: Props) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard label="Samples" value={header.samples.toLocaleString()} sub={`${header.avgMsPerSample.toFixed(1)} ms/sample`} />
         <MetricCard label="Real Time" value={formatSeconds(header.realTime)} sub="wall-clock" />
-        <MetricCard label="Active Time" value={formatSeconds(header.activeTime)} sub={`${((header.activeTime / header.realTime) * 100).toFixed(0)}% of real`} />
+        <MetricCard label="Active Time" value={formatSeconds(header.activeTime)} sub={`${header.realTime > 0 ? ((header.activeTime / header.realTime) * 100).toFixed(0) : 'N/A'}% of real`} />
         <MetricCard label="GC Events" value={gcEvents.toLocaleString()} sub={`${header.scavenges} scavenges / ${header.incGcs} inc`} />
       </div>
 
