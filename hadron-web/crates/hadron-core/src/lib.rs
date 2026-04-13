@@ -7,3 +7,4 @@ pub mod export;
 pub mod models;
 pub mod parser;
 pub mod performance;
+pub mod retrieval;
