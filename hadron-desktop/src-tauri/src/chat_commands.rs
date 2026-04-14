@@ -1,8 +1,9 @@
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Listener};
+use tauri::{AppHandle, Listener};
 
 use crate::str_utils::floor_char_boundary;
 use zeroize::Zeroizing;
@@ -13,7 +14,7 @@ use crate::ai_service::{
     build_chat_request_with_tools_openai,
     build_tool_result_messages, call_provider_chat,
     call_provider_raw_json, call_provider_streaming, extract_text_from_response,
-    parse_tool_calls, response_wants_tools, ChatMessage, ChatResponse, ChatStreamEvent,
+    parse_tool_calls, response_wants_tools, ChatMessage, ChatResponse,
 };
 use crate::chat_tools::{execute_tool, get_tool_definitions, JiraConfig, ToolContext};
 use crate::database::Database;
@@ -131,6 +132,107 @@ pub struct ChatFinalContentEvent {
     pub references: Vec<crate::retrieval::citation::NumberedReference>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+}
+
+// ============================================================================
+// Pull-based chat stream state — zero backend-initiated COM crossings.
+//
+// The backend writes tokens and events into shared state. The frontend
+// polls via `poll_chat_stream` (invoke = request-response, no push).
+// This eliminates ALL backend-initiated webview.eval() calls that ESET hooks.
+// ============================================================================
+
+/// Shared state for the active chat stream. Guarded by `parking_lot::RwLock`
+/// for low-overhead concurrent access from the streaming tokio task and the
+/// polling command.
+#[derive(Debug, Default)]
+pub struct ChatStreamState {
+    /// Accumulated token text not yet consumed by a poll.
+    pub pending_text: String,
+    /// Whether the stream has finished (done or error).
+    pub done: bool,
+    /// Error message if streaming failed.
+    pub error: Option<String>,
+    /// Queued sideband events (context, tool_use, diagnostics, final_content).
+    /// Each poll drains these.
+    pub events: Vec<ChatStreamEvent_>,
+}
+
+/// Sideband events queued alongside the token stream.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind")]
+pub enum ChatStreamEvent_ {
+    #[serde(rename = "context")]
+    Context(ChatContextSummary),
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        tool_name: String,
+        tool_args: serde_json::Value,
+        iteration: usize,
+    },
+    #[serde(rename = "diagnostics")]
+    Diagnostics(ChatDiagnosticsEvent),
+    #[serde(rename = "final_content")]
+    FinalContent {
+        content: String,
+        references: Vec<crate::retrieval::citation::NumberedReference>,
+    },
+}
+
+/// Response returned by `poll_chat_stream`.
+#[derive(Debug, Serialize)]
+pub struct ChatPollResponse {
+    /// New token text since last poll (may be empty).
+    pub text: String,
+    /// Whether the stream is complete.
+    pub done: bool,
+    /// Error message if streaming failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Sideband events queued since last poll.
+    pub events: Vec<ChatStreamEvent_>,
+}
+
+/// Tauri managed state wrapper.
+pub struct ChatStreamShared(pub Arc<RwLock<ChatStreamState>>);
+
+/// Push text into the shared stream state (called from streaming code).
+pub fn stream_push_text(state: &Arc<RwLock<ChatStreamState>>, text: String) {
+    state.write().pending_text.push_str(&text);
+}
+
+/// Mark the stream as done.
+pub fn stream_set_done(state: &Arc<RwLock<ChatStreamState>>) {
+    state.write().done = true;
+}
+
+/// Push a sideband event into the shared stream state.
+pub fn stream_push_event(state: &Arc<RwLock<ChatStreamState>>, event: ChatStreamEvent_) {
+    state.write().events.push(event);
+}
+
+/// Reset the stream state for a new request.
+pub fn stream_reset(state: &Arc<RwLock<ChatStreamState>>) {
+    let mut s = state.write();
+    s.pending_text.clear();
+    s.done = false;
+    s.error = None;
+    s.events.clear();
+}
+
+/// Poll command — frontend calls this every 50-100ms. Zero backend-initiated
+/// COM crossings; each poll is a single invoke() request-response round-trip.
+#[tauri::command]
+pub fn poll_chat_stream(
+    state: tauri::State<'_, ChatStreamShared>,
+) -> ChatPollResponse {
+    let mut s = state.0.write();
+    ChatPollResponse {
+        text: std::mem::take(&mut s.pending_text),
+        done: s.done,
+        error: s.error.clone(),
+        events: std::mem::take(&mut s.events),
+    }
 }
 
 // ============================================================================
@@ -442,11 +544,20 @@ where
 pub async fn chat_send(
     app: AppHandle,
     db: tauri::State<'_, Arc<Database>>,
+    shared: tauri::State<'_, ChatStreamShared>,
     request: ChatRequest,
 ) -> Result<ChatResponse, String> {
-    log::debug!("cmd: chat_send");
+    log::debug!("cmd: chat_send (pull-based streaming)");
     let request_id = request.request_id.clone();
     let chat_start = std::time::Instant::now();
+
+    // Reset shared state for this new request — frontend will start polling.
+    let ss = shared.0.clone();
+    stream_reset(&ss);
+
+    // Build a StreamSink that writes to shared state (zero COM crossings).
+    use crate::ai_service::StreamSink;
+    let sink = StreamSink::SharedState(ss.clone());
 
     // Set up cancellation: listen for "chat-cancel" events matching our request_id
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -710,13 +821,14 @@ pub async fn chat_send(
 
         // Check if the LLM wants to call tools
         if !response_wants_tools(&response, &request.provider) {
-            let _ = app.emit("chat-context", &context_summary);
+            stream_push_event(&ss, ChatStreamEvent_::Context(context_summary.clone()));
 
             // If no tool calls happened at all (first iteration), just chunk-emit
             // the existing response — no need for a second API call.
             if total_tool_calls == 0 {
                 let final_text = extract_text_from_response(&response, &request.provider);
-                emit_text_as_stream(&app, &final_text, request_id.as_deref()).await;
+                stream_push_text(&ss, final_text.clone());
+                stream_set_done(&ss);
                 let est_tokens = (final_text.len() as f64 / 4.0) as i32;
                 return Ok(ChatResponse {
                     content: final_text,
@@ -742,7 +854,7 @@ pub async fn chat_send(
                 t.dedup();
                 t
             };
-            let _ = app.emit("chat-diagnostics", ChatDiagnosticsEvent {
+            stream_push_event(&ss, ChatStreamEvent_::Diagnostics(ChatDiagnosticsEvent {
                 tools_used: unique_tools,
                 total_tool_calls,
                 retrieval_latency_ms: chat_start.elapsed().as_millis() as u64,
@@ -754,12 +866,12 @@ pub async fn chat_send(
                 } else {
                     None
                 },
-                invalid_citation_count: None, // Set after synthesis
+                invalid_citation_count: None,
                 request_id: request_id.clone(),
                 tool_traces: all_tool_traces.clone(),
-                total_tokens: 0, // Updated after synthesis
+                total_tokens: 0,
                 total_cost: 0.0,
-            });
+            }));
 
             // Build base system prompt with evidence assessment
             let base_system_prompt = if !evidence.sufficient && total_tool_calls > 0 {
@@ -807,11 +919,10 @@ pub async fn chat_send(
                     0.0,
                 );
                 let base_result = call_provider_streaming(
-                    &app,
+                    &sink,
                     &request.provider,
                     base_body,
                     &resolved_api_key,
-                    request_id.as_deref(),
                 )
                 .await;
 
@@ -828,15 +939,7 @@ pub async fn chat_send(
                 }
 
                 // Emit separator between base and customer streaming
-                let _ = app.emit(
-                    "chat-stream",
-                    ChatStreamEvent {
-                        token: "\n\n".to_string(),
-                        done: false,
-                        error: None,
-                        request_id: request_id.clone(),
-                    },
-                );
+                stream_push_text(&ss, "\n\n".to_string());
 
                 // CUSTOMER synthesis call
                 let customer_prompt =
@@ -849,11 +952,10 @@ pub async fn chat_send(
                     0.0,
                 );
                 let customer_result = call_provider_streaming(
-                    &app,
+                    &sink,
                     &request.provider,
                     customer_body,
                     &resolved_api_key,
-                    request_id.as_deref(),
                 )
                 .await;
 
@@ -865,7 +967,7 @@ pub async fn chat_send(
                             "\n\n#### {}\nNo customer-specific documentation was available for {}.",
                             customer_name, customer_name
                         );
-                        emit_text_as_stream(&app, &fallback, request_id.as_deref()).await;
+                        stream_push_text(&ss, fallback.clone());
                         (fallback, 0, 0.0)
                     }
                 };
@@ -896,11 +998,10 @@ pub async fn chat_send(
                     0.0,
                 );
                 let stream_result = call_provider_streaming(
-                    &app,
+                    &sink,
                     &request.provider,
                     stream_body,
                     &resolved_api_key,
-                    request_id.as_deref(),
                 )
                 .await;
 
@@ -911,7 +1012,8 @@ pub async fn chat_send(
                         log::warn!("Streaming failed, falling back: {}", e);
                         let final_text =
                             extract_text_from_response(&response, &request.provider);
-                        emit_text_as_stream(&app, &final_text, request_id.as_deref()).await;
+                        stream_push_text(&ss, final_text.clone());
+                        stream_set_done(&ss);
                         let est_tokens = (final_text.len() as f64 / 4.0) as i32;
                         return Ok(ChatResponse {
                             content: final_text,
@@ -950,16 +1052,13 @@ pub async fn chat_send(
 
             // Emit post-processed content if citations were transformed
             if !processed.references.is_empty() {
-                let _ = app.emit(
-                    "chat-final-content",
-                    ChatFinalContentEvent {
-                        content: processed.content.clone(),
-                        references: processed.references,
-                        request_id: request_id.clone(),
-                    },
-                );
+                stream_push_event(&ss, ChatStreamEvent_::FinalContent {
+                    content: processed.content.clone(),
+                    references: processed.references,
+                });
             }
 
+            stream_set_done(&ss);
             return Ok(ChatResponse {
                 content: processed.content,
                 tokens_used: final_tokens,
@@ -974,8 +1073,9 @@ pub async fn chat_send(
         if tool_calls.is_empty() {
             // Unexpected: response_wants_tools was true but no parseable calls
             let final_text = extract_text_from_response(&response, &request.provider);
-            let _ = app.emit("chat-context", context_summary);
-            emit_text_as_stream(&app, &final_text, request_id.as_deref()).await;
+            stream_push_event(&ss, ChatStreamEvent_::Context(context_summary));
+            stream_push_text(&ss, final_text.clone());
+            stream_set_done(&ss);
 
             let est_tokens = (final_text.len() as f64 / 4.0) as i32;
             return Ok(ChatResponse {
@@ -987,15 +1087,11 @@ pub async fn chat_send(
 
         // Emit tool use events for frontend indicators
         for tc in &tool_calls {
-            let _ = app.emit(
-                "chat-tool-use",
-                ChatToolUseEvent {
-                    tool_name: tc.name.clone(),
-                    tool_args: tc.arguments.clone(),
-                    iteration,
-                    request_id: request_id.clone(),
-                },
-            );
+            stream_push_event(&ss, ChatStreamEvent_::ToolUse {
+                tool_name: tc.name.clone(),
+                tool_args: tc.arguments.clone(),
+                iteration,
+            });
             log::info!("Agent calling tool: {}({})", tc.name, tc.arguments);
 
             // Track context summary counts
@@ -1060,7 +1156,7 @@ pub async fn chat_send(
     // --- Max iterations reached — get a final response via true streaming ---
     log::warn!("Agent loop hit max iterations ({}), requesting final answer with streaming", MAX_AGENT_ITERATIONS);
 
-    let _ = app.emit("chat-context", &context_summary);
+    stream_push_event(&ss, ChatStreamEvent_::Context(context_summary.clone()));
 
     // Evidence gate for max-iterations path
     let evidence = crate::retrieval::evidence_gate::assess_evidence(
@@ -1084,7 +1180,7 @@ pub async fn chat_send(
         t.dedup();
         t
     };
-    let _ = app.emit("chat-diagnostics", ChatDiagnosticsEvent {
+    stream_push_event(&ss, ChatStreamEvent_::Diagnostics(ChatDiagnosticsEvent {
         tools_used: unique_tools_b,
         total_tool_calls,
         retrieval_latency_ms: chat_start.elapsed().as_millis() as u64,
@@ -1101,7 +1197,7 @@ pub async fn chat_send(
         tool_traces: all_tool_traces,
         total_tokens: 0,
         total_cost: 0.0,
-    });
+    }));
 
     // Check if dual synthesis is needed (customer RN data present)
     let customer_name_b = request.customer.as_deref().unwrap_or("");
@@ -1139,11 +1235,10 @@ pub async fn chat_send(
             0.0,
         );
         let base_result = call_provider_streaming(
-            &app,
+            &sink,
             &request.provider,
             base_body,
             &resolved_api_key,
-            request_id.as_deref(),
         )
         .await;
 
@@ -1155,15 +1250,7 @@ pub async fn chat_send(
         };
 
         // Emit separator between base and customer streaming
-        let _ = app.emit(
-            "chat-stream",
-            ChatStreamEvent {
-                token: "\n\n".to_string(),
-                done: false,
-                error: None,
-                request_id: request_id.clone(),
-            },
-        );
+        stream_push_text(&ss, "\n\n".to_string());
 
         // CUSTOMER synthesis call
         let customer_prompt =
@@ -1176,11 +1263,10 @@ pub async fn chat_send(
             0.0,
         );
         let customer_result = call_provider_streaming(
-            &app,
+            &sink,
             &request.provider,
             customer_body,
             &resolved_api_key,
-            request_id.as_deref(),
         )
         .await;
 
@@ -1192,7 +1278,7 @@ pub async fn chat_send(
                     "\n\n#### {}\nNo customer-specific documentation was available for {}.",
                     customer_name_b, customer_name_b
                 );
-                emit_text_as_stream(&app, &fallback, request_id.as_deref()).await;
+                stream_push_text(&ss, fallback.clone());
                 (fallback, 0, 0.0)
             }
         };
@@ -1225,11 +1311,10 @@ pub async fn chat_send(
             0.0,
         );
         let stream_result = call_provider_streaming(
-            &app,
+            &sink,
             &request.provider,
             stream_body,
             &resolved_api_key,
-            request_id.as_deref(),
         )
         .await;
 
@@ -1258,12 +1343,7 @@ pub async fn chat_send(
                 let final_response =
                     call_provider_chat(&request.provider, final_body, &resolved_api_key)
                         .await?;
-                emit_text_as_stream(
-                    &app,
-                    &final_response.content,
-                    request_id.as_deref(),
-                )
-                .await;
+                stream_push_text(&ss, final_response.content.clone());
                 (
                     final_response.content,
                     final_response.tokens_used,
@@ -1282,15 +1362,14 @@ pub async fn chat_send(
     );
 
     if !processed.references.is_empty() {
-        let _ = app.emit(
-            "chat-final-content",
-            ChatFinalContentEvent {
-                content: processed.content.clone(),
-                references: processed.references,
-                request_id: request_id.clone(),
-            },
-        );
+        stream_push_event(&ss, ChatStreamEvent_::FinalContent {
+            content: processed.content.clone(),
+            references: processed.references,
+        });
     }
+
+    // Mark stream as done so the frontend poll loop stops.
+    stream_set_done(&ss);
 
     Ok(ChatResponse {
         content: processed.content,
@@ -1616,42 +1695,6 @@ fn build_streaming_request(
 }
 
 /// Emit text content as chunked stream events for smooth frontend rendering.
-/// Async to avoid blocking the Tokio runtime with a tight emit loop.
-///
-/// Uses ~500-char chunks to balance streaming feel against IPC pressure.
-/// Each app.emit() crosses a COM boundary on Windows; larger chunks reduce
-/// the number of crossings that security products (ESET, etc.) may hook.
-async fn emit_text_as_stream(app: &AppHandle, text: &str, request_id: Option<&str>) {
-    const CHUNK_SIZE: usize = 500;
-    let chars: Vec<char> = text.chars().collect();
-
-    for chunk in chars.chunks(CHUNK_SIZE) {
-        let token: String = chunk.iter().collect();
-        let _ = app.emit(
-            "chat-stream",
-            ChatStreamEvent {
-                token,
-                done: false,
-                error: None,
-                request_id: request_id.map(|s| s.to_string()),
-            },
-        );
-        // Yield to the runtime between chunks to avoid blocking
-        tokio::time::sleep(std::time::Duration::from_millis(15)).await;
-    }
-
-    // Signal completion
-    let _ = app.emit(
-        "chat-stream",
-        ChatStreamEvent {
-            token: String::new(),
-            done: true,
-            error: None,
-            request_id: request_id.map(|s| s.to_string()),
-        },
-    );
-}
-
 // ============================================================================
 // Retrieval Eval Command
 // ============================================================================

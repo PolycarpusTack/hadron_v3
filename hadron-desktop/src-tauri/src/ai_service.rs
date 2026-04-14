@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tauri::Emitter;
 
 use crate::str_utils::floor_char_boundary;
 
@@ -1499,14 +1498,35 @@ pub fn build_chat_request_anthropic(
     })
 }
 
+/// Sink for streaming token batches.
+pub enum StreamSink {
+    /// Pull-based: tokens written to shared state, frontend polls via invoke().
+    /// Zero backend-initiated COM crossings — immune to ESET hook instability.
+    SharedState(std::sync::Arc<parking_lot::RwLock<crate::chat_commands::ChatStreamState>>),
+}
+
+/// Send a streaming token (or done signal) through the sink.
+fn emit_stream_token(sink: &StreamSink, token: String, done: bool) {
+    match sink {
+        StreamSink::SharedState(state) => {
+            let mut s = state.write();
+            if !token.is_empty() {
+                s.pending_text.push_str(&token);
+            }
+            if done {
+                s.done = true;
+            }
+        }
+    }
+}
+
 /// Call a provider with streaming enabled, emitting tokens via Tauri events.
 /// Returns the full accumulated response when done.
 pub async fn call_provider_streaming(
-    app: &tauri::AppHandle,
+    sink: &StreamSink,
     provider: &str,
     request_body: serde_json::Value,
     api_key: &str,
-    request_id: Option<&str>,
 ) -> Result<ChatResponse, String> {
     let (config_name, endpoint, auth_style, response_style, cost_calculator) = match provider {
         "anthropic" => (
@@ -1618,15 +1638,7 @@ pub async fn call_provider_streaming(
                         let payload = std::mem::take(&mut token_batch);
                         token_count_in_batch = 0;
 
-                        let _ = app.emit(
-                            "chat-stream",
-                            ChatStreamEvent {
-                                token: payload,
-                                done: false,
-                                error: None,
-                                request_id: request_id.map(|s| s.to_string()),
-                            },
-                        );
+                        emit_stream_token(sink, payload, false);
                         stream_emits += 1;
                     }
                 }
@@ -1651,29 +1663,13 @@ pub async fn call_provider_streaming(
     // Flush any remaining batched tokens
     if !token_batch.is_empty() {
         let payload = std::mem::take(&mut token_batch);
-        let _ = app.emit(
-            "chat-stream",
-            ChatStreamEvent {
-                token: payload,
-                done: false,
-                error: None,
-                request_id: request_id.map(|s| s.to_string()),
-            },
-        );
+        emit_stream_token(sink, payload, false);
         stream_emits += 1;
     }
 
     // Emit done event (counts as one more emit)
     stream_emits += 1;
-    let _ = app.emit(
-        "chat-stream",
-        ChatStreamEvent {
-            token: String::new(),
-            done: true,
-            error: None,
-            request_id: request_id.map(|s| s.to_string()),
-        },
-    );
+    emit_stream_token(sink, String::new(), true);
 
     // Log IPC rate for observability
     STREAM_EMIT_COUNT.fetch_add(stream_emits, Ordering::Relaxed);

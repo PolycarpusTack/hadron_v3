@@ -2,9 +2,11 @@
 
 use super::types::{AnalysisPhase, AnalysisProgress};
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 use regex::Regex;
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::fs as async_fs;
@@ -32,6 +34,11 @@ static ANALYSIS_EMIT_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 /// Counter of total progress events emitted across all analyses (for observability).
 pub static PROGRESS_EMIT_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 
+/// Shared analysis progress state for pull-based polling (P2.2).
+/// The frontend polls this instead of relying on push events.
+pub static ANALYSIS_PROGRESS_STATE: Lazy<Arc<RwLock<Option<AnalysisProgress>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(None)));
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -54,6 +61,16 @@ pub fn emit_progress(app: &AppHandle, progress: AnalysisProgress) {
         progress.phase,
         AnalysisPhase::Complete | AnalysisPhase::Failed
     );
+
+    // Always write to the shared state for pull-based polling (P2.2)
+    {
+        let mut state = ANALYSIS_PROGRESS_STATE.write();
+        if is_terminal {
+            *state = None; // Clear on completion
+        } else {
+            *state = Some(progress.clone());
+        }
+    }
 
     // Reset counters when a new analysis begins
     if matches!(progress.phase, AnalysisPhase::Reading) {
@@ -119,6 +136,14 @@ pub fn emit_progress(app: &AppHandle, progress: AnalysisProgress) {
             PROGRESS_EMIT_COUNT.load(Ordering::Relaxed)
         );
     }
+}
+
+/// Poll-based progress query (P2.2).
+/// Returns the current analysis progress, or null if no analysis is active.
+/// Frontend polls this every 200ms instead of relying on push events.
+#[tauri::command]
+pub fn get_analysis_progress() -> Option<AnalysisProgress> {
+    ANALYSIS_PROGRESS_STATE.read().clone()
 }
 
 /// Normalize severity to uppercase standard values

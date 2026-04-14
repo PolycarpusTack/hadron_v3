@@ -169,6 +169,7 @@ fn main() {
         .manage(widget_commands::WidgetLock::new())
         .manage(widget_commands::HoverButtonEnabledState::new(true))
         .manage(jira_poller::PollerState::new())
+        .manage(chat_commands::ChatStreamShared(std::sync::Arc::new(parking_lot::RwLock::new(chat_commands::ChatStreamState::default()))))
         .invoke_handler(tauri::generate_handler![
             // ── AI Analysis ──
             commands::ai::analyze_crash_log,
@@ -291,6 +292,10 @@ fn main() {
             commands::export::write_export_bytes,
             // ── Performance ──
             commands::performance::analyze_performance_trace,
+            // ── Progress Polling (P2.2) ──
+            commands::common::helpers::get_analysis_progress,
+            // ── Chat Stream Polling ──
+            chat_commands::poll_chat_stream,
             // ── Intelligence ──
             commands::intelligence::submit_analysis_feedback,
             commands::intelligence::get_feedback_for_analysis,

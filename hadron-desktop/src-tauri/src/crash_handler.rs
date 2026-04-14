@@ -251,6 +251,7 @@ mod windows_seh {
     type UnhandledExceptionFilter =
         unsafe extern "system" fn(*mut ExceptionPointers) -> i32;
 
+    #[link(name = "kernel32")]
     extern "system" {
         fn SetUnhandledExceptionFilter(
             filter: Option<UnhandledExceptionFilter>,
@@ -264,6 +265,32 @@ mod windows_seh {
         fn GetCurrentProcessId() -> u32;
         fn GetCurrentThreadId() -> u32;
         fn GetCurrentProcess() -> *mut c_void;
+        fn GetLastError() -> u32;
+        fn K32EnumProcessModules(
+            h_process: *mut c_void,
+            lph_module: *mut *mut c_void,
+            cb: u32,
+            lpcb_needed: *mut u32,
+        ) -> i32;
+        fn K32GetModuleInformation(
+            h_process: *mut c_void,
+            h_module: *mut c_void,
+            lp_mod_info: *mut ModuleInfo,
+            cb: u32,
+        ) -> i32;
+        fn K32GetModuleFileNameExW(
+            h_process: *mut c_void,
+            h_module: *mut c_void,
+            lp_filename: *mut u16,
+            n_size: u32,
+        ) -> u32;
+    }
+
+    #[repr(C)]
+    struct ModuleInfo {
+        lp_base_of_dll: *mut c_void,
+        size_of_image: u32,
+        entry_point: *mut c_void,
     }
 
     // MiniDump support
@@ -278,8 +305,8 @@ mod windows_seh {
         client_pointers: i32, // BOOL
     }
 
+    #[link(name = "dbghelp")]
     extern "system" {
-        // dbghelp.dll
         fn MiniDumpWriteDump(
             h_process: *mut c_void,
             process_id: u32,
@@ -289,8 +316,10 @@ mod windows_seh {
             user_stream_param: *const c_void,
             callback_param: *const c_void,
         ) -> i32;
+    }
 
-        // kernel32.dll — file I/O without heap
+    #[link(name = "kernel32")]
+    extern "system" {
         fn CreateFileW(
             file_name: *const u16,
             desired_access: u32,
@@ -334,7 +363,7 @@ mod windows_seh {
     }
 
     impl StackBuf {
-        const CAPACITY: usize = 8192;
+        const CAPACITY: usize = 16384;
 
         const fn new() -> Self {
             Self {
@@ -371,6 +400,95 @@ mod windows_seh {
         i
     }
 
+    /// Find the module containing `addr` and write its name + RVA to `buf`.
+    /// Uses only kernel32 APIs — no heap allocation.
+    unsafe fn write_module_for_address(buf: &mut StackBuf, addr: usize) {
+        use core::fmt::Write;
+
+        let h_process = unsafe { GetCurrentProcess() };
+
+        // Enumerate loaded modules (up to 256)
+        const MAX_MODULES: usize = 256;
+        let mut modules: [*mut c_void; MAX_MODULES] = [std::ptr::null_mut(); MAX_MODULES];
+        let mut cb_needed: u32 = 0;
+        let ok = unsafe {
+            K32EnumProcessModules(
+                h_process,
+                modules.as_mut_ptr(),
+                (MAX_MODULES * std::mem::size_of::<*mut c_void>()) as u32,
+                &mut cb_needed,
+            )
+        };
+        if ok == 0 {
+            let _ = write!(buf, "  (failed to enumerate modules, err={})\n",
+                unsafe { GetLastError() });
+            return;
+        }
+
+        let module_count = (cb_needed as usize / std::mem::size_of::<*mut c_void>())
+            .min(MAX_MODULES);
+
+        for i in 0..module_count {
+            let h_module = modules[i];
+            if h_module.is_null() { continue; }
+
+            let mut mod_info = ModuleInfo {
+                lp_base_of_dll: std::ptr::null_mut(),
+                size_of_image: 0,
+                entry_point: std::ptr::null_mut(),
+            };
+
+            let ok = unsafe {
+                K32GetModuleInformation(
+                    h_process,
+                    h_module,
+                    &mut mod_info,
+                    std::mem::size_of::<ModuleInfo>() as u32,
+                )
+            };
+            if ok == 0 { continue; }
+
+            let base = mod_info.lp_base_of_dll as usize;
+            let size = mod_info.size_of_image as usize;
+            if addr >= base && addr < base + size {
+                let rva = addr - base;
+
+                // Get module filename
+                let mut name_buf = [0u16; 260];
+                let name_len = unsafe {
+                    K32GetModuleFileNameExW(
+                        h_process,
+                        h_module,
+                        name_buf.as_mut_ptr(),
+                        260,
+                    )
+                };
+
+                if name_len > 0 {
+                    // Extract just the filename from the path
+                    let name_slice = &name_buf[..name_len as usize];
+                    let last_sep = name_slice.iter().rposition(|&c| c == b'\\' as u16)
+                        .map(|p| p + 1)
+                        .unwrap_or(0);
+                    let _ = write!(buf, "  ");
+                    for &ch in &name_slice[last_sep..] {
+                        if let Some(c) = char::from_u32(ch as u32) {
+                            let _ = write!(buf, "{}", c);
+                        }
+                    }
+                    let _ = write!(buf, " + 0x{:X} (base=0x{:X}, size=0x{:X})\n",
+                        rva, base, size);
+                } else {
+                    let _ = write!(buf, "  <unknown module> + 0x{:X} (base=0x{:X})\n",
+                        rva, base);
+                }
+                return;
+            }
+        }
+
+        let _ = write!(buf, "  (address 0x{:016X} not in any loaded module)\n", addr);
+    }
+
     /// Write a MiniDump file — single kernel call, no heap.
     unsafe fn write_minidump(info: *mut ExceptionPointers) {
         let dump_dir = super::log_dir();
@@ -403,12 +521,12 @@ mod windows_seh {
         let exc_info = MinidumpExceptionInformation {
             thread_id: unsafe { GetCurrentThreadId() },
             exception_pointers: info,
-            client_pointers: 0, // FALSE
+            client_pointers: 1, // TRUE — pointers are in our own process
         };
 
         let dump_type = MINIDUMP_NORMAL | MINIDUMP_WITH_THREAD_INFO | MINIDUMP_WITH_MODULE_HEADERS;
 
-        unsafe {
+        let result = unsafe {
             MiniDumpWriteDump(
                 GetCurrentProcess(),
                 GetCurrentProcessId(),
@@ -417,9 +535,23 @@ mod windows_seh {
                 &exc_info,
                 std::ptr::null(),
                 std::ptr::null(),
+            )
+        };
+
+        if result == 0 {
+            // MiniDumpWriteDump failed — record the error code in a small .dmp.err file
+            let err = unsafe { GetLastError() };
+            let err_path = format!(
+                "{}\\crash-{}.dmp.err",
+                dump_dir.display(),
+                unsafe { GetCurrentProcessId() }
             );
-            CloseHandle(h_file);
+            let err_msg = format!("MiniDumpWriteDump failed: GetLastError={}\n", err);
+            // Best-effort write via std — this is after the minidump attempt
+            let _ = std::fs::write(&err_path, err_msg.as_bytes());
         }
+
+        unsafe { CloseHandle(h_file) };
     }
 
     /// Write the text crash report using only stack-allocated buffers.
@@ -447,8 +579,8 @@ mod windows_seh {
                 let _ = write!(buf, "Attempted {} of address 0x{:016X}\n\n", op, target);
             }
             EXCEPTION_ILLEGAL_INSTRUCTION => {
-                let _ = write!(buf, "CPU cannot execute instruction at crash address.\n");
-                let _ = write!(buf, "Fix: rebuild with target-cpu=x86-64 in .cargo/config.toml\n\n");
+                let _ = write!(buf, "Likely a ud2 trap (compiler-inserted unreachable code).\n");
+                let _ = write!(buf, "This indicates undefined behavior in unsafe code or a dependency.\n\n");
             }
             EXCEPTION_STACK_OVERFLOW => {
                 let _ = write!(buf, "Stack overflow detected.\n\n");
@@ -456,7 +588,12 @@ mod windows_seh {
             _ => {}
         }
 
-        // Raw stack trace (no heap — frames on stack)
+        // Identify which module contains the crash address
+        let _ = write!(buf, "Module containing crash address:\n");
+        unsafe { write_module_for_address(&mut buf, addr) };
+        let _ = write!(buf, "\n");
+
+        // Raw stack trace with module info for each frame
         let _ = write!(buf, "Stack trace:\n");
         const MAX_FRAMES: u32 = 48;
         let mut frames: [*mut c_void; 48] = [std::ptr::null_mut(); 48];

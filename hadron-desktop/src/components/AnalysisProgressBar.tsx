@@ -46,34 +46,29 @@ export function AnalysisProgressBar({ isAnalyzing }: AnalysisProgressBarProps) {
       return;
     }
 
-    let unlistenFn: (() => void) | null = null;
     let cancelled = false;
 
-    // Setup event listener
-    (async () => {
+    // Poll-based progress (P2.2) — avoids event bus / COM boundary crossings.
+    // Polls every 200ms while analysis is active.
+    const poll = async () => {
       try {
-        const { listen } = await import('@tauri-apps/api/event');
-        if (cancelled) return;
-        unlistenFn = await listen<AnalysisProgress>('analysis-progress', (event) => {
-          if (!cancelled) {
-            setProgress(event.payload);
-          }
-        });
-        // If cancelled during the await, clean up immediately
-        if (cancelled && unlistenFn) {
-          unlistenFn();
-          unlistenFn = null;
+        const { invoke } = await import('@tauri-apps/api/core');
+        while (!cancelled) {
+          const state = await invoke<AnalysisProgress | null>('get_analysis_progress');
+          if (cancelled) break;
+          setProgress(state);
+          await new Promise((r) => setTimeout(r, 200));
         }
       } catch (err) {
-        logger.warn('Failed to setup progress listener', { error: String(err) });
+        if (!cancelled) {
+          logger.warn('Progress poll failed', { error: String(err) });
+        }
       }
-    })();
+    };
+    poll();
 
     return () => {
       cancelled = true;
-      if (unlistenFn) {
-        unlistenFn();
-      }
     };
   }, [isAnalyzing]);
 

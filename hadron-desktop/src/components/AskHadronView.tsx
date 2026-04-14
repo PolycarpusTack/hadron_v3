@@ -25,11 +25,6 @@ import {
 import {
   sendChatMessage,
   cancelChat,
-  subscribeToChatStream,
-  subscribeToChatContext,
-  subscribeToChatToolUse,
-  subscribeToChatDiagnostics,
-  subscribeToChatFinalContent,
   getChatSessions,
   getChatSessionMessages,
   saveChatSession,
@@ -343,78 +338,14 @@ export default function AskHadronView({
       setIsLoading(true);
       streamingContentRef.current = "";
 
-      // Subscribe to stream events
+      // Set up streaming via Tauri Channel API (P2.1 — bypasses global event bus / COM boundary)
       const requestId = createRequestId();
       activeRequestIdRef.current = requestId;
-      let unlistenStream: (() => void) | null = null;
-      let unlistenContext: (() => void) | null = null;
-      let unlistenToolUse: (() => void) | null = null;
-      let unlistenDiagnostics: (() => void) | null = null;
-      let unlistenFinalContent: (() => void) | null = null;
       let sources: ChatSources | undefined;
 
       try {
-        unlistenToolUse = await subscribeToChatToolUse((event: ChatToolUseEvent) => {
-          const label = TOOL_LABELS[event.tool_name] || `Using ${event.tool_name}`;
-          setToolActivity(label);
-        }, requestId);
-
-        unlistenDiagnostics = await subscribeToChatDiagnostics((diag) => {
-          // Attach diagnostics to the assistant message being streamed
-          setMessageDiagnostics((prev) => ({
-            ...prev,
-            [assistantMsg.id]: diag,
-          }));
-        }, requestId);
-
-        unlistenFinalContent = await subscribeToChatFinalContent((event) => {
-          streamingContentRef.current = event.content;
-          setMessages((prev) => {
-            const updated = [...prev];
-            const lastIdx = updated.length - 1;
-            if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-              // Also clear isStreaming to prevent flash of unprocessed content
-              updated[lastIdx] = { ...updated[lastIdx], content: event.content, isStreaming: false };
-            }
-            return updated;
-          });
-        }, requestId);
-
-        unlistenContext = await subscribeToChatContext((ctx) => {
-          // Tauri serializes with snake_case, cast to handle both conventions
-          const raw = ctx as unknown as Record<string, number>;
-          sources = {
-            ragResults: raw.ragResults ?? raw.rag_results ?? 0,
-            kbResults: raw.kbResults ?? raw.kb_results ?? 0,
-            goldMatches: raw.goldMatches ?? raw.gold_matches ?? 0,
-            ftsResults: raw.ftsResults ?? raw.fts_results ?? 0,
-          };
-        }, requestId);
-
-        unlistenStream = await subscribeToChatStream((event: ChatStreamEvent) => {
-          if (event.error) {
-            logger.error("Chat stream error", { error: event.error });
-            return;
-          }
-
-          if (!event.done) {
-            streamingContentRef.current += event.token;
-            // Update the assistant message with accumulated content
-            setMessages((prev) => {
-              const updated = [...prev];
-              const lastIdx = updated.length - 1;
-              if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-                updated[lastIdx] = {
-                  ...updated[lastIdx],
-                  content: streamingContentRef.current,
-                };
-              }
-              return updated;
-            });
-          }
-        }, requestId);
-
-        // Send the message (this blocks until streaming is complete)
+        // Send the message with channel callbacks — all events flow directly
+        // from the Rust command through the channel, not the global event bus.
         const messagesForBackend = [...messages, userMsg];
         await sendChatMessage(messagesForBackend, {
           useRag,
@@ -424,6 +355,52 @@ export default function AskHadronView({
           wonVersion: wonVersion || undefined,
           customer: customer || undefined,
           verbosity: verbosity || undefined,
+          callbacks: {
+            onStream: (event: ChatStreamEvent) => {
+              if (event.error) {
+                logger.error("Chat stream error", { error: event.error });
+                return;
+              }
+              if (!event.done) {
+                streamingContentRef.current += event.token;
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  const lastIdx = updated.length - 1;
+                  if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                    updated[lastIdx] = {
+                      ...updated[lastIdx],
+                      content: streamingContentRef.current,
+                    };
+                  }
+                  return updated;
+                });
+              }
+            },
+            onContext: (ctx) => {
+              sources = ctx;
+            },
+            onToolUse: (event: ChatToolUseEvent) => {
+              const label = TOOL_LABELS[event.tool_name] || `Using ${event.tool_name}`;
+              setToolActivity(label);
+            },
+            onDiagnostics: (diag) => {
+              setMessageDiagnostics((prev) => ({
+                ...prev,
+                [assistantMsg.id]: diag,
+              }));
+            },
+            onFinalContent: (event) => {
+              streamingContentRef.current = event.content;
+              setMessages((prev) => {
+                const updated = [...prev];
+                const lastIdx = updated.length - 1;
+                if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                  updated[lastIdx] = { ...updated[lastIdx], content: event.content, isStreaming: false };
+                }
+                return updated;
+              });
+            },
+          },
         });
 
         // Finalize the assistant message
@@ -460,11 +437,7 @@ export default function AskHadronView({
           return updated;
         });
       } finally {
-        if (unlistenStream) unlistenStream();
-        if (unlistenContext) unlistenContext();
-        if (unlistenToolUse) unlistenToolUse();
-        if (unlistenDiagnostics) unlistenDiagnostics();
-        if (unlistenFinalContent) unlistenFinalContent();
+        // Channel is automatically cleaned up when invoke returns — no unlisten needed.
         activeRequestIdRef.current = null;
         setIsLoading(false);
         setToolActivity(null);

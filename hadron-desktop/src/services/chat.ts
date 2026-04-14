@@ -85,6 +85,114 @@ export interface ChatResponse {
 }
 
 // ============================================================================
+// Pull-based streaming types — zero backend-initiated COM crossings.
+// The backend writes to shared state; the frontend polls via invoke().
+// ============================================================================
+
+/** Sideband event from Rust's ChatStreamEvent_ enum. */
+export type ChatSidebandEvent =
+  | { kind: "context"; rag_results: number; kb_results: number; gold_matches: number; fts_results: number }
+  | { kind: "tool_use"; tool_name: string; tool_args: Record<string, unknown>; iteration: number }
+  | { kind: "diagnostics" } & Record<string, unknown>
+  | { kind: "final_content"; content: string; references: Array<{ index: number; url: string; title: string }> };
+
+/** Response from poll_chat_stream command. */
+interface ChatPollResponse {
+  text: string;
+  done: boolean;
+  error?: string | null;
+  events: ChatSidebandEvent[];
+}
+
+/** Callbacks for all chat streaming events. All optional. */
+export interface ChatStreamCallbacks {
+  onStream?: (event: ChatStreamEvent) => void;
+  onContext?: (sources: ChatSources) => void;
+  onToolUse?: (event: ChatToolUseEvent) => void;
+  onDiagnostics?: (event: ChatDiagnosticsEvent) => void;
+  onFinalContent?: (event: ChatFinalContentEvent) => void;
+}
+
+/** Poll interval for chat stream (ms). */
+const CHAT_POLL_INTERVAL_MS = 80;
+
+/**
+ * Start polling the chat stream state and dispatch to callbacks.
+ * Returns a cancel function. Polling stops when `done` is received or cancelled.
+ */
+function startChatPollLoop(
+  callbacks: ChatStreamCallbacks | undefined,
+  onDone: () => void,
+): () => void {
+  let cancelled = false;
+  const cancel = () => { cancelled = true; };
+
+  (async () => {
+    while (!cancelled) {
+      try {
+        const poll = await invoke<ChatPollResponse>("poll_chat_stream");
+        if (cancelled) break;
+
+        // Dispatch accumulated text as a stream event
+        if (poll.text) {
+          callbacks?.onStream?.({ token: poll.text, done: false, error: null });
+        }
+
+        // Dispatch sideband events
+        for (const evt of poll.events) {
+          switch (evt.kind) {
+            case "context":
+              callbacks?.onContext?.({
+                ragResults: evt.rag_results,
+                kbResults: evt.kb_results,
+                goldMatches: evt.gold_matches,
+                ftsResults: evt.fts_results,
+              });
+              break;
+            case "tool_use":
+              callbacks?.onToolUse?.({
+                tool_name: evt.tool_name,
+                tool_args: evt.tool_args,
+                iteration: evt.iteration,
+              });
+              break;
+            case "diagnostics":
+              callbacks?.onDiagnostics?.(evt as unknown as ChatDiagnosticsEvent);
+              break;
+            case "final_content":
+              callbacks?.onFinalContent?.({
+                content: evt.content,
+                references: evt.references,
+              });
+              break;
+          }
+        }
+
+        // Check for completion
+        if (poll.done) {
+          if (poll.error) {
+            callbacks?.onStream?.({ token: "", done: true, error: poll.error });
+          } else {
+            callbacks?.onStream?.({ token: "", done: true, error: null });
+          }
+          onDone();
+          break;
+        }
+
+        await new Promise((r) => setTimeout(r, CHAT_POLL_INTERVAL_MS));
+      } catch (err) {
+        if (!cancelled) {
+          logger.warn("Chat poll failed", { error: String(err) });
+          await new Promise((r) => setTimeout(r, CHAT_POLL_INTERVAL_MS * 2));
+        }
+      }
+    }
+  })();
+
+  return cancel;
+}
+
+// ============================================================================
 // Chat API
 // ============================================================================
 
@@ -103,6 +211,8 @@ export async function sendChatMessage(
     analysisTypes?: string[];
     // Verbosity control (Phase 5)
     verbosity?: "concise" | "detailed" | null;
+    // Pull-based streaming callbacks — frontend polls, zero backend COM crossings
+    callbacks?: ChatStreamCallbacks;
   } = {}
 ): Promise<ChatResponse> {
   const provider = getStoredProvider();
@@ -169,8 +279,16 @@ export async function sendChatMessage(
 
   const kbConfig = await getOpenSearchConfig().catch(() => null);
 
-  return invoke<ChatResponse>("chat_send", {
-    request: {
+  // Start polling loop BEFORE invoke — the backend writes to shared state
+  // as soon as streaming begins, and invoke blocks until complete.
+  const pollState = { cancel: (() => {}) as () => void };
+  const pollDone = new Promise<void>((resolve) => {
+    pollState.cancel = startChatPollLoop(options.callbacks, resolve);
+  });
+
+  try {
+    const response = await invoke<ChatResponse>("chat_send", {
+      request: {
       messages: backendMessages,
       api_key: apiKey,
       keeper_secret_uid: keeperSecretUid || null,
@@ -195,6 +313,14 @@ export async function sendChatMessage(
       verbosity: options.verbosity ?? null,
     },
   });
+
+    // Wait for the poll loop to process the final `done` signal
+    await pollDone;
+    return response;
+  } finally {
+    // Ensure poll loop is stopped even on error/cancellation
+    pollState.cancel();
+  }
 }
 
 // ============================================================================

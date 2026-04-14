@@ -4,8 +4,6 @@ import { Send, Loader2, Square } from "lucide-react";
 import {
   sendChatMessage,
   cancelChat,
-  subscribeToChatStream,
-  subscribeToChatFinalContent,
   createRequestId,
   createMessageId,
   type ChatMessage,
@@ -31,8 +29,7 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
   const [displayContent, setDisplayContent] = useState("");
   const rafRef = useRef<number | null>(null);
   const requestIdRef = useRef<string | null>(null);
-  const unsubStreamRef = useRef<(() => void) | null>(null);
-  const unsubFinalRef = useRef<(() => void) | null>(null);
+  // Channel API: no unsub refs needed — channel is cleaned up when invoke returns.
   const scanningRef = useRef(false);
   const initialMessageHandledRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -57,11 +54,9 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
     inputRef.current?.focus();
   }, []);
 
-  // Cleanup listeners and rAF on unmount
+  // Cleanup rAF on unmount
   useEffect(() => {
     return () => {
-      unsubStreamRef.current?.();
-      unsubFinalRef.current?.();
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
@@ -87,29 +82,9 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
     const reqId = createRequestId();
     requestIdRef.current = reqId;
 
-    // Subscribe to streaming tokens and final content in parallel
+    // Stream via Channel API (P2.1 — bypasses global event bus / COM boundary)
     let accumulated = "";
     let finalContent: string | null = null;
-    const [unsubStream, unsubFinal] = await Promise.all([
-      subscribeToChatStream((event: ChatStreamEvent) => {
-        if (event.error) {
-          streamingRef.current = `Error: ${event.error}`;
-          setDisplayContent(streamingRef.current);
-          return;
-        }
-        accumulated += event.token;
-        streamingRef.current = accumulated;
-        if (!rafRef.current) {
-          rafRef.current = requestAnimationFrame(() => {
-            setDisplayContent(streamingRef.current);
-            rafRef.current = null;
-          });
-        }
-      }, reqId).then(unsub => { unsubStreamRef.current = unsub; return unsub; }),
-      subscribeToChatFinalContent((event) => {
-        finalContent = event.content;
-      }, reqId).then(unsub => { unsubFinalRef.current = unsub; return unsub; }),
-    ]);
 
     try {
       await sendChatMessage([...messagesRef.current, userMsg], {
@@ -117,6 +92,26 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
         useKb: false,
         requestId: reqId,
         verbosity: "concise",
+        callbacks: {
+          onStream: (event: ChatStreamEvent) => {
+            if (event.error) {
+              streamingRef.current = `Error: ${event.error}`;
+              setDisplayContent(streamingRef.current);
+              return;
+            }
+            accumulated += event.token;
+            streamingRef.current = accumulated;
+            if (!rafRef.current) {
+              rafRef.current = requestAnimationFrame(() => {
+                setDisplayContent(streamingRef.current);
+                rafRef.current = null;
+              });
+            }
+          },
+          onFinalContent: (event) => {
+            finalContent = event.content;
+          },
+        },
       });
 
       const assistantMsg: ChatMessage = {
@@ -144,10 +139,6 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
         rafRef.current = null;
       }
       requestIdRef.current = null;
-      unsubStream();
-      unsubStreamRef.current = null;
-      unsubFinal();
-      unsubFinalRef.current = null;
     }
   }, []);
 
