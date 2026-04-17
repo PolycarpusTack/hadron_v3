@@ -184,6 +184,27 @@ pub struct ProgressEvent {
 // ============================================================================
 // Progress Emission
 // ============================================================================
+//
+// Debounced to avoid saturating the WebView2 COM boundary. Each non-terminal
+// emit is dropped if it lands within `PROGRESS_DEBOUNCE_MS` of the previous
+// one; terminal phases (Complete, Failed) are always emitted so the UI never
+// gets stuck on an intermediate state. This mirrors the pattern in
+// `commands/common/helpers.rs::emit_progress` and keeps the combined IPC
+// rate under the threshold that destabilises ESET's hook.
+
+use crate::commands::common::helpers::PROGRESS_DEBOUNCE_MS;
+use once_cell::sync::Lazy;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+static LAST_RN_EMIT_MS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+fn now_ms_rn() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 pub fn emit_progress_with_request(
     app: &AppHandle,
@@ -192,6 +213,20 @@ pub fn emit_progress_with_request(
     message: &str,
     request_id: Option<&str>,
 ) {
+    let is_terminal = matches!(
+        phase,
+        ReleaseNotesPhase::Complete | ReleaseNotesPhase::Failed
+    );
+
+    if !is_terminal {
+        let now = now_ms_rn();
+        let prev = LAST_RN_EMIT_MS.load(Ordering::Relaxed);
+        if now.saturating_sub(prev) < PROGRESS_DEBOUNCE_MS {
+            return; // skip — too soon since last emit
+        }
+        LAST_RN_EMIT_MS.store(now, Ordering::Relaxed);
+    }
+
     let event = ProgressEvent {
         phase,
         progress,

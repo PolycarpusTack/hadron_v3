@@ -2756,7 +2756,14 @@ async fn analyze_deep_scan(
     // Use futures::stream to process chunks with bounded parallelism
     use futures::stream::{self, StreamExt};
 
-    const PARALLEL_CHUNK_LIMIT: usize = 4; // Process 4 chunks at a time
+    // Concurrency cap on chunk analysis.
+    //
+    // Each in-flight chunk streams tokens back to the UI over the WebView2
+    // COM boundary; running 4 in parallel saturated the boundary under ESET
+    // and caused intermittent crashes during deep scans. Halving the fan-out
+    // roughly halves peak IPC rate and only marginally extends total time,
+    // since chunks are already overlapped.
+    const PARALLEL_CHUNK_LIMIT: usize = 2;
 
     // Use Arc<str> to avoid cloning strings for each chunk future
     // This is O(1) reference counting vs O(n) string copying

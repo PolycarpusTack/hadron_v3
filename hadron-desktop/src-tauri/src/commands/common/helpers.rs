@@ -14,7 +14,10 @@ use tokio::fs as async_fs;
 /// Minimum interval (ms) between non-terminal progress emissions.
 /// Reduces IPC pressure on Windows where each app.emit() crosses a COM boundary
 /// that security products (ESET, etc.) may hook and inspect.
-const PROGRESS_DEBOUNCE_MS: u64 = 150;
+///
+/// Exposed so other long-running services (release notes, future batch jobs)
+/// can share the same debounce budget without drifting out of lockstep.
+pub const PROGRESS_DEBOUNCE_MS: u64 = 150;
 
 /// Interval (ms) for rolling rate log lines during an active analysis.
 const RATE_LOG_INTERVAL_MS: u64 = 5_000;
@@ -144,6 +147,18 @@ pub fn emit_progress(app: &AppHandle, progress: AnalysisProgress) {
 #[tauri::command]
 pub fn get_analysis_progress() -> Option<AnalysisProgress> {
     ANALYSIS_PROGRESS_STATE.read().clone()
+}
+
+/// Whether an analysis is currently in flight.
+///
+/// Background tasks (e.g. the JIRA poller) consult this before crossing the
+/// WebView2 COM boundary with their own IPC events: during active analysis
+/// the combined emit rate can trip ESET's hook and crash the app, so
+/// concurrent pushes are skipped and logged. The flag is set by
+/// `emit_progress` via `ANALYSIS_PROGRESS_STATE` and cleared automatically
+/// on terminal phases (Complete / Failed).
+pub fn is_analysis_active() -> bool {
+    ANALYSIS_PROGRESS_STATE.read().is_some()
 }
 
 /// Normalize severity to uppercase standard values

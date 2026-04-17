@@ -411,7 +411,18 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
                         cycle_timeout.as_secs(),
                         consecutive_failures
                     );
-                    let _ = app2.emit("jira-assist-poll-error", "Poll cycle timed out");
+                    // Skip emitting while an analysis is running — the combined
+                    // IPC rate can destabilise the WebView2 boundary under ESET.
+                    // The DB state + counter above are persisted regardless; the
+                    // UI will catch up on the next poll cycle that finds the app
+                    // idle.
+                    if crate::commands::common::helpers::is_analysis_active() {
+                        log::debug!(
+                            "poller: analysis active, suppressing jira-assist-poll-error IPC (cycle timeout)"
+                        );
+                    } else {
+                        let _ = app2.emit("jira-assist-poll-error", "Poll cycle timed out");
+                    }
                 }
                 Ok(inner) => match inner {
                     Ok(keys) => {
@@ -431,12 +442,22 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
                                     .fetch_add(count as u64, Ordering::Relaxed);
                             }
 
-                            // Emit frontend event
-                            let payload = PollCompletePayload {
-                                triaged_count: count,
-                                keys: keys.clone(),
-                            };
-                            let _ = app2.emit("jira-assist-poll-complete", &payload);
+                            // Emit frontend event — but only if no analysis is
+                            // running. The DB/counter updates above already
+                            // happened, so suppression here just defers visual
+                            // notification until the UI is idle again.
+                            if crate::commands::common::helpers::is_analysis_active() {
+                                log::debug!(
+                                    "poller: analysis active, suppressing jira-assist-poll-complete IPC ({} keys will appear on next idle cycle)",
+                                    count
+                                );
+                            } else {
+                                let payload = PollCompletePayload {
+                                    triaged_count: count,
+                                    keys: keys.clone(),
+                                };
+                                let _ = app2.emit("jira-assist-poll-complete", &payload);
+                            }
 
                             // OS notification
                             if let Err(e) = send_notification(&app2, count) {
@@ -455,8 +476,15 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
                             consecutive_failures
                         );
 
-                        // Emit error event so frontend can show a warning
-                        let _ = app2.emit("jira-assist-poll-error", &e);
+                        // Emit error event so frontend can show a warning —
+                        // same idle guard as the success path above.
+                        if crate::commands::common::helpers::is_analysis_active() {
+                            log::debug!(
+                                "poller: analysis active, suppressing jira-assist-poll-error IPC (error: {e})"
+                            );
+                        } else {
+                            let _ = app2.emit("jira-assist-poll-error", &e);
+                        }
                     }
                 }
             }
