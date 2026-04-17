@@ -2,8 +2,8 @@
 //!
 //! Registers `ICoreWebView2::add_ProcessFailed` on the main WebView's
 //! `CoreWebView2`, plus `add_BrowserProcessExited` on the
-//! `CoreWebView2Environment`, and logs every failure with its kind, exit
-//! code, and a sliding 60-second crash counter.
+//! `CoreWebView2Environment5` (via runtime cast), and logs every failure
+//! with its kind, exit code, and a sliding 60-second crash counter.
 //!
 //! Response per failure kind:
 //!
@@ -49,12 +49,15 @@ mod windows_impl {
     use std::time::{SystemTime, UNIX_EPOCH};
     use tauri::webview::PlatformWebview;
     use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_BROWSER_PROCESS_EXIT_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND,
         COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
         COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED,
         COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
         COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
+        ICoreWebView2Environment5, ICoreWebView2ProcessFailedEventArgs2,
     };
     use webview2_com::{BrowserProcessExitedEventHandler, ProcessFailedEventHandler};
+    use windows::core::Interface;
 
     const CRASH_WINDOW_MS: u64 = 60_000;
     const MAX_RELOADS_IN_WINDOW: usize = 3;
@@ -98,28 +101,52 @@ mod windows_impl {
 
             let label_for_process_failed = label.clone();
             let handler = ProcessFailedEventHandler::create(Box::new(
-                // SAFETY: COM vtable methods on `ICoreWebView2ProcessFailedEventArgs`
-                // and `ICoreWebView2::Reload` are declared `unsafe fn` in the
-                // windows-rs bindings. Each call site below wraps them in its
-                // own `unsafe` block because closure bodies have an independent
-                // unsafety scope (the `unsafe` block around handler creation
-                // does not propagate in). All arguments are checked for None /
-                // error before use, so no invalid pointers are dereferenced.
+                // SAFETY: The webview2-com bindings follow raw-COM style:
+                // event-args accessors (`ProcessFailedKind`, `ExitCode`,
+                // `Reload`) are `unsafe fn` because they take `*mut T`
+                // out-parameters. Each call below wraps the single unsafe
+                // call in its own `unsafe {}` block — closure bodies have
+                // their own unsafety scope, so the outer `unsafe {}` on
+                // handler construction does not propagate. For every
+                // out-parameter call the destination is a freshly-allocated
+                // local, only read on the Ok branch; no uninitialised
+                // memory is ever observed. `args.cast::<Args2>()` may fail
+                // on older WebView2 runtimes — in that case we fall back
+                // to an exit code of 0 rather than skipping the event.
                 move |sender, args| {
                     let Some(args) = args else { return Ok(()); };
-                    let kind = unsafe { args.ProcessFailedKind() }.unwrap_or_default();
-                    let exit_code = unsafe { args.ExitCode() }.unwrap_or(0);
+
+                    let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+                    if unsafe { args.ProcessFailedKind(&mut kind) }.is_err() {
+                        return Ok(());
+                    }
+
+                    // ExitCode lives on ICoreWebView2ProcessFailedEventArgs2;
+                    // older runtimes may not implement it.
+                    let exit_code: i32 = args
+                        .cast::<ICoreWebView2ProcessFailedEventArgs2>()
+                        .ok()
+                        .and_then(|args2| {
+                            let mut code: i32 = 0;
+                            match unsafe { args2.ExitCode(&mut code) } {
+                                Ok(()) => Some(code),
+                                Err(_) => None,
+                            }
+                        })
+                        .unwrap_or(0);
+
                     let count = record_crash_and_count();
 
                     log::error!(
-                        "WebView2 process failed: window='{label_for_process_failed}' kind={:?} exit_code={exit_code} crashes_in_60s={count}",
-                        kind.0
+                        "WebView2 process failed: window='{label_for_process_failed}' kind={kind:?} exit_code={exit_code} crashes_in_60s={count}"
                     );
 
-                    let is_renderer = kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+                    let is_renderer = kind
+                        == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
                         || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED
                         || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE;
-                    let is_browser = kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
+                    let is_browser =
+                        kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
 
                     if is_renderer {
                         if count <= MAX_RELOADS_IN_WINDOW {
@@ -144,15 +171,15 @@ mod windows_impl {
                             "WebView2 recovery: browser process for '{label_for_process_failed}' exited — app cannot self-recover; user will need to restart"
                         );
                     }
-                    // GPU / utility / PPAPI / sandbox-helper: auto-recovered by
-                    // WebView2. We log at error level above so there is a
-                    // record, but take no active recovery action here.
+                    // GPU / utility / PPAPI / sandbox-helper: auto-recovered
+                    // by WebView2. The error log above is the record; no
+                    // active recovery action here.
 
                     Ok(())
                 },
             ));
 
-            let mut token = Default::default();
+            let mut token: i64 = 0;
             if let Err(e) = core.add_ProcessFailed(&handler, &mut token) {
                 log::warn!(
                     "WebView2 recovery: could not register ProcessFailed for '{label}': {e}"
@@ -160,41 +187,54 @@ mod windows_impl {
             } else {
                 log::info!("WebView2 recovery: ProcessFailed handler installed for '{label}'");
             }
-            // The COM subscription keeps an internal ref; the Rust wrapper
-            // can drop safely without detaching the handler.
+            // COM subscription keeps its own ref; the Rust wrapper can drop
+            // safely without detaching the handler. `mem::forget` skips
+            // the Rust destructor so we don't Release prematurely.
             std::mem::forget(handler);
         }
 
-        // 2) Register BrowserProcessExited on the Environment. Fires after
-        //    the whole WebView2 browser process (the parent of all
-        //    renderer/GPU workers) has gone away; the app cannot use this
-        //    WebView instance afterwards, but at least it lets us log the
-        //    exit reason and counter for support.
+        // 2) BrowserProcessExited lives on ICoreWebView2Environment5.
+        //    Older WebView2 runtimes won't implement it — in that case the
+        //    cast fails and we skip registration. ProcessFailed above still
+        //    reports BROWSER_PROCESS_EXITED as a failure kind, so we don't
+        //    lose observability entirely.
         unsafe {
             let environment = webview.environment();
+            let env5 = match environment.cast::<ICoreWebView2Environment5>() {
+                Ok(e) => e,
+                Err(_) => {
+                    log::info!(
+                        "WebView2 recovery: ICoreWebView2Environment5 unavailable; BrowserProcessExited not installed (runtime may be older)"
+                    );
+                    return;
+                }
+            };
+
             let label_for_browser = label.clone();
             let handler = BrowserProcessExitedEventHandler::create(Box::new(
                 // SAFETY: see the SAFETY note on the ProcessFailed handler;
-                // every COM call in this closure is individually wrapped.
+                // the out-param pattern is identical and every call is
+                // individually wrapped.
                 move |_env, args| {
+                    let count = record_crash_and_count();
                     if let Some(args) = args {
-                        let kind = unsafe { args.BrowserProcessExitKind() }.unwrap_or_default();
-                        let pid = unsafe { args.BrowserProcessId() }.unwrap_or(0);
-                        let count = record_crash_and_count();
+                        let mut kind = COREWEBVIEW2_BROWSER_PROCESS_EXIT_KIND::default();
+                        let mut pid: u32 = 0;
+                        let _ = unsafe { args.BrowserProcessExitKind(&mut kind) };
+                        let _ = unsafe { args.BrowserProcessId(&mut pid) };
                         log::error!(
-                            "WebView2 browser process exited: window='{label_for_browser}' kind={:?} pid={pid} crashes_in_60s={count}",
-                            kind.0
+                            "WebView2 browser process exited: window='{label_for_browser}' kind={kind:?} pid={pid} crashes_in_60s={count}"
                         );
                     } else {
                         log::error!(
-                            "WebView2 browser process exited: window='{label_for_browser}' (no args)"
+                            "WebView2 browser process exited: window='{label_for_browser}' (no args) crashes_in_60s={count}"
                         );
                     }
                     Ok(())
                 },
             ));
-            let mut token = Default::default();
-            if let Err(e) = environment.add_BrowserProcessExited(&handler, &mut token) {
+            let mut token: i64 = 0;
+            if let Err(e) = env5.add_BrowserProcessExited(&handler, &mut token) {
                 log::warn!(
                     "WebView2 recovery: could not register BrowserProcessExited for '{label}': {e}"
                 );

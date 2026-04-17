@@ -6,6 +6,10 @@ authors = ["Hadron Team"]
 license = "Proprietary"
 repository = "https://github.com/PolycarpusTack/hadron_v3"
 edition = "2021"
+# `cargo run` / `tauri dev` need to pick one of the three bins
+# (hadron-desktop, hadron-mcp, eval). The app binary is the default;
+# the MCP and eval bins are run explicitly via `cargo run --bin <name>`.
+default-run = "hadron-desktop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,7 +28,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
-tauri-plugin-log = "2"
+tauri-plugin-log = "2.8"
 tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
