@@ -83,6 +83,13 @@ uuid = { version = "1.6", features = ["v4"] }
 # XLSX export support
 rust_xlsxwriter = "0.79"
 
+# Windows-only: WebView2 COM interop for crash-recovery handlers.
+# Versions pinned to match what wry/tauri already pull in transitively,
+# so this adds no extra build time (the crates are already compiled).
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.38"
+windows = { version = "0.61", features = ["Win32_System_Com"] }
+
 # Patch tao to fix the flush_paint_messages assertion panic on Windows.
 # Triggered by re-entrant WM_PAINT during device-change events (Bluetooth, VPN, USB).
 # Remove this block once the fix is released in an official tao version.

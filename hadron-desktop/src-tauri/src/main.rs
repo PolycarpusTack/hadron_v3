@@ -34,6 +34,8 @@ mod token_budget;
 mod ticket_briefs;
 mod ticket_embeddings;
 mod str_utils;
+mod webview_recovery;
+mod webview_udf;
 mod widget_commands;
 
 use database::Database;
@@ -62,6 +64,10 @@ fn main() {
     // Install panic hook first — captures crash info if anything panics during init
     crash_handler::install_panic_hook();
     crash_handler::install_native_crash_handler();
+
+    // Pin WebView2's user-data-folder to a known user-local path BEFORE
+    // Tauri creates the webview. See webview_udf for rationale.
+    webview_udf::configure_udf();
 
     // Initialize database wrapped in Arc for safe sharing across spawn_blocking tasks
     let db = Arc::new(match Database::new() {
@@ -152,6 +158,12 @@ fn main() {
                 "Log level configured via HADRON_LOG_LEVEL={} (default: debug)",
                 std::env::var("HADRON_LOG_LEVEL").unwrap_or_else(|_| "<unset>".to_string())
             );
+
+            // Install WebView2 process-failure recovery handlers on the main
+            // window. Windows-only; a no-op on macOS/Linux.
+            if let Some(main_window) = app.get_webview_window("main") {
+                webview_recovery::install_recovery(&main_window);
+            }
 
             // Auto-start JIRA Assist poller if enabled in settings
             {

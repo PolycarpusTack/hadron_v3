@@ -358,10 +358,11 @@ pub struct JiraTestRequest {
 }
 
 pub async fn jira_fix_versions(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(project): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Lead)?;
     let mut config = crate::db::get_jira_config_from_poller(&state.db)
         .await
         .map_err(AppError)?;
@@ -389,9 +390,10 @@ pub async fn sentry_test(
 }
 
 pub async fn sentry_projects(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Lead)?;
     let config = crate::db::get_sentry_config(&state.db)
         .await
         .map_err(|e| AppError(e))?
@@ -414,10 +416,11 @@ pub struct SentryIssuesQuery {
 }
 
 pub async fn sentry_issues(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Query(params): Query<SentryIssuesQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Lead)?;
     let config = crate::db::get_sentry_config(&state.db)
         .await
         .map_err(|e| AppError(e))?
@@ -433,10 +436,11 @@ pub async fn sentry_issues(
 }
 
 pub async fn sentry_issue(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(issue_id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Lead)?;
     let config = crate::db::get_sentry_config(&state.db)
         .await
         .map_err(|e| AppError(e))?
@@ -452,10 +456,11 @@ pub async fn sentry_issue(
 }
 
 pub async fn sentry_event(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(issue_id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Lead)?;
     let config = crate::db::get_sentry_config(&state.db)
         .await
         .map_err(|e| AppError(e))?
