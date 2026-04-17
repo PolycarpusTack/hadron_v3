@@ -10,13 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [4.4.3] - 2026-04-17
+## [4.5.0] - 2026-04-17
 
 Security-focused release. Closes every actionable finding from the
 2026-04-15 third-party retest plus a post-sprint residual review.
-Includes breaking changes for API clients that previously sent
-`api_key`, `model`, or `provider` fields in request bodies — the
-backend now uses admin-configured server-side AI keys exclusively.
+
+Minor version bump because the release contains **breaking API and
+deployment changes**: API request bodies that previously accepted
+`api_key`, `model`, and `provider` fields have those fields removed
+(the backend now uses admin-configured server-side AI keys
+exclusively), docker-compose defaults changed (see Ops upgrade
+notes below), and new env vars are mandatory for features that were
+previously fail-open.
 
 ### Security
 
