@@ -3,12 +3,16 @@
 //! Types and prompts come from hadron_core::ai. This module handles
 //! the actual HTTP calls (reqwest) and SSE stream parsing.
 
+pub mod chat_transport;
 pub mod tools;
 
 // Re-export core types so existing `use crate::ai::*` imports keep working
 pub use hadron_core::ai::{AiConfig, AiMessage, AiProvider};
 pub use hadron_core::ai::prompts::{
     CRASH_ANALYSIS_PROMPT, CHAT_SYSTEM_PROMPT,
+};
+pub use chat_transport::{
+    complete_with_tools, stream_final_response, AssistantTurn, ChatMessage,
 };
 
 use hadron_core::error::{HadronError, HadronResult};

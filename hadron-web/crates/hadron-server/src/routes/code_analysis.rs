@@ -18,7 +18,6 @@ pub struct CodeAnalysisRequest {
     pub code: String,
     pub language: Option<String>,
     pub filename: Option<String>,
-    pub api_key: Option<String>,
 }
 
 const MAX_CODE_SIZE: usize = 512 * 1024;
@@ -41,13 +40,7 @@ pub async fn analyze_code(
         hadron_core::ai::detect_language(&req.code, &filename)
     });
 
-    let ai_config = super::analyses::resolve_ai_config(
-        &state.db,
-        req.api_key.as_deref(),
-        None,
-        None,
-    )
-    .await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     let messages = hadron_core::ai::build_code_analysis_messages(&req.code, &filename, &language);
 
@@ -81,13 +74,7 @@ pub async fn analyze_code_stream(
         hadron_core::ai::detect_language(&req.code, &filename)
     });
 
-    let ai_config = super::analyses::resolve_ai_config(
-        &state.db,
-        req.api_key.as_deref(),
-        None,
-        None,
-    )
-    .await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     let messages = hadron_core::ai::build_code_analysis_messages(&req.code, &filename, &language);
 

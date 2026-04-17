@@ -1,3 +1,7 @@
+[[bin]]
+name = "eval"
+path = "src/bin/eval.rs"
+
 [package]
 name = "hadron-server"
 description = "Axum web server for Hadron analysis platform"
@@ -8,11 +12,13 @@ license.workspace = true
 
 [dependencies]
 hadron-core = { path = "../hadron-core" }
+hadron-mcp = { path = "../hadron-mcp" }
 
 # Web framework
 axum = { version = "0.8", features = ["multipart", "macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "compression-gzip", "trace", "limit", "fs"] }
+tower-http = { version = "0.6", features = ["cors", "compression-gzip", "trace", "limit", "fs", "set-header"] }
+tower_governor = "0.7"
 
 # Database
 sqlx = { version = "0.8", features = [
@@ -55,3 +61,6 @@ hex = { workspace = true }
 # Encryption
 aes-gcm = "0.10"
 rand = "0.8"
+
+# MCP
+async-trait = "0.1"

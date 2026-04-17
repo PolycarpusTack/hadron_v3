@@ -1,0 +1,8 @@
+{
+  "category": "sentry_event",
+  "expected_severity": "high",
+  "expected_root_cause_category": "connection_timeout",
+  "key_terms": ["ConnectionError", "sso.whatson.cloud", "timeout", "oauth/token", "refresh_token", "5 seconds"],
+  "expected_component": "Authentication / SSO",
+  "notes": "Sentry JSON event (not WCR format). SSO token refresh fails due to connection timeout to sso.whatson.cloud. Breadcrumbs show the timeline clearly. Good analysis should identify SSO dependency failure and recommend circuit breaker / cached token fallback."
+}

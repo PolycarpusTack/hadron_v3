@@ -1,0 +1,8 @@
+{
+  "category": "noisy_low_signal",
+  "expected_severity": "medium",
+  "expected_root_cause_category": "unknown_generic_error",
+  "key_terms": ["generic error", "Background Worker", "Connection refused", "Debug build", "no windows"],
+  "expected_component": "Background Worker",
+  "notes": "Extremely low-signal crash: generic error message, no meaningful stack trace (all framework frames), DB disconnected, debug build, no UI context. Good analysis should honestly say root cause is unclear, flag the DB disconnection as likely contributing factor, and recommend enabling more detailed error logging."
+}

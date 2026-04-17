@@ -1,0 +1,88 @@
+WHATS'ON Crash Report
+Dump Status: completed
+Date: 2026-02-28 16:05:33
+Version: 8.5.1.982
+Build: Release
+
+Unhandled exception: MessageNotUnderstood
+messageText: 'Message not understood: #printOn:'
+parameter: 'UndefinedObject'
+Resumable: true
+
+Active Process:
+  ProcessName: 'Report Generator'
+  ThreadId: 22104
+  Priority: Normal
+
+Walkback:
+  UndefinedObject(Object)>>doesNotUnderstand: (Object.cls:1847)
+  UndefinedObject>>printOn: (UndefinedObject.cls:12)
+  String>>replaceAll:with: (String.cls:892)
+  ReportFormatter>>formatField (ReportFormatter.cls:156)
+  ReportFormatter>>formatRow (ReportFormatter.cls:134)
+  ReportFormatter>>formatSection (ReportFormatter.cls:98)
+  ReportBuilder>>buildDetailSection (ReportBuilder.cls:445)
+  ReportBuilder>>buildReport (ReportBuilder.cls:112)
+  ReportBuilder>>generate (ReportBuilder.cls:67)
+  ReportEngine>>executeReport (ReportEngine.cls:234)
+  ReportEngine>>run (ReportEngine.cls:189)
+  ReportScheduler>>executeScheduledReport (ReportScheduler.cls:78)
+  ReportScheduler>>processQueue (ReportScheduler.cls:45)
+  ReportScheduler>>checkPendingReports (ReportScheduler.cls:34)
+  TaskScheduler>>runTask (TaskScheduler.cls:567)
+  TaskScheduler>>processNextTask (TaskScheduler.cls:534)
+  TaskScheduler>>mainLoop (TaskScheduler.cls:489)
+  SessionManager>>executeRequest (SessionManager.cls:334)
+  SessionManager>>handleRequest (SessionManager.cls:298)
+  RequestDispatcher>>dispatch (RequestDispatcher.cls:123)
+  RequestDispatcher>>processIncoming (RequestDispatcher.cls:89)
+  TcpServer>>handleConnection (TcpServer.cls:456)
+  TcpServer>>acceptLoop (TcpServer.cls:412)
+  SocketHandler>>readLoop (SocketHandler.cls:234)
+  SocketHandler>>processBuffer (SocketHandler.cls:198)
+  EventLoop>>processEvents (EventLoop.cls:89)
+  EventLoop>>run (EventLoop.cls:45)
+  Application>>start (Application.cls:23)
+  Main>>main (Main.cls:12)
+
+Context Arguments:
+  ReportFormatter>>formatField
+    fieldValue: nil
+    fieldName: 'customerContact'
+    fieldType: 'String'
+    reportId: 45892
+  ReportBuilder>>buildDetailSection
+    sectionName: 'Customer Details'
+    rowCount: 156
+    currentRow: 43
+
+Environment:
+  OS: Windows Server 2019
+  Memory Total: 65536 MB
+  Memory Available: 42100 MB
+  CPU: AMD EPYC 7543 @ 2.80GHz
+  Processors: 16
+
+Database State:
+  Connected: true
+  Server: SQLPROD02\REPORTING
+  Database: WO_Reporting
+  ActiveTransactions: 0
+  OpenCursors: 12
+
+Open Windows:
+  ReportViewer - 'Monthly Customer Report - March 2026'
+  MainMenu
+  StatusBar
+
+Processes:
+  Running: ReportGenerator, TaskScheduler, EventLoop
+  Waiting: GarbageCollector, IdleMonitor
+
+Memory Report:
+  Private Bytes: 2,456,832 KB
+  Virtual Size: 6,291,456 KB
+  Working Set: 2,097,152 KB
+  GC Collections: Gen0=8934, Gen1=456, Gen2=34
+  Large Object Heap: 512,000 KB
+  Pinned Objects: 23

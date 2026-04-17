@@ -848,18 +848,10 @@ class ApiClient {
 
   // === Analyses ===
 
-  async uploadAndAnalyze(
-    file: File,
-    apiKey: string,
-    model = "gpt-4o",
-    provider = "openai",
-  ): Promise<Analysis> {
+  async uploadAndAnalyze(file: File): Promise<Analysis> {
     const token = DEV_MODE ? "dev" : await acquireToken();
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("api_key", apiKey);
-    formData.append("model", model);
-    formData.append("provider", provider);
 
     const response = await fetch(`${API_BASE}/analyses/upload`, {
       method: "POST",
@@ -880,20 +872,14 @@ class ApiClient {
 
   async analyzeContent(
     content: string,
-    apiKey: string,
     options?: {
       filename?: string;
-      model?: string;
-      provider?: string;
       analysisMode?: string;
     },
   ): Promise<Analysis> {
     return this.request("POST", "/analyses/analyze", {
       content,
-      apiKey,
       filename: options?.filename,
-      model: options?.model || "gpt-4o",
-      provider: options?.provider || "openai",
       analysisMode: options?.analysisMode,
     });
   }
@@ -929,11 +915,8 @@ class ApiClient {
 
   // === Embeddings / RAG ===
 
-  async embedAnalysis(
-    id: number,
-    apiKey: string,
-  ): Promise<{ embeddingId: number }> {
-    return this.request("POST", `/analyses/${id}/embed`, { apiKey });
+  async embedAnalysis(id: number): Promise<{ embeddingId: number }> {
+    return this.request("POST", `/analyses/${id}/embed`);
   }
 
   async getSimilarAnalyses(
@@ -974,9 +957,6 @@ class ApiClient {
     messages: ChatMessage[],
     options?: {
       sessionId?: string;
-      model?: string;
-      provider?: string;
-      apiKey?: string;
       useRag?: boolean;
     },
   ): AsyncGenerator<ChatStreamEvent> {
@@ -990,9 +970,6 @@ class ApiClient {
       body: JSON.stringify({
         messages,
         sessionId: options?.sessionId,
-        model: options?.model,
-        provider: options?.provider,
-        apiKey: options?.apiKey || "",
         useRag: options?.useRag,
       }),
     });

@@ -1,0 +1,8 @@
+{
+  "category": "memory",
+  "expected_severity": "critical",
+  "expected_root_cause_category": "out_of_memory",
+  "key_terms": ["OutOfMemory", "64MB allocation", "2GB CSV", "8GB server", "128 MB available", "fragmentation", "chunk size"],
+  "expected_component": "Data Import",
+  "notes": "Classic OOM: 2GB CSV file being imported on an 8GB server with 64MB chunk reads. LOH is 5GB with 67% fragmentation. Dump is incomplete due to low memory. Good analysis should recommend streaming/chunked parsing and point out the server is undersized for this workload."
+}

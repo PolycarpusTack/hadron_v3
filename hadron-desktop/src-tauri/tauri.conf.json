@@ -104,7 +104,7 @@
         "https://github.com/PolycarpusTack/hadron_v3/releases/latest/download/latest.json"
       ],
       "dialog": true,
-      "pubkey": "",
+      "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY_BEFORE_ACTIVATION",
       "windows": {
         "installMode": "passive"
       }

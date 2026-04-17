@@ -43,7 +43,7 @@ pub async fn analyze_issue_stream(
         })?;
 
     // Load AI config from server settings
-    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     // Fetch issue and latest event
     let issue_json = crate::integrations::sentry::fetch_issue(&sentry_config, &issue_id).await?;
@@ -183,7 +183,7 @@ pub async fn analyze_issue(
         })?;
 
     // Load AI config
-    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     // Fetch issue and latest event
     let issue_json = crate::integrations::sentry::fetch_issue(&sentry_config, &issue_id).await?;

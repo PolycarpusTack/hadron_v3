@@ -13,10 +13,12 @@ use hadron_core::models::*;
 use super::AppError;
 
 pub async fn get_analysis_notes(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Fails with not_found if the analysis does not belong to this user.
+    db::get_analysis_by_id(&state.db, id, user.user.id).await?;
     let notes = db::get_analysis_notes(&state.db, id).await?;
     Ok(Json(notes))
 }

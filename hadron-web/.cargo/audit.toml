@@ -1,0 +1,26 @@
+# cargo-audit configuration for hadron-web.
+#
+# Advisories listed here are acknowledged, assessed as unreachable in our
+# deployment, and expected to surface in every scan until upstream ships a fix.
+# New advisories must NOT be added without a reachability analysis.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 — `rsa` crate: Marvin Attack timing side-channel.
+    # Pulled transitively via `sqlx-mysql` 0.8.x even though we only enable
+    # the `postgres` feature of sqlx. No upstream fix is available. The
+    # crate is compiled but never reached at runtime because the MySQL
+    # driver code paths are never executed. Re-evaluate whenever sqlx
+    # publishes a build that drops the `rsa` dependency for postgres-only
+    # consumers.
+    "RUSTSEC-2023-0071",
+
+    # RUSTSEC-2026-0009 — `time 0.3.41` stack-exhaustion DoS during parsing
+    # of hostile duration strings. The fix is `time >= 0.3.47`, which
+    # requires Rust 1.88.0; this workspace is pinned to 1.87.0 via the
+    # desktop `rust-toolchain.toml` for build reproducibility. DoS via
+    # parser inputs is outside the security review scope and `time`
+    # parsing in our code paths is not fed from untrusted strings.
+    # Revisit when the workspace bumps its MSRV to 1.88+ and unpins time.
+    "RUSTSEC-2026-0009",
+]

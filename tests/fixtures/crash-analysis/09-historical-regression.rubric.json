@@ -1,0 +1,8 @@
+{
+  "category": "historical_regression",
+  "expected_severity": "high",
+  "expected_root_cause_category": "concurrent_modification",
+  "key_terms": ["Collection was modified", "enumeration", "cleanupExpiredSessions", "do:", "concurrent", "race condition"],
+  "expected_component": "Session Manager",
+  "notes": "Classic concurrent modification: iterating a collection while another thread adds/removes sessions. Cleaned 34 of 89 expired sessions before crashing at index 35. This is a known pattern — good analysis should identify the race condition and recommend using a snapshot copy or concurrent-safe collection."
+}

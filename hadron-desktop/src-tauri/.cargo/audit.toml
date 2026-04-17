@@ -1,0 +1,17 @@
+# cargo-audit configuration for hadron-desktop.
+#
+# Advisories listed here are acknowledged, assessed as unreachable in our
+# deployment, and expected to surface in every scan until upstream ships a fix.
+# New advisories must NOT be added without a reachability analysis.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2026-0009 — `time 0.3.41` stack-exhaustion DoS during parsing
+    # of hostile duration strings. The fix is `time >= 0.3.47`, which
+    # requires Rust 1.88.0; the desktop workspace is pinned to 1.87.0 via
+    # `rust-toolchain.toml` for build reproducibility. DoS via parser
+    # inputs is outside the security review scope and `time` parsing is
+    # not fed from untrusted strings in our code paths. Revisit when the
+    # workspace bumps its MSRV to 1.88+ and unpins time.
+    "RUSTSEC-2026-0009",
+]

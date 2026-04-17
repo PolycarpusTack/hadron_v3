@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-use crate::ai::{self, AiConfig, AiMessage, AiProvider};
+use crate::ai::{self, AiConfig, AssistantTurn, ChatMessage};
 use crate::auth::AuthenticatedUser;
 use crate::db;
 use crate::sse;
@@ -128,35 +128,6 @@ impl AgentState {
         false
     }
 
-    /// Build the synthesis context for the final AI response.
-    fn build_synthesis_context(&self) -> String {
-        if self.evidence.is_empty() {
-            return String::new();
-        }
-
-        let mut ctx = format!(
-            "\n\n<evidence_summary>\nTools used: {}\nEvidence items gathered: {}\n\n",
-            self.tool_history
-                .iter()
-                .map(|t| t.tool_name.as_str())
-                .collect::<Vec<_>>()
-                .join(", "),
-            self.evidence.len(),
-        );
-
-        for (i, ev) in self.evidence.iter().enumerate() {
-            ctx.push_str(&format!(
-                "Source {}: {} [{}]\n{}\n\n",
-                i + 1,
-                ev.source,
-                ev.relevance,
-                ev.summary
-            ));
-        }
-
-        ctx.push_str("</evidence_summary>");
-        ctx
-    }
 }
 
 /// Simple extraction of "id": NNN patterns from JSON text.
@@ -259,49 +230,36 @@ pub async fn chat_send(
     // Create SSE channel
     let (tx, rx) = mpsc::channel::<ChatStreamEvent>(100);
 
-    // Build AI config — prefer request key, fall back to server-side config
-    let ai_config = if let Some(ref key) = req.api_key {
-        if !key.is_empty() {
-            AiConfig {
-                provider: AiProvider::from_str(req.provider.as_deref().unwrap_or("openai")),
-                api_key: key.clone(),
-                model: req.model.unwrap_or_else(|| "gpt-4o".to_string()),
-            }
-        } else {
-            resolve_ai_config(&state.db).await?
-        }
-    } else {
-        resolve_ai_config(&state.db).await?
-    };
+    // AI config is always admin-configured server-side — no per-request keys.
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
-    // Convert messages
-    let ai_messages: Vec<AiMessage> = req
+    // Convert incoming flat messages (role + content) into the canonical
+    // ChatMessage shape. Persisted chat history doesn't carry tool-call turns,
+    // so we only see user/assistant prose from past rounds — which is fine:
+    // the agent loop builds up tool-call turns only within the current round-trip.
+    let chat_messages: Vec<ChatMessage> = req
         .messages
         .iter()
-        .map(|m| AiMessage {
-            role: m.role.clone(),
-            content: m.content.clone(),
+        .map(|m| match m.role.as_str() {
+            "system" => ChatMessage::System(m.content.clone()),
+            "assistant" => ChatMessage::Assistant {
+                text: Some(m.content.clone()),
+                tool_calls: Vec::new(),
+            },
+            _ => ChatMessage::User(m.content.clone()),
         })
         .collect();
 
-    // Build system prompt with tool awareness
-    let tools = crate::ai::tools::chat_tools();
-    let tool_descriptions: Vec<String> = tools
-        .iter()
-        .map(|t| format!("- {}: {}", t.name, t.description))
-        .collect();
+    // Tool descriptions are conveyed through the provider's native tool API,
+    // not through the system prompt. The prompt only carries behavioural guidance.
     let system_prompt = format!(
-        "{}\n\nYou have access to these tools:\n{}\n\n\
-         To use a tool, respond with ONLY a JSON block: {{\"tool_use\": {{\"name\": \"tool_name\", \"arguments\": {{...}}}}}}\n\
-         Do not include any other text when using a tool — just the JSON block.\n\n\
-         Guidelines:\n\
+        "{}\n\nGuidelines:\n\
          - Use tools to gather evidence before answering. Don't guess when you can search.\n\
          - Stop searching once you have sufficient evidence to answer confidently.\n\
          - When providing your final answer, cite sources (analysis IDs, document titles) when available.\n\
          - If evidence is insufficient after searching, say so honestly rather than speculating.\n\
          - You can use up to {} tools per conversation turn.",
         ai::CHAT_SYSTEM_PROMPT,
-        tool_descriptions.join("\n"),
         MAX_AGENT_ITERATIONS
     );
 
@@ -313,7 +271,7 @@ pub async fn chat_send(
     tokio::spawn(async move {
         let result = run_agent_loop(
             &ai_config,
-            ai_messages,
+            chat_messages,
             &system_prompt,
             &pool,
             user_id,
@@ -334,12 +292,21 @@ pub async fn chat_send(
     Ok(sse::stream_response(rx))
 }
 
-/// Multi-turn agent loop: calls the AI, executes tools, feeds results back,
-/// then streams the final response. Uses `AgentState` to track evidence
-/// and determine when to stop gathering data.
+/// Multi-turn agent loop using provider-native tool calling.
+///
+/// Each round calls the model with the current conversation history and the
+/// full tool catalogue. If the model asks for tool calls, we execute them,
+/// append the structured assistant + tool-result turns, and loop. If the
+/// model emits prose instead, that's the final answer — we stream it to the
+/// client and return. If we hit `MAX_AGENT_ITERATIONS`, we make one more
+/// streaming call with no tools offered, forcing the model to synthesise.
+///
+/// Tool calls arrive as typed `tool_calls` / `tool_use` fields from the
+/// provider APIs — never as free-text JSON — so prompt-injected strings
+/// cannot forge a tool invocation.
 async fn run_agent_loop(
     ai_config: &AiConfig,
-    initial_messages: Vec<AiMessage>,
+    initial_messages: Vec<ChatMessage>,
     system_prompt: &str,
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
@@ -348,130 +315,108 @@ async fn run_agent_loop(
 ) -> Result<(), HadronError> {
     let mut messages = initial_messages;
     let mut state = AgentState::new();
+    let tools = crate::ai::tools::chat_tools();
 
     for _iteration in 0..MAX_AGENT_ITERATIONS {
-        // Non-streaming call to get full response (need structured output for tool parsing)
-        let response =
-            ai::complete(ai_config, messages.clone(), Some(system_prompt)).await?;
+        let turn = ai::complete_with_tools(
+            ai_config,
+            &messages,
+            Some(system_prompt),
+            &tools,
+        )
+        .await?;
 
-        // Check if the AI wants to use a tool
-        let tool_call = extract_tool_call(&response);
-
-        if let Some(tool) = tool_call {
-            // Notify client about tool use
-            let _ = tx
-                .send(ChatStreamEvent::ToolUse {
-                    tool_name: tool.name.clone(),
-                    args: serde_json::to_string(&tool.arguments).unwrap_or_default(),
-                })
-                .await;
-
-            // Execute with timing
-            let start = Instant::now();
-            let tool_result = crate::ai::tools::execute_tool(
-                pool,
-                user_id,
-                &tool.name,
-                &tool.arguments,
-            )
-            .await
-            .unwrap_or_else(|e| format!("Tool error: {e}"));
-            let duration_ms = start.elapsed().as_millis() as u64;
-
-            // Record in agent state
-            state.record_tool_call(
-                &tool.name,
-                &tool.arguments,
-                &tool_result,
-                duration_ms,
-                !tool_result.starts_with("Tool error:"),
-            );
-
-            // Notify client about tool result
-            let _ = tx
-                .send(ChatStreamEvent::ToolResult {
-                    tool_name: tool.name.clone(),
-                    content: tool_result.clone(),
-                })
-                .await;
-
-            tracing::debug!(
-                "Agent loop iteration {}: tool '{}' executed ({}ms), evidence: {} items, {} chars",
-                state.iterations_used,
-                tool.name,
-                duration_ms,
-                state.evidence.len(),
-                state.evidence_tokens,
-            );
-
-            // Check evidence sufficiency AFTER executing and recording the tool
-            if state.should_stop() {
-                tracing::debug!(
-                    "Agent stopping early: evidence sufficient after {} tools",
-                    state.iterations_used
-                );
-                break; // Fall through to synthesis
+        match turn {
+            AssistantTurn::Message(text) => {
+                // Final response. Fake-stream the pre-computed text so the
+                // client still sees Token events for smooth rendering.
+                stream_text_as_tokens(&text, tx).await;
+                let _ = tx
+                    .send(ChatStreamEvent::Done {
+                        session_id: session_id.to_string(),
+                    })
+                    .await;
+                if let Err(e) =
+                    db::save_chat_message(pool, session_id, "assistant", &text).await
+                {
+                    tracing::warn!("Failed to persist assistant chat message: {e}");
+                }
+                return Ok(());
             }
+            AssistantTurn::ToolCalls { text, calls } => {
+                // Persist the assistant turn (with structured tool calls)
+                // so the next round has the correct history shape.
+                messages.push(ChatMessage::Assistant {
+                    text: text.clone(),
+                    tool_calls: calls.clone(),
+                });
 
-            // Feed the assistant's tool-calling message + tool result back
-            messages.push(AiMessage {
-                role: "assistant".to_string(),
-                content: response,
-            });
+                let mut executed_any = false;
+                for call in calls {
+                    let _ = tx
+                        .send(ChatStreamEvent::ToolUse {
+                            tool_name: call.name.clone(),
+                            args: serde_json::to_string(&call.arguments).unwrap_or_default(),
+                        })
+                        .await;
 
-            // Build a structured tool result message
-            let guidance = if state.should_stop() {
-                "You now have sufficient evidence. Please provide your final comprehensive response."
-            } else {
-                "You may use another tool if needed, or provide your final response if you have enough information."
-            };
-            let result_msg = format!(
-                "<tool_result name=\"{}\" iteration=\"{}\" evidence_count=\"{}\">\n{}\n</tool_result>\n\n{}",
-                tool.name,
-                state.iterations_used,
-                state.evidence.len(),
-                tool_result,
-                guidance,
-            );
+                    let start = Instant::now();
+                    let tool_result = crate::ai::tools::execute_tool(
+                        pool,
+                        user_id,
+                        &call.name,
+                        &call.arguments,
+                    )
+                    .await
+                    .unwrap_or_else(|e| format!("Tool error: {e}"));
+                    let duration_ms = start.elapsed().as_millis() as u64;
 
-            messages.push(AiMessage {
-                role: "user".to_string(),
-                content: result_msg,
-            });
-        } else {
-            // No tool call — this is the final response. Stream it.
-            stream_text_as_tokens(&response, tx).await;
+                    state.record_tool_call(
+                        &call.name,
+                        &call.arguments,
+                        &tool_result,
+                        duration_ms,
+                        !tool_result.starts_with("Tool error:"),
+                    );
+                    executed_any = true;
 
-            let _ = tx
-                .send(ChatStreamEvent::Done {
-                    session_id: session_id.to_string(),
-                })
-                .await;
+                    let _ = tx
+                        .send(ChatStreamEvent::ToolResult {
+                            tool_name: call.name.clone(),
+                            content: tool_result.clone(),
+                        })
+                        .await;
 
-            let _ =
-                db::save_chat_message(pool, session_id, "assistant", &response).await;
+                    tracing::debug!(
+                        "Agent iteration {}: tool '{}' ({}ms), evidence: {} items, {} chars",
+                        state.iterations_used,
+                        call.name,
+                        duration_ms,
+                        state.evidence.len(),
+                        state.evidence_tokens,
+                    );
 
-            return Ok(());
+                    messages.push(ChatMessage::ToolResult {
+                        tool_call_id: call.id,
+                        content: tool_result,
+                    });
+                }
+
+                if executed_any && state.should_stop() {
+                    tracing::debug!(
+                        "Agent stopping early: evidence sufficient after {} tools",
+                        state.iterations_used
+                    );
+                    break;
+                }
+            }
         }
     }
 
-    // Max iterations or evidence sufficient — synthesize final response.
-    // Append synthesis context to the last message so we never create two
-    // consecutive user messages (which Anthropic rejects).
-    let synthesis = state.build_synthesis_context();
-    if let Some(last) = messages.last_mut() {
-        if last.role == "user" {
-            last.content.push_str(&format!(
-                "\n\nPlease provide your final comprehensive response based on the evidence gathered.{}",
-                synthesis
-            ));
-        }
-    }
-
-    // Final streaming call
-    let final_response = ai::stream_completion(
+    // Synthesis round: no tools offered, force a text response.
+    let final_response = ai::stream_final_response(
         ai_config,
-        messages,
+        &messages,
         Some(system_prompt),
         tx.clone(),
     )
@@ -482,9 +427,11 @@ async fn run_agent_loop(
             session_id: session_id.to_string(),
         })
         .await;
-
-    let _ =
-        db::save_chat_message(pool, session_id, "assistant", &final_response).await;
+    if let Err(e) =
+        db::save_chat_message(pool, session_id, "assistant", &final_response).await
+    {
+        tracing::warn!("Failed to persist assistant chat message: {e}");
+    }
 
     Ok(())
 }
@@ -522,59 +469,3 @@ async fn stream_text_as_tokens(text: &str, tx: &mpsc::Sender<ChatStreamEvent>) {
 }
 
 
-async fn resolve_ai_config(pool: &sqlx::PgPool) -> Result<AiConfig, AppError> {
-    db::get_server_ai_config(pool)
-        .await
-        .map_err(AppError::from)?
-        .ok_or_else(|| {
-            AppError(HadronError::validation(
-                "No AI configuration available. Ask an admin to configure API keys, or provide your own.",
-            ))
-        })
-}
-
-#[derive(Deserialize)]
-struct ToolCallRequest {
-    name: String,
-    arguments: serde_json::Value,
-}
-
-fn extract_tool_call(content: &str) -> Option<ToolCallRequest> {
-    // Tool calls must start at the beginning of the response (after trimming whitespace).
-    // This prevents false positives from tool results echoed in the conversation history.
-    let trimmed = content.trim();
-    if !trimmed.starts_with("{\"tool_use\"") {
-        return None;
-    }
-
-    // Find the matching closing brace on the trimmed string
-    let mut depth = 0;
-    let mut end = 0;
-    for (i, ch) in trimmed.char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = i + 1;
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    if end > 0 {
-        let json_str = &trimmed[..end];
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
-            if let Some(tool_use) = val.get("tool_use") {
-                let name = tool_use.get("name")?.as_str()?.to_string();
-                let arguments = tool_use
-                    .get("arguments")
-                    .cloned()
-                    .unwrap_or(serde_json::json!({}));
-                return Some(ToolCallRequest { name, arguments });
-            }
-        }
-    }
-    None
-}

@@ -1,0 +1,52 @@
+WHATS'ON Crash Report
+Dump Status: completed
+Date: 2026-03-11 22:14:33
+Version: 8.4.9.891
+Build: Debug
+
+Unhandled exception: Error
+messageText: 'An error has occurred'
+Resumable: false
+
+Active Process:
+  ProcessName: 'Background Worker #7'
+  ThreadId: 44120
+  Priority: Lowest
+
+Walkback:
+  Object>>error: (Object.cls:1923)
+  BlockClosure>>on:do: (BlockClosure.cls:456)
+  BlockClosure>>ensure: (BlockClosure.cls:389)
+  BlockClosure>>ifCurtailed: (BlockClosure.cls:345)
+  Process>>executeBlock (Process.cls:234)
+  Process>>run (Process.cls:189)
+  ProcessScheduler>>startProcess (ProcessScheduler.cls:456)
+  ProcessScheduler>>yield (ProcessScheduler.cls:389)
+
+Environment:
+  OS: Windows 10 Pro
+  Memory Total: 8192 MB
+  Memory Available: 4096 MB
+  CPU: Intel Core i5-8250U @ 1.60GHz
+  Processors: 4
+
+Database State:
+  Connected: false
+  LastError: 'Connection refused'
+
+Open Windows:
+  (none)
+
+Processes:
+  Running: Background Worker #1, Background Worker #2, Background Worker #3,
+           Background Worker #4, Background Worker #5, Background Worker #6,
+           Background Worker #7, Background Worker #8, GarbageCollector,
+           IdleMonitor, ProcessScheduler
+  Waiting: (none)
+
+Memory Report:
+  Private Bytes: 524,288 KB
+  Virtual Size: 1,048,576 KB
+  Working Set: 393,216 KB
+  GC Collections: Gen0=12, Gen1=3, Gen2=0
+  Large Object Heap: 8,192 KB

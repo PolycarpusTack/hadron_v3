@@ -32,9 +32,12 @@ pub struct OpenSearchRequest {
 }
 
 pub async fn opensearch_search(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     Json(req): Json<OpenSearchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Lead)?;
+    ensure_opensearch_host_allowed(&req.url)?;
+
     let config = opensearch::OpenSearchConfig {
         url: req.url,
         username: req.username,
@@ -49,6 +52,164 @@ pub async fn opensearch_search(
             .await?;
 
     Ok(Json(result))
+}
+
+/// Reject URLs whose host is not in the `OPENSEARCH_ALLOWED_HOSTS` allowlist.
+/// Fails closed: if the env var is unset or empty, all hosts are rejected.
+fn ensure_opensearch_host_allowed(raw_url: &str) -> Result<(), AppError> {
+    let parsed = reqwest::Url::parse(raw_url).map_err(|_| {
+        AppError(hadron_core::error::HadronError::validation(
+            "Invalid OpenSearch URL",
+        ))
+    })?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => {
+            return Err(AppError(hadron_core::error::HadronError::validation(
+                "OpenSearch URL must use http or https",
+            )));
+        }
+    }
+
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| {
+            AppError(hadron_core::error::HadronError::validation(
+                "OpenSearch URL missing host",
+            ))
+        })?
+        .to_ascii_lowercase();
+
+    // Derive host:port so the allowlist can pin a specific port if it wants to.
+    // `port_or_known_default` returns 80 for http and 443 for https when the
+    // URL has no explicit port; that keeps `https://host.example` matchable
+    // as `host.example:443` without requiring the operator to spell it out.
+    let host_port = parsed
+        .port_or_known_default()
+        .map(|p| format!("{host}:{p}"));
+
+    let allowed = std::env::var("OPENSEARCH_ALLOWED_HOSTS").unwrap_or_default();
+    let entries: Vec<String> = allowed
+        .split(',')
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if entries.is_empty() {
+        tracing::warn!(
+            "OPENSEARCH_ALLOWED_HOSTS is empty — rejecting OpenSearch search for host {host}"
+        );
+        return Err(AppError(hadron_core::error::HadronError::forbidden(
+            "OpenSearch host allowlist not configured",
+        )));
+    }
+
+    // Match each allowlist entry independently: an entry containing ':' is
+    // port-pinned (must match `host:port`); a bare entry matches any port on
+    // that host. A single allowlist can mix both forms — e.g.,
+    // `os-primary.example,os-secondary.example:9200` — and each entry is
+    // evaluated on its own terms.
+    let matched = entries.iter().any(|e| {
+        if e.contains(':') {
+            host_port.as_deref() == Some(e.as_str())
+        } else {
+            e == &host
+        }
+    });
+
+    if !matched {
+        return Err(AppError(hadron_core::error::HadronError::forbidden(
+            "OpenSearch host not permitted by allowlist",
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_allowlist<T>(value: &str, f: impl FnOnce() -> T) -> T {
+        // These tests mutate a process-global env var, so they cannot run in
+        // parallel with anything else that reads OPENSEARCH_ALLOWED_HOSTS.
+        // The mutex keeps the cargo-test runner from interleaving them.
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        std::env::set_var("OPENSEARCH_ALLOWED_HOSTS", value);
+        let result = f();
+        std::env::remove_var("OPENSEARCH_ALLOWED_HOSTS");
+        result
+    }
+
+    #[test]
+    fn empty_allowlist_rejects_everything() {
+        with_allowlist("", || {
+            assert!(ensure_opensearch_host_allowed("https://os.example").is_err());
+        });
+    }
+
+    #[test]
+    fn bare_host_entry_matches_any_port() {
+        with_allowlist("os.example", || {
+            assert!(ensure_opensearch_host_allowed("https://os.example").is_ok());
+            assert!(ensure_opensearch_host_allowed("https://os.example:9200").is_ok());
+            assert!(ensure_opensearch_host_allowed("http://os.example:80").is_ok());
+            // Wrong host still rejected.
+            assert!(ensure_opensearch_host_allowed("https://evil.example").is_err());
+        });
+    }
+
+    #[test]
+    fn port_pinned_entry_rejects_other_ports() {
+        with_allowlist("os.example:9200", || {
+            assert!(ensure_opensearch_host_allowed("https://os.example:9200").is_ok());
+            assert!(ensure_opensearch_host_allowed("https://os.example").is_err());
+            assert!(ensure_opensearch_host_allowed("https://os.example:443").is_err());
+            assert!(ensure_opensearch_host_allowed("http://os.example:22").is_err());
+        });
+    }
+
+    #[test]
+    fn mixed_allowlist_evaluates_each_entry_independently() {
+        with_allowlist("primary.example,secondary.example:9200", || {
+            // Bare-host entry: any port ok.
+            assert!(ensure_opensearch_host_allowed("https://primary.example").is_ok());
+            assert!(ensure_opensearch_host_allowed("https://primary.example:443").is_ok());
+            // Port-pinned entry: only that port.
+            assert!(ensure_opensearch_host_allowed("https://secondary.example:9200").is_ok());
+            assert!(ensure_opensearch_host_allowed("https://secondary.example").is_err());
+            assert!(ensure_opensearch_host_allowed("https://secondary.example:443").is_err());
+        });
+    }
+
+    #[test]
+    fn rejects_non_http_schemes_before_allowlist_check() {
+        with_allowlist("os.example", || {
+            assert!(ensure_opensearch_host_allowed("file:///etc/passwd").is_err());
+            assert!(ensure_opensearch_host_allowed("ftp://os.example").is_err());
+        });
+    }
+
+    #[test]
+    fn userinfo_smuggling_is_rejected() {
+        // https://user@good.example@evil.example/ parses with host=evil.example.
+        with_allowlist("good.example", || {
+            assert!(
+                ensure_opensearch_host_allowed("https://user@good.example@evil.example/").is_err()
+            );
+        });
+    }
+
+    #[test]
+    fn case_insensitive_host_match() {
+        with_allowlist("OS.Example", || {
+            assert!(ensure_opensearch_host_allowed("https://os.example").is_ok());
+            assert!(ensure_opensearch_host_allowed("https://OS.EXAMPLE").is_ok());
+        });
+    }
 }
 
 #[derive(Deserialize)]
@@ -130,18 +291,31 @@ pub struct JiraCreateRequest {
 }
 
 pub async fn jira_search(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Json(req): Json<JiraSearchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Lead)?;
+
     let mut config = crate::db::get_jira_config_from_poller(&state.db).await?;
     if let Some(pk) = &req.project_key {
         config.project_key = pk.clone();
     }
 
+    // User-supplied JQL is never forwarded to JIRA: the search stays scoped to
+    // the configured project via `text` + project_key. Allowing raw JQL would
+    // let any authenticated user pivot queries across projects.
+    if req.jql.is_some() {
+        tracing::warn!(
+            "jira_search: ignoring user-supplied JQL (user {}, project {})",
+            user.user.email,
+            config.project_key
+        );
+    }
+
     let result = jira::search_issues(
         &config,
-        req.jql.as_deref(),
+        None,
         req.text.as_deref(),
         req.max_results.unwrap_or(20),
     )

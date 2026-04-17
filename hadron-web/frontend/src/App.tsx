@@ -3,7 +3,7 @@ import {
   UnauthenticatedTemplate,
   useMsal,
 } from "@azure/msal-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, UserProfile } from "./services/api";
 import { login, logout } from "./auth/msal";
 import { AnalyzeView } from "./components/analysis/AnalyzeView";
@@ -95,17 +95,6 @@ function AuthenticatedApp() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [activeView, setActiveView] = useState<View>("analyze");
 
-  // Settings state — kept in browser memory (API key never goes to server)
-  const [apiKey, setApiKey] = useState(
-    () => sessionStorage.getItem("hadron_api_key") || "",
-  );
-  const [model, setModel] = useState(
-    () => sessionStorage.getItem("hadron_model") || "gpt-4o",
-  );
-  const [provider, setProvider] = useState(
-    () => sessionStorage.getItem("hadron_provider") || "openai",
-  );
-
   const toast = useToast();
 
   useEffect(() => {
@@ -117,18 +106,16 @@ function AuthenticatedApp() {
       );
   }, []);
 
-  const handleSettingsChange = useCallback(
-    (settings: { apiKey: string; model: string; provider: string }) => {
-      setApiKey(settings.apiKey);
-      setModel(settings.model);
-      setProvider(settings.provider);
-      // Persist to session storage (cleared on tab close)
-      sessionStorage.setItem("hadron_api_key", settings.apiKey);
-      sessionStorage.setItem("hadron_model", settings.model);
-      sessionStorage.setItem("hadron_provider", settings.provider);
-    },
-    [],
-  );
+  // One-time cleanup: remove legacy per-user API-key material from the browser.
+  // Previously we stored an OpenAI/Anthropic key in sessionStorage so the
+  // frontend could attach it to each request; keys are now admin-managed
+  // server-side (see docs/plans/2026-04-15-mcp-server-design.md and F2 in the
+  // security retest). Strip any leftover entries on mount.
+  useEffect(() => {
+    sessionStorage.removeItem("hadron_api_key");
+    sessionStorage.removeItem("hadron_model");
+    sessionStorage.removeItem("hadron_provider");
+  }, []);
 
   const account = accounts[0];
 
@@ -186,11 +173,6 @@ function AuthenticatedApp() {
           </nav>
         </div>
         <div className="flex items-center gap-4">
-          {!apiKey && (
-            <span className="text-xs text-amber-400">
-              No API key configured
-            </span>
-          )}
           <div className="text-right">
             <div className="text-sm text-white">
               {profile?.displayName || account?.name}
@@ -210,16 +192,12 @@ function AuthenticatedApp() {
 
       {/* Content */}
       <main className="flex-1 p-6">
-        {activeView === "analyze" && (
-          <AnalyzeView apiKey={apiKey} model={model} provider={provider} />
-        )}
+        {activeView === "analyze" && <AnalyzeView />}
         {activeView === "code-analyzer" && <CodeAnalyzerView />}
         {activeView === "jira-analyzer" && <JiraAnalyzerView />}
         {activeView === "jira-feed" && <JiraProjectFeed />}
-        {activeView === "history" && <HistoryView apiKey={apiKey} />}
-        {activeView === "chat" && (
-          <ChatView apiKey={apiKey} model={model} provider={provider} />
-        )}
+        {activeView === "history" && <HistoryView />}
+        {activeView === "chat" && <ChatView />}
         {activeView === "search" && (
           <div className="space-y-6">
             <AdvancedSearchPanel />
@@ -239,14 +217,7 @@ function AuthenticatedApp() {
         {activeView === "releases" && <ReleaseNotesView />}
         {activeView === "sentry" && <SentryAnalyzerView />}
         {activeView === "performance" && <PerformanceAnalyzerView />}
-        {activeView === "settings" && (
-          <SettingsView
-            apiKey={apiKey}
-            model={model}
-            provider={provider}
-            onSettingsChange={handleSettingsChange}
-          />
-        )}
+        {activeView === "settings" && <SettingsView />}
         {activeView === "admin" && <AdminPanel />}
       </main>
 

@@ -1,0 +1,66 @@
+WHATS'ON Crash Report
+Dump Status: completed
+Date: 2026-03-14 10:33:51
+Version: 8.5.2.1034
+Build: Release
+
+Unhandled exception: PrimitiveFailed
+messageText: 'Primitive failed in WoNamespace>>resolveBinding'
+parameter: 'WoTicketing.TicketManager.ActiveTickets'
+Resumable: false
+
+Active Process:
+  ProcessName: 'Ticketing Module'
+  ThreadId: 25688
+  Priority: Normal
+
+Walkback:
+  WoNamespace>>resolveBinding (WoNamespace.cls:456)
+  WoNamespace>>at: (WoNamespace.cls:234)
+  WoTicketing.TicketManager>>getActiveTickets (TicketManager.cls:189)
+  WoTicketing.TicketManager>>refreshDashboard (TicketManager.cls:134)
+  WoTicketing.DashboardController>>update (DashboardController.cls:89)
+  WoTicketing.DashboardController>>onTimer (DashboardController.cls:56)
+  WoUi.TimerEvent>>dispatch (TimerEvent.cls:34)
+  WoUi.EventLoop>>processTimers (EventLoop.cls:456)
+  WoUi.EventLoop>>processEvents (EventLoop.cls:234)
+  WoUi.Application>>mainLoop (Application.cls:89)
+
+Context Arguments:
+  WoNamespace>>resolveBinding
+    bindingPath: 'WoTicketing.TicketManager.ActiveTickets'
+    currentNamespace: 'WoTicketing'
+    resolvedSoFar: 'WoTicketing.TicketManager'
+    failedAt: 'ActiveTickets'
+  WoTicketing.TicketManager>>getActiveTickets
+    customerId: 45892
+    filterStatus: 'open'
+
+Environment:
+  OS: Windows 11 Pro
+  Memory Total: 16384 MB
+  Memory Available: 8192 MB
+  CPU: Intel Core i7-12700K @ 3.60GHz
+  Processors: 12
+
+Database State:
+  Connected: true
+  Server: SQLPROD01
+  Database: WO_Production
+  ActiveTransactions: 0
+  OpenCursors: 2
+
+Loaded Namespaces:
+  WoCore: loaded (v8.5.2)
+  WoUi: loaded (v8.5.2)
+  WoTicketing: loaded (v8.5.1)  << VERSION MISMATCH
+  WoReporting: loaded (v8.5.2)
+  WoInventory: loaded (v8.5.2)
+  WoAccounting: loaded (v8.5.2)
+
+Memory Report:
+  Private Bytes: 1,572,864 KB
+  Virtual Size: 2,097,152 KB
+  Working Set: 1,310,720 KB
+  GC Collections: Gen0=3456, Gen1=123, Gen2=8
+  Large Object Heap: 65,536 KB

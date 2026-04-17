@@ -92,7 +92,7 @@ pub async fn search_hybrid(
 
     // 1. Resolve AI config for embedding
     let ai_config =
-        crate::routes::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+        crate::routes::analyses::resolve_ai_config(&state.db).await?;
 
     // 2. Generate query embedding
     let embedding = crate::integrations::embeddings::generate_embedding_with_retry(
@@ -209,7 +209,7 @@ pub async fn search_knowledge_base(
 
     // 3. Resolve AI config for embedding
     let ai_config =
-        crate::routes::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+        crate::routes::analyses::resolve_ai_config(&state.db).await?;
 
     // 4. Generate query embedding
     let embedding = crate::integrations::embeddings::generate_embedding_with_retry(
@@ -316,7 +316,7 @@ pub async fn backfill_embeddings(
         .map_err(|_| AppError(hadron_core::error::HadronError::forbidden("Admin only")))?;
 
     let ai_config =
-        crate::routes::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+        crate::routes::analyses::resolve_ai_config(&state.db).await?;
 
     let unembedded = db::get_unembedded_analyses(&state.db, 100).await?;
 
@@ -374,9 +374,11 @@ pub async fn backfill_embeddings(
 // ============================================================================
 
 pub async fn embeddings_status(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
+    crate::middleware::require_role(&user, hadron_core::models::Role::Admin)
+        .map_err(|_| AppError(hadron_core::error::HadronError::forbidden("Admin only")))?;
     let (total, embedded) = db::get_embedding_coverage(&state.db).await?;
     let coverage = if total > 0 {
         (embedded as f64 / total as f64) * 100.0

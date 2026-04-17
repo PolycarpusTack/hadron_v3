@@ -384,9 +384,10 @@ pub async fn update_sentry_config(
 // ============================================================================
 
 pub async fn get_style_guide(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
     let custom = db::get_global_setting(&state.db, "release_notes_style_guide")
         .await?
         .filter(|s| !s.is_empty());
@@ -432,9 +433,10 @@ pub async fn delete_style_guide(
 // ============================================================================
 
 pub async fn get_checklist_config(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
     let custom = db::get_global_setting(&state.db, "release_notes_checklist")
         .await?
         .filter(|s| !s.is_empty());
@@ -495,9 +497,10 @@ pub struct ConfluenceConfigStatus {
 }
 
 pub async fn get_confluence_config(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
     let space_key = db::get_global_setting(&state.db, "confluence_space_key")
         .await?
         .unwrap_or_default();

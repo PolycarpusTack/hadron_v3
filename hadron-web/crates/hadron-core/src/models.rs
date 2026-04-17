@@ -135,9 +135,6 @@ pub struct AnalysisSummary {
 pub struct AnalyzeRequest {
     pub content: String,
     pub filename: Option<String>,
-    pub api_key: Option<String>,
-    pub model: String,
-    pub provider: Option<String>,
     pub analysis_mode: Option<String>,
     pub use_rag: Option<bool>,
 }
@@ -199,9 +196,6 @@ pub struct ChatMessage {
 pub struct ChatRequest {
     pub session_id: Option<String>,
     pub messages: Vec<ChatMessage>,
-    pub model: Option<String>,
-    pub provider: Option<String>,
-    pub api_key: Option<String>,
     pub use_rag: Option<bool>,
 }
 

@@ -7,13 +7,7 @@ import {
 import { useToast } from "../Toast";
 import { ToolResultCard } from "./ToolResultCard";
 
-interface ChatViewProps {
-  apiKey: string;
-  model: string;
-  provider: string;
-}
-
-export function ChatView({ apiKey, model, provider }: ChatViewProps) {
+export function ChatView() {
   const toast = useToast();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -64,14 +58,6 @@ export function ChatView({ apiKey, model, provider }: ChatViewProps) {
     const text = input.trim();
     if (!text || isStreaming) return;
 
-    if (!apiKey) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Please configure an API key in Settings." },
-      ]);
-      return;
-    }
-
     const userMsg: ChatMessage = { role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
@@ -85,9 +71,6 @@ export function ChatView({ apiKey, model, provider }: ChatViewProps) {
 
       for await (const event of api.chatStream(allMessages, {
         sessionId: activeSessionId || undefined,
-        model,
-        provider,
-        apiKey,
       })) {
         switch (event.type) {
           case "token":
@@ -140,7 +123,7 @@ export function ChatView({ apiKey, model, provider }: ChatViewProps) {
       setIsStreaming(false);
       setStreamContent("");
     }
-  }, [input, isStreaming, messages, activeSessionId, apiKey, model, provider]);
+  }, [input, isStreaming, messages, activeSessionId]);
 
   const handleNewChat = () => {
     setActiveSessionId(null);
@@ -285,6 +268,11 @@ export function ChatView({ apiKey, model, provider }: ChatViewProps) {
               Send
             </button>
           </div>
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            Messages are stored for audit. Avoid pasting customer identifiers
+            (emails, account numbers, PII) — paste only the relevant crash
+            output or stack frame.
+          </p>
         </div>
       </div>
     </div>

@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::auth::AuthenticatedUser;
 use crate::db;
+use crate::middleware::require_role;
 use crate::AppState;
 use hadron_core::models::*;
 
@@ -80,11 +81,12 @@ pub struct UpdateStatusRequest {
 }
 
 pub async fn update_signature_status(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(hash): Path<String>,
     Json(req): Json<UpdateStatusRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Lead)?;
     db::update_signature_status(&state.db, &hash, &req.status).await?;
     Ok(Json(serde_json::json!({ "status": req.status })))
 }
@@ -97,11 +99,12 @@ pub struct LinkTicketRequest {
 }
 
 pub async fn link_signature_ticket(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(hash): Path<String>,
     Json(req): Json<LinkTicketRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Lead)?;
     db::link_signature_ticket(
         &state.db,
         &hash,

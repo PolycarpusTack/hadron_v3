@@ -1,0 +1,53 @@
+WHATS'ON Crash Report
+Dump Status: completed
+Date: 2026-03-16 07:55:12
+Version: 8.5.2.1034
+Build: Release
+
+Unhandled exception: InvalidOperation
+messageText: 'Collection was modified; enumeration operation may not proceed.'
+parameter: 'OrderedCollection'
+Resumable: false
+
+Active Process:
+  ProcessName: 'Session Cleanup'
+  ThreadId: 38944
+  Priority: BelowNormal
+
+Walkback:
+  OrderedCollection>>do: (OrderedCollection.cls:156)
+  SessionManager>>cleanupExpiredSessions (SessionManager.cls:567)
+  SessionManager>>maintenanceCycle (SessionManager.cls:534)
+  SessionManager>>runMaintenance (SessionManager.cls:489)
+  ScheduledTask>>execute (ScheduledTask.cls:89)
+  TaskScheduler>>runTask (TaskScheduler.cls:567)
+
+Context Arguments:
+  SessionManager>>cleanupExpiredSessions
+    totalSessions: 1247
+    expiredCount: 89
+    cleanedSoFar: 34
+  OrderedCollection>>do:
+    collectionSize: 1247
+    currentIndex: 35
+
+Environment:
+  OS: Windows Server 2022
+  Memory Total: 32768 MB
+  Memory Available: 16384 MB
+  CPU: Intel Xeon Silver 4314 @ 2.40GHz
+  Processors: 16
+
+Database State:
+  Connected: true
+  Server: SQLPROD01
+  Database: WO_Production
+  ActiveTransactions: 2
+  OpenCursors: 5
+
+Memory Report:
+  Private Bytes: 4,194,304 KB
+  Virtual Size: 6,291,456 KB
+  Working Set: 3,670,016 KB
+  GC Collections: Gen0=23456, Gen1=1234, Gen2=56
+  Large Object Heap: 524,288 KB

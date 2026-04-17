@@ -1,0 +1,8 @@
+{
+  "category": "clean_crash",
+  "expected_severity": "high",
+  "expected_root_cause_category": "null_reference",
+  "key_terms": ["nil object", "Invoice", "calculateTotal", "discount"],
+  "expected_component": "Invoice Processing",
+  "notes": "Clean, well-formed crash with obvious null pointer in invoice calculation. Should be straightforward to analyze."
+}

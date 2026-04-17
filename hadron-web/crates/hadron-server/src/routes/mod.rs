@@ -13,6 +13,7 @@ mod gold;
 mod integrations;
 mod jira_analysis;
 mod jira_poller;
+pub(crate) mod mcp;
 mod notes;
 mod performance;
 mod search;
@@ -37,7 +38,7 @@ use hadron_core::models::*;
 
 /// Build the `/api` router.
 pub fn api_router() -> Router<AppState> {
-    Router::new()
+    let mut router = Router::new()
         // Health
         .route("/health", get(middleware::health_check))
         .route("/health/live", get(middleware::liveness))
@@ -214,7 +215,15 @@ pub fn api_router() -> Router<AppState> {
         .route("/admin/jira-poller/stop", post(jira_poller::stop_poller))
         // User: JIRA Subscriptions
         .route("/jira/subscriptions", get(jira_poller::get_subscriptions))
-        .route("/jira/subscriptions", put(jira_poller::set_subscriptions))
+        .route("/jira/subscriptions", put(jira_poller::set_subscriptions));
+
+    // MCP endpoint (gated by HADRON_MCP_ENABLED env var)
+    if mcp::is_enabled() {
+        tracing::info!("MCP endpoint enabled at POST /api/mcp");
+        router = router.route("/mcp", post(mcp::handle_mcp));
+    }
+
+    router
 }
 
 // ============================================================================

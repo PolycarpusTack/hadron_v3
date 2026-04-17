@@ -1,0 +1,55 @@
+{
+  "event_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "project": "whatson-api",
+  "platform": "python",
+  "level": "error",
+  "timestamp": "2026-03-13T08:45:12.456Z",
+  "server_name": "api-prod-03",
+  "environment": "production",
+  "release": "whatson-api@2.14.3",
+  "exception": {
+    "values": [
+      {
+        "type": "ConnectionError",
+        "value": "HTTPSConnectionPool(host='sso.whatson.cloud', port=443): Max retries exceeded with url: /oauth/token (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7f3a2c1d4e50>, 'Connection to sso.whatson.cloud timed out. (connect timeout=5)'))",
+        "mechanism": {
+          "type": "generic",
+          "handled": false
+        },
+        "stacktrace": {
+          "frames": [
+            { "filename": "urllib3/connection.py", "lineno": 203, "function": "connect" },
+            { "filename": "urllib3/connectionpool.py", "lineno": 793, "function": "urlopen" },
+            { "filename": "requests/adapters.py", "lineno": 489, "function": "send" },
+            { "filename": "requests/sessions.py", "lineno": 645, "function": "send" },
+            { "filename": "requests/sessions.py", "lineno": 542, "function": "request" },
+            { "filename": "whatson_api/auth/sso.py", "lineno": 89, "function": "refresh_token" },
+            { "filename": "whatson_api/auth/middleware.py", "lineno": 45, "function": "authenticate" },
+            { "filename": "whatson_api/routes/tickets.py", "lineno": 23, "function": "list_tickets" },
+            { "filename": "flask/app.py", "lineno": 1478, "function": "wsgi_app" }
+          ]
+        }
+      }
+    ]
+  },
+  "tags": {
+    "url": "/api/v2/tickets?status=open",
+    "method": "GET",
+    "user_id": "usr_45892",
+    "customer": "acme-corp",
+    "sso_provider": "azure-ad"
+  },
+  "contexts": {
+    "runtime": { "name": "CPython", "version": "3.11.7" },
+    "os": { "name": "Linux", "version": "6.1.0-18-amd64" },
+    "trace": { "trace_id": "f1e2d3c4b5a6f7e8d9c0b1a2f3e4d5c6", "span_id": "a1b2c3d4e5f6a7b8" }
+  },
+  "breadcrumbs": {
+    "values": [
+      { "timestamp": "2026-03-13T08:45:07.123Z", "category": "http", "message": "GET /api/v2/tickets?status=open", "level": "info" },
+      { "timestamp": "2026-03-13T08:45:07.234Z", "category": "auth", "message": "Token expired, attempting refresh", "level": "warning" },
+      { "timestamp": "2026-03-13T08:45:07.345Z", "category": "http", "message": "POST https://sso.whatson.cloud/oauth/token", "level": "info" },
+      { "timestamp": "2026-03-13T08:45:12.456Z", "category": "http", "message": "Connection timeout after 5s", "level": "error" }
+    ]
+  }
+}

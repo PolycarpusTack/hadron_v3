@@ -276,11 +276,20 @@ pub async fn update_checklist(
 // ============================================================================
 
 pub async fn export_confluence(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Leads/admins may export notes they don't own.
+    // Role gate: only leads and admins may export notes (including those they
+    // don't own). This is an intentional product decision — release notes are
+    // a team-wide artefact and exports sometimes need to happen from a
+    // different owner than the author (holiday cover, role change). Any lead
+    // can therefore export any note. Revisit if team-scoping is introduced.
+    middleware::require_role(&user, hadron_core::models::Role::Lead)
+        .map_err(|_| AppError(hadron_core::error::HadronError::forbidden(
+            "Only leads and admins can export release notes.",
+        )))?;
+
     let note = db::get_release_note_by_id(&state.db, id)
         .await
         .map_err(AppError)?;
@@ -364,11 +373,18 @@ pub async fn publish_confluence(
 // ============================================================================
 
 pub async fn run_compliance_check(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Leads/admins may run compliance on notes they don't own.
+    // Role gate: only leads and admins may run compliance on notes they
+    // don't own. Same intent as `export_confluence` — team-wide artefact,
+    // coverage must work across owners.
+    middleware::require_role(&user, hadron_core::models::Role::Lead)
+        .map_err(|_| AppError(hadron_core::error::HadronError::forbidden(
+            "Only leads and admins can run compliance checks.",
+        )))?;
+
     let note = db::get_release_note_by_id(&state.db, id)
         .await
         .map_err(AppError)?;
@@ -385,7 +401,7 @@ pub async fn run_compliance_check(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| hadron_core::ai::DEFAULT_STYLE_GUIDE.to_string());
 
-    let ai_config = crate::routes::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+    let ai_config = crate::routes::analyses::resolve_ai_config(&state.db).await?;
     let (system, messages) = hadron_core::ai::build_compliance_messages(content, &style_guide);
     let raw = crate::ai::complete(&ai_config, messages, Some(&system)).await?;
     let report = hadron_core::ai::parse_compliance_response(&raw)?;

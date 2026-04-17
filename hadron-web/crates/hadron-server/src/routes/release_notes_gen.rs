@@ -211,7 +211,7 @@ async fn run_pipeline(
     // ------------------------------------------------------------------
     // Phase 2: Enrichment (15–60%)
     // ------------------------------------------------------------------
-    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None)
+    let ai_config = super::analyses::resolve_ai_config(&state.db)
         .await
         .map_err(|e| e.0)?;
 

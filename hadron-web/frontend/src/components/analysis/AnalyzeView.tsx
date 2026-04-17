@@ -4,15 +4,9 @@ import { FileUploadZone } from "./FileUploadZone";
 import { AnalysisResultCard } from "./AnalysisResultCard";
 import { useToast } from "../Toast";
 
-interface AnalyzeViewProps {
-  apiKey: string;
-  model: string;
-  provider: string;
-}
-
 type AnalysisMode = "crash_log" | "code_review";
 
-export function AnalyzeView({ apiKey, model, provider }: AnalyzeViewProps) {
+export function AnalyzeView() {
   const toast = useToast();
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<Analysis | null>(null);
@@ -20,17 +14,12 @@ export function AnalyzeView({ apiKey, model, provider }: AnalyzeViewProps) {
   const [mode, setMode] = useState<AnalysisMode>("crash_log");
 
   const handleFile = async (file: File) => {
-    if (!apiKey) {
-      setError("Please configure an API key in Settings first.");
-      return;
-    }
-
     setAnalyzing(true);
     setError(null);
     setResult(null);
 
     try {
-      const analysis = await api.uploadAndAnalyze(file, apiKey, model, provider);
+      const analysis = await api.uploadAndAnalyze(file);
       setResult(analysis);
       toast.success("Analysis complete");
     } catch (e) {
@@ -43,20 +32,13 @@ export function AnalyzeView({ apiKey, model, provider }: AnalyzeViewProps) {
   };
 
   const handlePaste = async (content: string, filename: string) => {
-    if (!apiKey) {
-      setError("Please configure an API key in Settings first.");
-      return;
-    }
-
     setAnalyzing(true);
     setError(null);
     setResult(null);
 
     try {
-      const analysis = await api.analyzeContent(content, apiKey, {
+      const analysis = await api.analyzeContent(content, {
         filename,
-        model,
-        provider,
         analysisMode: mode === "code_review" ? "code_review" : undefined,
       });
       setResult(analysis);

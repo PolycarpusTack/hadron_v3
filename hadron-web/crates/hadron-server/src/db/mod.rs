@@ -209,6 +209,61 @@ pub async fn search_analyses(
     Ok(rows.into_iter().map(Into::into).collect())
 }
 
+/// FTS search scoped to a specific analysis_type (e.g. "sentry", "performance").
+pub async fn search_analyses_by_type(
+    pool: &PgPool,
+    user_id: Uuid,
+    analysis_type: &str,
+    query: &str,
+    limit: i64,
+) -> HadronResult<Vec<AnalysisSummary>> {
+    let rows: Vec<AnalysisSummaryRow> = sqlx::query_as(
+        "SELECT id, filename, error_type, severity, component, confidence, is_favorite, analyzed_at
+         FROM analyses
+         WHERE user_id = $1
+           AND analysis_type = $2
+           AND deleted_at IS NULL
+           AND search_vector @@ plainto_tsquery('english', $3)
+         ORDER BY ts_rank(search_vector, plainto_tsquery('english', $3)) DESC
+         LIMIT $4",
+    )
+    .bind(user_id)
+    .bind(analysis_type)
+    .bind(query)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(rows.into_iter().map(Into::into).collect())
+}
+
+/// Fetch a single analysis by id, scoped to a specific analysis_type.
+pub async fn get_analysis_by_id_and_type(
+    pool: &PgPool,
+    id: i64,
+    user_id: Uuid,
+    analysis_type: &str,
+) -> HadronResult<Option<hadron_core::models::Analysis>> {
+    let row: Option<AnalysisRow> = sqlx::query_as(
+        "SELECT id, user_id, filename, file_size_kb, error_type, error_message,
+                severity, component, stack_trace, root_cause, suggested_fixes,
+                confidence, ai_model, ai_provider, tokens_used, cost,
+                analysis_duration_ms, is_favorite, view_count, error_signature,
+                full_data, analyzed_at, created_at, updated_at
+         FROM analyses
+         WHERE id = $1 AND user_id = $2 AND analysis_type = $3 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(analysis_type)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(row.map(Into::into))
+}
+
 // ============================================================================
 // Chat Sessions
 // ============================================================================
@@ -582,6 +637,28 @@ pub async fn get_release_note(
     Ok(row.into())
 }
 
+/// Fetch a release note by fix version string. Returns the most recent match.
+pub async fn get_release_note_by_version(
+    pool: &PgPool,
+    user_id: Uuid,
+    fix_version: &str,
+) -> HadronResult<Option<ReleaseNote>> {
+    let row: Option<ReleaseNoteRow> = sqlx::query_as(
+        "SELECT id, user_id, title, version, content, format, is_published, created_at, updated_at, ai_insights,
+                status, checklist_state, reviewed_by, reviewed_at, published_at, markdown_content
+         FROM release_notes
+         WHERE user_id = $1 AND version = $2 AND deleted_at IS NULL
+         ORDER BY updated_at DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(fix_version)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(row.map(Into::into))
+}
+
 pub async fn update_release_note(
     pool: &PgPool,
     id: i64,
@@ -694,16 +771,17 @@ pub async fn update_release_note_status(
 pub async fn update_release_note_checklist(
     pool: &PgPool,
     id: i64,
-    _user_id: Uuid,
+    user_id: Uuid,
     checklist: &serde_json::Value,
 ) -> HadronResult<()> {
     let result = sqlx::query(
         "UPDATE release_notes
          SET checklist_state = $1
-         WHERE id = $2 AND deleted_at IS NULL",
+         WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL",
     )
     .bind(checklist)
     .bind(id)
+    .bind(user_id)
     .execute(pool)
     .await
     .map_err(|e| HadronError::database(e.to_string()))?;
@@ -2866,6 +2944,34 @@ pub async fn get_ticket_brief(
     Ok(row)
 }
 
+pub async fn search_ticket_briefs(
+    pool: &PgPool,
+    query: &str,
+    severity: Option<&str>,
+    category: Option<&str>,
+    limit: i64,
+) -> HadronResult<Vec<TicketBriefRow>> {
+    let rows = sqlx::query_as::<_, TicketBriefRow>(
+        "SELECT jira_key, title, severity, category, tags, triage_json, brief_json,
+                posted_to_jira, posted_at, engineer_rating, engineer_notes, created_at, updated_at
+         FROM ticket_briefs
+         WHERE (title ILIKE '%' || $1 || '%' OR brief_json ILIKE '%' || $1 || '%')
+           AND ($2::text IS NULL OR severity = $2)
+           AND ($3::text IS NULL OR category = $3)
+         ORDER BY updated_at DESC
+         LIMIT $4",
+    )
+    .bind(query)
+    .bind(severity)
+    .bind(category)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(rows)
+}
+
 pub async fn get_ticket_briefs_batch(
     pool: &PgPool,
     jira_keys: &[String],
@@ -2902,7 +3008,7 @@ pub async fn delete_ticket_brief(pool: &PgPool, jira_key: &str) -> HadronResult<
 // ============================================================================
 
 /// Deterministic hash of a JIRA key to use as source_id in the embeddings table.
-fn jira_key_to_source_id(jira_key: &str) -> i64 {
+pub fn jira_key_to_source_id(jira_key: &str) -> i64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let mut hasher = DefaultHasher::new();

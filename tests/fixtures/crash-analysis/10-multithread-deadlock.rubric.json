@@ -1,0 +1,8 @@
+{
+  "category": "multithread_deadlock",
+  "expected_severity": "critical",
+  "expected_root_cause_category": "deadlock",
+  "key_terms": ["circular wait", "UILock", "CacheLock", "DbPoolLock", "3 processes", "lock ordering", "connection pool exhausted"],
+  "expected_component": "UI Event Loop / Cache Manager / Report Export",
+  "notes": "Three-way process deadlock with full cycle: UI->Cache->DbPool->UI. Connection pool is exhausted (10/10). All lock holders and their stacks are provided. Good analysis should trace the circular dependency, identify that ReportExporter shouldn't hold DbPoolLock while acquiring UILock, and recommend either async progress updates or consistent lock ordering."
+}

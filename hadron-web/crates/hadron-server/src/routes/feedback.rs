@@ -23,19 +23,21 @@ pub async fn submit_feedback(
 }
 
 pub async fn get_analysis_feedback(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
+    db::get_analysis_by_id(&state.db, id, user.user.id).await?;
     let feedback = db::get_analysis_feedback(&state.db, id).await?;
     Ok(Json(feedback))
 }
 
 pub async fn get_feedback_summary(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
+    db::get_analysis_by_id(&state.db, id, user.user.id).await?;
     let summary = db::get_feedback_summary(&state.db, id).await?;
     Ok(Json(summary))
 }

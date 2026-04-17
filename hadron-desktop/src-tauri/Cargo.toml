@@ -9,6 +9,14 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "hadron-mcp"
+path = "src/bin/mcp.rs"
+
+[[bin]]
+name = "eval"
+path = "src/bin/eval.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -51,6 +59,10 @@ urlencoding = "2.1"
 
 # Hex encoding for signature hashes
 hex = "0.4"
+
+# MCP server
+hadron-mcp = { path = "../../hadron-web/crates/hadron-mcp" }
+async-trait = "0.1"
 
 # Better mutex implementation (no poisoning, faster)
 parking_lot = "0.12"

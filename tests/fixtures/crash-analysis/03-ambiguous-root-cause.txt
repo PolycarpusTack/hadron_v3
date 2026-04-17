@@ -1,0 +1,57 @@
+WHATS'ON Crash Report
+Dump Status: completed
+Date: 2026-03-08 11:17:44
+Version: 8.5.2.1034
+Build: Release
+
+Unhandled exception: GenericError
+messageText: 'Error in application'
+Resumable: false
+
+Active Process:
+  ProcessName: 'Order Entry'
+  ThreadId: 18776
+  Priority: Normal
+
+Walkback:
+  OrderValidator>>validate (OrderValidator.cls:312)
+  OrderValidator>>checkInventory (OrderValidator.cls:267)
+  InventoryService>>getAvailableStock (InventoryService.cls:189)
+  InventoryService>>queryWarehouse (InventoryService.cls:145)
+  DbClient>>executeQuery (DbClient.cls:456)
+  DbClient>>sendRequest (DbClient.cls:389)
+  TcpConnection>>write (TcpConnection.cls:234)
+  SocketStream>>nextPut: (SocketStream.cls:78)
+  SessionManager>>executeRequest (SessionManager.cls:334)
+
+Context Arguments:
+  OrderValidator>>checkInventory
+    orderId: 78234
+    productCode: 'WO-SEAT-STD'
+    requestedQty: 500
+  InventoryService>>queryWarehouse
+    warehouseId: 'WH-03'
+    timeout: 30000
+
+Environment:
+  OS: Windows Server 2022
+  Memory Total: 16384 MB
+  Memory Available: 2048 MB
+  CPU: Intel Xeon E-2278G @ 3.40GHz
+  Processors: 8
+
+Database State:
+  Connected: true
+  Server: SQLPROD01
+  Database: WO_Production
+  ActiveTransactions: 3
+  OpenCursors: 47
+  LockWaitTimeout: exceeded (35000ms)
+
+Memory Report:
+  Private Bytes: 14,680,064 KB
+  Virtual Size: 16,384,000 KB
+  Working Set: 14,200,832 KB
+  GC Collections: Gen0=45678, Gen1=3456, Gen2=234
+  Large Object Heap: 4,096,000 KB
+  Pinned Objects: 1247

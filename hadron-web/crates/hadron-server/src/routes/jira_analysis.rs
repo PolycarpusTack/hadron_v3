@@ -45,7 +45,7 @@ pub async fn analyze_issue(
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     let (system_prompt, messages) = hadron_core::ai::build_jira_deep_messages(&ticket);
 
@@ -65,7 +65,7 @@ pub async fn analyze_issue_stream(
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     let (system_prompt, messages) = hadron_core::ai::build_jira_deep_messages(&ticket);
 
@@ -86,7 +86,7 @@ pub async fn triage_issue(
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     let (system_prompt, messages) = hadron_core::ai::build_jira_triage_messages(&ticket);
     let raw_response = ai::complete(&ai_config, messages, Some(&system_prompt)).await?;
@@ -124,7 +124,7 @@ pub async fn generate_brief(
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     // Run triage + deep analysis in parallel
     let (triage_sys, triage_msgs) = hadron_core::ai::build_jira_triage_messages(&ticket);
@@ -196,7 +196,7 @@ pub async fn generate_brief_stream(
     let config = db::get_jira_config_from_poller(&state.db).await?;
     let ticket = jira::fetch_issue_detail(&config, &key).await?;
 
-    let ai_config = super::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     // Run triage first (fast, ~2-3s)
     let (triage_sys, triage_msgs) = hadron_core::ai::build_jira_triage_messages(&ticket);
@@ -304,13 +304,7 @@ pub async fn find_similar_tickets(
     let embed_text = crate::db::build_ticket_embedding_text(title, "", brief_json);
 
     // Resolve AI config for embedding API call (uses OpenAI)
-    let ai_config = super::analyses::resolve_ai_config(
-        &state.db,
-        None,
-        None,
-        None,
-    )
-    .await?;
+    let ai_config = super::analyses::resolve_ai_config(&state.db).await?;
 
     let embedding = crate::integrations::embeddings::generate_embedding(
         &embed_text,

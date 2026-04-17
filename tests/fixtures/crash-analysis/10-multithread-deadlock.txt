@@ -1,0 +1,71 @@
+WHATS'ON Crash Report
+Dump Status: completed
+Date: 2026-03-17 15:42:08
+Version: 8.5.2.1034
+Build: Release
+
+Unhandled exception: ProcessDeadlock
+messageText: 'Deadlock detected: 3 processes in circular wait'
+Resumable: false
+
+Active Process:
+  ProcessName: 'UI Event Loop'
+  ThreadId: 1024
+  Priority: AboveNormal
+
+Deadlocked Processes:
+  Process 'UI Event Loop' (Thread 1024):
+    Holds: UILock
+    Waiting for: CacheLock
+    Stack:
+      CacheManager>>get: (CacheManager.cls:89)
+      CustomerView>>refreshData (CustomerView.cls:234)
+      CustomerView>>onActivate (CustomerView.cls:178)
+      UIFramework>>activateView (UIFramework.cls:456)
+      UIFramework>>processEvent (UIFramework.cls:389)
+
+  Process 'Cache Refresh' (Thread 15680):
+    Holds: CacheLock
+    Waiting for: DbPoolLock
+    Stack:
+      DbConnectionPool>>acquire (DbConnectionPool.cls:67)
+      CacheManager>>refreshAll (CacheManager.cls:234)
+      CacheManager>>timerCallback (CacheManager.cls:189)
+      TimerThread>>executeCallback (TimerThread.cls:45)
+
+  Process 'Report Export' (Thread 22400):
+    Holds: DbPoolLock
+    Waiting for: UILock
+    Stack:
+      UIFramework>>showProgressDialog (UIFramework.cls:567)
+      ReportExporter>>updateProgress (ReportExporter.cls:145)
+      ReportExporter>>exportToPdf (ReportExporter.cls:89)
+      ReportExporter>>run (ReportExporter.cls:45)
+
+Environment:
+  OS: Windows 11 Pro
+  Memory Total: 32768 MB
+  Memory Available: 20480 MB
+  CPU: AMD Ryzen 9 5900X @ 3.70GHz
+  Processors: 12
+
+Database State:
+  Connected: true
+  Server: SQLPROD01
+  Database: WO_Production
+  ActiveTransactions: 1
+  OpenCursors: 8
+  ConnectionPool: 10/10 (exhausted)
+
+Thread Dump:
+  Total Threads: 34
+  Running: 8
+  Waiting: 23
+  Deadlocked: 3
+
+Memory Report:
+  Private Bytes: 2,097,152 KB
+  Virtual Size: 4,194,304 KB
+  Working Set: 1,835,008 KB
+  GC Collections: Gen0=8765, Gen1=432, Gen2=21
+  Large Object Heap: 131,072 KB

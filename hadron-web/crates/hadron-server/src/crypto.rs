@@ -29,11 +29,12 @@ static ENCRYPTION_KEY: LazyLock<Option<[u8; 32]>> = LazyLock::new(|| {
 });
 
 /// Encrypt a plaintext string. Returns hex-encoded nonce+ciphertext.
-/// If no encryption key is configured, returns the plaintext as-is (dev mode).
+/// Fails closed when `SERVER_ENCRYPTION_KEY` is missing: refuses to persist plaintext secrets.
 pub fn encrypt_value(plaintext: &str) -> HadronResult<String> {
     let Some(key_bytes) = ENCRYPTION_KEY.as_ref() else {
-        tracing::warn!("SERVER_ENCRYPTION_KEY not set — storing value unencrypted");
-        return Ok(plaintext.to_string());
+        return Err(HadronError::Config(
+            "SERVER_ENCRYPTION_KEY must be set (64 hex chars) before storing secrets".to_string(),
+        ));
     };
 
     let cipher = Aes256Gcm::new_from_slice(key_bytes)
@@ -94,12 +95,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_roundtrip_without_key() {
-        // Without SERVER_ENCRYPTION_KEY, values pass through unencrypted
-        let result = encrypt_value("my-secret").unwrap();
-        // Without key, returns plaintext
-        let decrypted = decrypt_value(&result).unwrap();
-        assert_eq!(decrypted, "my-secret");
+    fn test_encrypt_fails_closed_without_key() {
+        // When SERVER_ENCRYPTION_KEY is missing, encryption must refuse rather than
+        // silently persisting plaintext. Guards against regressions of the fail-open bug.
+        let err = encrypt_value("my-secret")
+            .expect_err("encrypt_value must fail when key is not configured");
+        assert!(
+            matches!(err, HadronError::Config(_)),
+            "expected Config error, got {err:?}"
+        );
     }
 
     #[test]

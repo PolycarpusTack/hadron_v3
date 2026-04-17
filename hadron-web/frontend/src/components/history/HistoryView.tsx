@@ -12,13 +12,9 @@ import { useToast } from "../Toast";
 import { ConfirmDialog } from "../ConfirmDialog";
 import type { Analysis } from "../../services/api";
 
-interface HistoryViewProps {
-  apiKey?: string;
-}
-
 type Tab = "active" | "archived";
 
-export function HistoryView({ apiKey }: HistoryViewProps) {
+export function HistoryView() {
   const toast = useToast();
   const [tab, setTab] = useState<Tab>("active");
   const [analyses, setAnalyses] = useState<AnalysisSummary[]>([]);
@@ -413,10 +409,7 @@ export function HistoryView({ apiKey }: HistoryViewProps) {
               setDetail(null);
             }}
           />
-          <SimilarAnalysesPanel
-            analysisId={detail.id}
-            apiKey={apiKey || ""}
-          />
+          <SimilarAnalysesPanel analysisId={detail.id} />
         </div>
       )}
       <ConfirmDialog

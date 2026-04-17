@@ -1,0 +1,44 @@
+WHATS'ON Crash Report
+Dump Status: completed
+Date: 2026-03-12 09:42:17
+Version: 8.5.2.1034
+Build: Release
+
+Unhandled exception: AccessViolation
+messageText: 'Access violation - nil object reference'
+parameter: 'anObject'
+Resumable: false
+
+Active Process:
+  ProcessName: 'Invoice Processing'
+  ThreadId: 14832
+  Priority: Normal
+
+Walkback:
+  Invoice>>calculateTotal (Invoice.cls:247)
+  Invoice>>applyDiscounts (Invoice.cls:198)
+  InvoiceLine>>getNetAmount (InvoiceLine.cls:89)
+  OrderProcessor>>processOrder (OrderProcessor.cls:412)
+  BatchRunner>>runBatch (BatchRunner.cls:67)
+  SessionManager>>executeRequest (SessionManager.cls:334)
+
+Environment:
+  OS: Windows Server 2022
+  Memory Total: 32768 MB
+  Memory Available: 18432 MB
+  CPU: Intel Xeon E-2388G @ 3.20GHz
+  Processors: 8
+
+Database State:
+  Connected: true
+  Server: SQLPROD01
+  Database: WO_Production
+  ActiveTransactions: 1
+  OpenCursors: 3
+
+Memory Report:
+  Private Bytes: 1,245,184 KB
+  Virtual Size: 4,194,304 KB
+  Working Set: 1,048,576 KB
+  GC Collections: Gen0=1423, Gen1=89, Gen2=12
+  Large Object Heap: 124,928 KB

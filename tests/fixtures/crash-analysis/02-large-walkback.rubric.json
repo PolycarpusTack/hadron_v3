@@ -1,0 +1,8 @@
+{
+  "category": "large_walkback",
+  "expected_severity": "medium",
+  "expected_root_cause_category": "null_reference",
+  "key_terms": ["doesNotUnderstand", "printOn", "customerContact", "nil", "ReportFormatter", "formatField"],
+  "expected_component": "Report Generator",
+  "notes": "Deep 30-frame walkback. Root cause is nil customerContact field at row 43/156 in report generation. Context arguments give the key clue. Model should not be distracted by the deep stack."
+}

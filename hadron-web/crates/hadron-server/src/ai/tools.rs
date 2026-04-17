@@ -155,13 +155,13 @@ pub fn chat_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "search_jira".to_string(),
-            description: "Search JIRA tickets by text query or JQL. Useful for finding related tickets, checking fix versions, or looking up specific issues.".to_string(),
+            description: "Search JIRA tickets by free-text query within the configured project.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search text or JQL query"
+                        "description": "Free-text search terms"
                     },
                     "limit": {
                         "type": "integer",
@@ -426,19 +426,12 @@ pub async fn execute_tool(
                 }
             };
 
-            // Determine if query looks like JQL (contains operators)
-            let is_jql = query.contains('=')
-                || query.contains("ORDER BY")
-                || query.contains("AND")
-                || query.contains("OR");
-
-            let result = if is_jql {
-                crate::integrations::jira::search_issues(&jira_config, Some(query), None, limit)
-                    .await
-            } else {
+            // User-supplied JQL is never forwarded — same rule as
+            // `routes/integrations::jira_search`. The tool always runs as a
+            // free-text search scoped to the configured project.
+            let result =
                 crate::integrations::jira::search_issues(&jira_config, None, Some(query), limit)
-                    .await
-            };
+                    .await;
 
             match result {
                 Ok(resp) => serde_json::to_string_pretty(&resp)

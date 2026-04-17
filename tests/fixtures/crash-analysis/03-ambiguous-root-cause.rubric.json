@@ -1,0 +1,8 @@
+{
+  "category": "ambiguous_root_cause",
+  "expected_severity": "critical",
+  "expected_root_cause_category": "resource_exhaustion",
+  "key_terms": ["memory", "lock wait", "timeout", "GenericError", "47 cursors", "14 GB"],
+  "expected_component": "Order Entry",
+  "notes": "Multiple possible root causes: memory near-exhaustion (14GB/16GB), DB lock timeout, 47 open cursors, 1247 pinned objects. The exception message is generic and unhelpful. A good analysis should identify the memory pressure as the primary issue with DB lock contention as a contributing factor."
+}

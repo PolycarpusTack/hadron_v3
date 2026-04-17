@@ -1,0 +1,8 @@
+{
+  "category": "database",
+  "expected_severity": "high",
+  "expected_root_cause_category": "deadlock",
+  "key_terms": ["deadlock", "stock_levels", "stock_reservations", "Process 87", "Process 92", "lock ordering"],
+  "expected_component": "Stock Adjustment",
+  "notes": "Classic deadlock between two processes accessing stock_levels and stock_reservations in opposite order. Deadlock graph is provided. Good analysis should identify the lock ordering issue and recommend consistent lock acquisition order or retry logic."
+}

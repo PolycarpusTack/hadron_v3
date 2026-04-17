@@ -1,0 +1,60 @@
+WHATS'ON Crash Report
+Dump Status: incomplete - low memory
+Date: 2026-03-15 03:22:08
+Version: 8.5.2.1034
+Build: Release
+
+Unhandled exception: OutOfMemory
+messageText: 'Failed to allocate 67108864 bytes'
+parameter: 'LargeObjectHeap'
+Resumable: false
+
+Active Process:
+  ProcessName: 'Data Import'
+  ThreadId: 9456
+  Priority: BelowNormal
+
+Walkback:
+  Memory>>allocate:ifFail: (Memory.cls:89)
+  LargeObjectHeap>>allocate (LargeObjectHeap.cls:45)
+  ByteArray>>new: (ByteArray.cls:12)
+  CsvParser>>readNextChunk (CsvParser.cls:234)
+  CsvParser>>parseFile (CsvParser.cls:167)
+  DataImporter>>importCsvFile (DataImporter.cls:312)
+  DataImporter>>processFile (DataImporter.cls:245)
+  BatchImporter>>importAll (BatchImporter.cls:89)
+  BatchImporter>>run (BatchImporter.cls:45)
+  ImportScheduler>>executeImport (ImportScheduler.cls:134)
+
+Context Arguments:
+  CsvParser>>readNextChunk
+    chunkSize: 67108864
+    fileSize: 2147483648
+    bytesRead: 1879048192
+    fileName: 'customer_export_full.csv'
+  DataImporter>>importCsvFile
+    totalRows: 0 (still parsing)
+    batchSize: 10000
+
+Environment:
+  OS: Windows Server 2019
+  Memory Total: 8192 MB
+  Memory Available: 128 MB
+  CPU: Intel Core i5-10500 @ 3.10GHz
+  Processors: 6
+
+Database State:
+  Connected: true
+  Server: SQLDEV01
+  Database: WO_Staging
+  ActiveTransactions: 1
+  OpenCursors: 1
+
+Memory Report:
+  Private Bytes: 7,864,320 KB
+  Virtual Size: 8,388,608 KB
+  Working Set: 7,602,176 KB
+  GC Collections: Gen0=234567, Gen1=12345, Gen2=2345
+  Large Object Heap: 5,242,880 KB
+  Pinned Objects: 34
+  Fragmentation: 67%

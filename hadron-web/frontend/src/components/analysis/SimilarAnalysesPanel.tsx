@@ -5,12 +5,10 @@ import { useToast } from "../Toast";
 
 interface SimilarAnalysesPanelProps {
   analysisId: number;
-  apiKey: string;
 }
 
 export function SimilarAnalysesPanel({
   analysisId,
-  apiKey,
 }: SimilarAnalysesPanelProps) {
   const toast = useToast();
   const [similar, setSimilar] = useState<SimilarAnalysis[]>([]);
@@ -35,13 +33,9 @@ export function SimilarAnalysesPanel({
   }, [analysisId]);
 
   const handleGenerateEmbedding = async () => {
-    if (!apiKey) {
-      toast.error("API key required to generate embeddings");
-      return;
-    }
     setGenerating(true);
     try {
-      await api.embedAnalysis(analysisId, apiKey);
+      await api.embedAnalysis(analysisId);
       toast.success("Embedding generated");
       // Reload similar
       const data = await api.getSimilarAnalyses(analysisId, { limit: 5 });

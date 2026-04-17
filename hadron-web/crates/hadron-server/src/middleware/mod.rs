@@ -82,6 +82,9 @@ pub fn can_access_user_resource(
 }
 
 /// Health check handler (readiness probe — checks DB connectivity).
+///
+/// Returns a generic status to the client; full error detail is logged server-side.
+/// This prevents DB driver/connection errors from leaking to unauthenticated callers.
 pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query("SELECT 1").execute(&state.db).await {
         Ok(_) => (
@@ -91,13 +94,16 @@ pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
                 "version": env!("CARGO_PKG_VERSION"),
             })),
         ),
-        Err(e) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "status": "unhealthy",
-                "error": format!("Database: {e}"),
-            })),
-        ),
+        Err(e) => {
+            tracing::error!("Health check DB probe failed: {e}");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "status": "unhealthy",
+                    "error": "Database unavailable",
+                })),
+            )
+        }
     }
 }
 

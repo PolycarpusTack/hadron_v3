@@ -47,8 +47,7 @@ pub async fn analyze_enrich(
     State(state): State<AppState>,
     Json(req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let ai_config =
-        crate::routes::analyses::resolve_ai_config(&state.db, None, None, None).await?;
+    let ai_config = crate::routes::analyses::resolve_ai_config(&state.db).await?;
 
     let mut result = hadron_core::performance::parse_trace(&req.content, &req.filename)
         .map_err(AppError)?;

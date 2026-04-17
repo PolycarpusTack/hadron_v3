@@ -1,0 +1,64 @@
+WHATS'ON Crash Report
+Dump Status: completed
+Date: 2026-03-10 14:58:22
+Version: 8.5.2.1034
+Build: Release
+
+Unhandled exception: DbDeadlockDetected
+messageText: 'Transaction (Process ID 87) was deadlocked on lock resources with another process and has been chosen as the deadlock victim. Rerun the transaction.'
+Resumable: true
+
+Active Process:
+  ProcessName: 'Stock Adjustment'
+  ThreadId: 31200
+  Priority: Normal
+
+Walkback:
+  DbClient>>executeStatement (DbClient.cls:478)
+  DbClient>>executeUpdate (DbClient.cls:423)
+  StockLedger>>updateQuantity (StockLedger.cls:189)
+  StockLedger>>adjustStock (StockLedger.cls:145)
+  StockAdjustment>>apply (StockAdjustment.cls:78)
+  StockAdjustment>>processAdjustments (StockAdjustment.cls:45)
+  InventoryManager>>reconcile (InventoryManager.cls:312)
+  InventoryManager>>dailyReconciliation (InventoryManager.cls:267)
+  ScheduledTask>>execute (ScheduledTask.cls:89)
+  TaskScheduler>>runTask (TaskScheduler.cls:567)
+
+Context Arguments:
+  StockLedger>>updateQuantity
+    productCode: 'WO-LIC-ENT'
+    warehouseId: 'WH-01'
+    adjustment: -25
+    currentQty: 150
+  DbClient>>executeStatement
+    sql: 'UPDATE stock_levels SET quantity = quantity + @adj WHERE product_code = @pc AND warehouse_id = @wh'
+    lockTimeout: 30000
+    retryCount: 0
+
+Environment:
+  OS: Windows Server 2022
+  Memory Total: 32768 MB
+  Memory Available: 24576 MB
+  CPU: Intel Xeon Silver 4314 @ 2.40GHz
+  Processors: 16
+
+Database State:
+  Connected: true
+  Server: SQLPROD01
+  Database: WO_Production
+  ActiveTransactions: 8
+  OpenCursors: 24
+  BlockedProcesses: 3
+  DeadlockGraph: |
+    Process 87 (Stock Adjustment) holds X-lock on stock_levels (WO-LIC-ENT, WH-01)
+      waiting for X-lock on stock_reservations (WO-LIC-ENT, WH-01)
+    Process 92 (Order Processing) holds X-lock on stock_reservations (WO-LIC-ENT, WH-01)
+      waiting for X-lock on stock_levels (WO-LIC-ENT, WH-01)
+
+Memory Report:
+  Private Bytes: 3,145,728 KB
+  Virtual Size: 4,194,304 KB
+  Working Set: 2,621,440 KB
+  GC Collections: Gen0=5678, Gen1=234, Gen2=23
+  Large Object Heap: 262,144 KB

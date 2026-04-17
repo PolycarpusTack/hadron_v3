@@ -7,7 +7,7 @@ use axum::Json;
 use serde::Deserialize;
 use std::time::Instant;
 
-use crate::ai::{self, AiConfig, AiMessage, AiProvider};
+use crate::ai::{self, AiConfig, AiMessage};
 use crate::auth::AuthenticatedUser;
 use crate::db;
 use crate::AppState;
@@ -15,27 +15,18 @@ use hadron_core::models::*;
 
 use super::AppError;
 
-/// Resolve AI config: prefer request-provided key, fall back to server-side config.
+/// Resolve AI config from admin-configured server-side settings.
+///
+/// Request-time API keys are deliberately not accepted: users cannot bring
+/// their own key. Admins configure the shared key via `/api/admin/ai`.
 pub(crate) async fn resolve_ai_config(
     pool: &sqlx::PgPool,
-    api_key: Option<&str>,
-    model: Option<&str>,
-    provider: Option<&str>,
 ) -> Result<crate::ai::AiConfig, AppError> {
-    if let Some(key) = api_key {
-        if !key.is_empty() {
-            return Ok(crate::ai::AiConfig {
-                provider: AiProvider::from_str(provider.unwrap_or("openai")),
-                api_key: key.to_string(),
-                model: model.unwrap_or("gpt-4o").to_string(),
-            });
-        }
-    }
     crate::db::get_server_ai_config(pool)
         .await?
         .ok_or_else(|| {
             AppError(hadron_core::error::HadronError::validation(
-                "No AI configuration available. Ask an admin to configure API keys, or provide your own.",
+                "No AI configuration available. Ask an admin to configure the API key.",
             ))
         })
 }
@@ -58,6 +49,10 @@ pub async fn list_analyses(
 }
 
 /// Upload a file via multipart and analyze it.
+///
+/// The multipart payload only carries the `file` part — `api_key`, `model`,
+/// and `provider` fields are no longer accepted; AI config is always
+/// server-side.
 pub async fn upload_and_analyze(
     user: AuthenticatedUser,
     State(state): State<AppState>,
@@ -65,9 +60,6 @@ pub async fn upload_and_analyze(
 ) -> Result<impl IntoResponse, AppError> {
     let mut file_content = None;
     let mut filename = None;
-    let mut api_key = None;
-    let mut model = None;
-    let mut provider = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -75,74 +67,32 @@ pub async fn upload_and_analyze(
         .map_err(|e| AppError(hadron_core::error::HadronError::Validation(e.to_string())))?
     {
         let field_name = field.name().unwrap_or("").to_string();
-        match field_name.as_str() {
-            "file" => {
-                filename = field.file_name().map(|s| s.to_string());
-                let bytes = field
-                    .bytes()
-                    .await
-                    .map_err(|e| {
-                        AppError(hadron_core::error::HadronError::Validation(e.to_string()))
-                    })?;
+        if field_name == "file" {
+            filename = field.file_name().map(|s| s.to_string());
+            let bytes = field.bytes().await.map_err(|e| {
+                AppError(hadron_core::error::HadronError::Validation(e.to_string()))
+            })?;
 
-                // 10 MB limit
-                if bytes.len() > 10 * 1024 * 1024 {
-                    return Err(AppError(hadron_core::error::HadronError::FileTooLarge {
-                        size: bytes.len() as u64,
-                        max: 10 * 1024 * 1024,
-                    }));
-                }
+            // 10 MB limit
+            if bytes.len() > 10 * 1024 * 1024 {
+                return Err(AppError(hadron_core::error::HadronError::FileTooLarge {
+                    size: bytes.len() as u64,
+                    max: 10 * 1024 * 1024,
+                }));
+            }
 
-                file_content =
-                    Some(String::from_utf8_lossy(&bytes).to_string());
-            }
-            "api_key" => {
-                api_key = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| {
-                            AppError(hadron_core::error::HadronError::Validation(e.to_string()))
-                        })?,
-                );
-            }
-            "model" => {
-                model = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| {
-                            AppError(hadron_core::error::HadronError::Validation(e.to_string()))
-                        })?,
-                );
-            }
-            "provider" => {
-                provider = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| {
-                            AppError(hadron_core::error::HadronError::Validation(e.to_string()))
-                        })?,
-                );
-            }
-            _ => {}
+            file_content = Some(String::from_utf8_lossy(&bytes).to_string());
         }
+        // Ignore any other fields (including legacy api_key/model/provider) — no
+        // request-time AI config is accepted.
     }
 
     let content = file_content
         .ok_or_else(|| AppError(hadron_core::error::HadronError::validation("No file uploaded")))?;
 
     let filename = filename.unwrap_or_else(|| "uploaded_file.txt".to_string());
-    let model = model.unwrap_or_else(|| "gpt-4o".to_string());
-    let provider_str = provider.unwrap_or_else(|| "openai".to_string());
 
-    let ai_config = resolve_ai_config(
-        &state.db,
-        api_key.as_deref(),
-        Some(&model),
-        Some(&provider_str),
-    ).await?;
+    let ai_config = resolve_ai_config(&state.db).await?;
     let result =
         run_analysis_with_config(&state, &user, &content, &filename, &ai_config, None).await?;
 
@@ -156,15 +106,9 @@ pub async fn analyze_content(
     Json(req): Json<AnalyzeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let filename = req.filename.unwrap_or_else(|| "pasted_content.txt".to_string());
-    let provider = req.provider.unwrap_or_else(|| "openai".to_string());
     let mode = req.analysis_mode.as_deref();
 
-    let ai_config = resolve_ai_config(
-        &state.db,
-        req.api_key.as_deref(),
-        Some(&req.model),
-        Some(&provider),
-    ).await?;
+    let ai_config = resolve_ai_config(&state.db).await?;
     let result =
         run_analysis_with_config(&state, &user, &req.content, &filename, &ai_config, mode)
             .await?;
@@ -361,17 +305,10 @@ pub async fn search_analyses(
 // Embedding / RAG handlers
 // ============================================================================
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EmbedRequest {
-    api_key: String,
-}
-
 pub async fn embed_analysis(
     user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<EmbedRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Verify ownership
     let analysis = db::get_analysis_by_id(&state.db, id, user.user.id).await?;
@@ -379,8 +316,11 @@ pub async fn embed_analysis(
     // Build embedding text from analysis fields
     let embed_text = build_embedding_text(&analysis);
 
+    // Embedding API call uses the admin-configured AI key.
+    let ai_config = resolve_ai_config(&state.db).await?;
     let embedding =
-        crate::integrations::embeddings::generate_embedding(&embed_text, &req.api_key).await?;
+        crate::integrations::embeddings::generate_embedding(&embed_text, &ai_config.api_key)
+            .await?;
 
     let embed_id = db::store_embedding(
         &state.db,

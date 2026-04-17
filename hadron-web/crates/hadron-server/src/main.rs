@@ -1,12 +1,18 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use sqlx::postgres::PgPoolOptions;
+use tower_governor::governor::GovernorConfigBuilder;
+use tower_governor::key_extractor::{PeerIpKeyExtractor, SmartIpKeyExtractor};
+use tower_governor::GovernorLayer;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -65,13 +71,29 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("../../migrations").run(&pool).await?;
     tracing::info!("Migrations applied");
 
-    // Auth mode
-    let dev_mode = std::env::var("AUTH_MODE")
+    // Auth mode — requires TWO independent signals to enable dev-mode bypass:
+    // `AUTH_MODE=dev` AND `ALLOW_DEV_AUTH=true`. A single-flag misconfiguration
+    // will refuse to start rather than silently hand out admin access.
+    let requested_dev = std::env::var("AUTH_MODE")
         .map(|m| m == "dev")
         .unwrap_or(false);
+    let allow_dev = std::env::var("ALLOW_DEV_AUTH")
+        .map(|v| matches!(v.as_str(), "true" | "1"))
+        .unwrap_or(false);
+    if requested_dev && !allow_dev {
+        return Err(anyhow::anyhow!(
+            "AUTH_MODE=dev requires ALLOW_DEV_AUTH=true. Refusing to start with an \
+             unguarded dev-auth bypass. Unset AUTH_MODE or set ALLOW_DEV_AUTH=true \
+             (local development only).",
+        ));
+    }
+    let dev_mode = requested_dev && allow_dev;
 
     let auth_config = if dev_mode {
-        tracing::warn!("Running in DEV auth mode — all requests authenticated as dev admin");
+        tracing::error!(
+            "Running in DEV auth mode — all requests authenticated as dev admin. \
+             This MUST NOT be enabled in production."
+        );
         auth::AuthConfig {
             tenant_id: "dev".to_string(),
             client_id: "dev".to_string(),
@@ -106,11 +128,98 @@ async fn main() -> anyhow::Result<()> {
 
     // Build router
     let mut app = Router::new()
-        .nest("/api", routes::api_router())
+        .nest("/api", routes::api_router());
+
+    // MCP discovery endpoint (no auth, outside /api)
+    if routes::mcp::is_enabled() {
+        app = app.route(
+            "/.well-known/mcp",
+            axum::routing::get(routes::mcp::well_known_mcp),
+        );
+    }
+
+    // Per-IP rate limiter. Defaults: 10 req/sec sustained, burst of 100.
+    //
+    // Key extraction depends on deployment: set `TRUSTED_PROXY=true` only when
+    // a reverse proxy that strips/replaces client-supplied `X-Forwarded-For`
+    // sits in front of us. Otherwise we use the direct peer IP — an attacker
+    // can spoof XFF on a direct connection, which would defeat per-IP limits.
+    let rl_per_second: u64 = std::env::var("RATE_LIMIT_PER_SECOND")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let rl_burst: u32 = std::env::var("RATE_LIMIT_BURST")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100);
+    let trusted_proxy = std::env::var("TRUSTED_PROXY")
+        .map(|v| matches!(v.as_str(), "true" | "1"))
+        .unwrap_or(false);
+
+    // Pre-governor layers. `with_state` converts `Router<AppState>` into
+    // `Router<()>`; subsequent `.layer` calls keep the outer Router type the
+    // same, so the conditional governor branch below produces a single,
+    // uniformly-typed Router regardless of which key extractor is chosen.
+    let base = app
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(15 * 1024 * 1024)) // 15 MB max body
         .layer(CompressionLayer::new())
-        .layer(TraceLayer::new_for_http())
+        .layer(TraceLayer::new_for_http());
+
+    let app_with_governor = if trusted_proxy {
+        tracing::info!(
+            "Rate limiter: trusting X-Forwarded-For via SmartIpKeyExtractor \
+             (TRUSTED_PROXY=true). The reverse proxy MUST sanitise client XFF."
+        );
+        let conf = GovernorConfigBuilder::default()
+            .per_second(rl_per_second)
+            .burst_size(rl_burst)
+            .key_extractor(SmartIpKeyExtractor)
+            .finish()
+            .expect("valid governor rate-limit config");
+        let limiter = conf.limiter().clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(60));
+            limiter.retain_recent();
+        });
+        base.layer(GovernorLayer {
+            config: Arc::new(conf),
+        })
+    } else {
+        tracing::info!(
+            "Rate limiter: keying by direct peer IP (set TRUSTED_PROXY=true \
+             only when a header-sanitising reverse proxy is in front)."
+        );
+        let conf = GovernorConfigBuilder::default()
+            .per_second(rl_per_second)
+            .burst_size(rl_burst)
+            .key_extractor(PeerIpKeyExtractor)
+            .finish()
+            .expect("valid governor rate-limit config");
+        let limiter = conf.limiter().clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(60));
+            limiter.retain_recent();
+        });
+        base.layer(GovernorLayer {
+            config: Arc::new(conf),
+        })
+    };
+
+    let mut app = app_with_governor
+        // Browser hardening: set conservative defaults if upstream hasn't.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::HeaderName::from_static("x-frame-options"),
+            axum::http::HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::HeaderName::from_static("x-content-type-options"),
+            axum::http::HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::HeaderName::from_static("referrer-policy"),
+            axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
         .layer(cors_layer());
 
     // Serve frontend static files in production
@@ -147,7 +256,11 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Hadron Web listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

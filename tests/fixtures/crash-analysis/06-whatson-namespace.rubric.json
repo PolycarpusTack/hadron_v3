@@ -1,0 +1,8 @@
+{
+  "category": "whatson_namespace",
+  "expected_severity": "high",
+  "expected_root_cause_category": "version_mismatch",
+  "key_terms": ["WoNamespace", "resolveBinding", "ActiveTickets", "WoTicketing", "v8.5.1", "VERSION MISMATCH", "namespace"],
+  "expected_component": "Ticketing Module",
+  "notes": "WHATS'ON-specific namespace resolution failure. WoTicketing module is v8.5.1 while all others are v8.5.2 — the ActiveTickets binding was likely added in v8.5.2. Good analysis should identify the version mismatch as root cause and recommend upgrading the WoTicketing namespace."
+}
