@@ -10,6 +10,137 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.4.3] - 2026-04-17
+
+Security-focused release. Closes every actionable finding from the
+2026-04-15 third-party retest plus a post-sprint residual review.
+Includes breaking changes for API clients that previously sent
+`api_key`, `model`, or `provider` fields in request bodies — the
+backend now uses admin-configured server-side AI keys exclusively.
+
+### Security
+
+- **Dev auth double-gate**: `AUTH_MODE=dev` now also requires
+  `ALLOW_DEV_AUTH=true`, or the server refuses to start. Prevents a
+  single-env-var misconfiguration from exposing the seeded admin.
+- **Bring-your-own-key flow removed**: `api_key`, `model`, and
+  `provider` fields removed from `AnalyzeRequest`, `ChatRequest`,
+  `CodeAnalysisRequest`, the multipart upload path, and the embed
+  endpoint. Frontend no longer persists API keys in
+  `sessionStorage`. AI provider + key is admin-configured only.
+- **Release-notes IDOR fixed**: `update_release_note_checklist`
+  now enforces `WHERE user_id = $N` in SQL. `export_confluence`
+  and `run_compliance_check` require `Role::Lead` with intent
+  documented in the route.
+- **Ownership & role gates**: analysis notes, feedback, and
+  signatures endpoints now enforce owner or role.
+- **OpenSearch SSRF hardening**: proxy route requires `Role::Lead`,
+  rejects non-http(s) schemes, and enforces an allowlist via
+  `OPENSEARCH_ALLOWED_HOSTS` that supports both bare-host and
+  `host:port` pinning. Mixed allowlists evaluate each entry
+  independently. 7 unit tests cover the matcher including
+  userinfo-smuggling (`user@good@evil`), IDN, case, trailing-dot,
+  and scheme.
+- **JIRA JQL pass-through closed**: direct endpoint and chat tool
+  both strip user-supplied JQL; free-text search only, scoped to
+  the configured project.
+- **Encryption fails closed**: `encrypt_value` returns
+  `HadronError::Config` when `SERVER_ENCRYPTION_KEY` is missing
+  (was fail-open to plaintext). Regression test added.
+- **Admin role checks**: style guide, checklist, confluence, and
+  embedding-status admin-prefixed read endpoints now require
+  `Role::Admin`.
+- **Native tool calling for AI chat**: replaces prose-JSON tool-use
+  parsing with provider-native `tool_calls` (OpenAI) /
+  `tool_use` (Anthropic) structured fields. Prompt-injected
+  `{"tool_use": ...}` strings embedded in retrieved content can
+  no longer forge a tool invocation. Regression test locks this in.
+- **Rate limiting** via `tower_governor` with `TRUSTED_PROXY=true`
+  opt-in for `X-Forwarded-For` parsing; defaults to direct
+  peer-IP to prevent spoofing on direct connections. Tunable via
+  `RATE_LIMIT_PER_SECOND` (default 10) and `RATE_LIMIT_BURST`
+  (default 100).
+- **HTTP security headers**: `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`.
+- **Postgres port**: bound to `127.0.0.1:5432` in docker-compose
+  instead of exposed on all interfaces.
+- **Health endpoint**: returns generic `"Database unavailable"`
+  to unauthenticated callers; full error traced server-side via
+  `tracing::error!` only.
+- **Chat message persistence**: failures now logged at `warn` level
+  instead of silently dropped.
+- **Desktop plugin-shell** bumped from `~2.0.0` to `^2.3.5`,
+  closing `GHSA-c9pr-q8gx-3mgp`. Both `hadron-desktop` and
+  `hadron-web/frontend` lockfiles regenerated via `npm install`
+  and `npm audit fix`. `npm audit` now reports 0 vulnerabilities.
+- **Tauri updater public key**: explicit
+  `REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY_BEFORE_ACTIVATION`
+  placeholder replaces the empty string. Updater still
+  `active: false`; must populate before activation.
+- **`cargo audit`** ignore configs added with rationale for two
+  unreachable transitive advisories (`rsa 0.9.10` Marvin via
+  `sqlx-mysql` which we do not enable; `time 0.3.41` DoS blocked
+  by Rust MSRV). Both workspaces now report 0 errors.
+
+### Added
+
+- `hadron-mcp` shared crate (Model Context Protocol) with 8
+  read-only tools: ticket, search, release-notes, and sentry
+  lookups. Desktop stdio binary and web HTTP endpoint at
+  `/.well-known/mcp` (ungated discovery by design; tools
+  themselves are user-scoped).
+- PII-awareness notice on chat input reminding users to avoid
+  pasting customer identifiers. Companion retention plan drafted
+  at `docs/plans/2026-04-17-chat-message-retention.md`.
+- Codex crash-analysis planning artefacts and evaluation fixtures
+  (`docs/plans/2026-04-16-codex-crash-analysis-*.md`, `tests/fixtures/crash-analysis/`).
+- F8 implementation plan (now complete):
+  `docs/plans/2026-04-17-chat-native-tool-calling.md`.
+
+### Changed
+
+- **Breaking (API)**: `AnalyzeRequest`, `ChatRequest`, and
+  `CodeAnalysisRequest` no longer accept `api_key`, `model`, or
+  `provider` fields. Requests that include them are silently
+  ignored. Admins must configure the shared AI key via
+  `/api/admin/ai`.
+- **Breaking (deployment)**: compose default `AUTH_MODE` flipped
+  from `dev` to `azure_ad`. Local dev now requires `AUTH_MODE=dev`
+  plus the new `ALLOW_DEV_AUTH=true` flag.
+- **Breaking (deployment)**: `SERVER_ENCRYPTION_KEY` is now
+  mandatory — server fails secret writes without it.
+- **Breaking (deployment)**: `OPENSEARCH_ALLOWED_HOSTS` is now
+  mandatory for OpenSearch proxy use — empty value = reject-all.
+- Settings view simplified: removed BYO-key UI; replaced with an
+  "admin-managed" notice for AI configuration.
+
+### Dependencies
+
+- Added: `tower_governor 0.7.0`, `tower-http set-header` feature.
+- Bumped transitively: `rustls-webpki 0.103.12`,
+  `rkyv 0.7.46`, `tar 0.4.45`, `bytes 1.11.1`,
+  `quinn-proto 0.11.14`. `time` pinned to `0.3.41` to stay on
+  Rust 1.87 MSRV (0.3.47+ requires 1.88).
+- Frontend: `vite`, `rollup`, `picomatch` advisories closed via
+  `npm audit fix`.
+
+### Ops upgrade notes
+
+1. Set `SERVER_ENCRYPTION_KEY` (64 hex chars) before any admin
+   secret write.
+2. Set `OPENSEARCH_ALLOWED_HOSTS` (comma-separated `host` or
+   `host:port` entries) if OpenSearch proxy is used.
+3. Production: `AUTH_MODE` should be unset or `azure_ad`. Never
+   set `ALLOW_DEV_AUTH=true` in production.
+4. If behind a reverse proxy that strips incoming XFF, set
+   `TRUSTED_PROXY=true` to enable per-user-ish rate limiting.
+   Otherwise leave unset (per-peer-IP).
+5. Run `npm install` on any deploy host that keeps a stale
+   lockfile; the in-repo lockfiles are clean.
+
+---
+
 ## [4.2.0] - 2025-02-24
 
 ### Fixed
