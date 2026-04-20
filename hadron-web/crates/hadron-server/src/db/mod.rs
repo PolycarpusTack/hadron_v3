@@ -855,10 +855,18 @@ pub async fn store_embedding(
     Ok(row.0)
 }
 
-/// Find analyses similar to the given embedding vector.
+/// Find analyses similar to the given embedding vector, scoped to the
+/// calling user's own corpus.
+///
+/// N2 (2026-04-20 pass-2 audit): the neighbour query previously had no
+/// ownership filter, so an analyst running "find similar" on one of
+/// their own analyses could receive filename / error_type / severity
+/// snippets drawn from every other user's analyses. Uses the
+/// `owner_user_id` column added to `embeddings` by migration 018.
 pub async fn find_similar_analyses(
     pool: &PgPool,
     embedding: &[f32],
+    owner_user_id: Uuid,
     limit: i64,
     threshold: f64,
     exclude_analysis_id: Option<i64>,
@@ -880,14 +888,16 @@ pub async fn find_similar_analyses(
          FROM embeddings e
          JOIN analyses a ON e.source_id = a.id AND e.source_type = 'analysis'
          WHERE a.deleted_at IS NULL
-           AND a.id != $4
+           AND e.owner_user_id = $2
+           AND a.id != $5
            AND 1 - (e.embedding <=> $1::vector) > $3
          ORDER BY e.embedding <=> $1::vector
-         LIMIT $2",
+         LIMIT $4",
     )
     .bind(&vec_str)
-    .bind(limit)
+    .bind(owner_user_id)
     .bind(threshold)
+    .bind(limit)
     .bind(exclude_id)
     .fetch_all(pool)
     .await

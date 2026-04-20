@@ -773,7 +773,9 @@ async fn execute_similar_search(
         Err(e) => return Err(format!("Failed to load embedding: {}", e.client_message())),
     };
 
-    match db::find_similar_analyses(pool, &embedding, limit, threshold, Some(analysis_id)).await {
+    match db::find_similar_analyses(pool, &embedding, user_id, limit, threshold, Some(analysis_id))
+        .await
+    {
         Ok(results) => serde_json::to_string_pretty(&results).map_err(|e| e.to_string()),
         Err(e) => Err(format!("Similarity search failed: {}", e.client_message())),
     }

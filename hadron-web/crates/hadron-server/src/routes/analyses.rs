@@ -365,8 +365,15 @@ pub async fn similar_analyses(
     let limit = params.limit.unwrap_or(5).min(20);
     let threshold = params.threshold.unwrap_or(0.5);
 
-    let similar =
-        db::find_similar_analyses(&state.db, &embedding, limit, threshold, Some(id)).await?;
+    let similar = db::find_similar_analyses(
+        &state.db,
+        &embedding,
+        user.user.id,
+        limit,
+        threshold,
+        Some(id),
+    )
+    .await?;
 
     Ok(Json(similar))
 }
