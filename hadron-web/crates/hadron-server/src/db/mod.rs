@@ -1615,7 +1615,10 @@ pub async fn create_note(
     user_id: Uuid,
     content: &str,
 ) -> HadronResult<AnalysisNote> {
-    // Verify analysis exists (any user can note — not restricted to owner)
+    // Ownership is enforced by the caller (route handler calls
+    // get_analysis_by_id with the requesting user's id first). This
+    // function only re-verifies the analysis row exists so we don't
+    // FK-violate if the analysis was deleted in between.
     let exists: Option<(i64,)> = sqlx::query_as(
         "SELECT id FROM analyses WHERE id = $1 AND deleted_at IS NULL",
     )
