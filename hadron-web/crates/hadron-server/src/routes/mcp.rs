@@ -336,9 +336,36 @@ impl McpContext for WebMcpContext {
         .await
         .map_err(McpError::internal)?;
 
-        let vector_rows = db::vector_search(&self.pool, &embedding, limit as i64, None)
+        // Tenant-scope the user's own analyses; leave ticket / release_note
+        // sources unscoped because they are shared by product design.
+        // Fixes F2 from the 2026-04-20 security audit (hybrid_search cross-
+        // tenant leak). Previously `vector_search(.., None)` returned every
+        // user's embeddings across every source type.
+        let mut vector_rows = db::vector_search(
+            &self.pool,
+            &embedding,
+            limit as i64,
+            Some("analysis"),
+            Some(self.user_id),
+        )
+        .await
+        .unwrap_or_default();
+        for shared_source in ["ticket", "release_note"] {
+            let mut extra = db::vector_search(
+                &self.pool,
+                &embedding,
+                limit as i64,
+                Some(shared_source),
+                None,
+            )
             .await
             .unwrap_or_default();
+            vector_rows.append(&mut extra);
+        }
+        vector_rows.sort_by(|a, b| {
+            a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        vector_rows.truncate(limit);
 
         let fts_rows = db::search_analyses(&self.pool, self.user_id, query, limit as i64)
             .await

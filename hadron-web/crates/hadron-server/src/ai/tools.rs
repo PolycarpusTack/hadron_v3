@@ -666,10 +666,17 @@ async fn execute_kb_search(
             // Fall through to local hybrid if OpenSearch returned nothing
         }
 
-        // Local hybrid: pgvector + FTS, RRF-merged
-        let vector_rows = db::vector_search(pool, &embedding, limit, Some("analysis"))
-            .await
-            .unwrap_or_default();
+        // Local hybrid: pgvector + FTS, RRF-merged. Tenant-scoped to the
+        // calling user (F1 from 2026-04-20 security audit).
+        let vector_rows = db::vector_search(
+            pool,
+            &embedding,
+            limit,
+            Some("analysis"),
+            Some(user_id),
+        )
+        .await
+        .unwrap_or_default();
 
         let fts_rows = db::search_analyses(pool, user_id, query, limit)
             .await

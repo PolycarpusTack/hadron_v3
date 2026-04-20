@@ -227,12 +227,22 @@ async fn run_analysis_with_config(
     let api_key_clone = ai_config.api_key.clone();
     let response_clone = response.clone();
     let final_id = id;
+    let owner_clone = user.user.id;
     tokio::spawn(async move {
         let embed_text = build_embedding_text_from_response(&response_clone);
         if !embed_text.is_empty() {
             match crate::integrations::embeddings::generate_embedding(&embed_text, &api_key_clone).await {
                 Ok(embedding) => {
-                    let _ = db::store_embedding(&pool_clone, final_id, "analysis", &embedding, &embed_text, None).await;
+                    let _ = db::store_embedding(
+                        &pool_clone,
+                        final_id,
+                        "analysis",
+                        &embedding,
+                        &embed_text,
+                        None,
+                        Some(owner_clone),
+                    )
+                    .await;
                     tracing::debug!("Embedding generated for analysis {final_id}");
                 }
                 Err(e) => {
@@ -329,6 +339,7 @@ pub async fn embed_analysis(
         &embedding,
         &embed_text,
         None,
+        Some(user.user.id),
     )
     .await?;
 

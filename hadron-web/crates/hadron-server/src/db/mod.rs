@@ -811,6 +811,11 @@ pub async fn get_release_note_owner(pool: &PgPool, id: i64) -> HadronResult<Uuid
 // ============================================================================
 
 /// Store an embedding vector for a source entity.
+///
+/// `owner_user_id` scopes the row to a user so tenant-aware lookups can
+/// filter on it. Pass `None` for sources that are shared by product design
+/// (currently `ticket` and `release_note`); pass `Some(user_id)` for
+/// private per-user sources (currently `analysis`).
 pub async fn store_embedding(
     pool: &PgPool,
     source_id: i64,
@@ -818,6 +823,7 @@ pub async fn store_embedding(
     embedding: &[f32],
     content: &str,
     metadata: Option<&serde_json::Value>,
+    owner_user_id: Option<Uuid>,
 ) -> HadronResult<i64> {
     // Convert Vec<f32> to pgvector format string: [0.1,0.2,...]
     let vec_str = format!(
@@ -830,10 +836,10 @@ pub async fn store_embedding(
     );
 
     let row: (i64,) = sqlx::query_as(
-        "INSERT INTO embeddings (source_type, source_id, chunk_index, content, embedding, metadata)
-         VALUES ($1, $2, 0, $3, $4::vector, $5)
+        "INSERT INTO embeddings (source_type, source_id, chunk_index, content, embedding, metadata, owner_user_id)
+         VALUES ($1, $2, 0, $3, $4::vector, $5, $6)
          ON CONFLICT (source_type, source_id, chunk_index) DO UPDATE
-         SET embedding = $4::vector, content = $3, metadata = $5
+         SET embedding = $4::vector, content = $3, metadata = $5, owner_user_id = $6
          RETURNING id",
     )
     .bind(source_type)
@@ -841,6 +847,7 @@ pub async fn store_embedding(
     .bind(content)
     .bind(&vec_str)
     .bind(metadata)
+    .bind(owner_user_id)
     .fetch_one(pool)
     .await
     .map_err(|e| HadronError::database(e.to_string()))?;
@@ -932,12 +939,19 @@ pub async fn get_embedding(pool: &PgPool, source_id: i64, source_type: &str) -> 
 ///
 /// Returns rows as `(source_id, source_type, content, distance)` where
 /// `distance` is the cosine distance (0 = identical, 2 = opposite).
-/// Lower distance = more similar. Filter by `source_type` when provided.
+/// Lower distance = more similar.
+///
+/// * `source_type` — when `Some`, restricts to that single source type.
+/// * `owner_user_id` — when `Some`, restricts to rows owned by that user.
+///   Rows with `NULL` owner (shared sources like `ticket`, `release_note`)
+///   are excluded when this filter is active. Callers that want shared
+///   data must pass `None` and restrict via `source_type` instead.
 pub async fn vector_search(
     pool: &PgPool,
     query_embedding: &[f32],
     limit: i64,
     source_type: Option<&str>,
+    owner_user_id: Option<Uuid>,
 ) -> HadronResult<Vec<(i64, String, String, f64)>> {
     let vec_str = format!(
         "[{}]",
@@ -948,8 +962,22 @@ pub async fn vector_search(
             .join(",")
     );
 
-    let rows: Vec<(i64, String, String, f64)> = if let Some(st) = source_type {
-        sqlx::query_as(
+    let rows: Vec<(i64, String, String, f64)> = match (source_type, owner_user_id) {
+        (Some(st), Some(uid)) => sqlx::query_as(
+            "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
+             FROM embeddings
+             WHERE source_type = $2 AND owner_user_id = $3
+             ORDER BY embedding <=> $1::vector
+             LIMIT $4",
+        )
+        .bind(&vec_str)
+        .bind(st)
+        .bind(uid)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?,
+        (Some(st), None) => sqlx::query_as(
             "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
              FROM embeddings
              WHERE source_type = $2
@@ -961,9 +989,21 @@ pub async fn vector_search(
         .bind(limit)
         .fetch_all(pool)
         .await
-        .map_err(|e| HadronError::database(e.to_string()))?
-    } else {
-        sqlx::query_as(
+        .map_err(|e| HadronError::database(e.to_string()))?,
+        (None, Some(uid)) => sqlx::query_as(
+            "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
+             FROM embeddings
+             WHERE owner_user_id = $2
+             ORDER BY embedding <=> $1::vector
+             LIMIT $3",
+        )
+        .bind(&vec_str)
+        .bind(uid)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?,
+        (None, None) => sqlx::query_as(
             "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
              FROM embeddings
              ORDER BY embedding <=> $1::vector
@@ -973,7 +1013,7 @@ pub async fn vector_search(
         .bind(limit)
         .fetch_all(pool)
         .await
-        .map_err(|e| HadronError::database(e.to_string()))?
+        .map_err(|e| HadronError::database(e.to_string()))?,
     };
 
     Ok(rows)
@@ -1000,13 +1040,15 @@ pub async fn get_embedding_coverage(pool: &PgPool) -> HadronResult<(i64, i64)> {
 
 /// Fetch analyses that have no embedding yet, up to `limit` rows.
 ///
-/// Returns `(id, error_type, root_cause, component)` for each row.
+/// Returns `(id, user_id, error_type, root_cause, component)` for each row.
+/// `user_id` is required by the embedding backfill so new rows are
+/// tenant-scoped (owner_user_id on embeddings).
 pub async fn get_unembedded_analyses(
     pool: &PgPool,
     limit: i64,
-) -> HadronResult<Vec<(i64, Option<String>, Option<String>, Option<String>)>> {
+) -> HadronResult<Vec<(i64, Uuid, Option<String>, Option<String>, Option<String>)>> {
     let rows = sqlx::query_as(
-        "SELECT a.id, a.error_type, a.root_cause, a.component
+        "SELECT a.id, a.user_id, a.error_type, a.root_cause, a.component
          FROM analyses a
          LEFT JOIN embeddings e
            ON e.source_type = 'analysis' AND e.source_id = a.id
@@ -3058,6 +3100,10 @@ pub fn build_ticket_embedding_text(
 }
 
 /// Store a ticket embedding in the existing embeddings table with source_type='ticket'.
+///
+/// Ticket embeddings are **shared** across all users by product design
+/// (ticket briefs are an org-wide knowledge base). `owner_user_id` is
+/// therefore always `None` for this source type.
 pub async fn store_ticket_embedding(
     pool: &PgPool,
     jira_key: &str,
@@ -3066,7 +3112,7 @@ pub async fn store_ticket_embedding(
 ) -> HadronResult<i64> {
     let source_id = jira_key_to_source_id(jira_key);
     let metadata = serde_json::json!({ "jira_key": jira_key });
-    store_embedding(pool, source_id, "ticket", embedding, content, Some(&metadata)).await
+    store_embedding(pool, source_id, "ticket", embedding, content, Some(&metadata), None).await
 }
 
 /// Result of a similar ticket search.

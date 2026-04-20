@@ -131,6 +131,7 @@ pub async fn analyze_issue_stream(
                                     crate::routes::search::spawn_embed_analysis(
                                         db_pool.clone(),
                                         inserted_id,
+                                        user_id,
                                         embed_text,
                                     );
                                 }
@@ -247,6 +248,7 @@ pub async fn analyze_issue(
                 crate::routes::search::spawn_embed_analysis(
                     state.db.clone(),
                     inserted_id,
+                    user.user.id,
                     embed_text,
                 );
             }
