@@ -104,7 +104,12 @@ pub fn chat_tools() -> Vec<ToolDefinition> {
         // --- New tools for operational reasoning ---
         ToolDefinition {
             name: "get_top_signatures".to_string(),
-            description: "Get the most frequently occurring crash signatures. Useful for identifying recurring issues and their current status.".to_string(),
+            // F8 (2026-04-20 audit): call out explicitly that this tool is
+            // org-wide shared data, not user-scoped. Signatures are crash
+            // fingerprints — they are not private analyses. The model's
+            // natural language output should frame the data as "across our
+            // team" so it doesn't imply it's the caller's personal history.
+            description: "Get the most frequently occurring crash signatures ORG-WIDE (shared across the team, not user-scoped). Useful for identifying recurring issues and their current status. When referring to these results, say 'across the team' or 'across the org', not 'your signatures'.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -275,6 +280,11 @@ pub async fn execute_tool(
             execute_similar_search(pool, user_id, analysis_id, limit, threshold).await
         }
         "get_top_signatures" => {
+            // crash_signatures is deliberately shared org-wide: a signature
+            // is a canonical fingerprint, not owned content. We do not
+            // filter by user_id here. F8 (2026-04-20 audit) added the
+            // explicit "org-wide" framing to the tool description the
+            // model sees so the reply wording stays honest.
             let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
             let status = args.get("status").and_then(|v| v.as_str()).map(|s| s.to_string());
 
@@ -325,23 +335,36 @@ pub async fn execute_tool(
                 .get("group_by")
                 .and_then(|v| v.as_str())
                 .unwrap_or("day");
-            // date_trunc requires a literal string; these are hardcoded so no injection risk
-            let trunc = if group_by == "week" { "week" } else { "day" };
+            // F10 (2026-04-20 audit): date_trunc needs a string literal so
+            // we can't bind it. Use two hardcoded queries keyed off a
+            // closed match — a future maintainer who adds a new group_by
+            // value must add a query, not forward the argument verbatim.
+            // Anything outside the allowlist falls back to 'day'.
+            let sql = match group_by {
+                "week" => "SELECT date_trunc('week', created_at)::date::text AS period, \
+                    COUNT(*) AS total, \
+                    COUNT(*) FILTER (WHERE severity = 'CRITICAL') AS critical, \
+                    COUNT(*) FILTER (WHERE severity = 'HIGH') AS high, \
+                    COUNT(*) FILTER (WHERE severity = 'MEDIUM') AS medium, \
+                    COUNT(*) FILTER (WHERE severity = 'LOW') AS low \
+                    FROM analyses \
+                    WHERE created_at >= now() - $1 * interval '1 day' \
+                    AND user_id = $2 \
+                    GROUP BY period ORDER BY period",
+                // "day" or anything else
+                _ => "SELECT date_trunc('day', created_at)::date::text AS period, \
+                    COUNT(*) AS total, \
+                    COUNT(*) FILTER (WHERE severity = 'CRITICAL') AS critical, \
+                    COUNT(*) FILTER (WHERE severity = 'HIGH') AS high, \
+                    COUNT(*) FILTER (WHERE severity = 'MEDIUM') AS medium, \
+                    COUNT(*) FILTER (WHERE severity = 'LOW') AS low \
+                    FROM analyses \
+                    WHERE created_at >= now() - $1 * interval '1 day' \
+                    AND user_id = $2 \
+                    GROUP BY period ORDER BY period",
+            };
 
-            let sql = format!(
-                "SELECT date_trunc('{trunc}', created_at)::date::text AS period, \
-                 COUNT(*) AS total, \
-                 COUNT(*) FILTER (WHERE severity = 'CRITICAL') AS critical, \
-                 COUNT(*) FILTER (WHERE severity = 'HIGH') AS high, \
-                 COUNT(*) FILTER (WHERE severity = 'MEDIUM') AS medium, \
-                 COUNT(*) FILTER (WHERE severity = 'LOW') AS low \
-                 FROM analyses \
-                 WHERE created_at >= now() - $1 * interval '1 day' \
-                 AND user_id = $2 \
-                 GROUP BY period ORDER BY period",
-            );
-
-            let rows = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(&sql)
+            let rows = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>, Option<i64>, Option<i64>)>(sql)
             .bind(days)
             .bind(user_id)
             .fetch_all(pool)
