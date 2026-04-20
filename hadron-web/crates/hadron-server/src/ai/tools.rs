@@ -779,7 +779,6 @@ async fn load_opensearch_config(
             username,
             password,
             index_pattern,
-            tls_skip_verify: false,
         }
     })
 }

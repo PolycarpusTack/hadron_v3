@@ -204,7 +204,6 @@ pub async fn search_knowledge_base(
                 username,
                 password,
                 index_pattern,
-                tls_skip_verify: false,
             }
         });
 

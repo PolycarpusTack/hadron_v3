@@ -43,7 +43,6 @@ pub async fn opensearch_search(
         username: req.username,
         password: req.password,
         index_pattern: req.index.clone(),
-        tls_skip_verify: false,
     };
 
     let query = opensearch::build_text_query(&req.query);
@@ -295,7 +294,6 @@ pub async fn opensearch_test(
         username: req.username,
         password: req.password,
         index_pattern: "*".to_string(),
-        tls_skip_verify: false,
     };
 
     let ok = opensearch::test_connection(&config).await?;
