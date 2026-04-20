@@ -340,22 +340,32 @@ pub async fn find_similar_tickets(
 }
 
 // ============================================================================
-// Post Brief to JIRA
+// Post Brief to JIRA — two-step preview / confirm (F12, 2026-04-20 audit)
 // ============================================================================
+//
+// Posting AI-authored content to JIRA is a write to an external shared
+// surface. Combined with the prompt-injection risk on ingested ticket
+// content (F11), a single-click "post brief" flow lets a lead
+// inadvertently publish injected output to a real JIRA comment visible
+// to every ticket watcher.
+//
+// We require a two-step flow: the caller must POST to the `/preview`
+// endpoint first, which returns the markup and a SHA-256 content hash.
+// The confirm POST must echo that hash back; if the stored brief
+// changes between preview and confirm (regenerated, mutated by the
+// poller, etc.) the hashes stop matching and the confirm fails.
+// This keeps the decision to publish bound to a piece of content the
+// caller actually saw — no state or session store needed.
 
-/// POST /api/jira/issues/{key}/post-brief — format and post brief as JIRA comment.
-pub async fn post_brief_to_jira(
-    _user: AuthenticatedUser,
-    State(state): State<AppState>,
-    Path(key): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    // Load brief from DB
-    let brief_row = crate::db::get_ticket_brief(&state.db, &key)
+use sha2::{Digest, Sha256};
+
+async fn load_brief_markup(pool: &sqlx::PgPool, key: &str) -> Result<String, AppError> {
+    let brief_row = crate::db::get_ticket_brief(pool, key)
         .await?
         .ok_or_else(|| {
-            AppError(hadron_core::error::HadronError::not_found(
-                format!("No brief found for {key}"),
-            ))
+            AppError(hadron_core::error::HadronError::not_found(format!(
+                "No brief found for {key}"
+            )))
         })?;
 
     let brief_json_str = brief_row.brief_json.ok_or_else(|| {
@@ -364,21 +374,73 @@ pub async fn post_brief_to_jira(
         ))
     })?;
 
-    let brief: hadron_core::ai::JiraBriefResult = serde_json::from_str(&brief_json_str)
-        .map_err(|e| {
+    let brief: hadron_core::ai::JiraBriefResult =
+        serde_json::from_str(&brief_json_str).map_err(|e| {
             AppError(hadron_core::error::HadronError::Parse(format!(
                 "Failed to parse stored brief: {e}"
             )))
         })?;
 
-    // Format as wiki markup
-    let markup = jira::format_brief_as_jira_markup(&brief, &key);
+    Ok(jira::format_brief_as_jira_markup(&brief, key))
+}
 
-    // Post to JIRA using server-side credentials
+fn content_hash(markup: &str) -> String {
+    let digest = Sha256::digest(markup.as_bytes());
+    hex::encode(digest)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmPostBriefRequest {
+    /// SHA-256 hex digest of the markup returned by the matching /preview
+    /// call. If this does not match the current brief's markup the
+    /// request is rejected so a stale preview can't ship out-of-date
+    /// content and a direct confirm without a preview is impossible.
+    pub confirm_content_hash: String,
+}
+
+/// POST /api/jira/issues/{key}/post-brief/preview — render the brief markup
+/// and return a content hash the caller must echo back on confirm.
+pub async fn preview_brief_for_jira(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let markup = load_brief_markup(&state.db, &key).await?;
+    let hash = content_hash(&markup);
+    Ok(Json(serde_json::json!({
+        "jiraKey": key,
+        "markup": markup,
+        "contentHash": hash,
+    })))
+}
+
+/// POST /api/jira/issues/{key}/post-brief — confirm and post the brief as
+/// a JIRA comment. Body must include `{ "confirmContentHash": "..." }`
+/// matching the most recent `/preview` response for the same key.
+pub async fn post_brief_to_jira(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    Json(req): Json<ConfirmPostBriefRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let markup = load_brief_markup(&state.db, &key).await?;
+    let current_hash = content_hash(&markup);
+
+    // Constant-time-ish check isn't critical here (the hash isn't a
+    // secret) but we do want to be strict about case and whitespace.
+    if req.confirm_content_hash.trim().eq_ignore_ascii_case(&current_hash) {
+        // ok
+    } else {
+        return Err(AppError(hadron_core::error::HadronError::Validation(
+            "Brief content hash mismatch — preview again and re-confirm."
+                .to_string(),
+        )));
+    }
+
     let config = db::get_jira_config_from_poller(&state.db).await?;
     jira::post_jira_comment(&config, &key, &markup).await?;
 
-    // Mark as posted
     crate::db::mark_posted_to_jira(&state.db, &key).await?;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
