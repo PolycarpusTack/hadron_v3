@@ -3050,12 +3050,31 @@ pub async fn delete_ticket_brief(pool: &PgPool, jira_key: &str) -> HadronResult<
 // ============================================================================
 
 /// Deterministic hash of a JIRA key to use as source_id in the embeddings table.
+///
+/// Uses SHA-256 truncated to 8 bytes. Previously used `DefaultHasher`,
+/// which the standard library documents as "will almost certainly change"
+/// across Rust versions and is not collision-resistant — both properties
+/// that matter here, because the same source_id across binaries must
+/// resolve to the same ticket, and because an attacker who can create
+/// JIRA tickets should not be able to grind keys that collide with a
+/// target ticket and overwrite its embedding via the `ON CONFLICT` path.
+///
+/// The high bit is masked off so the i64 stays non-negative (the column
+/// is BIGINT and existing rows used the cast from u64). `max(1)` ensures
+/// we never return 0, which historically carried "sentinel" meaning in
+/// several callers.
+///
+/// Fixes F6 from the 2026-04-20 security audit. Existing ticket
+/// embeddings that were stored under the old hash will need to be
+/// re-embedded; fresh JIRA polls will repopulate them on next visit.
 pub fn jira_key_to_source_id(jira_key: &str) -> i64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    jira_key.hash(&mut hasher);
-    hasher.finish() as i64
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(jira_key.as_bytes());
+    let mut buf = [0u8; 8];
+    buf.copy_from_slice(&digest[..8]);
+    // Clear the sign bit, then avoid zero for safety.
+    let as_u64 = u64::from_be_bytes(buf) & 0x7FFF_FFFF_FFFF_FFFF;
+    (as_u64 as i64).max(1)
 }
 
 /// Build embedding text from brief data (AI-generated fields preferred) or raw ticket data.
@@ -3634,4 +3653,61 @@ pub async fn get_performance_analyses(
         .collect();
 
     Ok((items, count.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jira_key_to_source_id_is_deterministic() {
+        assert_eq!(
+            jira_key_to_source_id("PROJ-1234"),
+            jira_key_to_source_id("PROJ-1234")
+        );
+    }
+
+    #[test]
+    fn jira_key_to_source_id_is_always_positive_and_nonzero() {
+        // A representative sample of keys, long + short, ensures the sign-bit
+        // mask and max(1) guard hold for all SHA-256 prefixes we might see.
+        for key in [
+            "A-1",
+            "PROJ-1",
+            "PROJ-99999",
+            "SEC-2026-04-20",
+            "VERY-LONG-PROJECT-NAME-1",
+            "",
+        ] {
+            let id = jira_key_to_source_id(key);
+            assert!(id > 0, "expected positive for {key}, got {id}");
+        }
+    }
+
+    #[test]
+    fn jira_key_to_source_id_distinguishes_case_and_content() {
+        assert_ne!(
+            jira_key_to_source_id("PROJ-1"),
+            jira_key_to_source_id("PROJ-2")
+        );
+        assert_ne!(
+            jira_key_to_source_id("PROJ-1"),
+            jira_key_to_source_id("proj-1")
+        );
+    }
+
+    #[test]
+    fn jira_key_to_source_id_matches_expected_sha256_prefix() {
+        // Freeze the algorithm: SHA-256 of "PROJ-1", first 8 bytes, sign bit
+        // cleared. If this ever changes we've broken existing ticket
+        // embeddings across deployments, which is a migration event, not
+        // a refactor.
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(b"PROJ-1");
+        let mut buf = [0u8; 8];
+        buf.copy_from_slice(&digest[..8]);
+        let expected = (u64::from_be_bytes(buf) & 0x7FFF_FFFF_FFFF_FFFF) as i64;
+        let expected = expected.max(1);
+        assert_eq!(jira_key_to_source_id("PROJ-1"), expected);
+    }
 }
