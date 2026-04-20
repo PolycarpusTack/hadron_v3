@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { open } from "@tauri-apps/plugin-shell";
+import { openExternal as open } from "../utils/openExternal";
 import Button from "./ui/Button";
 import {
   JiraLink,

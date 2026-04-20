@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-shell";
+import { openExternal as open } from "../../utils/openExternal";
 import { format } from "date-fns";
 import Button from "../ui/Button";
 import logger from "../../services/logger";

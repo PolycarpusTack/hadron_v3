@@ -18,7 +18,7 @@ import {
   Search,
   BarChart3,
 } from "lucide-react";
-import { open } from "@tauri-apps/plugin-shell";
+import { openExternal as open } from "../utils/openExternal";
 
 // ============================================================================
 // Types

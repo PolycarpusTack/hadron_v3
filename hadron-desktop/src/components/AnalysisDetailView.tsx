@@ -1,7 +1,7 @@
 import { ArrowLeft, Download, Copy, Check, AlertCircle, Package, Wrench, Activity, Info, Ticket, Settings2, Zap, Search, Gauge, Link2, ExternalLink, Shield, Database, BookOpen, Tag } from "lucide-react";
 import Button from "./ui/Button";
 import { useState, useEffect, useRef } from "react";
-import { open } from "@tauri-apps/plugin-shell";
+import { openExternal as open } from "../utils/openExternal";
 import { format } from "date-fns";
 import type { Analysis } from "../services/api";
 import type { ExportSource } from "../types";
