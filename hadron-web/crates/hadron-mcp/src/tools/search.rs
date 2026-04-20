@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::context::McpContext;
+use crate::context::{McpContext, Role};
 use crate::errors::McpResult;
 use crate::schemas::HybridSearchInput;
 
@@ -26,6 +26,7 @@ pub fn descriptors() -> Vec<ToolDescriptor> {
     vec![ToolDescriptor {
         name: "hybrid_search",
         description: "RRF-fused search across Hadron sources (ticket briefs, Sentry analyses, release notes). Sources default to all three; pass `sources: [...]` to narrow.",
+        required_role: Role::Analyst,
         handler: Arc::new(HybridSearch),
     }]
 }

@@ -151,6 +151,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/jira/briefs/batch", post(jira_analysis::get_briefs_batch))
         // JIRA Similar Tickets + Round-Trip
         .route("/jira/issues/{key}/similar", post(jira_analysis::find_similar_tickets))
+        .route("/jira/issues/{key}/post-brief/preview", post(jira_analysis::preview_brief_for_jira))
         .route("/jira/issues/{key}/post-brief", post(jira_analysis::post_brief_to_jira))
         .route("/jira/briefs/{key}/feedback", put(jira_analysis::submit_feedback))
         // Sentry integration

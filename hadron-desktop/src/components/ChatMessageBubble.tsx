@@ -30,7 +30,7 @@ import {
   type ChatDiagnosticsEvent,
   type FeedbackReason,
 } from "../services/chat";
-import { open } from "@tauri-apps/plugin-shell";
+import { openExternal as open } from "../utils/openExternal";
 import DiagnosticsPanel from "./DiagnosticsPanel";
 import ExportMenu from "./ExportMenu";
 import type { SourceItem } from "./SourcePanel";

@@ -14,9 +14,24 @@ pub struct OpenSearchConfig {
     pub username: Option<String>,
     pub password: Option<String>,
     pub index_pattern: String,
-    /// Skip TLS certificate verification. Only for development/self-signed certs.
-    #[serde(default)]
-    pub tls_skip_verify: bool,
+}
+
+/// Whether to skip TLS certificate verification on outbound OpenSearch
+/// requests. Sourced from the `OPENSEARCH_TLS_SKIP_VERIFY` env var
+/// (`true`/`1`) and defaults to false (verify).
+///
+/// F7 (2026-04-20 audit): previously a boolean on the deserialised
+/// OpenSearchConfig struct, where a request body could flip the flag on
+/// if a future handler forwarded the user-supplied struct to the client
+/// builder. Moving to an env var keeps the operational knob while making
+/// it impossible for a HTTP caller to turn verification off at runtime.
+fn tls_skip_verify_from_env() -> bool {
+    matches!(
+        std::env::var("OPENSEARCH_TLS_SKIP_VERIFY")
+            .ok()
+            .as_deref(),
+        Some("true") | Some("1")
+    )
 }
 
 /// A single search hit from OpenSearch.
@@ -58,7 +73,7 @@ pub async fn search(
     from: u32,
 ) -> HadronResult<SearchResponse> {
     let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(config.tls_skip_verify)
+        .danger_accept_invalid_certs(tls_skip_verify_from_env())
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| HadronError::external_service(format!("HTTP client error: {e}")))?;
@@ -121,7 +136,7 @@ pub async fn search(
 /// Test connectivity to an OpenSearch cluster.
 pub async fn test_connection(config: &OpenSearchConfig) -> HadronResult<bool> {
     let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(config.tls_skip_verify)
+        .danger_accept_invalid_certs(tls_skip_verify_from_env())
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| HadronError::external_service(format!("HTTP client error: {e}")))?;
@@ -178,7 +193,7 @@ pub async fn search_knn(
     k: usize,
 ) -> HadronResult<SearchResponse> {
     let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(config.tls_skip_verify)
+        .danger_accept_invalid_certs(tls_skip_verify_from_env())
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| HadronError::external_service(format!("HTTP client error: {e}")))?;

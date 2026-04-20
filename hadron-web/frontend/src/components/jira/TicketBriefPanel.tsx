@@ -85,10 +85,24 @@ export default function TicketBriefPanel({
   };
 
   const handlePostToJira = async () => {
-    if (!window.confirm(`Post this brief as a comment on ${jiraKey}?`)) return;
+    // F12 (2026-04-20 audit): AI-authored content is posted to JIRA as a
+    // real comment. The server now requires a preview-then-confirm flow
+    // bound to the exact markup the user agrees to; we fetch the
+    // preview, let the user see the rendered body, and confirm with
+    // the matching content hash.
     setPosting(true);
     try {
-      await api.postBriefToJira(jiraKey);
+      const preview = await api.previewBriefForJira(jiraKey);
+      const confirmed = window.confirm(
+        `Post this brief as a comment on ${jiraKey}?\n\n` +
+          `Preview (first 600 chars):\n${preview.markup.slice(0, 600)}` +
+          (preview.markup.length > 600 ? "\n… (truncated)" : ""),
+      );
+      if (!confirmed) {
+        setPosting(false);
+        return;
+      }
+      await api.postBriefToJira(jiraKey, preview.contentHash);
       onBriefUpdated?.();
     } catch {
       // error feedback could be added here

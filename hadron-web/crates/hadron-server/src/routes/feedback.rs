@@ -18,6 +18,12 @@ pub async fn submit_feedback(
     Path(id): Path<i64>,
     Json(req): Json<SubmitFeedbackRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    // N3 (2026-04-20 pass-2 audit): require analysis ownership before
+    // submitting feedback. Mirrors the existing ownership check on
+    // get_analysis_feedback / get_feedback_summary — the write path
+    // must match the read path so an analyst can't submit feedback
+    // under another user's analysis ID.
+    db::get_analysis_by_id(&state.db, id, user.user.id).await?;
     let feedback = db::submit_feedback(&state.db, id, user.user.id, &req).await?;
     Ok((StatusCode::CREATED, Json(feedback)))
 }

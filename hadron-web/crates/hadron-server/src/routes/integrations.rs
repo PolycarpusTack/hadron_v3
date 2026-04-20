@@ -43,7 +43,6 @@ pub async fn opensearch_search(
         username: req.username,
         password: req.password,
         index_pattern: req.index.clone(),
-        tls_skip_verify: false,
     };
 
     let query = opensearch::build_text_query(&req.query);
@@ -54,20 +53,29 @@ pub async fn opensearch_search(
     Ok(Json(result))
 }
 
-/// Reject URLs whose host is not in the `OPENSEARCH_ALLOWED_HOSTS` allowlist.
-/// Fails closed: if the env var is unset or empty, all hosts are rejected.
-fn ensure_opensearch_host_allowed(raw_url: &str) -> Result<(), AppError> {
+/// Reject URLs whose host is not in `{env_var}`, fail-closed on missing/empty.
+///
+/// `label` appears in error messages and logs so operators can tell which
+/// integration rejected the URL. An entry containing ':' is port-pinned
+/// (must match `host:port`); a bare entry matches any port on that host.
+/// Scheme must be http or https. The host check uses the parsed URL's host
+/// component (not userinfo), which rejects `user@good@evil` smuggling.
+pub(crate) fn ensure_integration_host_allowed(
+    raw_url: &str,
+    label: &str,
+    env_var: &str,
+) -> Result<(), AppError> {
     let parsed = reqwest::Url::parse(raw_url).map_err(|_| {
-        AppError(hadron_core::error::HadronError::validation(
-            "Invalid OpenSearch URL",
-        ))
+        AppError(hadron_core::error::HadronError::validation(format!(
+            "Invalid {label} URL"
+        )))
     })?;
 
     match parsed.scheme() {
         "http" | "https" => {}
         _ => {
             return Err(AppError(hadron_core::error::HadronError::validation(
-                "OpenSearch URL must use http or https",
+                format!("{label} URL must use http or https"),
             )));
         }
     }
@@ -75,9 +83,9 @@ fn ensure_opensearch_host_allowed(raw_url: &str) -> Result<(), AppError> {
     let host = parsed
         .host_str()
         .ok_or_else(|| {
-            AppError(hadron_core::error::HadronError::validation(
-                "OpenSearch URL missing host",
-            ))
+            AppError(hadron_core::error::HadronError::validation(format!(
+                "{label} URL missing host"
+            )))
         })?
         .to_ascii_lowercase();
 
@@ -89,7 +97,7 @@ fn ensure_opensearch_host_allowed(raw_url: &str) -> Result<(), AppError> {
         .port_or_known_default()
         .map(|p| format!("{host}:{p}"));
 
-    let allowed = std::env::var("OPENSEARCH_ALLOWED_HOSTS").unwrap_or_default();
+    let allowed = std::env::var(env_var).unwrap_or_default();
     let entries: Vec<String> = allowed
         .split(',')
         .map(|s| s.trim().to_ascii_lowercase())
@@ -98,18 +106,13 @@ fn ensure_opensearch_host_allowed(raw_url: &str) -> Result<(), AppError> {
 
     if entries.is_empty() {
         tracing::warn!(
-            "OPENSEARCH_ALLOWED_HOSTS is empty — rejecting OpenSearch search for host {host}"
+            "{env_var} is empty — rejecting {label} request for host {host}"
         );
         return Err(AppError(hadron_core::error::HadronError::forbidden(
-            "OpenSearch host allowlist not configured",
+            format!("{label} host allowlist not configured"),
         )));
     }
 
-    // Match each allowlist entry independently: an entry containing ':' is
-    // port-pinned (must match `host:port`); a bare entry matches any port on
-    // that host. A single allowlist can mix both forms — e.g.,
-    // `os-primary.example,os-secondary.example:9200` — and each entry is
-    // evaluated on its own terms.
     let matched = entries.iter().any(|e| {
         if e.contains(':') {
             host_port.as_deref() == Some(e.as_str())
@@ -120,24 +123,32 @@ fn ensure_opensearch_host_allowed(raw_url: &str) -> Result<(), AppError> {
 
     if !matched {
         return Err(AppError(hadron_core::error::HadronError::forbidden(
-            "OpenSearch host not permitted by allowlist",
+            format!("{label} host not permitted by allowlist"),
         )));
     }
 
     Ok(())
 }
 
+/// OpenSearch-specific wrapper kept for readability at the call sites and
+/// for backwards-compat with the existing unit tests.
+fn ensure_opensearch_host_allowed(raw_url: &str) -> Result<(), AppError> {
+    ensure_integration_host_allowed(raw_url, "OpenSearch", "OPENSEARCH_ALLOWED_HOSTS")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // All env-mutating tests in this module share this mutex so
+    // cargo-test's parallel runner can't interleave them and corrupt
+    // each other's OPENSEARCH_ALLOWED_HOSTS / JIRA_ALLOWED_HOSTS /
+    // SENTRY_ALLOWED_HOSTS state.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_allowlist<T>(value: &str, f: impl FnOnce() -> T) -> T {
-        // These tests mutate a process-global env var, so they cannot run in
-        // parallel with anything else that reads OPENSEARCH_ALLOWED_HOSTS.
-        // The mutex keeps the cargo-test runner from interleaving them.
-        use std::sync::Mutex;
-        static LOCK: Mutex<()> = Mutex::new(());
-        let _guard = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("OPENSEARCH_ALLOWED_HOSTS", value);
         let result = f();
         std::env::remove_var("OPENSEARCH_ALLOWED_HOSTS");
@@ -210,6 +221,55 @@ mod tests {
             assert!(ensure_opensearch_host_allowed("https://OS.EXAMPLE").is_ok());
         });
     }
+
+    #[test]
+    fn shared_helper_reads_per_integration_env_var() {
+        // JIRA and OpenSearch allowlists are independent: setting one does
+        // not unlock the other. This guards against a regression where a
+        // single global allowlist gets threaded through by mistake.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        std::env::set_var("OPENSEARCH_ALLOWED_HOSTS", "os.example");
+        std::env::set_var("JIRA_ALLOWED_HOSTS", "jira.example");
+
+        assert!(
+            ensure_integration_host_allowed(
+                "https://os.example",
+                "OpenSearch",
+                "OPENSEARCH_ALLOWED_HOSTS"
+            )
+            .is_ok()
+        );
+        // OpenSearch host not allowed through the JIRA env var.
+        assert!(
+            ensure_integration_host_allowed(
+                "https://os.example",
+                "JIRA",
+                "JIRA_ALLOWED_HOSTS"
+            )
+            .is_err()
+        );
+        assert!(
+            ensure_integration_host_allowed(
+                "https://jira.example",
+                "JIRA",
+                "JIRA_ALLOWED_HOSTS"
+            )
+            .is_ok()
+        );
+        // Missing env var fails closed with a distinct label in the error.
+        std::env::remove_var("SENTRY_ALLOWED_HOSTS");
+        assert!(
+            ensure_integration_host_allowed(
+                "https://sentry.example",
+                "Sentry",
+                "SENTRY_ALLOWED_HOSTS"
+            )
+            .is_err()
+        );
+
+        std::env::remove_var("OPENSEARCH_ALLOWED_HOSTS");
+        std::env::remove_var("JIRA_ALLOWED_HOSTS");
+    }
 }
 
 #[derive(Deserialize)]
@@ -225,12 +285,15 @@ pub async fn opensearch_test(
     Json(req): Json<OpenSearchTestRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Lead)?;
+    // F3 (2026-04-20 audit): apply the same host allowlist as the real
+    // search endpoint so the test endpoint can't be turned into an SSRF
+    // oracle against internal services.
+    ensure_opensearch_host_allowed(&req.url)?;
     let config = opensearch::OpenSearchConfig {
         url: req.url,
         username: req.username,
         password: req.password,
         index_pattern: "*".to_string(),
-        tls_skip_verify: false,
     };
 
     let ok = opensearch::test_connection(&config).await?;
@@ -338,6 +401,10 @@ pub async fn jira_test(
     Json(req): Json<JiraTestRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Lead)?;
+    // F3 (2026-04-20 audit): the JIRA test endpoint accepts an attacker-
+    // controlled base_url and returns response bodies inside errors — that
+    // was a classic SSRF oracle. Gate outbound calls with a host allowlist.
+    ensure_integration_host_allowed(&req.base_url, "JIRA", "JIRA_ALLOWED_HOSTS")?;
     let config = jira::JiraConfig {
         base_url: req.base_url,
         email: req.email,
@@ -383,6 +450,9 @@ pub async fn sentry_test(
 ) -> Result<impl IntoResponse, AppError> {
     crate::middleware::require_role(&user, hadron_core::models::Role::Lead)
         .map_err(|_| AppError(hadron_core::error::HadronError::forbidden("Only leads and admins can test Sentry connections.")))?;
+    // F3 (2026-04-20 audit): apply allowlist to stop sentry_test being
+    // used as an SSRF oracle into the internal network.
+    ensure_integration_host_allowed(&config.base_url, "Sentry", "SENTRY_ALLOWED_HOSTS")?;
     let ok = sentry::test_connection(&config)
         .await
         .map_err(|e| AppError(e))?;

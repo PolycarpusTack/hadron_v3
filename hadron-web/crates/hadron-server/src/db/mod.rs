@@ -811,6 +811,11 @@ pub async fn get_release_note_owner(pool: &PgPool, id: i64) -> HadronResult<Uuid
 // ============================================================================
 
 /// Store an embedding vector for a source entity.
+///
+/// `owner_user_id` scopes the row to a user so tenant-aware lookups can
+/// filter on it. Pass `None` for sources that are shared by product design
+/// (currently `ticket` and `release_note`); pass `Some(user_id)` for
+/// private per-user sources (currently `analysis`).
 pub async fn store_embedding(
     pool: &PgPool,
     source_id: i64,
@@ -818,6 +823,7 @@ pub async fn store_embedding(
     embedding: &[f32],
     content: &str,
     metadata: Option<&serde_json::Value>,
+    owner_user_id: Option<Uuid>,
 ) -> HadronResult<i64> {
     // Convert Vec<f32> to pgvector format string: [0.1,0.2,...]
     let vec_str = format!(
@@ -830,10 +836,10 @@ pub async fn store_embedding(
     );
 
     let row: (i64,) = sqlx::query_as(
-        "INSERT INTO embeddings (source_type, source_id, chunk_index, content, embedding, metadata)
-         VALUES ($1, $2, 0, $3, $4::vector, $5)
+        "INSERT INTO embeddings (source_type, source_id, chunk_index, content, embedding, metadata, owner_user_id)
+         VALUES ($1, $2, 0, $3, $4::vector, $5, $6)
          ON CONFLICT (source_type, source_id, chunk_index) DO UPDATE
-         SET embedding = $4::vector, content = $3, metadata = $5
+         SET embedding = $4::vector, content = $3, metadata = $5, owner_user_id = $6
          RETURNING id",
     )
     .bind(source_type)
@@ -841,6 +847,7 @@ pub async fn store_embedding(
     .bind(content)
     .bind(&vec_str)
     .bind(metadata)
+    .bind(owner_user_id)
     .fetch_one(pool)
     .await
     .map_err(|e| HadronError::database(e.to_string()))?;
@@ -848,10 +855,18 @@ pub async fn store_embedding(
     Ok(row.0)
 }
 
-/// Find analyses similar to the given embedding vector.
+/// Find analyses similar to the given embedding vector, scoped to the
+/// calling user's own corpus.
+///
+/// N2 (2026-04-20 pass-2 audit): the neighbour query previously had no
+/// ownership filter, so an analyst running "find similar" on one of
+/// their own analyses could receive filename / error_type / severity
+/// snippets drawn from every other user's analyses. Uses the
+/// `owner_user_id` column added to `embeddings` by migration 018.
 pub async fn find_similar_analyses(
     pool: &PgPool,
     embedding: &[f32],
+    owner_user_id: Uuid,
     limit: i64,
     threshold: f64,
     exclude_analysis_id: Option<i64>,
@@ -873,14 +888,16 @@ pub async fn find_similar_analyses(
          FROM embeddings e
          JOIN analyses a ON e.source_id = a.id AND e.source_type = 'analysis'
          WHERE a.deleted_at IS NULL
-           AND a.id != $4
+           AND e.owner_user_id = $2
+           AND a.id != $5
            AND 1 - (e.embedding <=> $1::vector) > $3
          ORDER BY e.embedding <=> $1::vector
-         LIMIT $2",
+         LIMIT $4",
     )
     .bind(&vec_str)
-    .bind(limit)
+    .bind(owner_user_id)
     .bind(threshold)
+    .bind(limit)
     .bind(exclude_id)
     .fetch_all(pool)
     .await
@@ -932,12 +949,19 @@ pub async fn get_embedding(pool: &PgPool, source_id: i64, source_type: &str) -> 
 ///
 /// Returns rows as `(source_id, source_type, content, distance)` where
 /// `distance` is the cosine distance (0 = identical, 2 = opposite).
-/// Lower distance = more similar. Filter by `source_type` when provided.
+/// Lower distance = more similar.
+///
+/// * `source_type` — when `Some`, restricts to that single source type.
+/// * `owner_user_id` — when `Some`, restricts to rows owned by that user.
+///   Rows with `NULL` owner (shared sources like `ticket`, `release_note`)
+///   are excluded when this filter is active. Callers that want shared
+///   data must pass `None` and restrict via `source_type` instead.
 pub async fn vector_search(
     pool: &PgPool,
     query_embedding: &[f32],
     limit: i64,
     source_type: Option<&str>,
+    owner_user_id: Option<Uuid>,
 ) -> HadronResult<Vec<(i64, String, String, f64)>> {
     let vec_str = format!(
         "[{}]",
@@ -948,8 +972,22 @@ pub async fn vector_search(
             .join(",")
     );
 
-    let rows: Vec<(i64, String, String, f64)> = if let Some(st) = source_type {
-        sqlx::query_as(
+    let rows: Vec<(i64, String, String, f64)> = match (source_type, owner_user_id) {
+        (Some(st), Some(uid)) => sqlx::query_as(
+            "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
+             FROM embeddings
+             WHERE source_type = $2 AND owner_user_id = $3
+             ORDER BY embedding <=> $1::vector
+             LIMIT $4",
+        )
+        .bind(&vec_str)
+        .bind(st)
+        .bind(uid)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?,
+        (Some(st), None) => sqlx::query_as(
             "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
              FROM embeddings
              WHERE source_type = $2
@@ -961,9 +999,21 @@ pub async fn vector_search(
         .bind(limit)
         .fetch_all(pool)
         .await
-        .map_err(|e| HadronError::database(e.to_string()))?
-    } else {
-        sqlx::query_as(
+        .map_err(|e| HadronError::database(e.to_string()))?,
+        (None, Some(uid)) => sqlx::query_as(
+            "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
+             FROM embeddings
+             WHERE owner_user_id = $2
+             ORDER BY embedding <=> $1::vector
+             LIMIT $3",
+        )
+        .bind(&vec_str)
+        .bind(uid)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| HadronError::database(e.to_string()))?,
+        (None, None) => sqlx::query_as(
             "SELECT source_id, source_type, content, (embedding <=> $1::vector) AS distance
              FROM embeddings
              ORDER BY embedding <=> $1::vector
@@ -973,7 +1023,7 @@ pub async fn vector_search(
         .bind(limit)
         .fetch_all(pool)
         .await
-        .map_err(|e| HadronError::database(e.to_string()))?
+        .map_err(|e| HadronError::database(e.to_string()))?,
     };
 
     Ok(rows)
@@ -1000,13 +1050,15 @@ pub async fn get_embedding_coverage(pool: &PgPool) -> HadronResult<(i64, i64)> {
 
 /// Fetch analyses that have no embedding yet, up to `limit` rows.
 ///
-/// Returns `(id, error_type, root_cause, component)` for each row.
+/// Returns `(id, user_id, error_type, root_cause, component)` for each row.
+/// `user_id` is required by the embedding backfill so new rows are
+/// tenant-scoped (owner_user_id on embeddings).
 pub async fn get_unembedded_analyses(
     pool: &PgPool,
     limit: i64,
-) -> HadronResult<Vec<(i64, Option<String>, Option<String>, Option<String>)>> {
+) -> HadronResult<Vec<(i64, Uuid, Option<String>, Option<String>, Option<String>)>> {
     let rows = sqlx::query_as(
-        "SELECT a.id, a.error_type, a.root_cause, a.component
+        "SELECT a.id, a.user_id, a.error_type, a.root_cause, a.component
          FROM analyses a
          LEFT JOIN embeddings e
            ON e.source_type = 'analysis' AND e.source_id = a.id
@@ -1563,7 +1615,10 @@ pub async fn create_note(
     user_id: Uuid,
     content: &str,
 ) -> HadronResult<AnalysisNote> {
-    // Verify analysis exists (any user can note — not restricted to owner)
+    // Ownership is enforced by the caller (route handler calls
+    // get_analysis_by_id with the requesting user's id first). This
+    // function only re-verifies the analysis row exists so we don't
+    // FK-violate if the analysis was deleted in between.
     let exists: Option<(i64,)> = sqlx::query_as(
         "SELECT id FROM analyses WHERE id = $1 AND deleted_at IS NULL",
     )
@@ -3008,12 +3063,31 @@ pub async fn delete_ticket_brief(pool: &PgPool, jira_key: &str) -> HadronResult<
 // ============================================================================
 
 /// Deterministic hash of a JIRA key to use as source_id in the embeddings table.
+///
+/// Uses SHA-256 truncated to 8 bytes. Previously used `DefaultHasher`,
+/// which the standard library documents as "will almost certainly change"
+/// across Rust versions and is not collision-resistant — both properties
+/// that matter here, because the same source_id across binaries must
+/// resolve to the same ticket, and because an attacker who can create
+/// JIRA tickets should not be able to grind keys that collide with a
+/// target ticket and overwrite its embedding via the `ON CONFLICT` path.
+///
+/// The high bit is masked off so the i64 stays non-negative (the column
+/// is BIGINT and existing rows used the cast from u64). `max(1)` ensures
+/// we never return 0, which historically carried "sentinel" meaning in
+/// several callers.
+///
+/// Fixes F6 from the 2026-04-20 security audit. Existing ticket
+/// embeddings that were stored under the old hash will need to be
+/// re-embedded; fresh JIRA polls will repopulate them on next visit.
 pub fn jira_key_to_source_id(jira_key: &str) -> i64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    jira_key.hash(&mut hasher);
-    hasher.finish() as i64
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(jira_key.as_bytes());
+    let mut buf = [0u8; 8];
+    buf.copy_from_slice(&digest[..8]);
+    // Clear the sign bit, then avoid zero for safety.
+    let as_u64 = u64::from_be_bytes(buf) & 0x7FFF_FFFF_FFFF_FFFF;
+    (as_u64 as i64).max(1)
 }
 
 /// Build embedding text from brief data (AI-generated fields preferred) or raw ticket data.
@@ -3058,6 +3132,10 @@ pub fn build_ticket_embedding_text(
 }
 
 /// Store a ticket embedding in the existing embeddings table with source_type='ticket'.
+///
+/// Ticket embeddings are **shared** across all users by product design
+/// (ticket briefs are an org-wide knowledge base). `owner_user_id` is
+/// therefore always `None` for this source type.
 pub async fn store_ticket_embedding(
     pool: &PgPool,
     jira_key: &str,
@@ -3066,7 +3144,7 @@ pub async fn store_ticket_embedding(
 ) -> HadronResult<i64> {
     let source_id = jira_key_to_source_id(jira_key);
     let metadata = serde_json::json!({ "jira_key": jira_key });
-    store_embedding(pool, source_id, "ticket", embedding, content, Some(&metadata)).await
+    store_embedding(pool, source_id, "ticket", embedding, content, Some(&metadata), None).await
 }
 
 /// Result of a similar ticket search.
@@ -3588,4 +3666,61 @@ pub async fn get_performance_analyses(
         .collect();
 
     Ok((items, count.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jira_key_to_source_id_is_deterministic() {
+        assert_eq!(
+            jira_key_to_source_id("PROJ-1234"),
+            jira_key_to_source_id("PROJ-1234")
+        );
+    }
+
+    #[test]
+    fn jira_key_to_source_id_is_always_positive_and_nonzero() {
+        // A representative sample of keys, long + short, ensures the sign-bit
+        // mask and max(1) guard hold for all SHA-256 prefixes we might see.
+        for key in [
+            "A-1",
+            "PROJ-1",
+            "PROJ-99999",
+            "SEC-2026-04-20",
+            "VERY-LONG-PROJECT-NAME-1",
+            "",
+        ] {
+            let id = jira_key_to_source_id(key);
+            assert!(id > 0, "expected positive for {key}, got {id}");
+        }
+    }
+
+    #[test]
+    fn jira_key_to_source_id_distinguishes_case_and_content() {
+        assert_ne!(
+            jira_key_to_source_id("PROJ-1"),
+            jira_key_to_source_id("PROJ-2")
+        );
+        assert_ne!(
+            jira_key_to_source_id("PROJ-1"),
+            jira_key_to_source_id("proj-1")
+        );
+    }
+
+    #[test]
+    fn jira_key_to_source_id_matches_expected_sha256_prefix() {
+        // Freeze the algorithm: SHA-256 of "PROJ-1", first 8 bytes, sign bit
+        // cleared. If this ever changes we've broken existing ticket
+        // embeddings across deployments, which is a migration event, not
+        // a refactor.
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(b"PROJ-1");
+        let mut buf = [0u8; 8];
+        buf.copy_from_slice(&digest[..8]);
+        let expected = (u64::from_be_bytes(buf) & 0x7FFF_FFFF_FFFF_FFFF) as i64;
+        let expected = expected.max(1);
+        assert_eq!(jira_key_to_source_id("PROJ-1"), expected);
+    }
 }

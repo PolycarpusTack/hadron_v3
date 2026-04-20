@@ -88,6 +88,7 @@ pub async fn analyze_enrich(
                 crate::routes::search::spawn_embed_analysis(
                     state.db.clone(),
                     inserted_id,
+                    user.user.id,
                     embed_text,
                 );
             }

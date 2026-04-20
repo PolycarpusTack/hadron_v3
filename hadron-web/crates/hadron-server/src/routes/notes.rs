@@ -29,6 +29,14 @@ pub async fn create_note(
     Path(id): Path<i64>,
     Json(req): Json<CreateNoteRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    // N3 (2026-04-20 pass-2 audit): require analysis ownership before
+    // creating a note. Previously this handler called db::create_note
+    // directly, which only checks that the analysis row exists — so any
+    // authenticated analyst could write a note under any other user's
+    // analysis ID. The read path (get_analysis_notes above) already
+    // gates on ownership; the write path must match to eliminate the
+    // asymmetry of "anyone can write, only the owner can read".
+    db::get_analysis_by_id(&state.db, id, user.user.id).await?;
     let note = db::create_note(&state.db, id, user.user.id, &req.content).await?;
     Ok((StatusCode::CREATED, Json(note)))
 }

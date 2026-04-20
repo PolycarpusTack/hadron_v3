@@ -11,6 +11,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 use crate::auth::AuthenticatedUser;
 use crate::db;
@@ -45,7 +46,10 @@ pub struct KBSearchRequest {
 
 /// Fire-and-forget background task that generates and stores an embedding for
 /// a newly-created analysis row.
-pub fn spawn_embed_analysis(pool: sqlx::PgPool, id: i64, text: String) {
+///
+/// `owner_user_id` must be the owner of the analysis row; it is persisted on
+/// the embedding so tenant-scoped vector_search can filter to the caller.
+pub fn spawn_embed_analysis(pool: sqlx::PgPool, id: i64, owner_user_id: Uuid, text: String) {
     tokio::spawn(async move {
         let ai_config = match db::get_server_ai_config(&pool).await {
             Ok(Some(c)) => c,
@@ -66,8 +70,16 @@ pub fn spawn_embed_analysis(pool: sqlx::PgPool, id: i64, text: String) {
         .await
         {
             Ok(embedding) => {
-                if let Err(e) =
-                    db::store_embedding(&pool, id, "analysis", &embedding, &text, None).await
+                if let Err(e) = db::store_embedding(
+                    &pool,
+                    id,
+                    "analysis",
+                    &embedding,
+                    &text,
+                    None,
+                    Some(owner_user_id),
+                )
+                .await
                 {
                     tracing::warn!("Auto-embed store failed for analysis {id}: {e}");
                 } else {
@@ -104,9 +116,16 @@ pub async fn search_hybrid(
     .map_err(|e| AppError(e))?;
 
     // 3. pgvector search (returns (source_id, source_type, content, distance))
-    let vector_rows = db::vector_search(&state.db, &embedding, limit, Some("analysis"))
-        .await
-        .unwrap_or_default();
+    //    Tenant-scoped: only the caller's own analyses (F1 from 2026-04-20 audit).
+    let vector_rows = db::vector_search(
+        &state.db,
+        &embedding,
+        limit,
+        Some("analysis"),
+        Some(user.user.id),
+    )
+    .await
+    .unwrap_or_default();
 
     // 4. PostgreSQL FTS search
     let fts_rows = db::search_analyses(&state.db, user.user.id, &req.query, limit)
@@ -185,7 +204,6 @@ pub async fn search_knowledge_base(
                 username,
                 password,
                 index_pattern,
-                tls_skip_verify: false,
             }
         });
 
@@ -323,7 +341,7 @@ pub async fn backfill_embeddings(
     let mut processed = 0usize;
     let mut errors = 0usize;
 
-    for (id, error_type, root_cause, component) in &unembedded {
+    for (id, owner_user_id, error_type, root_cause, component) in &unembedded {
         let text = format!(
             "{} {} {}",
             error_type.as_deref().unwrap_or(""),
@@ -346,8 +364,16 @@ pub async fn backfill_embeddings(
         .await
         {
             Ok(embedding) => {
-                if let Err(e) =
-                    db::store_embedding(&state.db, *id, "analysis", &embedding, &text, None).await
+                if let Err(e) = db::store_embedding(
+                    &state.db,
+                    *id,
+                    "analysis",
+                    &embedding,
+                    &text,
+                    None,
+                    Some(*owner_user_id),
+                )
+                .await
                 {
                     tracing::warn!("Backfill store failed for {id}: {e}");
                     errors += 1;

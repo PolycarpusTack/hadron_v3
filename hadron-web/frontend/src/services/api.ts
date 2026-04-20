@@ -1222,10 +1222,38 @@ class ApiClient {
     });
   }
 
+  async previewBriefForJira(
+    key: string,
+  ): Promise<{ jiraKey: string; markup: string; contentHash: string }> {
+    return this.request(
+      "POST",
+      `/jira/issues/${encodeURIComponent(key)}/post-brief/preview`,
+    );
+  }
+
+  /**
+   * Post an AI-authored brief to JIRA as a comment.
+   *
+   * Requires `confirmContentHash` — the SHA-256 hex digest returned by
+   * the immediately-preceding `previewBriefForJira` call. The server
+   * rejects the post if the hash does not match the brief's current
+   * markup so a stale preview (or a direct call that skipped the
+   * preview step) can't publish untrusted content to JIRA.
+   *
+   * F12 (2026-04-20 security audit): previously this was a single-click
+   * endpoint, which meant any lead running "post brief" on a ticket
+   * that contained prompt-injection content would publish the
+   * injection verbatim to JIRA.
+   */
   async postBriefToJira(
     key: string,
+    confirmContentHash: string,
   ): Promise<void> {
-    return this.request("POST", `/jira/issues/${encodeURIComponent(key)}/post-brief`);
+    return this.request(
+      "POST",
+      `/jira/issues/${encodeURIComponent(key)}/post-brief`,
+      { confirmContentHash },
+    );
   }
 
   async submitEngineerFeedback(

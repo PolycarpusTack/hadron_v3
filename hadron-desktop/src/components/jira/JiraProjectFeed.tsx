@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-shell";
+import { openExternal as open } from "../../utils/openExternal";
 import {
   Plus,
   X,

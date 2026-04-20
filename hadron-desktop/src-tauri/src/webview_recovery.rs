@@ -104,20 +104,20 @@ mod windows_impl {
                 // SAFETY: The webview2-com bindings follow raw-COM style:
                 // event-args accessors (`ProcessFailedKind`, `ExitCode`,
                 // `Reload`) are `unsafe fn` because they take `*mut T`
-                // out-parameters. Each call below wraps the single unsafe
-                // call in its own `unsafe {}` block — closure bodies have
-                // their own unsafety scope, so the outer `unsafe {}` on
-                // handler construction does not propagate. For every
-                // out-parameter call the destination is a freshly-allocated
-                // local, only read on the Ok branch; no uninitialised
-                // memory is ever observed. `args.cast::<Args2>()` may fail
-                // on older WebView2 runtimes — in that case we fall back
-                // to an exit code of 0 rather than skipping the event.
+                // out-parameters. Current rustc treats the closure body
+                // as inheriting the outer `unsafe {}` scope opened above,
+                // so individual call-site `unsafe {}` wrappers would be
+                // redundant (`unused_unsafe`). For every out-parameter
+                // call the destination is a freshly-allocated local,
+                // only read on the Ok branch — no uninitialised memory
+                // is ever observed. `args.cast::<Args2>()` may fail on
+                // older WebView2 runtimes; in that case we fall back to
+                // an exit code of 0 rather than skipping the event.
                 move |sender, args| {
                     let Some(args) = args else { return Ok(()); };
 
                     let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
-                    if unsafe { args.ProcessFailedKind(&mut kind) }.is_err() {
+                    if args.ProcessFailedKind(&mut kind).is_err() {
                         return Ok(());
                     }
 
@@ -128,7 +128,7 @@ mod windows_impl {
                         .ok()
                         .and_then(|args2| {
                             let mut code: i32 = 0;
-                            match unsafe { args2.ExitCode(&mut code) } {
+                            match args2.ExitCode(&mut code) {
                                 Ok(()) => Some(code),
                                 Err(_) => None,
                             }
@@ -151,7 +151,7 @@ mod windows_impl {
                     if is_renderer {
                         if count <= MAX_RELOADS_IN_WINDOW {
                             if let Some(sender) = sender.as_ref() {
-                                match unsafe { sender.Reload() } {
+                                match sender.Reload() {
                                     Ok(()) => log::info!(
                                         "WebView2 recovery: reloaded '{label_for_process_failed}' after renderer exit ({count}/{} in 60s)",
                                         MAX_RELOADS_IN_WINDOW
@@ -220,8 +220,8 @@ mod windows_impl {
                     if let Some(args) = args {
                         let mut kind = COREWEBVIEW2_BROWSER_PROCESS_EXIT_KIND::default();
                         let mut pid: u32 = 0;
-                        let _ = unsafe { args.BrowserProcessExitKind(&mut kind) };
-                        let _ = unsafe { args.BrowserProcessId(&mut pid) };
+                        let _ = args.BrowserProcessExitKind(&mut kind);
+                        let _ = args.BrowserProcessId(&mut pid);
                         log::error!(
                             "WebView2 browser process exited: window='{label_for_browser}' kind={kind:?} pid={pid} crashes_in_60s={count}"
                         );

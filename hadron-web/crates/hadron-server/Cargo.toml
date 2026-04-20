@@ -62,5 +62,8 @@ hex = { workspace = true }
 aes-gcm = "0.10"
 rand = "0.8"
 
+# Hashing (stable, collision-resistant key-derivation for JIRA source_ids)
+sha2 = { workspace = true }
+
 # MCP
 async-trait = "0.1"

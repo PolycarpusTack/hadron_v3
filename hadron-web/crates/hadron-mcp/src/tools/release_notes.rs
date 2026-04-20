@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::context::McpContext;
+use crate::context::{McpContext, Role};
 use crate::errors::McpResult;
 use crate::schemas::{GetReleaseNotesInput, ListFixVersionsInput};
 
@@ -47,11 +47,13 @@ pub fn descriptors() -> Vec<ToolDescriptor> {
         ToolDescriptor {
             name: "list_fix_versions",
             description: "List JIRA fix versions available for release-note generation in the given project.",
+            required_role: Role::Analyst,
             handler: Arc::new(ListFixVersions),
         },
         ToolDescriptor {
             name: "get_release_notes",
             description: "Fetch release notes by fix_version (preferred) or note_id. Returns status, content markdown, publication metadata.",
+            required_role: Role::Analyst,
             handler: Arc::new(GetReleaseNotes),
         },
     ]

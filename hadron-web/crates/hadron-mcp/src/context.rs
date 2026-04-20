@@ -8,7 +8,11 @@ use crate::schemas::{
 
 /// User role — matches `hadron-core` semantics (analyst < lead < admin).
 /// Desktop contexts always return `Admin`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// The variants are declared in ascending privilege order so the derived
+/// `PartialOrd`/`Ord` matches the `Analyst < Lead < Admin` semantics
+/// callers expect when comparing against a tool's `required_role`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Role {
     Analyst,
     Lead,
