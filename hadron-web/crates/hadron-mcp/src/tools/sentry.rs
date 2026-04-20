@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::context::McpContext;
+use crate::context::{McpContext, Role};
 use crate::errors::McpResult;
 use crate::schemas::{GetSentryAnalysisInput, SearchSentryInput};
 
@@ -44,11 +44,13 @@ pub fn descriptors() -> Vec<ToolDescriptor> {
         ToolDescriptor {
             name: "search_sentry_analyses",
             description: "Search past Sentry deep-analysis records by free text, optionally filtered by a detected pattern (e.g. `deadlock`, `n_plus_one`, `memory_leak`).",
+            required_role: Role::Analyst,
             handler: Arc::new(SearchSentryAnalyses),
         },
         ToolDescriptor {
             name: "get_sentry_analysis",
             description: "Fetch a full Sentry analysis by id: normalized event, detected patterns, root cause, recommendations.",
+            required_role: Role::Analyst,
             handler: Arc::new(GetSentryAnalysis),
         },
     ]
