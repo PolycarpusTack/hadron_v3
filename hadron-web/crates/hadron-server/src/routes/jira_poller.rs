@@ -48,6 +48,19 @@ pub async fn update_poller_config(
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Admin)?;
 
+    // F4 (2026-04-20 audit): validate the JIRA base URL against the
+    // JIRA_ALLOWED_HOSTS allowlist before storing it. The poller uses this
+    // URL outbound with the stored email + decrypted API token, so an
+    // attacker-controlled URL is a credential-exfil primitive even at the
+    // admin role. Fails closed when the env var is unset.
+    if let Some(url) = req.jira_base_url.as_deref().filter(|u| !u.is_empty()) {
+        crate::routes::integrations::ensure_integration_host_allowed(
+            url,
+            "JIRA",
+            "JIRA_ALLOWED_HOSTS",
+        )?;
+    }
+
     // Encrypt API token if provided
     let encrypted_token = match req.jira_api_token.as_deref() {
         Some(token) if !token.is_empty() => Some(crate::crypto::encrypt_value(token)?),
