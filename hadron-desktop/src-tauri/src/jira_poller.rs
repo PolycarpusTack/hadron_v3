@@ -366,6 +366,13 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
         log::info!("poller: not starting (enabled={}, jql='{}')", config.enabled, config.jql_filter);
         return;
     }
+    // Stability mode disables the poller entirely — one of its three levers
+    // for removing the background COM traffic that ESET destabilises.
+    if !crate::stability::jira_poller_allowed() {
+        log::info!("poller: not starting (stability mode enabled)");
+        crate::breadcrumbs::record("config", "jira poller suppressed by stability mode");
+        return;
+    }
 
     // Reset the cancel flag so the new task sees false;
     // stop_poller() sets this same Arc to true for graceful shutdown.
@@ -401,6 +408,8 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
                 break;
             }
 
+            crate::breadcrumbs::record("poll", "jira-tick start");
+
             // Timeout the entire poll cycle to prevent hung network calls from stalling the poller.
             let cycle_timeout = std::time::Duration::from_secs(5 * 60);
             match tokio::time::timeout(cycle_timeout, run_poll_cycle(&app2, &db, &cycle_config)).await {
@@ -421,6 +430,7 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
                             "poller: analysis active, suppressing jira-assist-poll-error IPC (cycle timeout)"
                         );
                     } else {
+                        crate::breadcrumbs::record("emit", "jira-assist-poll-error (timeout)");
                         let _ = app2.emit("jira-assist-poll-error", "Poll cycle timed out");
                     }
                 }
@@ -456,6 +466,10 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
                                     triaged_count: count,
                                     keys: keys.clone(),
                                 };
+                                crate::breadcrumbs::record(
+                                    "emit",
+                                    format!("jira-assist-poll-complete n={}", count),
+                                );
                                 let _ = app2.emit("jira-assist-poll-complete", &payload);
                             }
 
@@ -483,6 +497,7 @@ pub fn start_poller(app: AppHandle, db: Arc<Database>, state: &PollerState) {
                                 "poller: analysis active, suppressing jira-assist-poll-error IPC (error: {e})"
                             );
                         } else {
+                            crate::breadcrumbs::record("emit", "jira-assist-poll-error");
                             let _ = app2.emit("jira-assist-poll-error", &e);
                         }
                     }

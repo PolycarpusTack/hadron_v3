@@ -95,6 +95,12 @@ export default function SettingsPanel({
   );
   const [crashLogMsg, setCrashLogMsg] = useState<string | null>(null);
 
+  // Stability mode: user-facing escape hatch for the ESET-WebView2 crash
+  // pattern. Disables background JIRA poller, serialises deep-scan chunks
+  // (parallel=1 instead of 2), and widens progress debounce 150ms → 1s.
+  const [stabilityMode, setStabilityMode] = useState<boolean>(false);
+  const [stabilityMsg, setStabilityMsg] = useState<string | null>(null);
+
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
   const [showApiKeys, setShowApiKeys] = useState({
@@ -223,6 +229,7 @@ export default function SettingsPanel({
   useEffect(() => {
     if (isOpen && advancedOpen) {
       invoke<string>("get_crash_log_dir").then(setCrashLogDir).catch((e) => logger.warn("Failed to get crash log dir", { error: e }));
+      invoke<boolean>("get_stability_mode").then(setStabilityMode).catch((e) => logger.warn("Failed to get stability mode", { error: e }));
     }
   }, [isOpen, advancedOpen]);
 
@@ -1213,6 +1220,43 @@ export default function SettingsPanel({
                         {crashLogMsg && (
                           <p className={`text-xs ${crashLogMsg.includes("Failed") ? "text-red-400" : "text-green-400"}`}>
                             {crashLogMsg}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Stability Mode — ESET / WebView2 crash escape hatch */}
+                      <div className="hd-setting-card space-y-2 mt-1">
+                        <div className="flex items-center justify-between">
+                          <div className="pr-3">
+                            <p className="text-xs font-medium" style={{ color: 'var(--hd-text)' }}>Stability Mode</p>
+                            <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>
+                              Reduces IPC pressure across the WebView2 boundary. Turn on if Hadron crashes during concurrent analyses or background JIRA polling. Trade-off: slower deep-scans, no background JIRA refresh.
+                            </p>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              className="sr-only peer"
+                              checked={stabilityMode}
+                              onChange={async (e) => {
+                                const next = e.target.checked;
+                                try {
+                                  const result = await invoke<boolean>("set_stability_mode", { enabled: next });
+                                  setStabilityMode(result);
+                                  setStabilityMsg(result ? "Stability mode enabled" : "Stability mode disabled");
+                                  safeTimeout(() => setStabilityMsg(null), 4000);
+                                } catch (err) {
+                                  setStabilityMsg(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+                                  safeTimeout(() => setStabilityMsg(null), 5000);
+                                }
+                              }}
+                            />
+                            <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-600"></div>
+                          </label>
+                        </div>
+                        {stabilityMsg && (
+                          <p className={`text-xs ${stabilityMsg.includes("Failed") ? "text-red-400" : "text-green-400"}`}>
+                            {stabilityMsg}
                           </p>
                         )}
                       </div>

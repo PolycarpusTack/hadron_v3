@@ -134,3 +134,17 @@ pub fn get_crash_log_dir() -> Result<String, String> {
 pub fn set_crash_log_dir(dir: String) -> Result<String, String> {
     crate::crash_handler::set_crash_log_dir(&dir).map(|p| p.to_string_lossy().to_string())
 }
+
+/// Read the stability-mode toggle (see `stability.rs` for what it changes).
+#[tauri::command]
+pub fn get_stability_mode() -> bool {
+    crate::stability::is_enabled()
+}
+
+/// Enable or disable stability mode. Writes %APPDATA%/hadron/stability.json
+/// synchronously so the value survives a crash-and-auto-restart cycle.
+#[tauri::command]
+pub fn set_stability_mode(enabled: bool) -> Result<bool, String> {
+    crate::stability::set_enabled(enabled)?;
+    Ok(enabled)
+}

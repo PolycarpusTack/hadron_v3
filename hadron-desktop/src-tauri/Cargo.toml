@@ -110,3 +110,11 @@ debug = 0
 lto = "thin"
 # Single codegen unit for better optimization
 codegen-units = 1
+# Emit line-table-only debug info so crash RVAs can be symbolised against the
+# PDB without the full ~4x size cost of `debug = "full"`. This adds ~10-30MB
+# to hadron_desktop.pdb (procedure + line records) but leaves the .exe
+# untouched. Required so the SEH handler's raw stack trace is actually
+# diagnosable after an ILLEGAL_INSTRUCTION abort.
+debug = "line-tables-only"
+# Do not strip — we want the PDB to carry the symbols for post-mortem.
+strip = false

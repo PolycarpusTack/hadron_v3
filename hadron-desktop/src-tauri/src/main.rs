@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ai_service;
+mod breadcrumbs;
 mod chat_commands;
 mod chat_tools;
 mod commands;
@@ -26,6 +27,7 @@ mod patterns;
 mod rag_commands;
 mod retrieval;
 mod signature;
+mod stability;
 // Token-safe analysis modules
 mod chunker;
 mod deep_scan;
@@ -200,6 +202,8 @@ fn main() {
             commands::info::get_file_stats,
             commands::info::get_crash_log_dir,
             commands::info::set_crash_log_dir,
+            commands::info::get_stability_mode,
+            commands::info::set_stability_mode,
             // ── CRUD ──
             commands::crud::get_all_analyses,
             commands::crud::get_analyses_paginated,

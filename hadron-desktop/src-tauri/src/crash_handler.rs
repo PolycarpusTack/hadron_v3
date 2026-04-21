@@ -112,6 +112,62 @@ pub fn set_crash_log_dir(dir: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Cap on auto-restarts in a single spawn chain. Shared between the panic
+/// hook (tao paint bug) and the SEH filter (ILLEGAL_INSTRUCTION — the
+/// `Arc::clone` refcount-overflow abort triggered when ESET's WebView2 hook
+/// destabilises COM-boundary state during concurrent analysis + release-notes
+/// + jira-poller activity; see commit 5e8e407 for the original diagnosis).
+/// The counter is passed via `HADRON_RESTART_COUNT` so a manually-launched
+/// app always starts at 0.
+const MAX_AUTO_RESTARTS: u32 = 2;
+
+/// Respawn the current executable with `HADRON_RESTART_COUNT` incremented,
+/// unless the cap has been reached. Returns `true` if a spawn was attempted.
+///
+/// Called from both the Rust panic hook and the Windows SEH filter. Uses
+/// `std::process::Command` which allocates — the SEH path accepts this
+/// because it already allocates for the `.dmp.err` fallback, and if the heap
+/// is too corrupt to spawn we degrade to the pre-existing "crash, no
+/// restart" behaviour with no regression.
+fn maybe_auto_restart(reason: &str) -> bool {
+    let restart_count: u32 = std::env::var("HADRON_RESTART_COUNT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    if restart_count >= MAX_AUTO_RESTARTS {
+        eprintln!(
+            "Hadron: suppressing auto-restart after {} ({} already this chain)",
+            reason, restart_count
+        );
+        return false;
+    }
+
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+
+    let spawned = std::process::Command::new(&exe)
+        .args(std::env::args().skip(1))
+        .env("HADRON_RESTART_COUNT", (restart_count + 1).to_string())
+        .spawn();
+
+    match spawned {
+        Ok(_) => {
+            eprintln!(
+                "Hadron: auto-restart #{} after {}",
+                restart_count + 1,
+                reason
+            );
+            true
+        }
+        Err(e) => {
+            eprintln!("Hadron: auto-restart spawn failed after {}: {}", reason, e);
+            false
+        }
+    }
+}
+
 /// Write a crash report to disk. Used by both the panic hook and the SEH handler.
 fn write_crash_report(header: &str, body: &str) {
     let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
@@ -149,7 +205,16 @@ pub fn install_panic_hook() {
         let backtrace = std::backtrace::Backtrace::force_capture();
         let body = format!("{}{}\nBacktrace:\n{}\n", panic_msg, location, backtrace);
 
+        crate::breadcrumbs::record("panic", format!("{}", panic_info));
+
         write_crash_report("Type: Rust panic\n", &body);
+
+        // Flush the breadcrumbs ring alongside the crash log. Same directory
+        // as the crash log, with a `.breadcrumbs` suffix tied to the
+        // timestamp so the log and the ring are easy to correlate.
+        let ts = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+        let crumbs_path = log_dir().join(format!("crash-{}.breadcrumbs", ts));
+        crate::breadcrumbs::dump_to(&crumbs_path);
 
         // Auto-restart for the known tao Windows event-loop re-entrancy bug.
         // https://github.com/tauri-apps/tao/issues/1140
@@ -163,25 +228,7 @@ pub fn install_panic_hook() {
             || panic_info.to_string().contains("flush_paint_messages");
 
         if is_tao_paint_bug {
-            const MAX_AUTO_RESTARTS: u32 = 2;
-            let restart_count: u32 = std::env::var("HADRON_RESTART_COUNT")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(0);
-
-            if restart_count < MAX_AUTO_RESTARTS {
-                if let Ok(exe) = std::env::current_exe() {
-                    let _ = std::process::Command::new(&exe)
-                        .args(std::env::args().skip(1))
-                        .env("HADRON_RESTART_COUNT", (restart_count + 1).to_string())
-                        .spawn();
-                }
-            } else {
-                eprintln!(
-                    "Hadron: suppressed auto-restart (already restarted {} times)",
-                    restart_count
-                );
-            }
+            let _ = maybe_auto_restart("tao paint bug");
         }
     }));
 }
@@ -266,6 +313,11 @@ mod windows_seh {
         fn GetCurrentThreadId() -> u32;
         fn GetCurrentProcess() -> *mut c_void;
         fn GetLastError() -> u32;
+        /// Milliseconds since boot. Combined with PID to give crash-filename
+        /// uniqueness within a single boot, so consecutive crashes at the
+        /// same PID (possible after `maybe_auto_restart`) don't overwrite
+        /// each other's diagnostic artifacts.
+        fn GetTickCount() -> u32;
         fn K32EnumProcessModules(
             h_process: *mut c_void,
             lph_module: *mut *mut c_void,
@@ -490,13 +542,18 @@ mod windows_seh {
     }
 
     /// Write a MiniDump file — single kernel call, no heap.
-    unsafe fn write_minidump(info: *mut ExceptionPointers) {
+    ///
+    /// `pid` and `tick` are captured once in `hadron_exception_filter` so
+    /// that the `.dmp`, `.log`, `.dmp.err`, and `.breadcrumbs` artifacts
+    /// from a single crash share one filename suffix and group correctly in
+    /// the log directory.
+    unsafe fn write_minidump(info: *mut ExceptionPointers, pid: u32, tick: u32) {
         let dump_dir = super::log_dir();
         let dump_path = format!(
-            "{}\\crash-{}.dmp",
+            "{}\\crash-{}-{}.dmp",
             dump_dir.display(),
-            // Use a simple counter instead of chrono to avoid allocation
-            unsafe { GetCurrentProcessId() }
+            pid,
+            tick
         );
 
         let mut wide_path = [0u16; 512];
@@ -529,7 +586,7 @@ mod windows_seh {
         let result = unsafe {
             MiniDumpWriteDump(
                 GetCurrentProcess(),
-                GetCurrentProcessId(),
+                pid,
                 h_file,
                 dump_type,
                 &exc_info,
@@ -542,9 +599,10 @@ mod windows_seh {
             // MiniDumpWriteDump failed — record the error code in a small .dmp.err file
             let err = unsafe { GetLastError() };
             let err_path = format!(
-                "{}\\crash-{}.dmp.err",
+                "{}\\crash-{}-{}.dmp.err",
                 dump_dir.display(),
-                unsafe { GetCurrentProcessId() }
+                pid,
+                tick
             );
             let err_msg = format!("MiniDumpWriteDump failed: GetLastError={}\n", err);
             // Best-effort write via std — this is after the minidump attempt
@@ -555,7 +613,11 @@ mod windows_seh {
     }
 
     /// Write the text crash report using only stack-allocated buffers.
-    unsafe fn write_text_report(record: &ExceptionRecord) {
+    ///
+    /// `pid` and `tick` are captured once in `hadron_exception_filter` so
+    /// this artifact groups with the matching `.dmp`, `.dmp.err`, and
+    /// `.breadcrumbs` from the same crash.
+    unsafe fn write_text_report(record: &ExceptionRecord, pid: u32, tick: u32) {
         use core::fmt::Write;
 
         let mut buf = StackBuf::new();
@@ -564,7 +626,7 @@ mod windows_seh {
 
         let _ = write!(buf, "=== HADRON CRASH REPORT ===\n");
         let _ = write!(buf, "Version: {}\n", env!("CARGO_PKG_VERSION"));
-        let _ = write!(buf, "PID: {}\n\n", unsafe { GetCurrentProcessId() });
+        let _ = write!(buf, "PID: {}\n\n", pid);
         let _ = write!(
             buf,
             "Type: Windows SEH exception\nException: {} (0x{:08X})\nAddress: 0x{:016X}\n\n",
@@ -610,12 +672,15 @@ mod windows_seh {
         let _ = write!(buf, "\nA .dmp minidump file was also written (if dbghelp.dll is available).\n");
         let _ = write!(buf, "Open the .dmp in WinDbg or Visual Studio for full stack + module info.\n");
 
-        // Write to file via kernel32 (no std::fs allocation)
+        // Write to file via kernel32 (no std::fs allocation). PID + tick so
+        // two crashes at the same PID within one boot keep separate files —
+        // same rationale as in write_minidump.
         let log_dir = super::log_dir();
         let text_path = format!(
-            "{}\\crash-{}.log",
+            "{}\\crash-{}-{}.log",
             log_dir.display(),
-            unsafe { GetCurrentProcessId() }
+            pid,
+            tick
         );
         let mut wide_path = [0u16; 512];
         path_to_wide(&text_path, &mut wide_path);
@@ -658,12 +723,46 @@ mod windows_seh {
             return EXCEPTION_CONTINUE_SEARCH;
         }
 
+        // Capture the PID+tick once so the .dmp / .log / .dmp.err /
+        // .breadcrumbs all share the same suffix. Consecutive GetTickCount()
+        // calls within this filter can differ by ms, which would de-group
+        // the artifacts from a single crash.
+        let pid = unsafe { GetCurrentProcessId() };
+        let tick = unsafe { GetTickCount() };
+
         // 1. Write minidump first — single kernel call, most robust
-        unsafe { write_minidump(info) };
+        unsafe { write_minidump(info, pid, tick) };
 
         // 2. Write minimal text report using stack-allocated buffer
         let record = unsafe { &*(*info).exception_record };
-        unsafe { write_text_report(record) };
+        unsafe { write_text_report(record, pid, tick) };
+
+        // 3. Record the abort kind in breadcrumbs (in case the crash log
+        //    itself is lost) and dump the ring next to the crash log. This
+        //    heap-allocates, which is the same tradeoff write_crash_report
+        //    and the .dmp.err fallback already make — if the heap is too
+        //    corrupt, we degrade silently to the pre-existing behaviour.
+        crate::breadcrumbs::record(
+            "abort",
+            format!(
+                "seh code=0x{:08X} addr=0x{:016X}",
+                record.exception_code,
+                record.exception_address as usize,
+            ),
+        );
+        let crumbs_path = super::log_dir()
+            .join(format!("crash-{}-{}.breadcrumbs", pid, tick));
+        crate::breadcrumbs::dump_to(&crumbs_path);
+
+        // 4. Auto-restart for ILLEGAL_INSTRUCTION only. This is the signature
+        //    of the ESET-WebView2-Arc-corruption pattern where a background
+        //    command handler hits `Arc::clone`'s refcount-overflow abort
+        //    (`mov 0x7, %ecx; int 0x29; ud2`). Access violations, stack
+        //    overflows, etc. are NOT auto-restarted — those usually indicate
+        //    genuine logic bugs worth surfacing loudly.
+        if record.exception_code == EXCEPTION_ILLEGAL_INSTRUCTION {
+            let _ = super::maybe_auto_restart("SEH ILLEGAL_INSTRUCTION");
+        }
 
         EXCEPTION_CONTINUE_SEARCH
     }

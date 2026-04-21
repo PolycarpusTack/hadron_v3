@@ -415,8 +415,24 @@ async fn run_rag_cli_command(
     input: &serde_json::Value,
     api_key: &str,
 ) -> Result<serde_json::Value, String> {
-    // Verify CLI script exists before proceeding
-    let _cli_script = get_rag_cli_path()?;
+    // Resolve the CLI script path. `python -m python.rag.cli` needs its cwd
+    // set to the directory that contains the `python/` package, otherwise
+    // the import fails with ModuleNotFoundError — which is what the
+    // installed app used to do when the cwd came from
+    // `std::env::current_dir()` (the directory the user launched from, not
+    // the install dir).
+    let cli_script = get_rag_cli_path()?;
+    let python_pkg_root = cli_script
+        .parent() // <base>/python/rag
+        .and_then(|p| p.parent()) // <base>/python
+        .and_then(|p| p.parent()) // <base>
+        .ok_or_else(|| {
+            format!(
+                "Could not derive python package root from {}",
+                cli_script.display()
+            )
+        })?
+        .to_path_buf();
 
     // SECURITY: Pass API key via stdin payload, not environment
     let stdin_payload = serde_json::json!({
@@ -446,10 +462,12 @@ async fn run_rag_cli_command(
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    // Set working directory to project root
-    if let Ok(project_root) = get_project_root() {
-        cmd.current_dir(project_root);
-    }
+    // Set working directory to the `python/` parent so that
+    // `python -m python.rag.cli` resolves the package. Derived from the
+    // located cli.py, not from `std::env::current_dir()`, so it works the
+    // same in dev and in the installed bundle regardless of where the user
+    // launched the app from.
+    cmd.current_dir(&python_pkg_root);
 
     // Spawn process
     let mut child = cmd
@@ -577,26 +595,20 @@ fn get_rag_cli_path() -> Result<PathBuf, String> {
     }
 }
 
-/// Get project root directory
-fn get_project_root() -> Result<PathBuf, String> {
-    let mut path = std::env::current_dir()
-        .map_err(|e| format!("Failed to get current directory: {}", e))?;
-
-    // If we're in src-tauri, go up one level
-    if path.ends_with("src-tauri") {
-        path.pop();
-    }
-
-    Ok(path)
-}
-
-/// Get RAG storage path
+/// Get RAG storage path. Derived from the located `cli.py` so it points into
+/// the real install dir in production rather than wherever the user launched
+/// the app from.
 fn get_rag_storage_path() -> Result<PathBuf, String> {
-    let mut path = get_project_root()?;
-    path.push("python");
-    path.push("rag");
-    path.push("chroma_data");
-    Ok(path)
+    let cli_script = get_rag_cli_path()?;
+    let rag_dir = cli_script
+        .parent() // <base>/python/rag
+        .ok_or_else(|| {
+            format!(
+                "Could not derive rag dir from {}",
+                cli_script.display()
+            )
+        })?;
+    Ok(rag_dir.join("chroma_data"))
 }
 
 // ============================================================================

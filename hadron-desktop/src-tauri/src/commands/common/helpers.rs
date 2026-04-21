@@ -85,8 +85,8 @@ pub fn emit_progress(app: &AppHandle, progress: AnalysisProgress) {
 
     if !is_terminal {
         let prev = LAST_PROGRESS_EMIT_MS.load(Ordering::Relaxed);
-
-        if now.saturating_sub(prev) < PROGRESS_DEBOUNCE_MS {
+        // Debounce is dynamic — stability mode widens it from 150ms to 1s.
+        if now.saturating_sub(prev) < crate::stability::progress_debounce_ms() {
             return; // skip — too soon since last emit
         }
         LAST_PROGRESS_EMIT_MS.store(now, Ordering::Relaxed);

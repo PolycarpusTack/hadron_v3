@@ -2760,10 +2760,9 @@ async fn analyze_deep_scan(
     //
     // Each in-flight chunk streams tokens back to the UI over the WebView2
     // COM boundary; running 4 in parallel saturated the boundary under ESET
-    // and caused intermittent crashes during deep scans. Halving the fan-out
-    // roughly halves peak IPC rate and only marginally extends total time,
-    // since chunks are already overlapped.
-    const PARALLEL_CHUNK_LIMIT: usize = 2;
+    // and caused intermittent crashes during deep scans. Default is 2; the
+    // stability-mode toggle drops it to 1 for users who still see crashes.
+    let parallel_chunk_limit = crate::stability::parallel_chunk_limit();
 
     // Use Arc<str> to avoid cloning strings for each chunk future
     // This is O(1) reference counting vs O(n) string copying
@@ -2783,6 +2782,10 @@ async fn analyze_deep_scan(
             let chunk_index = chunk.index;
 
             async move {
+                crate::breadcrumbs::record(
+                    "chunk",
+                    format!("deep-scan idx={} provider={}", chunk_index, provider_ref),
+                );
                 // Call provider with raw response
                 // Arc<str> derefs to str, use &* to get &str
                 let response: Result<String, String> = match &*provider_ref {
@@ -2853,7 +2856,7 @@ async fn analyze_deep_scan(
 
     // Process chunks in parallel with concurrency limit
     let chunk_analyses: Vec<ChunkAnalysis> = stream::iter(chunk_futures)
-        .buffer_unordered(PARALLEL_CHUNK_LIMIT)
+        .buffer_unordered(parallel_chunk_limit)
         .collect()
         .await;
 

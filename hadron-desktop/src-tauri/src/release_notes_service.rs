@@ -192,7 +192,8 @@ pub struct ProgressEvent {
 // `commands/common/helpers.rs::emit_progress` and keeps the combined IPC
 // rate under the threshold that destabilises ESET's hook.
 
-use crate::commands::common::helpers::PROGRESS_DEBOUNCE_MS;
+// Debounce interval now lives in `crate::stability::progress_debounce_ms()`
+// so the toggle propagates to this service too.
 use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -221,12 +222,17 @@ pub fn emit_progress_with_request(
     if !is_terminal {
         let now = now_ms_rn();
         let prev = LAST_RN_EMIT_MS.load(Ordering::Relaxed);
-        if now.saturating_sub(prev) < PROGRESS_DEBOUNCE_MS {
+        // Debounce is dynamic — stability mode widens it from 150ms to 1s.
+        if now.saturating_sub(prev) < crate::stability::progress_debounce_ms() {
             return; // skip — too soon since last emit
         }
         LAST_RN_EMIT_MS.store(now, Ordering::Relaxed);
     }
 
+    crate::breadcrumbs::record(
+        "emit",
+        format!("release-notes-progress phase={:?} pct={:.0}", phase, progress * 100.0),
+    );
     let event = ProgressEvent {
         phase,
         progress,
