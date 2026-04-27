@@ -13,6 +13,7 @@ license.workspace = true
 [dependencies]
 hadron-core = { path = "../hadron-core" }
 hadron-mcp = { path = "../hadron-mcp" }
+hadron-investigation = { path = "../hadron-investigation" }
 
 # Web framework
 axum = { version = "0.8", features = ["multipart", "macros"] }

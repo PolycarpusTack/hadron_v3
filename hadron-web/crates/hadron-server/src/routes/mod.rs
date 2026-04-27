@@ -11,6 +11,7 @@ mod export;
 mod feedback;
 mod gold;
 mod integrations;
+mod investigation;
 mod jira_analysis;
 mod jira_poller;
 pub(crate) mod mcp;
@@ -154,6 +155,13 @@ pub fn api_router() -> Router<AppState> {
         .route("/jira/issues/{key}/post-brief/preview", post(jira_analysis::preview_brief_for_jira))
         .route("/jira/issues/{key}/post-brief", post(jira_analysis::post_brief_to_jira))
         .route("/jira/briefs/{key}/feedback", put(jira_analysis::submit_feedback))
+        // Investigation
+        .route("/investigation/ticket", post(investigation::post_investigate_ticket))
+        .route("/investigation/regression-family", post(investigation::post_investigate_regression))
+        .route("/investigation/expected-behavior", post(investigation::post_investigate_expected))
+        .route("/investigation/customer-history", post(investigation::post_investigate_customer))
+        .route("/confluence/search", post(investigation::post_confluence_search))
+        .route("/confluence/content/:id", get(investigation::get_confluence_page_handler))
         // Sentry integration
         .route("/sentry/test", post(integrations::sentry_test))
         .route("/sentry/projects", get(integrations::sentry_projects))
