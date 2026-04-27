@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/hadron-core", "crates/hadron-mcp", "crates/hadron-server"]
+members = ["crates/hadron-core", "crates/hadron-mcp", "crates/hadron-server", "crates/hadron-investigation"]
 resolver = "2"
 
 [workspace.package]

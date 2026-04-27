@@ -66,6 +66,7 @@ hex = "0.4"
 
 # MCP server
 hadron-mcp = { path = "../../hadron-web/crates/hadron-mcp" }
+hadron-investigation = { path = "../../hadron-web/crates/hadron-investigation" }
 async-trait = "0.1"
 
 # Better mutex implementation (no poisoning, faster)

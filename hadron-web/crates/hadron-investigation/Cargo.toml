@@ -1,0 +1,18 @@
+[package]
+name = "hadron-investigation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = "0.4"
+base64 = "0.22"
+futures = "0.3"
+zip = "2.1"
+lopdf = "0.32"
+roxmltree = "0.19"
+regex = "1.10"
