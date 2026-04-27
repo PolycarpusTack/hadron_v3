@@ -24,7 +24,7 @@ pub async fn get_issue_full(
     _client: &AtlassianClient,
     _key: &str,
 ) -> Result<IssueFullContext, InvestigationError> {
-    Err(InvestigationError::Other("stub".into()))
+    Err(InvestigationError::JiraApi("stub".into()))
 }
 
 pub async fn search_jql(

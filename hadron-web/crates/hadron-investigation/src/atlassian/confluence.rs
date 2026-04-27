@@ -13,5 +13,5 @@ pub async fn get_confluence_content(
     _client: &AtlassianClient,
     _id: &str,
 ) -> Result<ConfluenceDoc, InvestigationError> {
-    Err(InvestigationError::Other("stub".into()))
+    Err(InvestigationError::ConfluenceApi("stub".into()))
 }
