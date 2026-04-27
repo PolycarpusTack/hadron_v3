@@ -24,6 +24,7 @@ pub mod tags;
 
 // Feature modules
 pub mod gold_answers;
+pub mod investigation;
 pub mod jira;
 pub mod jira_assist;
 pub mod keeper;

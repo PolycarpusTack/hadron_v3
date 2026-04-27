@@ -409,6 +409,13 @@ fn main() {
             widget_commands::move_widget,
             widget_commands::is_main_window_visible,
             widget_commands::set_hover_button_enabled,
+            // ── Investigation ──
+            commands::investigation::investigate_jira_ticket,
+            commands::investigation::investigate_jira_regression_family,
+            commands::investigation::investigate_jira_expected_behavior,
+            commands::investigation::investigate_jira_customer_history,
+            commands::investigation::search_confluence_docs,
+            commands::investigation::get_confluence_page,
             // ── JIRA Assist ──
             commands::jira_assist::get_ticket_brief,
             commands::jira_assist::get_ticket_briefs_batch,
