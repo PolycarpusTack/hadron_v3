@@ -1,3 +1,5 @@
+//! Tauri commands wrapping hadron-investigation orchestrators.
+
 use hadron_investigation::{
     atlassian::{
         confluence::{get_confluence_content, search_confluence},
@@ -45,6 +47,7 @@ pub async fn investigate_jira_ticket(
     mod_docs_homepage_id: Option<String>,
     mod_docs_space_path: Option<String>,
 ) -> Result<InvestigationDossier, String> {
+    log::debug!("cmd: investigate_jira_ticket key={}", key);
     let config = make_config(
         base_url, email, api_token,
         confluence_url, confluence_email, confluence_token,
@@ -68,6 +71,7 @@ pub async fn investigate_jira_regression_family(
     mod_docs_homepage_id: Option<String>,
     mod_docs_space_path: Option<String>,
 ) -> Result<InvestigationDossier, String> {
+    log::debug!("cmd: investigate_jira_regression_family key={}", key);
     let config = make_config(
         base_url, email, api_token,
         confluence_url, confluence_email, confluence_token,
@@ -92,6 +96,7 @@ pub async fn investigate_jira_expected_behavior(
     mod_docs_homepage_id: Option<String>,
     mod_docs_space_path: Option<String>,
 ) -> Result<InvestigationDossier, String> {
+    log::debug!("cmd: investigate_jira_expected_behavior key={} query={}", key, query);
     let config = make_config(
         base_url, email, api_token,
         confluence_url, confluence_email, confluence_token,
@@ -115,6 +120,7 @@ pub async fn investigate_jira_customer_history(
     mod_docs_homepage_id: Option<String>,
     mod_docs_space_path: Option<String>,
 ) -> Result<InvestigationDossier, String> {
+    log::debug!("cmd: investigate_jira_customer_history key={}", key);
     let config = make_config(
         base_url, email, api_token,
         confluence_url, confluence_email, confluence_token,
@@ -137,6 +143,7 @@ pub async fn search_confluence_docs(
     confluence_email: Option<String>,
     confluence_token: Option<String>,
 ) -> Result<Vec<ConfluenceDoc>, String> {
+    log::debug!("cmd: search_confluence_docs query={}", query);
     let config = make_config(
         base_url, email, api_token,
         confluence_url, confluence_email, confluence_token,
@@ -144,7 +151,7 @@ pub async fn search_confluence_docs(
     );
     let client = AtlassianClient::new(config);
     let cql = if let Some(space) = space_key.filter(|s| !s.is_empty()) {
-        format!("space = {} AND text ~ \"{}\"", space, query.replace('"', "'"))
+        format!("space = \"{}\" AND text ~ \"{}\"", space, query.replace('"', "'"))
     } else {
         format!("text ~ \"{}\"", query.replace('"', "'"))
     };
@@ -163,6 +170,7 @@ pub async fn get_confluence_page(
     confluence_email: Option<String>,
     confluence_token: Option<String>,
 ) -> Result<ConfluenceDoc, String> {
+    log::debug!("cmd: get_confluence_page id={}", content_id);
     let config = make_config(
         base_url, email, api_token,
         confluence_url, confluence_email, confluence_token,
