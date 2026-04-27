@@ -1,5 +1,5 @@
 use crate::atlassian::jira::IssueFullContext;
-use crate::investigation::evidence::{Confidence, EvidenceClaim, Hypothesis};
+use crate::investigation::evidence::{EvidenceClaim, Hypothesis};
 
 pub fn build_claims_from_issue(_issue: &IssueFullContext) -> Vec<EvidenceClaim> {
     vec![]
