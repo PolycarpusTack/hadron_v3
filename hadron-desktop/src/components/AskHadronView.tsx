@@ -67,6 +67,7 @@ const CONTEXTUAL_STARTERS = [
   "Find similar crashes to this one",
   "What JIRA tickets relate to this crash?",
   "Suggest a fix for this issue",
+  "Investigate this JIRA ticket",
 ];
 
 // ============================================================================
@@ -90,6 +91,12 @@ const TOOL_LABELS: Record<string, string> = {
   search_jira: "Searching JIRA issues",
   create_jira_ticket: "Creating JIRA ticket",
   search_gold_answers: "Checking verified answers",
+  investigate_jira_ticket: "Investigating ticket",
+  investigate_regression_family: "Analysing regression family",
+  investigate_expected_behavior: "Looking up expected behaviour",
+  investigate_customer_history: "Fetching customer history",
+  search_confluence: "Searching Confluence",
+  get_confluence_page: "Fetching Confluence page",
 };
 
 // ============================================================================
