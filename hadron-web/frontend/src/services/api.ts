@@ -1804,6 +1804,16 @@ class ApiClient {
     return this.request("DELETE", `/performance/analyses/${id}`);
   }
 
+  // === Generic HTTP conveniences (for external service modules) ===
+
+  async get<T>(path: string): Promise<T> {
+    return this.request<T>("GET", path);
+  }
+
+  async post<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>("POST", path, body);
+  }
+
   // === RAG / Search ===
 
   async searchHybrid(query: string, limit?: number): Promise<SearchHitResult[]> {
