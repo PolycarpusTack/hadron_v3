@@ -164,3 +164,4 @@ hadron-desktop/WHATS_ON_Crash_Analyzer_Enhanced*.html
 # ----------------------------------------------
 pgdata/
 hadron-web/pgdata/
+.worktrees/
