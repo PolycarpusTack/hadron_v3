@@ -1340,8 +1340,29 @@ async fn execute_search_jira(
         .to_string();
     let max_results = args["max_results"].as_i64().unwrap_or(5) as i32;
 
-    // If the query doesn't look like JQL (no operators), wrap it as a text search
-    let jql = if query.contains('=') || query.contains("ORDER BY") || query.starts_with("project") {
+    // Detect bare JIRA ticket keys (e.g. "MGX-56673") — full-text search returns 0 results
+    // for exact keys; they require `key =` lookup.
+    let looks_like_ticket_key = {
+        let trimmed = query.trim();
+        if !trimmed.contains(' ') {
+            if let Some(dash_pos) = trimmed.find('-') {
+                let project = &trimmed[..dash_pos];
+                let number = &trimmed[dash_pos + 1..];
+                !project.is_empty()
+                    && project.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+                    && project.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+                    && !number.is_empty()
+                    && number.chars().all(|c| c.is_ascii_digit())
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    };
+    let jql = if looks_like_ticket_key {
+        format!("key = \"{}\" ORDER BY updated DESC", query.trim())
+    } else if query.contains('=') || query.contains("ORDER BY") || query.starts_with("project") {
         query.clone()
     } else {
         format!("text ~ \"{}\" ORDER BY updated DESC", query.replace('"', "\\\""))

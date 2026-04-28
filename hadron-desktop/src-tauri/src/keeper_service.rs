@@ -348,7 +348,8 @@ pub fn initialize_keeper(
         KSMCache::None,
     );
 
-    let mut secrets_manager = SecretsManager::new(options)
+    let mut secrets_manager = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| SecretsManager::new(options)))
+        .map_err(|_| "Keeper config file is corrupt or empty — please reconfigure Keeper in Settings".to_string())?
         .map_err(|e| format!("Failed to create Keeper client: {}", format_keeper_error(e)))?;
 
     // Perform initial fetch to bind the token (required by Keeper)
@@ -408,7 +409,8 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
 
     let options = ClientOptions::new_client_options(storage);
 
-    let mut secrets_manager = SecretsManager::new(options)
+    let mut secrets_manager = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| SecretsManager::new(options)))
+        .map_err(|_| "Keeper config file is corrupt or empty — please reconfigure Keeper in Settings".to_string())?
         .map_err(|e| format!("Failed to create Keeper client: {}", format_keeper_error(e)))?;
 
     let secrets = secrets_manager
@@ -491,7 +493,8 @@ pub fn get_api_key_from_keeper(secret_uid: &str) -> Result<Zeroizing<String>, St
 
     let options = ClientOptions::new_client_options(storage);
 
-    let mut secrets_manager = SecretsManager::new(options)
+    let mut secrets_manager = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| SecretsManager::new(options)))
+        .map_err(|_| "Keeper config file is corrupt or empty — please reconfigure Keeper in Settings".to_string())?
         .map_err(|e| format!("Failed to create Keeper client: {}", format_keeper_error(e)))?;
 
     // Fetch specific secret by UID
