@@ -1560,10 +1560,10 @@ async fn execute_search_confluence(
         format!(
             "space = {} AND text ~ {}",
             hadron_investigation::atlassian::jira::quote_jql_literal(&space),
-            hadron_investigation::atlassian::jira::quote_jql_literal(query)
+            hadron_investigation::atlassian::jira::quote_jql_literal(&query)
         )
     } else {
-        format!("text ~ {}", hadron_investigation::atlassian::jira::quote_jql_literal(query))
+        format!("text ~ {}", hadron_investigation::atlassian::jira::quote_jql_literal(&query))
     };
     let docs = hadron_investigation::atlassian::confluence::search_confluence(&client, &cql, limit)
         .await
