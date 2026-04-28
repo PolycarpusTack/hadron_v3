@@ -347,6 +347,12 @@ pub async fn update_sentry_config(
     require_role(&user, Role::Admin)?;
 
     if let Some(ref base_url) = req.base_url {
+        if !base_url.is_empty() {
+            if !base_url.starts_with("https://") {
+                return Err(AppError(hadron_core::error::HadronError::validation("Sentry base URL must use https://".to_string())));
+            }
+            super::integrations::ensure_integration_host_allowed(base_url, "Sentry", "SENTRY_ALLOWED_HOSTS")?;
+        }
         db::set_global_setting(&state.db, "sentry_base_url", base_url, user.user.id).await?;
     }
 
@@ -581,6 +587,19 @@ pub async fn update_investigation_settings(
     Json(body): Json<UpdateInvestigationSettingsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Admin)?;
+    for (url, label, env_var) in [
+        (body.confluence_override_url.as_deref(), "Confluence override", "CONFLUENCE_ALLOWED_HOSTS"),
+        (body.whatson_kb_url.as_deref(), "WHATS'ON KB", "WHATSON_ALLOWED_HOSTS"),
+    ] {
+        if let Some(u) = url.filter(|s| !s.is_empty()) {
+            if !u.starts_with("https://") {
+                return Err(AppError(hadron_core::error::HadronError::validation(
+                    format!("{label} URL must use https"),
+                )));
+            }
+            super::integrations::ensure_integration_host_allowed(u, label, env_var)?;
+        }
+    }
     db::update_investigation_settings(
         &state.db,
         body.confluence_override_url.as_deref(),

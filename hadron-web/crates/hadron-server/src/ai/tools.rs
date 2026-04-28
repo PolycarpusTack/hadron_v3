@@ -710,9 +710,13 @@ pub async fn execute_tool(
             let config = load_investigation_config(pool).await?;
             let client = hadron_investigation::atlassian::AtlassianClient::new(config);
             let cql = if let Some(space) = space_key.filter(|s| !s.is_empty()) {
-                format!("space = \"{}\" AND text ~ \"{}\"", space, query.replace('"', "'"))
+                format!(
+                    "space = {} AND text ~ {}",
+                    hadron_investigation::atlassian::jira::quote_jql_literal(space),
+                    hadron_investigation::atlassian::jira::quote_jql_literal(query)
+                )
             } else {
-                format!("text ~ \"{}\"", query.replace('"', "'"))
+                format!("text ~ {}", hadron_investigation::atlassian::jira::quote_jql_literal(query))
             };
             let docs = hadron_investigation::atlassian::confluence::search_confluence(&client, &cql, limit)
                 .await

@@ -135,16 +135,42 @@ impl AtlassianClient {
     }
 
     pub async fn jira_get_bytes(&self, url: &str) -> Result<Vec<u8>, InvestigationError> {
+        // SECURITY: validate the attachment URL host matches the configured JIRA
+        // host before sending Basic Auth credentials. The URL comes from
+        // JIRA's attachment[].content field, which is attacker-controllable.
+        let parsed = reqwest::Url::parse(url).map_err(|_| {
+            InvestigationError::JiraApi("Invalid attachment URL".into())
+        })?;
+        if parsed.scheme() != "https" {
+            return Err(InvestigationError::JiraApi(
+                "Attachment URL must use https".into(),
+            ));
+        }
+        let configured = reqwest::Url::parse(&self.config.jira_base_url).map_err(|_| {
+            InvestigationError::JiraApi("Invalid configured JIRA base URL".into())
+        })?;
+        let same_host = parsed
+            .host_str()
+            .zip(configured.host_str())
+            .map(|(a, b)| a.eq_ignore_ascii_case(b))
+            .unwrap_or(false);
+        let same_port = parsed.port_or_known_default() == configured.port_or_known_default();
+        if !same_host || !same_port {
+            return Err(InvestigationError::JiraApi(
+                "Attachment host does not match configured JIRA host".into(),
+            ));
+        }
+
         let resp = self
             .client
-            .get(url)
+            .get(parsed.clone())
             .header("Authorization", format!("Basic {}", self.jira_auth()))
             .send()
             .await?;
         if !resp.status().is_success() {
             return Err(InvestigationError::JiraApi(format!(
                 "GET {} returned {}",
-                url,
+                parsed.path(),
                 resp.status()
             )));
         }

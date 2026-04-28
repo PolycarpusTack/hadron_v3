@@ -1,7 +1,9 @@
 use crate::investigation::evidence::ExtractionStatus;
 use super::AtlassianClient;
 
-const MAX_BYTES: usize = 8 * 1024; // 8 KB
+const MAX_BYTES: usize = 8 * 1024; // 8 KB per extracted output
+const ENTRY_HARD_CAP: u64 = 64 * 1024; // 64 KB max uncompressed read per entry (matches output budget)
+const MAX_ZIP_ENTRIES: usize = 512; // guard against archives with millions of entries
 
 pub struct AttachmentExtractResult {
     pub text: Option<String>,
@@ -108,7 +110,8 @@ fn extract_zip(bytes: &[u8]) -> (Option<String>, ExtractionStatus) {
     };
     let mut parts: Vec<String> = Vec::new();
     let mut total = 0usize;
-    for i in 0..archive.len() {
+    let entry_count = archive.len().min(MAX_ZIP_ENTRIES);
+    for i in 0..entry_count {
         if total >= MAX_BYTES {
             break;
         }
@@ -128,7 +131,7 @@ fn extract_zip(bytes: &[u8]) -> (Option<String>, ExtractionStatus) {
         }
         use std::io::Read;
         let mut buf = Vec::new();
-        if entry.read_to_end(&mut buf).is_ok() {
+        if entry.by_ref().take(ENTRY_HARD_CAP).read_to_end(&mut buf).is_ok() {
             let s = String::from_utf8_lossy(&buf).to_string();
             total += s.len();
             parts.push(format!("=== {} ===\n{}", entry.name(), s));
@@ -151,7 +154,7 @@ fn extract_docx(bytes: &[u8]) -> (Option<String>, ExtractionStatus) {
     match archive.by_name("word/document.xml") {
         Ok(mut entry) => {
             use std::io::Read;
-            if entry.read_to_string(&mut xml_content).is_err() {
+            if entry.by_ref().take(ENTRY_HARD_CAP).read_to_string(&mut xml_content).is_err() {
                 return (None, ExtractionStatus::Failed("docx read failed".into()));
             }
         }

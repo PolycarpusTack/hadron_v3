@@ -4,6 +4,21 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
+/// Strip model-specific control tokens from JIRA/Confluence text that could
+/// be used for prompt injection if the content is passed to an LLM.
+pub fn sanitize_for_prompt(s: &str) -> String {
+    const CONTROL_TOKENS: &[&str] = &[
+        "<|endoftext|>", "<|im_start|>", "<|im_end|>",
+        "[INST]", "[/INST]", "<<SYS>>", "<</SYS>>",
+        "\u{0000}", "\u{E000}",
+    ];
+    let mut out = s.to_string();
+    for token in CONTROL_TOKENS {
+        out = out.replace(token, "");
+    }
+    out
+}
+
 static ENTITY_RE: OnceLock<Regex> = OnceLock::new();
 
 fn entity_re() -> &'static Regex {
@@ -16,17 +31,18 @@ pub fn build_claims_from_issue(issue: &IssueFullContext) -> Vec<EvidenceClaim> {
     let mut claims = Vec::new();
 
     if !issue.description.is_empty() {
+        let desc = sanitize_for_prompt(&issue.description);
         claims.push(EvidenceClaim {
-            text: format!("Description: {}", truncate_claim(&issue.description, 400)),
+            text: format!("Description: {}", truncate_claim(&desc, 400)),
             category: EvidenceCategory::ObservedBehavior,
-            entities: extract_entities(&issue.description),
+            entities: extract_entities(&desc),
         });
     }
 
     for (key, summary, rel) in &issue.issue_links {
         if !key.is_empty() {
             claims.push(EvidenceClaim {
-                text: format!("Linked issue {}: {} ({})", key, summary, rel),
+                text: format!("Linked issue {}: {} ({})", key, sanitize_for_prompt(summary), rel),
                 category: EvidenceCategory::LinkedContext,
                 entities: vec![key.clone()],
             });
@@ -35,23 +51,24 @@ pub fn build_claims_from_issue(issue: &IssueFullContext) -> Vec<EvidenceClaim> {
 
     for link in &issue.remote_links {
         claims.push(EvidenceClaim {
-            text: format!("Remote link: {}", link),
+            text: format!("Remote link: {}", sanitize_for_prompt(link)),
             category: EvidenceCategory::LinkedContext,
             entities: vec![],
         });
     }
 
     for comment in &issue.comments {
+        let clean = sanitize_for_prompt(comment);
         claims.push(EvidenceClaim {
-            text: truncate_claim(comment, 300),
+            text: truncate_claim(&clean, 300),
             category: EvidenceCategory::IssueComment,
-            entities: extract_entities(comment),
+            entities: extract_entities(&clean),
         });
     }
 
     for entry in &issue.changelog_entries {
         claims.push(EvidenceClaim {
-            text: entry.clone(),
+            text: sanitize_for_prompt(entry),
             category: EvidenceCategory::LinkedContext,
             entities: vec![],
         });

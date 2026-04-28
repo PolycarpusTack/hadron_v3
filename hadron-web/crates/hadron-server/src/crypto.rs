@@ -59,7 +59,7 @@ pub fn encrypt_value(plaintext: &str) -> HadronResult<String> {
 /// Decrypt a value. If not prefixed with "enc:", returns as-is (unencrypted/legacy).
 pub fn decrypt_value(stored: &str) -> HadronResult<String> {
     let Some(hex_data) = stored.strip_prefix("enc:") else {
-        // Not encrypted — return as-is
+        tracing::warn!("decrypt_value: returning unencrypted legacy value — re-save after setting SERVER_ENCRYPTION_KEY");
         return Ok(stored.to_string());
     };
 

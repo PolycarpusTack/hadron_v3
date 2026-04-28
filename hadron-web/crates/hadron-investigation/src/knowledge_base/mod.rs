@@ -17,6 +17,9 @@ struct KbTopic {
 
 pub async fn search_kb(config: &InvestigationConfig, query: &str) -> Vec<String> {
     let base_url = config.whatson_kb_url();
+    if base_url.is_empty() || !base_url.starts_with("https://") {
+        return vec![];
+    }
     let index_url = format!("{}/index.json", base_url.trim_end_matches('/'));
 
     let client = match Client::builder()

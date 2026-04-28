@@ -220,6 +220,10 @@ async fn main() -> anyhow::Result<()> {
             axum::http::header::HeaderName::from_static("referrer-policy"),
             axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
         ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::HeaderName::from_static("strict-transport-security"),
+            axum::http::HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        ))
         .layer(cors_layer());
 
     // Serve frontend static files in production

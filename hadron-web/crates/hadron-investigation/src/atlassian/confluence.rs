@@ -76,7 +76,7 @@ pub async fn get_related_content(
     let terms: Vec<String> = entities
         .iter()
         .take(4)
-        .map(|e| format!("\"{}\"", e))
+        .map(|e| crate::atlassian::jira::quote_jql_literal(e))
         .collect();
     let cql = format!("text ~ ({})", terms.join(" OR "));
     search_confluence(client, &cql, limit)
@@ -91,9 +91,9 @@ pub async fn search_mod_docs(
 ) -> Vec<ConfluenceDoc> {
     let homepage_id = client.config.mod_docs_homepage_id().to_string();
     let cql = format!(
-        "ancestor = {} AND text ~ \"{}\"",
+        "ancestor = {} AND text ~ {}",
         homepage_id,
-        query.replace('"', "'")
+        crate::atlassian::jira::quote_jql_literal(query)
     );
     search_confluence(client, &cql, limit)
         .await
@@ -113,16 +113,8 @@ pub async fn get_mod_page(
 }
 
 fn urlencoded(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            ' ' => '+'.to_string(),
-            '"' => "%22".to_string(),
-            '&' => "%26".to_string(),
-            '=' => "%3D".to_string(),
-            '+' => "%2B".to_string(),
-            _ => c.to_string(),
-        })
-        .collect()
+    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+    utf8_percent_encode(s, NON_ALPHANUMERIC).to_string()
 }
 
 fn strip_tags(s: &str) -> String {

@@ -11,9 +11,11 @@ use serde::Deserialize;
 use crate::AppState;
 use crate::auth::AuthenticatedUser;
 use crate::db;
+use hadron_core::models::Role;
 use hadron_investigation::{
     atlassian::{
         confluence::{get_confluence_content, search_confluence},
+        jira::{is_valid_ticket_key, quote_jql_literal},
         AtlassianClient, InvestigationConfig,
     },
     investigate_customer_history, investigate_expected_behavior,
@@ -78,11 +80,23 @@ async fn load_config(state: &AppState) -> Result<InvestigationConfig, (StatusCod
     })
 }
 
+fn require_lead(user: &AuthenticatedUser) -> Option<axum::response::Response> {
+    if user.user.role < Role::Lead {
+        Some((StatusCode::FORBIDDEN, "Investigation requires Lead role or above").into_response())
+    } else {
+        None
+    }
+}
+
 pub async fn post_investigate_ticket(
     State(state): State<AppState>,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     Json(body): Json<TicketRequest>,
 ) -> impl IntoResponse {
+    if let Some(r) = require_lead(&user) { return r; }
+    if !is_valid_ticket_key(&body.ticket_key) {
+        return (StatusCode::BAD_REQUEST, "Invalid ticket key format".to_string()).into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
@@ -95,9 +109,13 @@ pub async fn post_investigate_ticket(
 
 pub async fn post_investigate_regression(
     State(state): State<AppState>,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     Json(body): Json<TicketRequest>,
 ) -> impl IntoResponse {
+    if let Some(r) = require_lead(&user) { return r; }
+    if !is_valid_ticket_key(&body.ticket_key) {
+        return (StatusCode::BAD_REQUEST, "Invalid ticket key format".to_string()).into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
@@ -110,14 +128,18 @@ pub async fn post_investigate_regression(
 
 pub async fn post_investigate_expected(
     State(state): State<AppState>,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     Json(body): Json<ExpectedBehaviorRequest>,
 ) -> impl IntoResponse {
+    if let Some(r) = require_lead(&user) { return r; }
+    let key = body.ticket_key.as_deref().unwrap_or("");
+    if !key.is_empty() && !is_valid_ticket_key(key) {
+        return (StatusCode::BAD_REQUEST, "Invalid ticket key format".to_string()).into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
     };
-    let key = body.ticket_key.as_deref().unwrap_or("");
     match investigate_expected_behavior(config, key, &body.query).await {
         Ok(dossier) => Json(dossier).into_response(),
         Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
@@ -126,9 +148,13 @@ pub async fn post_investigate_expected(
 
 pub async fn post_investigate_customer(
     State(state): State<AppState>,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     Json(body): Json<TicketRequest>,
 ) -> impl IntoResponse {
+    if let Some(r) = require_lead(&user) { return r; }
+    if !is_valid_ticket_key(&body.ticket_key) {
+        return (StatusCode::BAD_REQUEST, "Invalid ticket key format".to_string()).into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
@@ -141,9 +167,10 @@ pub async fn post_investigate_customer(
 
 pub async fn post_confluence_search(
     State(state): State<AppState>,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     Json(body): Json<ConfluenceSearchRequest>,
 ) -> impl IntoResponse {
+    if let Some(r) = require_lead(&user) { return r; }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
@@ -151,12 +178,12 @@ pub async fn post_confluence_search(
     let client = AtlassianClient::new(config);
     let cql = if let Some(space) = body.space_key.filter(|s| !s.is_empty()) {
         format!(
-            "space = \"{}\" AND text ~ \"{}\"",
-            space,
-            body.query.replace('"', "'")
+            "space = {} AND text ~ {}",
+            quote_jql_literal(&space),
+            quote_jql_literal(&body.query)
         )
     } else {
-        format!("text ~ \"{}\"", body.query.replace('"', "'"))
+        format!("text ~ {}", quote_jql_literal(&body.query))
     };
     match search_confluence(&client, &cql, body.limit.unwrap_or(10)).await {
         Ok(docs) => Json(docs).into_response(),
@@ -166,9 +193,13 @@ pub async fn post_confluence_search(
 
 pub async fn get_confluence_page_handler(
     State(state): State<AppState>,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Some(r) = require_lead(&user) { return r; }
+    if id.is_empty() || id.len() > 20 || !id.chars().all(|c| c.is_ascii_digit()) {
+        return (StatusCode::BAD_REQUEST, "Invalid Confluence content ID").into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
