@@ -71,15 +71,15 @@ async function getJiraCredentials() {
   const modDocsHomepageId = (await getSetting<string>("investigation.modDocsHomepageId")) ?? undefined;
   const modDocsSpacePath = (await getSetting<string>("investigation.modDocsSpacePath")) ?? undefined;
   return {
-    base_url: baseUrl,
+    baseUrl,
     email,
-    api_token: apiToken,
-    confluence_url: confluenceUrl,
-    confluence_email: confluenceEmail,
-    confluence_token: confluenceToken,
-    whatson_kb_url: whatsonKbUrl,
-    mod_docs_homepage_id: modDocsHomepageId,
-    mod_docs_space_path: modDocsSpacePath,
+    apiToken,
+    confluenceUrl,
+    confluenceEmail,
+    confluenceToken,
+    whatsonKbUrl,
+    modDocsHomepageId,
+    modDocsSpacePath,
   };
 }
 
