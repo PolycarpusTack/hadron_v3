@@ -548,6 +548,53 @@ pub async fn update_confluence_config(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn get_investigation_settings(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+    let row = db::get_poller_config(&state.db).await?;
+    Ok(Json(serde_json::json!({
+        "confluenceOverrideUrl": row.confluence_override_url,
+        "confluenceOverrideEmail": row.confluence_override_email,
+        "hasConfluenceToken": !row.confluence_override_token.is_empty(),
+        "whatsonKbUrl": row.whatson_kb_url,
+        "modDocsHomepageId": row.mod_docs_homepage_id,
+        "modDocsSpacePath": row.mod_docs_space_path,
+    })))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInvestigationSettingsRequest {
+    pub confluence_override_url: Option<String>,
+    pub confluence_override_email: Option<String>,
+    pub confluence_override_token: Option<String>,
+    pub whatson_kb_url: Option<String>,
+    pub mod_docs_homepage_id: Option<String>,
+    pub mod_docs_space_path: Option<String>,
+}
+
+pub async fn update_investigation_settings(
+    user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(body): Json<UpdateInvestigationSettingsRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    require_role(&user, Role::Admin)?;
+    db::update_investigation_settings(
+        &state.db,
+        body.confluence_override_url.as_deref(),
+        body.confluence_override_email.as_deref(),
+        body.confluence_override_token.as_deref(),
+        body.whatson_kb_url.as_deref(),
+        body.mod_docs_homepage_id.as_deref(),
+        body.mod_docs_space_path.as_deref(),
+        user.user.id,
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn test_ai_config(
     user: AuthenticatedUser,
     State(state): State<AppState>,

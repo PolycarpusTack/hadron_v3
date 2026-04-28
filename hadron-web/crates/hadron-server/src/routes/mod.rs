@@ -222,6 +222,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/admin/jira-poller", put(jira_poller::update_poller_config))
         .route("/admin/jira-poller/start", post(jira_poller::start_poller))
         .route("/admin/jira-poller/stop", post(jira_poller::stop_poller))
+        // Admin: Investigation settings
+        .route("/admin/investigation-settings", get(admin::get_investigation_settings))
+        .route("/admin/investigation-settings", put(admin::update_investigation_settings))
         // User: JIRA Subscriptions
         .route("/jira/subscriptions", get(jira_poller::get_subscriptions))
         .route("/jira/subscriptions", put(jira_poller::set_subscriptions));

@@ -3268,12 +3268,21 @@ pub struct PollerConfigRow {
     pub jira_base_url: String,
     pub jira_email: String,
     pub jira_api_token: String,
+    pub confluence_override_url: String,
+    pub confluence_override_email: String,
+    pub confluence_override_token: String,
+    pub whatson_kb_url: String,
+    pub mod_docs_homepage_id: String,
+    pub mod_docs_space_path: String,
 }
 
 pub async fn get_poller_config(pool: &PgPool) -> HadronResult<PollerConfigRow> {
     let row = sqlx::query_as::<_, PollerConfigRow>(
         "SELECT enabled, jql_filter, interval_mins, last_polled_at,
-                jira_base_url, jira_email, jira_api_token
+                jira_base_url, jira_email, jira_api_token,
+                confluence_override_url, confluence_override_email,
+                confluence_override_token, whatson_kb_url,
+                mod_docs_homepage_id, mod_docs_space_path
          FROM jira_poller_config WHERE id = 1",
     )
     .fetch_one(pool)
@@ -3311,6 +3320,42 @@ pub async fn update_poller_config(
     .bind(jira_base_url)
     .bind(jira_email)
     .bind(jira_api_token)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(|e| HadronError::database(e.to_string()))?;
+
+    Ok(())
+}
+
+pub async fn update_investigation_settings(
+    pool: &PgPool,
+    confluence_override_url: Option<&str>,
+    confluence_override_email: Option<&str>,
+    confluence_override_token: Option<&str>,
+    whatson_kb_url: Option<&str>,
+    mod_docs_homepage_id: Option<&str>,
+    mod_docs_space_path: Option<&str>,
+    user_id: Uuid,
+) -> HadronResult<()> {
+    sqlx::query(
+        "UPDATE jira_poller_config SET
+            confluence_override_url   = COALESCE($1, confluence_override_url),
+            confluence_override_email = COALESCE($2, confluence_override_email),
+            confluence_override_token = COALESCE($3, confluence_override_token),
+            whatson_kb_url            = COALESCE($4, whatson_kb_url),
+            mod_docs_homepage_id      = COALESCE($5, mod_docs_homepage_id),
+            mod_docs_space_path       = COALESCE($6, mod_docs_space_path),
+            updated_by = $7,
+            updated_at = NOW()
+         WHERE id = 1",
+    )
+    .bind(confluence_override_url)
+    .bind(confluence_override_email)
+    .bind(confluence_override_token)
+    .bind(whatson_kb_url)
+    .bind(mod_docs_homepage_id)
+    .bind(mod_docs_space_path)
     .bind(user_id)
     .execute(pool)
     .await

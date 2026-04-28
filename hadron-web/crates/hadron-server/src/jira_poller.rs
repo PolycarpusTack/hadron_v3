@@ -113,6 +113,12 @@ pub async fn get_poller_status(pool: &PgPool, state: &PollerState) -> PollerStat
             jira_base_url: String::new(),
             jira_email: String::new(),
             jira_api_token: String::new(),
+            confluence_override_url: String::new(),
+            confluence_override_email: String::new(),
+            confluence_override_token: String::new(),
+            whatson_kb_url: String::new(),
+            mod_docs_homepage_id: String::new(),
+            mod_docs_space_path: String::new(),
         });
 
     let running = {
