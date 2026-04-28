@@ -2,7 +2,9 @@
 //!
 //! Provides tools the AI can call during chat: search_analyses, get_analysis_detail,
 //! search_knowledge_base, search_similar_analyses, get_top_signatures, get_trend_data,
-//! get_error_patterns, search_jira, search_gold_answers, compare_analyses.
+//! get_error_patterns, search_jira, search_gold_answers, compare_analyses,
+//! investigate_jira_ticket, investigate_regression_family, investigate_expected_behavior,
+//! investigate_customer_history, search_confluence, get_confluence_page.
 
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -210,6 +212,103 @@ pub fn chat_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["analysis_id_1", "analysis_id_2"]
+            }),
+        },
+        // --- JIRA Investigation tools ---
+        ToolDefinition {
+            name: "investigate_jira_ticket".to_string(),
+            description: "Run a full investigation on a JIRA ticket. Returns structured evidence: changelog, comments, worklogs, related issues, Confluence docs, attachment signals, hypotheses, and open questions. Use when a user asks to investigate or deep-dive into a ticket.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "ticket_key": {
+                        "type": "string",
+                        "description": "The JIRA ticket key, e.g. MGX-56673 or BR-997"
+                    }
+                },
+                "required": ["ticket_key"]
+            }),
+        },
+        ToolDefinition {
+            name: "investigate_regression_family".to_string(),
+            description: "Find all related historical issues that may be siblings or predecessors of the given ticket — across the same project (90 days) and cross-project (6 months). Use when a user suspects a regression or asks 'has this happened before'.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "ticket_key": {
+                        "type": "string",
+                        "description": "The JIRA ticket key to find regression siblings for"
+                    }
+                },
+                "required": ["ticket_key"]
+            }),
+        },
+        ToolDefinition {
+            name: "investigate_expected_behavior".to_string(),
+            description: "Look up expected behavior and documentation for a feature or component. Searches Confluence, MOD documentation, and the WHATS'ON knowledge base.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "ticket_key": {
+                        "type": "string",
+                        "description": "The JIRA ticket key providing context (may be empty)"
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "What to look up, e.g. 'EPG scheduling rules' or 'import pipeline'"
+                    }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDefinition {
+            name: "investigate_customer_history".to_string(),
+            description: "Retrieve all tickets reported by the same customer/reporter as the given ticket. Useful for pattern detection across a customer's issue history.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "ticket_key": {
+                        "type": "string",
+                        "description": "The JIRA ticket key whose reporter's history to fetch"
+                    }
+                },
+                "required": ["ticket_key"]
+            }),
+        },
+        ToolDefinition {
+            name: "search_confluence".to_string(),
+            description: "Search Confluence for documentation pages. Accepts free-text queries. Returns titles, excerpts, and URLs.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query"
+                    },
+                    "space_key": {
+                        "type": "string",
+                        "description": "Optional Confluence space key to restrict the search"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 10)"
+                    }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDefinition {
+            name: "get_confluence_page".to_string(),
+            description: "Fetch the full content of a specific Confluence page by its ID.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "page_id": {
+                        "type": "string",
+                        "description": "The Confluence page ID"
+                    }
+                },
+                "required": ["page_id"]
             }),
         },
     ]
@@ -562,8 +661,116 @@ pub async fn execute_tool(
             serde_json::to_string_pretty(&comparison).map_err(|e| e.to_string())
         }
 
+        "investigate_jira_ticket" => {
+            let key = args.get("ticket_key").and_then(|v| v.as_str())
+                .ok_or("ticket_key is required")?.to_string();
+            let config = load_investigation_config(pool).await?;
+            let dossier = hadron_investigation::investigate_ticket(config, &key)
+                .await
+                .map_err(|e| e.to_string())?;
+            serde_json::to_string_pretty(&dossier).map_err(|e| e.to_string())
+        }
+
+        "investigate_regression_family" => {
+            let key = args.get("ticket_key").and_then(|v| v.as_str())
+                .ok_or("ticket_key is required")?.to_string();
+            let config = load_investigation_config(pool).await?;
+            let dossier = hadron_investigation::investigate_regression_family(config, &key)
+                .await
+                .map_err(|e| e.to_string())?;
+            serde_json::to_string_pretty(&dossier).map_err(|e| e.to_string())
+        }
+
+        "investigate_expected_behavior" => {
+            let query = args.get("query").and_then(|v| v.as_str())
+                .ok_or("query is required")?.to_string();
+            let key = args.get("ticket_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let config = load_investigation_config(pool).await?;
+            let dossier = hadron_investigation::investigate_expected_behavior(config, &key, &query)
+                .await
+                .map_err(|e| e.to_string())?;
+            serde_json::to_string_pretty(&dossier).map_err(|e| e.to_string())
+        }
+
+        "investigate_customer_history" => {
+            let key = args.get("ticket_key").and_then(|v| v.as_str())
+                .ok_or("ticket_key is required")?.to_string();
+            let config = load_investigation_config(pool).await?;
+            let dossier = hadron_investigation::investigate_customer_history(config, &key)
+                .await
+                .map_err(|e| e.to_string())?;
+            serde_json::to_string_pretty(&dossier).map_err(|e| e.to_string())
+        }
+
+        "search_confluence" => {
+            let query = args.get("query").and_then(|v| v.as_str())
+                .ok_or("query is required")?;
+            let space_key = args.get("space_key").and_then(|v| v.as_str());
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as u32;
+            let config = load_investigation_config(pool).await?;
+            let client = hadron_investigation::atlassian::AtlassianClient::new(config);
+            let cql = if let Some(space) = space_key.filter(|s| !s.is_empty()) {
+                format!("space = \"{}\" AND text ~ \"{}\"", space, query.replace('"', "'"))
+            } else {
+                format!("text ~ \"{}\"", query.replace('"', "'"))
+            };
+            let docs = hadron_investigation::atlassian::confluence::search_confluence(&client, &cql, limit)
+                .await
+                .map_err(|e| e.to_string())?;
+            serde_json::to_string_pretty(&docs).map_err(|e| e.to_string())
+        }
+
+        "get_confluence_page" => {
+            let page_id = args.get("page_id").and_then(|v| v.as_str())
+                .ok_or("page_id is required")?;
+            let config = load_investigation_config(pool).await?;
+            let client = hadron_investigation::atlassian::AtlassianClient::new(config);
+            let doc = hadron_investigation::atlassian::confluence::get_confluence_content(&client, page_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())
+        }
+
         _ => Err(format!("Unknown tool: {tool_name}")),
     }
+}
+
+// ============================================================================
+// JIRA investigation config loader
+// ============================================================================
+
+async fn load_investigation_config(
+    pool: &PgPool,
+) -> Result<hadron_investigation::atlassian::InvestigationConfig, String> {
+    let row = db::get_poller_config(pool)
+        .await
+        .map_err(|_| "JIRA is not configured on this server. Ask an admin to set up JIRA credentials in the admin panel.".to_string())?;
+
+    if row.jira_base_url.is_empty() || row.jira_email.is_empty() || row.jira_api_token.is_empty() {
+        return Err("JIRA is not configured on this server. Ask an admin to set up JIRA credentials in the admin panel.".to_string());
+    }
+
+    let jira_api_token = crate::crypto::decrypt_value(&row.jira_api_token)
+        .map_err(|e| format!("Failed to decrypt JIRA token: {e}"))?;
+
+    let confluence_base_url = if !row.confluence_override_url.is_empty() {
+        let token = crate::crypto::decrypt_value(&row.confluence_override_token).unwrap_or_default();
+        Some((row.confluence_override_url, row.confluence_override_email, token))
+    } else {
+        None
+    };
+
+    Ok(hadron_investigation::atlassian::InvestigationConfig {
+        jira_base_url: row.jira_base_url,
+        jira_email: row.jira_email,
+        jira_api_token,
+        confluence_base_url: confluence_base_url.as_ref().map(|(u, _, _)| u.clone()),
+        confluence_email: confluence_base_url.as_ref().map(|(_, e, _)| e.clone()),
+        confluence_api_token: confluence_base_url.map(|(_, _, t)| t),
+        whatson_kb_url: if !row.whatson_kb_url.is_empty() { Some(row.whatson_kb_url) } else { None },
+        mod_docs_homepage_id: if !row.mod_docs_homepage_id.is_empty() { Some(row.mod_docs_homepage_id) } else { None },
+        mod_docs_space_path: if !row.mod_docs_space_path.is_empty() { Some(row.mod_docs_space_path) } else { None },
+    })
 }
 
 // ============================================================================
