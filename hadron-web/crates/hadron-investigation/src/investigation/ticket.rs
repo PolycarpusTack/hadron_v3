@@ -11,7 +11,7 @@ use crate::investigation::{
         AttachmentResult, EvidenceClaim, EvidenceCategory, InvestigationDossier,
         InvestigationStatus, InvestigationType, RelatedIssue,
     },
-    evidence_builder::{build_claims_from_issue, build_hypotheses},
+    evidence_builder::{build_claims_from_issue, build_hypotheses, sanitize_for_prompt},
     related::find_related_issues,
 };
 use crate::knowledge_base;
@@ -99,15 +99,16 @@ pub async fn investigate_ticket(
 
     for (filename, AttachmentExtractResult { text, status }) in attachment_results_raw {
         if let Some(ref t) = text {
+            let clean = sanitize_for_prompt(t);
             let preview_len = {
-                let mut l = t.len().min(200);
-                while l > 0 && !t.is_char_boundary(l) {
+                let mut l = clean.len().min(200);
+                while l > 0 && !clean.is_char_boundary(l) {
                     l -= 1;
                 }
                 l
             };
             claims.push(EvidenceClaim {
-                text: format!("Attachment {}: {}", filename, &t[..preview_len]),
+                text: format!("Attachment {}: {}", filename, &clean[..preview_len]),
                 category: EvidenceCategory::AttachmentSignal,
                 entities: vec![],
             });
