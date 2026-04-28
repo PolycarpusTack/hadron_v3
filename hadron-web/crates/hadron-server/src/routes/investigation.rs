@@ -197,6 +197,9 @@ pub async fn get_confluence_page_handler(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     if let Some(r) = require_lead(&user) { return r; }
+    if id.is_empty() || id.len() > 20 || !id.chars().all(|c| c.is_ascii_digit()) {
+        return (StatusCode::BAD_REQUEST, "Invalid Confluence content ID").into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),

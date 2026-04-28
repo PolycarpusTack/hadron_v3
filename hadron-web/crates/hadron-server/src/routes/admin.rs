@@ -347,6 +347,12 @@ pub async fn update_sentry_config(
     require_role(&user, Role::Admin)?;
 
     if let Some(ref base_url) = req.base_url {
+        if !base_url.is_empty() {
+            if !base_url.starts_with("https://") {
+                return Err(AppError(hadron_core::error::HadronError::validation("Sentry base URL must use https://".to_string())));
+            }
+            super::integrations::ensure_integration_host_allowed(base_url, "Sentry", "SENTRY_ALLOWED_HOSTS")?;
+        }
         db::set_global_setting(&state.db, "sentry_base_url", base_url, user.user.id).await?;
     }
 

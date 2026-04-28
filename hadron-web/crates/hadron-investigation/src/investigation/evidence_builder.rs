@@ -51,7 +51,7 @@ pub fn build_claims_from_issue(issue: &IssueFullContext) -> Vec<EvidenceClaim> {
 
     for link in &issue.remote_links {
         claims.push(EvidenceClaim {
-            text: format!("Remote link: {}", link),
+            text: format!("Remote link: {}", sanitize_for_prompt(link)),
             category: EvidenceCategory::LinkedContext,
             entities: vec![],
         });
@@ -68,7 +68,7 @@ pub fn build_claims_from_issue(issue: &IssueFullContext) -> Vec<EvidenceClaim> {
 
     for entry in &issue.changelog_entries {
         claims.push(EvidenceClaim {
-            text: entry.clone(),
+            text: sanitize_for_prompt(entry),
             category: EvidenceCategory::LinkedContext,
             entities: vec![],
         });

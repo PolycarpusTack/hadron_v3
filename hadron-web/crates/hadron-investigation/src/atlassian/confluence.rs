@@ -113,16 +113,8 @@ pub async fn get_mod_page(
 }
 
 fn urlencoded(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            ' ' => '+'.to_string(),
-            '"' => "%22".to_string(),
-            '&' => "%26".to_string(),
-            '=' => "%3D".to_string(),
-            '+' => "%2B".to_string(),
-            _ => c.to_string(),
-        })
-        .collect()
+    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+    utf8_percent_encode(s, NON_ALPHANUMERIC).to_string()
 }
 
 fn strip_tags(s: &str) -> String {

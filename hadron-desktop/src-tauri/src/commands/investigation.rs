@@ -140,6 +140,9 @@ pub async fn get_confluence_page(
     app: tauri::AppHandle,
     content_id: String,
 ) -> Result<ConfluenceDoc, String> {
+    if content_id.is_empty() || content_id.len() > 20 || !content_id.chars().all(|c| c.is_ascii_digit()) {
+        return Err("Invalid Confluence content ID".to_string());
+    }
     log::debug!("cmd: get_confluence_page id={}", content_id);
     let config = read_config(&app)?;
     let client = AtlassianClient::new(config);

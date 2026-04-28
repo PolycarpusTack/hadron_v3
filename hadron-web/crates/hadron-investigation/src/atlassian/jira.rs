@@ -277,6 +277,9 @@ pub fn is_valid_ticket_key(key: &str) -> bool {
     if dash < 1 || dash > 10 {
         return false;
     }
+    if !bytes[..dash][0].is_ascii_uppercase() {
+        return false;
+    }
     if !bytes[..dash].iter().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || *b == b'_') {
         return false;
     }

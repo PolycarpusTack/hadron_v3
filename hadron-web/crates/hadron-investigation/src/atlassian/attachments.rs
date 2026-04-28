@@ -2,7 +2,7 @@ use crate::investigation::evidence::ExtractionStatus;
 use super::AtlassianClient;
 
 const MAX_BYTES: usize = 8 * 1024; // 8 KB per extracted output
-const ENTRY_HARD_CAP: u64 = 1024 * 1024; // 1 MB max uncompressed read per entry
+const ENTRY_HARD_CAP: u64 = 64 * 1024; // 64 KB max uncompressed read per entry (matches output budget)
 const MAX_ZIP_ENTRIES: usize = 512; // guard against archives with millions of entries
 
 pub struct AttachmentExtractResult {
