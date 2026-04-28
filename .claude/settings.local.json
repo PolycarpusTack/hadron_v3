@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dd if=/dev/zero of=/mnt/c/Projects/Hadron_v3/.git/objects/test-obj bs=1 count=50)",
+      "Bash(rm -f /mnt/c/Projects/Hadron_v3/.git/objects/test-obj)"
+    ]
+  }
+}

@@ -10,6 +10,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.6.0] - 2026-04-28
+
+Deep investigation layer for JIRA tickets, powered by the CodexMgX
+investigation engine originally built by **Ante Gulin**. Ported from
+a standalone Codex Desktop plugin to a native Rust crate
+(`hadron-investigation`) and wired throughout AskHadron, the JIRA
+Analyzer, and FloatingElena.
+
+### Added
+
+- **Deep JIRA investigation in AskHadron**: four new chat tools let
+  the AI agent run structured investigations on demand:
+  - `investigate_jira_ticket` — builds a full evidence dossier:
+    changelog, rendered comments, worklogs, remote links, project
+    context, agile context, related Confluence pages, attachment
+    text, and a set of hypotheses with confidence scores and open
+    questions.
+  - `investigate_regression_family` — finds historical sibling and
+    predecessor issues across the same project (90 days) and
+    cross-project (6 months). Use when a ticket might be a
+    regression.
+  - `investigate_expected_behavior` — searches Confluence and MOD
+    documentation to answer "what should this actually do?".
+  - `investigate_customer_history` — profiles the reporting customer
+    by pulling their full issue history and surfacing patterns.
+  - `search_confluence` / `get_confluence_page` — direct Confluence
+    search and page fetch now available mid-conversation.
+- **Investigate button in JIRA Analyzer**: one-click investigation
+  from any loaded ticket, on both desktop and web. Results render in
+  the new `InvestigationPanel` showing evidence, hypotheses, and
+  next-check suggestions.
+- **FloatingElena quick action**: "Investigate" added as the fifth
+  quick action on the floating chat widget (web).
+- **Confluence override in JIRA Settings**: teams that use a
+  separate Confluence instance can now configure a distinct base URL,
+  email, and API token. Falls back to the JIRA credentials when not
+  set.
+- **Attachment text extraction**: investigation reads text from
+  `.txt`, `.html`, `.zip`, `.docx`, and `.pdf` attachments
+  automatically, up to 8 KB per file.
+- **WHATS'ON Knowledge Base**: token-scored search against the
+  WHATS'ON KB index, accessible to all investigation tools.
+- **`hadron-investigation` crate**: self-contained Rust library
+  (originally the CodexMgX PowerShell MCP plugin by Ante Gulin),
+  shared between the desktop Tauri app and the web Axum server.
+  Implements the full Atlassian REST client, ADF-to-plaintext
+  converter, attachment extractor, three-strategy related-issue
+  finder, evidence builder, hypothesis engine, and four investigation
+  orchestrators.
+- **Investigation settings** (web admin): new database migration
+  (`019_investigation_settings.sql`) and admin API routes for
+  storing Confluence credentials server-side with encryption at rest.
+
+---
+
 ## [4.5.0] - 2026-04-17
 
 Security-focused release. Closes every actionable finding from the
