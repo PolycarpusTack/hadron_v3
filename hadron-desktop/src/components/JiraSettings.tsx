@@ -57,6 +57,14 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
   const [projects, setProjects] = useState<Array<{ key: string; name: string }>>([]);
   const [projectsUpdatedAt, setProjectsUpdatedAt] = useState<string | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
+  const [useConfluenceOverride, setUseConfluenceOverride] = useState(false);
+  const [confluenceUrl, setConfluenceUrl] = useState("");
+  const [confluenceEmail, setConfluenceEmail] = useState("");
+  const [confluenceToken, setConfluenceToken] = useState("");
+  const [whatsonKbUrl, setWhatsonKbUrl] = useState("");
+  const [modDocsHomepageId, setModDocsHomepageId] = useState("");
+  const [modDocsSpacePath, setModDocsSpacePath] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Track timeouts for cleanup
   const timeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
@@ -97,6 +105,21 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
       const cached = getCachedJiraProjects();
       setProjects(cached.projects);
       setProjectsUpdatedAt(cached.updatedAt);
+
+      const savedConfluenceUrl = await getSetting<string>("confluence.overrideUrl");
+      const savedConfluenceEmail = await getSetting<string>("confluence.overrideEmail");
+      const savedWhatsonKbUrl = await getSetting<string>("investigation.whatsonKbUrl");
+      const savedModDocsId = await getSetting<string>("investigation.modDocsHomepageId");
+      const savedModDocsPath = await getSetting<string>("investigation.modDocsSpacePath");
+
+      if (savedConfluenceUrl) {
+        setConfluenceUrl(savedConfluenceUrl);
+        setConfluenceEmail(savedConfluenceEmail ?? "");
+        setUseConfluenceOverride(true);
+      }
+      if (savedWhatsonKbUrl) setWhatsonKbUrl(savedWhatsonKbUrl);
+      if (savedModDocsId) setModDocsHomepageId(savedModDocsId);
+      if (savedModDocsPath) setModDocsSpacePath(savedModDocsPath);
     } catch (error) {
       logger.error("Failed to load JIRA config", { error });
     }
@@ -149,6 +172,21 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
       // Save config
       await saveJiraConfig(config);
       clearJiraConfigCache();
+
+      // Confluence override
+      if (useConfluenceOverride) {
+        await storeSetting("confluence.overrideUrl", confluenceUrl);
+        await storeSetting("confluence.overrideEmail", confluenceEmail);
+        if (confluenceToken) await storeApiKey("confluence", confluenceToken);
+      } else {
+        await storeSetting("confluence.overrideUrl", "");
+        await storeSetting("confluence.overrideEmail", "");
+      }
+
+      // Investigation advanced settings
+      if (whatsonKbUrl) await storeSetting("investigation.whatsonKbUrl", whatsonKbUrl);
+      if (modDocsHomepageId) await storeSetting("investigation.modDocsHomepageId", modDocsHomepageId);
+      if (modDocsSpacePath) await storeSetting("investigation.modDocsSpacePath", modDocsSpacePath);
 
       setSaveMessage("JIRA settings saved successfully!");
       safeTimeout(() => setSaveMessage(null), 3000);
@@ -452,6 +490,100 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
                 <Plus className="w-4 h-4" />
               </button>
             </div>
+          </div>
+
+          {/* Confluence override */}
+          <div className="mt-2 border-t border-slate-700 pt-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useConfluenceOverride}
+                onChange={(e) => setUseConfluenceOverride(e.target.checked)}
+                className="rounded border-slate-600 bg-slate-800 text-blue-500"
+              />
+              <span className="text-sm text-slate-300">Use separate Confluence instance</span>
+            </label>
+
+            {useConfluenceOverride && (
+              <div className="mt-3 ml-6 space-y-3">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Confluence URL</label>
+                  <input
+                    type="text"
+                    value={confluenceUrl}
+                    onChange={(e) => setConfluenceUrl(e.target.value)}
+                    placeholder="https://yourcompany.atlassian.net"
+                    className="w-full rounded-md bg-gray-900 border border-gray-600 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={confluenceEmail}
+                    onChange={(e) => setConfluenceEmail(e.target.value)}
+                    placeholder="you@company.com"
+                    className="w-full rounded-md bg-gray-900 border border-gray-600 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">API Token</label>
+                  <input
+                    type="password"
+                    value={confluenceToken}
+                    onChange={(e) => setConfluenceToken(e.target.value)}
+                    placeholder="Leave blank to keep existing token"
+                    className="w-full rounded-md bg-gray-900 border border-gray-600 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Advanced investigation settings */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen(!advancedOpen)}
+              className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-300"
+            >
+              <span>{advancedOpen ? "▼" : "▶"}</span> Advanced
+            </button>
+
+            {advancedOpen && (
+              <div className="mt-3 ml-4 space-y-3">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">WHATS'ON KB URL</label>
+                  <input
+                    type="text"
+                    value={whatsonKbUrl}
+                    onChange={(e) => setWhatsonKbUrl(e.target.value)}
+                    placeholder="https://whatsonknowledgebase.mediagenix.tv/latest_version/"
+                    className="w-full rounded-md bg-gray-900 border border-gray-600 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">MOD Docs Homepage ID</label>
+                  <input
+                    type="text"
+                    value={modDocsHomepageId}
+                    onChange={(e) => setModDocsHomepageId(e.target.value)}
+                    placeholder="1888060283"
+                    className="w-full rounded-md bg-gray-900 border border-gray-600 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">MOD Docs Space Path</label>
+                  <input
+                    type="text"
+                    value={modDocsSpacePath}
+                    onChange={(e) => setModDocsSpacePath(e.target.value)}
+                    placeholder="modkb"
+                    className="w-full rounded-md bg-gray-900 border border-gray-600 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Test Connection */}
