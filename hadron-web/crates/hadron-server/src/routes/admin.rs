@@ -581,6 +581,19 @@ pub async fn update_investigation_settings(
     Json(body): Json<UpdateInvestigationSettingsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Admin)?;
+    for (url, label, env_var) in [
+        (body.confluence_override_url.as_deref(), "Confluence override", "CONFLUENCE_ALLOWED_HOSTS"),
+        (body.whatson_kb_url.as_deref(), "WHATS'ON KB", "WHATSON_ALLOWED_HOSTS"),
+    ] {
+        if let Some(u) = url.filter(|s| !s.is_empty()) {
+            if !u.starts_with("https://") {
+                return Err(AppError(hadron_core::error::HadronError::validation(
+                    format!("{label} URL must use https"),
+                )));
+            }
+            super::integrations::ensure_integration_host_allowed(u, label, env_var)?;
+        }
+    }
     db::update_investigation_settings(
         &state.db,
         body.confluence_override_url.as_deref(),
