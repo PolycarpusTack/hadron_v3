@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getApiKey, getSetting } from "./secure-storage";
 
 export interface EvidenceClaim {
   text: string;
@@ -60,50 +59,26 @@ export interface InvestigationDossier {
   investigation_status: "complete" | "partial_failure";
 }
 
-async function getJiraCredentials() {
-  const baseUrl = (await getSetting<string>("jira.baseUrl")) ?? "";
-  const email = (await getSetting<string>("jira.email")) ?? "";
-  const apiToken = (await getApiKey("jira")) ?? "";
-  const confluenceUrl = (await getSetting<string>("confluence.overrideUrl")) ?? undefined;
-  const confluenceEmail = (await getSetting<string>("confluence.overrideEmail")) ?? undefined;
-  const confluenceToken = confluenceUrl ? ((await getApiKey("confluence")) ?? undefined) : undefined;
-  const whatsonKbUrl = (await getSetting<string>("investigation.whatsonKbUrl")) ?? undefined;
-  const modDocsHomepageId = (await getSetting<string>("investigation.modDocsHomepageId")) ?? undefined;
-  const modDocsSpacePath = (await getSetting<string>("investigation.modDocsSpacePath")) ?? undefined;
-  return {
-    baseUrl,
-    email,
-    apiToken,
-    confluenceUrl,
-    confluenceEmail,
-    confluenceToken,
-    whatsonKbUrl,
-    modDocsHomepageId,
-    modDocsSpacePath,
-  };
-}
+// Credentials are read from the app store on the Rust side;
+// only non-sensitive args are sent over IPC.
 
 export async function investigateTicket(key: string): Promise<InvestigationDossier> {
-  const creds = await getJiraCredentials();
-  return invoke<InvestigationDossier>("investigate_jira_ticket", { key, ...creds });
+  return invoke<InvestigationDossier>("investigate_jira_ticket", { key });
 }
 
 export async function investigateRegressionFamily(key: string): Promise<InvestigationDossier> {
-  const creds = await getJiraCredentials();
-  return invoke<InvestigationDossier>("investigate_jira_regression_family", { key, ...creds });
+  return invoke<InvestigationDossier>("investigate_jira_regression_family", { key });
 }
 
 export async function investigateExpectedBehavior(
   key: string,
   query: string
 ): Promise<InvestigationDossier> {
-  const creds = await getJiraCredentials();
-  return invoke<InvestigationDossier>("investigate_jira_expected_behavior", { key, query, ...creds });
+  return invoke<InvestigationDossier>("investigate_jira_expected_behavior", { key, query });
 }
 
 export async function investigateCustomerHistory(key: string): Promise<InvestigationDossier> {
-  const creds = await getJiraCredentials();
-  return invoke<InvestigationDossier>("investigate_jira_customer_history", { key, ...creds });
+  return invoke<InvestigationDossier>("investigate_jira_customer_history", { key });
 }
 
 export async function searchConfluence(
@@ -111,16 +86,13 @@ export async function searchConfluence(
   spaceKey?: string,
   limit?: number
 ): Promise<ConfluenceDoc[]> {
-  const creds = await getJiraCredentials();
   return invoke<ConfluenceDoc[]>("search_confluence_docs", {
     query,
-    space_key: spaceKey ?? null,
+    spaceKey: spaceKey ?? null,
     limit: limit ?? null,
-    ...creds,
   });
 }
 
 export async function getConfluencePage(contentId: string): Promise<ConfluenceDoc> {
-  const creds = await getJiraCredentials();
-  return invoke<ConfluenceDoc>("get_confluence_page", { content_id: contentId, ...creds });
+  return invoke<ConfluenceDoc>("get_confluence_page", { contentId });
 }
