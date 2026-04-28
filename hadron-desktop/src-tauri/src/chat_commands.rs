@@ -659,7 +659,10 @@ pub async fn chat_send(
                 // RAG-powered tools gated on use_rag
                 "search_analyses" | "find_similar_crashes" | "get_analysis_detail" => use_rag,
                 // JIRA tools only available when JIRA is configured
-                "search_jira" | "create_jira_ticket" => has_jira,
+                "search_jira" | "create_jira_ticket"
+                | "investigate_jira_ticket" | "investigate_regression_family"
+                | "investigate_expected_behavior" | "investigate_customer_history"
+                | "search_confluence" | "get_confluence_page" => has_jira,
                 // All other tools (stats, signatures, trends) are always available
                 _ => true,
             }
@@ -673,6 +676,22 @@ pub async fn chat_send(
 
     // Append citation format instructions (PR7)
     system_prompt.push_str(crate::retrieval::citation::CITATION_INSTRUCTIONS);
+
+    // When JIRA is configured, tell the model about investigation tools
+    if has_jira {
+        system_prompt.push_str(
+            "\n\n## JIRA Investigation Tools\n\
+            You have deep investigation tools for JIRA tickets. USE THEM proactively:\n\
+            - **`investigate_jira_ticket`** — When a user asks to \"investigate\", \"deep-dive\", \"analyze\", or \"look into\" a ticket. Fetches changelog, comments, worklogs, related issues, Confluence docs, attachment signals, hypotheses, and open questions. Always prefer this over a plain `search_jira` when the user gives you a ticket key.\n\
+            - **`investigate_regression_family`** — When a user suspects a regression or asks \"has this happened before\" for a ticket. Finds sibling and predecessor issues.\n\
+            - **`investigate_expected_behavior`** — When a user asks what the expected behavior should be for a feature or component. Searches Confluence and MOD documentation.\n\
+            - **`investigate_customer_history`** — When a user asks about a customer's issue history or patterns for the reporter of a ticket.\n\
+            - **`search_confluence`** — When a user asks to search Confluence documentation.\n\
+            - **`get_confluence_page`** — When a user provides a Confluence page ID and wants its content.\n\
+            \n\
+            When a user says something like \"investigate ticket MGX-56673\", \"look into BR-997\", or \"deep-dive on SRF-1165\", call `investigate_jira_ticket` immediately. Do NOT say you cannot access URLs — you have the tool."
+        );
+    }
 
     // Verbosity control (Ask Hadron 2.0)
     match request.verbosity.as_deref() {
