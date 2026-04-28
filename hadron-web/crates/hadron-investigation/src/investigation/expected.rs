@@ -17,7 +17,7 @@ pub async fn investigate_expected_behavior(
     let mut warnings: Vec<String> = Vec::new();
 
     // CQL full-text search
-    let cql = format!("text ~ \"{}\"", query.replace('"', "'"));
+    let cql = format!("text ~ {}", crate::atlassian::jira::quote_jql_literal(query));
     match confluence::search_confluence(&client, &cql, 8).await {
         Ok(docs) => {
             for doc in &docs {

@@ -249,6 +249,41 @@ pub async fn get_issue_full(
     })
 }
 
+/// Escape a value for use as a quoted JQL/CQL string literal.
+/// Per Atlassian docs, backslash and double-quote must be escaped;
+/// control characters are dropped.
+pub fn quote_jql_literal(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 2);
+    out.push('"');
+    for ch in input.chars() {
+        match ch {
+            '\\' | '"' => { out.push('\\'); out.push(ch); }
+            c if (c as u32) < 0x20 => {}
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Validate that a string is a well-formed JIRA ticket key (e.g. MGX-123).
+/// Returns true if the key matches [A-Z][A-Z0-9_]{1,9}-[0-9]{1,12}.
+pub fn is_valid_ticket_key(key: &str) -> bool {
+    let bytes = key.as_bytes();
+    let dash = match bytes.iter().position(|&b| b == b'-') {
+        Some(i) => i,
+        None => return false,
+    };
+    if dash < 1 || dash > 10 {
+        return false;
+    }
+    if !bytes[..dash].iter().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || *b == b'_') {
+        return false;
+    }
+    let num_part = &bytes[dash + 1..];
+    !num_part.is_empty() && num_part.len() <= 12 && num_part.iter().all(|b| b.is_ascii_digit())
+}
+
 /// Search Jira issues using JQL. Returns (key, summary, status) for each result.
 pub async fn search_jql(
     client: &AtlassianClient,

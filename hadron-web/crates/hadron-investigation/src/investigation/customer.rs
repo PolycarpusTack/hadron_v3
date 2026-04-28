@@ -18,7 +18,10 @@ pub async fn investigate_customer_history(
     let mut related_issues: Vec<RelatedIssue> = Vec::new();
 
     if let Some(reporter) = &issue.reporter {
-        let jql = format!("reporter = \"{}\" ORDER BY created DESC", reporter);
+        let jql = format!(
+            "reporter = {} ORDER BY created DESC",
+            crate::atlassian::jira::quote_jql_literal(reporter)
+        );
         if let Ok(results) = jira::search_jql(&client, &jql, 15).await {
             for (key, summary, status) in results {
                 if key != ticket_key {

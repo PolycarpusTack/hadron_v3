@@ -14,6 +14,7 @@ use crate::db;
 use hadron_investigation::{
     atlassian::{
         confluence::{get_confluence_content, search_confluence},
+        jira::{is_valid_ticket_key, quote_jql_literal},
         AtlassianClient, InvestigationConfig,
     },
     investigate_customer_history, investigate_expected_behavior,
@@ -83,6 +84,9 @@ pub async fn post_investigate_ticket(
     _user: AuthenticatedUser,
     Json(body): Json<TicketRequest>,
 ) -> impl IntoResponse {
+    if !is_valid_ticket_key(&body.ticket_key) {
+        return (StatusCode::BAD_REQUEST, "Invalid ticket key format".to_string()).into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
@@ -98,6 +102,9 @@ pub async fn post_investigate_regression(
     _user: AuthenticatedUser,
     Json(body): Json<TicketRequest>,
 ) -> impl IntoResponse {
+    if !is_valid_ticket_key(&body.ticket_key) {
+        return (StatusCode::BAD_REQUEST, "Invalid ticket key format".to_string()).into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
@@ -113,11 +120,14 @@ pub async fn post_investigate_expected(
     _user: AuthenticatedUser,
     Json(body): Json<ExpectedBehaviorRequest>,
 ) -> impl IntoResponse {
+    let key = body.ticket_key.as_deref().unwrap_or("");
+    if !key.is_empty() && !is_valid_ticket_key(key) {
+        return (StatusCode::BAD_REQUEST, "Invalid ticket key format".to_string()).into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
     };
-    let key = body.ticket_key.as_deref().unwrap_or("");
     match investigate_expected_behavior(config, key, &body.query).await {
         Ok(dossier) => Json(dossier).into_response(),
         Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
@@ -129,6 +139,9 @@ pub async fn post_investigate_customer(
     _user: AuthenticatedUser,
     Json(body): Json<TicketRequest>,
 ) -> impl IntoResponse {
+    if !is_valid_ticket_key(&body.ticket_key) {
+        return (StatusCode::BAD_REQUEST, "Invalid ticket key format".to_string()).into_response();
+    }
     let config = match load_config(&state).await {
         Ok(c) => c,
         Err((code, msg)) => return (code, msg).into_response(),
@@ -151,12 +164,12 @@ pub async fn post_confluence_search(
     let client = AtlassianClient::new(config);
     let cql = if let Some(space) = body.space_key.filter(|s| !s.is_empty()) {
         format!(
-            "space = \"{}\" AND text ~ \"{}\"",
-            space,
-            body.query.replace('"', "'")
+            "space = {} AND text ~ {}",
+            quote_jql_literal(&space),
+            quote_jql_literal(&body.query)
         )
     } else {
-        format!("text ~ \"{}\"", body.query.replace('"', "'"))
+        format!("text ~ {}", quote_jql_literal(&body.query))
     };
     match search_confluence(&client, &cql, body.limit.unwrap_or(10)).await {
         Ok(docs) => Json(docs).into_response(),
