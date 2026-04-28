@@ -120,6 +120,8 @@ export function JiraAnalyzerView() {
     setParseError(null);
     setTriageResult(null);
     setBriefResult(null);
+    setInvestigationDossier(null);
+    setInvestigationError(null);
     reset();
     try {
       const detail = await api.fetchJiraIssueDetail(key);
@@ -194,6 +196,8 @@ export function JiraAnalyzerView() {
     setParseError(null);
     setTriageResult(null);
     setBriefResult(null);
+    setInvestigationDossier(null);
+    setInvestigationError(null);
   }, [reset]);
 
   const canFetch = ticketKey.trim().length > 0;

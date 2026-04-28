@@ -57,16 +57,24 @@ async fn load_config(state: &AppState) -> Result<InvestigationConfig, (StatusCod
         )
     })?;
 
+    let confluence_base_url = if !row.confluence_override_url.is_empty() {
+        let token = crate::crypto::decrypt_value(&row.confluence_override_token)
+            .unwrap_or_default();
+        Some((row.confluence_override_url, row.confluence_override_email, token))
+    } else {
+        None
+    };
+
     Ok(InvestigationConfig {
         jira_base_url: row.jira_base_url,
         jira_email: row.jira_email,
         jira_api_token,
-        confluence_base_url: None,
-        confluence_email: None,
-        confluence_api_token: None,
-        whatson_kb_url: None,
-        mod_docs_homepage_id: None,
-        mod_docs_space_path: None,
+        confluence_base_url: confluence_base_url.as_ref().map(|(u, _, _)| u.clone()),
+        confluence_email: confluence_base_url.as_ref().map(|(_, e, _)| e.clone()),
+        confluence_api_token: confluence_base_url.map(|(_, _, t)| t),
+        whatson_kb_url: if !row.whatson_kb_url.is_empty() { Some(row.whatson_kb_url) } else { None },
+        mod_docs_homepage_id: if !row.mod_docs_homepage_id.is_empty() { Some(row.mod_docs_homepage_id) } else { None },
+        mod_docs_space_path: if !row.mod_docs_space_path.is_empty() { Some(row.mod_docs_space_path) } else { None },
     })
 }
 

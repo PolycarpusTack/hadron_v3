@@ -97,12 +97,14 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
       const result = await JiraImportService.fetchSingleIssue(key);
       if (result.success && result.issue) {
         setIssue(result.issue);
-        // Load any previously stored triage + brief for this ticket (single DB call)
+        // Reset all analysis state for the new ticket
         setTriageResult(null);
         setTriageFromCache(false);
         setBriefResult(null);
         setBriefFromCache(false);
         setStoredBrief(null);
+        setInvestigationDossier(null);
+        setInvestigationError(null);
         try {
           const stored = await getTicketBrief(result.issue.key);
           if (stored) setStoredBrief(stored);
@@ -437,6 +439,8 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
     setTriageFromCache(false);
     setBriefResult(null);
     setBriefFromCache(false);
+    setInvestigationDossier(null);
+    setInvestigationError(null);
   }
 
   return (

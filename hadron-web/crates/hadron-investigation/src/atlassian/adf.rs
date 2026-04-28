@@ -54,7 +54,14 @@ pub fn adf_to_text(node: &serde_json::Value) -> String {
             format!("| {} |\n", cells.join(" | "))
         }
         Some("tableCell") | Some("tableHeader") => children_to_text(node),
-        Some("mediaSingle") | Some("media") => String::new(),
+        Some("mediaSingle") => children_to_text(node),
+        Some("media") => node
+            .get("attrs")
+            .and_then(|a| a.get("alt"))
+            .and_then(|a| a.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("[{}]", s))
+            .unwrap_or_default(),
         _ => children_to_text(node),
     }
 }
