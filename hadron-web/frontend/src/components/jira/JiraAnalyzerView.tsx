@@ -14,6 +14,8 @@ import { useToast } from "../Toast";
 import JiraAnalysisReport from "./JiraAnalysisReport";
 import TriageBadgePanel from "./TriageBadgePanel";
 import TicketBriefPanel from "./TicketBriefPanel";
+import { investigationService, type InvestigationDossier } from "../../services/investigation";
+import { InvestigationPanel } from "./InvestigationPanel";
 
 // Regex to extract a JIRA ticket key from a URL like /browse/PROJ-123
 const TICKET_KEY_RE = /\/browse\/([A-Z][A-Z0-9_]+-\d+)/i;
@@ -36,6 +38,11 @@ export function JiraAnalyzerView() {
   const [triaging, setTriaging] = useState(false);
   const [briefResult, setBriefResult] = useState<JiraBriefResult | null>(null);
   const [cachedBrief, setCachedBrief] = useState<TicketBriefRow | null>(null);
+
+  // Investigation state
+  const [investigating, setInvestigating] = useState(false);
+  const [investigationDossier, setInvestigationDossier] = useState<InvestigationDossier | null>(null);
+  const [investigationError, setInvestigationError] = useState<string | null>(null);
 
   const { streamAi, content, isStreaming, error, reset } = useAiStream();
   const toast = useToast();
@@ -164,6 +171,21 @@ export function JiraAnalyzerView() {
     streamAi(`/jira/issues/${encodeURIComponent(ticket.key)}/analyze/stream`, {});
   }, [ticket, streamAi]);
 
+  const handleInvestigate = async () => {
+    if (!ticket) return;
+    setInvestigating(true);
+    setInvestigationError(null);
+    setInvestigationDossier(null);
+    try {
+      const dossier = await investigationService.investigateTicket(ticket.key);
+      setInvestigationDossier(dossier);
+    } catch (err) {
+      setInvestigationError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInvestigating(false);
+    }
+  };
+
   const handleClear = useCallback(() => {
     reset();
     setTicket(null);
@@ -175,7 +197,7 @@ export function JiraAnalyzerView() {
   }, [reset]);
 
   const canFetch = ticketKey.trim().length > 0;
-  const canAnalyze = !!ticket && !isStreaming && !triaging;
+  const canAnalyze = !!ticket && !isStreaming && !triaging && !investigating;
 
   // Loading state while checking JIRA config
   if (jiraConfigured === null) {
@@ -271,6 +293,13 @@ export function JiraAnalyzerView() {
                 className="rounded-md bg-purple-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isStreaming ? "Analyzing…" : "Deep Analyze"}
+              </button>
+              <button
+                onClick={handleInvestigate}
+                disabled={!canAnalyze || investigating}
+                className="rounded-md bg-teal-700 px-4 py-1.5 text-sm font-medium text-white hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {investigating ? "Investigating…" : "Investigate"}
               </button>
             </div>
           </div>
@@ -396,6 +425,19 @@ export function JiraAnalyzerView() {
           jiraKey={ticket.key}
           category={ticket.issueType}
         />
+      )}
+
+      {/* Investigation results */}
+      {investigationError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          Investigation failed: {investigationError}
+        </div>
+      )}
+      {investigationDossier && !investigating && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-300 mb-2">Investigation Results</h3>
+          <InvestigationPanel dossier={investigationDossier} />
+        </div>
       )}
     </div>
   );
