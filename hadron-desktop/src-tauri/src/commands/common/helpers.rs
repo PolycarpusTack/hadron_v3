@@ -15,10 +15,6 @@ use tokio::fs as async_fs;
 /// Reduces IPC pressure on Windows where each app.emit() crosses a COM boundary
 /// that security products (ESET, etc.) may hook and inspect.
 ///
-/// Exposed so other long-running services (release notes, future batch jobs)
-/// can share the same debounce budget without drifting out of lockstep.
-pub const PROGRESS_DEBOUNCE_MS: u64 = 150;
-
 /// Interval (ms) for rolling rate log lines during an active analysis.
 const RATE_LOG_INTERVAL_MS: u64 = 5_000;
 

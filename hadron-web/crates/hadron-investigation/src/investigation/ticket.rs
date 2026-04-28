@@ -22,7 +22,7 @@ pub async fn investigate_ticket(
 ) -> Result<InvestigationDossier, InvestigationError> {
     let client = AtlassianClient::new(config);
     let base_url = client.config.jira_base_url.clone();
-    let mut warnings: Vec<String> = Vec::new();
+    let warnings: Vec<String> = Vec::new();
 
     // Core ticket fetch — hard failure if unreachable
     let issue = jira::get_issue_full(&client, ticket_key).await?;
