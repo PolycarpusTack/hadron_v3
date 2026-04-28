@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Loader2,
   Zap,
+  FlaskConical,
   Microscope,
   Tag,
   Clock,
@@ -43,6 +44,8 @@ import TicketBriefPanel from "./TicketBriefPanel";
 import { getStatusColor, getPriorityColor, formatRelativeTime } from "./jiraHelpers";
 import { isKBEnabled, getOpenSearchConfig } from "../../services/opensearch";
 import { isRagAvailable } from "../../services/rag";
+import { investigateTicket, type InvestigationDossier } from "../../services/investigation";
+import { InvestigationPanel } from "./InvestigationPanel";
 
 interface JiraTicketAnalyzerProps {
   onAnalysisComplete: (analysis: Analysis) => void;
@@ -71,6 +74,9 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
   const [jiraEmail, setJiraEmail] = useState("");
   const [jiraApiToken, setJiraApiToken] = useState("");
   const [showExport, setShowExport] = useState(false);
+  const [investigating, setInvestigating] = useState(false);
+  const [investigationDossier, setInvestigationDossier] = useState<InvestigationDossier | null>(null);
+  const [investigationError, setInvestigationError] = useState<string | null>(null);
 
   async function handleFetch() {
     const trimmed = input.trim();
@@ -236,6 +242,21 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
       setError(`Deep analysis failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setDeepAnalyzing(false);
+    }
+  }
+
+  async function handleInvestigate() {
+    if (!issue) return;
+    setInvestigating(true);
+    setInvestigationError(null);
+    setInvestigationDossier(null);
+    try {
+      const dossier = await investigateTicket(issue.key);
+      setInvestigationDossier(dossier);
+    } catch (err) {
+      setInvestigationError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInvestigating(false);
     }
   }
 
@@ -665,9 +686,19 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
                 size="lg"
                 icon={<Microscope />}
                 className="bg-purple-700 hover:bg-purple-600 font-semibold px-5"
-                disabled={analyzing || triaging || briefing}
+                disabled={analyzing || triaging || briefing || investigating}
               >
                 {deepAnalyzing ? "Deep Analyzing..." : "Deep Analyze"}
+              </Button>
+              <Button
+                onClick={handleInvestigate}
+                loading={investigating}
+                size="lg"
+                icon={<FlaskConical />}
+                className="bg-teal-700 hover:bg-teal-600 font-semibold px-5"
+                disabled={analyzing || deepAnalyzing || triaging || briefing}
+              >
+                {investigating ? "Investigating…" : "Investigate"}
               </Button>
               <Button
                 variant="secondary"
@@ -723,6 +754,19 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
             }
           }}
         />
+      )}
+
+      {/* Investigation Results */}
+      {investigationError && (
+        <div className="rounded-lg bg-red-900/30 border border-red-600/40 px-4 py-3 text-sm text-red-300 mx-4 mt-4">
+          Investigation failed: {investigationError}
+        </div>
+      )}
+      {investigationDossier && !investigating && (
+        <div className="mx-4 mt-4 mb-2">
+          <h3 className="text-sm font-semibold text-slate-300 mb-2">Investigation Results</h3>
+          <InvestigationPanel dossier={investigationDossier} />
+        </div>
       )}
 
       {/* Export Dialog */}
