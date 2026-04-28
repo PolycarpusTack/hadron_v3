@@ -52,6 +52,10 @@ const QUICK_ACTIONS: QuickAction[] = [
     label: 'Find similar issues',
     prompt: 'Search for similar issues to: [paste content]',
   },
+  {
+    label: 'Investigate JIRA ticket',
+    prompt: 'Investigate this JIRA ticket: [paste ticket key or describe the issue]',
+  },
 ];
 
 function defaultPosition(): Position {
