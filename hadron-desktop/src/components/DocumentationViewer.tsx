@@ -150,7 +150,7 @@ From results, you can: **Export** (Markdown/HTML/JSON/XLSX), **Create JIRA Ticke
 Click the **Ask Hadron** tab in the sidebar to open the AI assistant.
 
 - Type questions like "What are the most common crashes this week?"
-- The agent has access to **15 tools**: search analyses, search JIRA, search the knowledge base, find similar crashes, get trends, and more
+- The agent has access to **22 tools**: search analyses, search JIRA, search the knowledge base, find similar crashes, get trends, deep-investigate tickets, search Confluence, and more
 - Watch the **tool activity** panel to see what the agent is doing
 - **Rate responses** with thumbs up/down to improve future results
 
@@ -159,7 +159,7 @@ Click the **Ask Hadron** tab in the sidebar to open the AI assistant.
 ## Module 4: Integrations
 
 ### JIRA
-Configure in Settings > JIRA Integration. Once connected, you can create tickets directly from crash analyses and the chatbot can search/create JIRA issues.
+Configure in Settings > JIRA Integration. Once connected, you can create tickets directly from crash analyses and the chatbot can search/create JIRA issues. Use the **Investigate** button in the JIRA Analyzer to run a deep investigation on any ticket — returning a full evidence dossier with changelog, comments, related issues, Confluence docs, attachment text, and AI-generated hypotheses.
 
 ### Sentry
 Configure in Settings > Sentry Integration. The **Sentry Analyzer** tab lets you browse production errors, view event details, and run AI analysis on Sentry issues. Detects patterns: Deadlocks, N+1 Queries, Memory Leaks, Unhandled Promises.
@@ -233,9 +233,9 @@ src-tauri/src/                # Backend (Rust)
   database.rs                 # SQLite wrapper (50+ methods, WAL, FTS5)
   migrations.rs               # 13 schema migrations
   ai_service.rs               # 4 AI providers (OpenAI, Anthropic, Z.ai, llama.cpp)
-  chat_commands.rs             # Agentic chat loop (8 iterations, 15 tools)
+  chat_commands.rs             # Agentic chat loop (8 iterations, 22 tools)
   chat_tools.rs               # Tool definitions + executors
-  commands/                   # 20 modular command files (crud, tags, export, jira, etc.)
+  commands/                   # 21 modular command files (crud, tags, export, jira, investigation, etc.)
   commands_legacy.rs          # Legacy commands (being migrated)
   parser/                     # Crash log parser (WCR + text)
     sections/                 #   Per-section parsers (header, exception, stack, etc.)
@@ -430,7 +430,13 @@ AGENT LOOP (max 8 iterations):
   |     |     |── create_jira_ticket → JIRA API
   |     |     |── find_similar_crashes → SQLite
   |     |     |── get_trend_data → SQLite
-  |     |     |── ... (15 tools total)
+  |     |     |── investigate_jira_ticket → hadron-investigation
+  |     |     |── investigate_regression_family → hadron-investigation
+  |     |     |── investigate_expected_behavior → hadron-investigation
+  |     |     |── investigate_customer_history → hadron-investigation
+  |     |     |── search_confluence → hadron-investigation
+  |     |     |── get_confluence_page → hadron-investigation
+  |     |     |── ... (22 tools total)
   |     |     v
   |     |   Append tool result to messages → CONTINUE LOOP
   |     |
@@ -561,7 +567,7 @@ All backend functionality is exposed as Tauri commands, invoked from the fronten
 | \`chat_delete_session\` | session_id | \`()\` |
 | \`chat_submit_feedback\` | session_id, message_id, type, reason? | \`()\` |
 
-### Chat Tools (15)
+### Chat Tools (22)
 
 The AI agent can invoke these tools during conversation:
 
@@ -582,6 +588,12 @@ The AI agent can invoke these tools during conversation:
 | \`get_database_stats\` | Database statistics |
 | \`calculate\` | Evaluate math expressions |
 | \`get_current_date\` | Return current date/time |
+| \`investigate_jira_ticket\` | Deep-investigate a ticket: full changelog, comments, worklogs, related issues, Confluence docs, attachment text, hypotheses, and open questions |
+| \`investigate_regression_family\` | Find historical sibling and predecessor issues — same project (90 days) and cross-project (6 months) |
+| \`investigate_expected_behavior\` | Search Confluence and MOD documentation to establish what the correct behavior should be |
+| \`investigate_customer_history\` | Profile the reporting customer by pulling their full issue history and surfacing patterns |
+| \`search_confluence\` | Full-text search across Confluence spaces |
+| \`get_confluence_page\` | Fetch a Confluence page by ID |
 
 ---
 
@@ -815,6 +827,10 @@ Detailed documentation for every major module in the system.
 - **Purpose:** JIRA Cloud REST API v2/v3 client.
 - **Key Logic:** Basic Auth (email + token). Project listing, issue creation, JQL search with pagination, fix versions, comments.
 
+### hadron-investigation (shared crate)
+- **Purpose:** Deep investigation engine — ported from the CodexMgX Codex Desktop plugin (original author: Ante Gulin). Shared between the desktop Tauri app and the web Axum server.
+- **Key Logic:** \`AtlassianClient\` with Basic Auth. Extended Jira API (\`get_issue_full\`, changelog, rendered comments, worklogs, remote links, agile context). Attachment extractor (txt/html/zip/docx/pdf, 8KB cap). ADF-to-plaintext converter. Three-strategy related-issue finder (direct links, same-project 90d, cross-project 6m). Confluence search, page fetch, and MOD documentation helpers. WHATS'ON KB token-scored search. Evidence builder assembles claims, matched entities, and cross-check results. Hypothesis engine scores candidates with confidence levels and surfaces open questions. Four top-level orchestrators: \`investigate_ticket\`, \`investigate_regression_family\`, \`investigate_expected_behavior\`, \`investigate_customer_history\`.
+
 ### sentry_service.rs
 - **Purpose:** Sentry REST API client.
 - **Key Logic:** Bearer token auth. Issues, events, project listing. Org-level and project-level queries.
@@ -849,6 +865,19 @@ Detailed documentation for every major module in the system.
 `,
 
   "version-history": `# Version History
+
+## v4.6.0 — Deep Investigation (April 2026)
+
+### Investigation Engine
+- **4 new investigation tools in Ask Hadron** — \`investigate_jira_ticket\`, \`investigate_regression_family\`, \`investigate_expected_behavior\`, \`investigate_customer_history\`. Ask Hadron can now build a full evidence dossier for any JIRA ticket and reason over it.
+- **Investigate button in JIRA Analyzer** — one click from any loaded ticket to a structured investigation panel showing evidence, hypotheses, open questions, and next-check suggestions.
+- **Confluence search in chat** — \`search_confluence\` and \`get_confluence_page\` tools give Ask Hadron direct access to Confluence mid-conversation.
+- **Attachment text extraction** — investigation reads text from \`.txt\`, \`.html\`, \`.zip\`, \`.docx\`, and \`.pdf\` attachments automatically (up to 8 KB each).
+- **WHATS'ON KB integration** — token-scored search against the WHATS'ON knowledge base, available in all investigation tools.
+- **Confluence credential override** — teams on a separate Confluence instance can configure distinct base URL, email, and API token in JIRA Settings.
+- **\`hadron-investigation\` crate** — self-contained Rust library (ported from the CodexMgX plugin by Ante Gulin) shared between desktop and web. Implements the full Atlassian client, ADF converter, three-strategy related-issue finder, evidence builder, and hypothesis engine.
+
+---
 
 ## v4.4.1 — Keeper & Crash Fixes (March 2026)
 
