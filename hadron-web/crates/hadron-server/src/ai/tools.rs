@@ -318,9 +318,26 @@ pub fn chat_tools() -> Vec<ToolDefinition> {
 pub async fn execute_tool(
     pool: &PgPool,
     user_id: Uuid,
+    user_role: hadron_core::models::Role,
     tool_name: &str,
     args: &serde_json::Value,
 ) -> Result<String, String> {
+    // Investigation and Confluence tools require Lead role, mirroring the HTTP
+    // route gates. Without this, any Analyst could reach these flows via chat.
+    const LEAD_ONLY_TOOLS: &[&str] = &[
+        "investigate_jira_ticket",
+        "investigate_regression_family",
+        "investigate_expected_behavior",
+        "investigate_customer_history",
+        "search_confluence",
+        "get_confluence_page",
+    ];
+    if LEAD_ONLY_TOOLS.contains(&tool_name)
+        && user_role < hadron_core::models::Role::Lead
+    {
+        return Err("This tool requires Lead role or above".to_string());
+    }
+
     match tool_name {
         "search_analyses" => {
             let query = args
