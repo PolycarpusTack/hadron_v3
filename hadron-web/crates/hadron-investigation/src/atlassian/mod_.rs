@@ -1,5 +1,10 @@
+use futures::StreamExt;
 use reqwest::Client;
 use thiserror::Error;
+
+/// Hard cap on attachment downloads. Prevents memory exhaustion from
+/// adversarially large attachments hosted on the configured JIRA instance.
+const ATTACHMENT_MAX_BYTES: usize = 32 * 1024 * 1024; // 32 MB
 
 #[derive(Debug, Clone)]
 pub struct InvestigationConfig {
@@ -174,6 +179,34 @@ impl AtlassianClient {
                 resp.status()
             )));
         }
-        Ok(resp.bytes().await?.to_vec())
+
+        // Reject early if Content-Length already exceeds the cap.
+        if let Some(len) = resp.content_length() {
+            if len as usize > ATTACHMENT_MAX_BYTES {
+                return Err(InvestigationError::Attachment(format!(
+                    "Attachment too large: {} bytes (max {} MB)",
+                    len,
+                    ATTACHMENT_MAX_BYTES / (1024 * 1024)
+                )));
+            }
+        }
+
+        // Stream body and enforce the cap incrementally so we never buffer
+        // more than ATTACHMENT_MAX_BYTES regardless of Content-Length.
+        let mut buf = Vec::with_capacity(
+            resp.content_length().unwrap_or(0).min(ATTACHMENT_MAX_BYTES as u64) as usize
+        );
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if buf.len() + chunk.len() > ATTACHMENT_MAX_BYTES {
+                return Err(InvestigationError::Attachment(format!(
+                    "Attachment exceeds {} MB limit",
+                    ATTACHMENT_MAX_BYTES / (1024 * 1024)
+                )));
+            }
+            buf.extend_from_slice(&chunk);
+        }
+        Ok(buf)
     }
 }
