@@ -222,6 +222,10 @@ pub async fn get_issue_full(
                 .filter_map(|rl| {
                     let title = rl["object"]["title"].as_str()?;
                     let url = rl["object"]["url"].as_str().unwrap_or("");
+                    // Reject non-https URLs (javascript:, data:, etc.)
+                    if !url.starts_with("https://") {
+                        return None;
+                    }
                     Some(format!("{} ({})", title, url))
                 })
                 .collect()
