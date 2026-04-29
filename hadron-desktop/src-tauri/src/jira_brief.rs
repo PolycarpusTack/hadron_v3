@@ -23,7 +23,7 @@ pub struct JiraBriefRequest {
     pub components: Vec<String>,
     pub labels: Vec<String>,
     pub comments: Vec<String>,
-    pub api_key: String,
+    // api_key intentionally absent — callers read it from the encrypted store.
     pub model: String,
     pub provider: String,
 }
@@ -41,7 +41,7 @@ pub struct JiraBriefResult {
 
 /// Run triage and deep analysis in parallel, then combine.
 /// Both calls use the same provider/model/key from the request.
-pub async fn run_jira_brief(req: JiraBriefRequest) -> Result<JiraBriefResult, String> {
+pub async fn run_jira_brief(req: JiraBriefRequest, api_key: &str) -> Result<JiraBriefResult, String> {
     // Build both sub-requests from the combined input
     let triage_req = JiraTriageRequest {
         jira_key:    req.jira_key.clone(),
@@ -53,7 +53,6 @@ pub async fn run_jira_brief(req: JiraBriefRequest) -> Result<JiraBriefResult, St
         components:  req.components.clone(),
         labels:      req.labels.clone(),
         comments:    req.comments.clone(),
-        api_key:     req.api_key.clone(),
         model:       req.model.clone(),
         provider:    req.provider.clone(),
     };
@@ -68,15 +67,14 @@ pub async fn run_jira_brief(req: JiraBriefRequest) -> Result<JiraBriefResult, St
         components:  req.components,
         labels:      req.labels,
         comments:    req.comments,
-        api_key:     req.api_key,
         model:       req.model,
         provider:    req.provider,
     };
 
     // Run both AI calls in parallel
     let (triage, analysis) = tokio::try_join!(
-        crate::jira_triage::run_jira_triage(triage_req),
-        crate::jira_deep_analysis::run_jira_deep_analysis(deep_req),
+        crate::jira_triage::run_jira_triage(triage_req, api_key),
+        crate::jira_deep_analysis::run_jira_deep_analysis(deep_req, api_key),
     )?;
 
     Ok(JiraBriefResult { triage, analysis })

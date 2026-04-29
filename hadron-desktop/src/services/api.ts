@@ -222,10 +222,10 @@ export async function analyzeJiraTicketDeep(
   components: string[],
   labels: string[],
   comments: string[],
-  apiKey: string,
   model?: string,
   provider?: string,
 ): Promise<JiraDeepAnalysisResponse> {
+  // api_key is NOT included — the Rust command reads it from the encrypted store.
   return invoke<JiraDeepAnalysisResponse>("analyze_jira_ticket_deep", {
     request: {
       jira_key: jiraKey,
@@ -237,7 +237,6 @@ export async function analyzeJiraTicketDeep(
       components,
       labels,
       comments,
-      api_key: apiKey,
       model: model ?? getStoredModel(),
       provider: provider ?? getStoredProvider(),
     },

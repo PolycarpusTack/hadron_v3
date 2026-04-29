@@ -345,6 +345,7 @@ pub fn initialize_keeper(
         log::Level::Error,
         hostname.map(|h| h.to_string()),
         None,
+        None,
         KSMCache::None,
     );
 

@@ -296,12 +296,11 @@ async fn run_poll_cycle(
             components,
             labels: issue.fields.labels.clone(),
             comments: Vec::new(), // no comments in feed fetch
-            api_key: ai.api_key.clone(),
             model: ai.model.clone(),
             provider: ai.provider.clone(),
         };
 
-        match crate::jira_triage::run_jira_triage(request).await {
+        match crate::jira_triage::run_jira_triage(request, &ai.api_key).await {
             Ok(result) => {
                 // Persist to ticket_briefs (same pattern as triage_jira_ticket command)
                 let tags_json = serde_json::to_string(&result.tags)
