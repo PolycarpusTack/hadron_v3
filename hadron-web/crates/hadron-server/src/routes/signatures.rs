@@ -66,6 +66,8 @@ pub async fn get_signature(
     })))
 }
 
+/// ORG-WIDE: returns all analyses matching the signature across the whole team.
+/// Crash signatures are shared fingerprints — this is intentional, not a leak.
 pub async fn get_signature_analyses(
     _user: AuthenticatedUser,
     State(state): State<AppState>,

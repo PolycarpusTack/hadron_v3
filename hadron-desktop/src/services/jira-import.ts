@@ -765,18 +765,12 @@ export async function fetchJiraIssues(options: ImportOptions = {}): Promise<Impo
     const response = await executeWithResilience(() =>
       options.nextPageToken
         ? invoke<JiraSearchResponse>("search_jira_issues_next_page", {
-            baseUrl: config.baseUrl,
-            email: config.email,
-            apiToken,
             jql,
             maxResults,
             includeComments,
             nextPageToken: options.nextPageToken,
           })
         : invoke<JiraSearchResponse>("search_jira_issues", {
-            baseUrl: config.baseUrl,
-            email: config.email,
-            apiToken,
             jql,
             maxResults,
             includeComments,
@@ -1165,9 +1159,6 @@ export async function fetchSingleIssue(issueKey: string): Promise<{
     // Use rate limiter with retry
     const response = await executeWithResilience(() =>
       invoke<JiraSearchResponse>("search_jira_issues", {
-        baseUrl: config.baseUrl,
-        email: config.email,
-        apiToken,
         jql,
         maxResults: 1,
         includeComments: true,

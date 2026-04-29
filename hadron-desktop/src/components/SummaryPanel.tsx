@@ -207,9 +207,6 @@ export default function SummaryPanel({
       }
       const commentBody = `*Session Summary*\n\n${markdown}`;
       await postJiraComment(
-        jiraConfig.baseUrl,
-        jiraConfig.email,
-        jiraToken,
         jiraIssueKey.trim(),
         commentBody
       );

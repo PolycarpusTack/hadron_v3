@@ -13,6 +13,23 @@ use crate::jira_brief::{JiraBriefRequest, JiraBriefResult};
 use crate::jira_poller::{PollerState, PollerStatus};
 use crate::ticket_briefs::TicketBrief;
 use std::sync::Arc;
+use tauri_plugin_store::StoreExt;
+
+/// Read the AI API key for the given provider from the encrypted Tauri store.
+fn read_ai_api_key(app: &tauri::AppHandle, provider: &str) -> Result<String, String> {
+    let store = app
+        .get_store("settings.json")
+        .ok_or_else(|| "Settings store not available".to_string())?;
+    let key_name = format!("{}_api_key", provider.to_lowercase());
+    let api_key = store
+        .get(&key_name)
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default();
+    if api_key.is_empty() {
+        return Err(format!("No API key configured for provider '{provider}'"));
+    }
+    Ok(api_key)
+}
 
 const EMBEDDING_MODEL: &str = "text-embedding-3-small";
 const EMBEDDING_DIMENSIONS: u32 = 1536;
@@ -136,16 +153,19 @@ pub async fn delete_ticket_brief(
 /// Upserts the result into ticket_briefs so it persists across sessions.
 #[tauri::command]
 pub async fn triage_jira_ticket(
+    app: tauri::AppHandle,
     request: JiraTriageRequest,
     db: DbState<'_>,
 ) -> Result<JiraTriageResult, String> {
     log::debug!("cmd: triage_jira_ticket key={}", request.jira_key);
 
+    let api_key = read_ai_api_key(&app, &request.provider)?;
+
     // Capture fields needed after request is moved into run_jira_triage
     let jira_key = request.jira_key.clone();
     let title = request.title.clone();
 
-    let result = crate::jira_triage::run_jira_triage(request).await?;
+    let result = crate::jira_triage::run_jira_triage(request, &api_key).await?;
 
     // Persist to ticket_briefs (upsert — creates row if absent, updates if present)
     let db = Arc::clone(&db);
@@ -187,18 +207,20 @@ pub async fn triage_jira_ticket(
 /// syncs the triage fields (severity, category, tags, triage_json).
 #[tauri::command]
 pub async fn generate_ticket_brief(
+    app: tauri::AppHandle,
     request: JiraBriefRequest,
     db: DbState<'_>,
 ) -> Result<JiraBriefResult, String> {
     log::debug!("cmd: generate_ticket_brief key={}", request.jira_key);
 
+    let api_key = read_ai_api_key(&app, &request.provider)?;
+
     // Capture fields needed for the DB upsert and embedding after request is consumed
     let jira_key    = request.jira_key.clone();
     let title       = request.title.clone();
-    let api_key     = request.api_key.clone();
     let description = request.description.clone();
 
-    let result = crate::jira_brief::run_jira_brief(request).await?;
+    let result = crate::jira_brief::run_jira_brief(request, &api_key).await?;
 
     // Serialize for storage
     let db = Arc::clone(&db);

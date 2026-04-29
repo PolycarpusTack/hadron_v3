@@ -213,12 +213,6 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
   async function handleDeepAnalyze() {
     if (!issue) return;
 
-    const apiKey = await getStoredApiKey();
-    if (!apiKey) {
-      setError("No API key configured. Set one in Settings.");
-      return;
-    }
-
     setDeepAnalyzing(true);
     setDeepResult(null);
     setError(null);
@@ -235,7 +229,6 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
         issue.components,
         issue.labels,
         commentTexts,
-        apiKey,
         getStoredModel(),
         getStoredProvider(),
       );
@@ -265,12 +258,6 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
   async function handleTriage() {
     if (!issue) return;
 
-    const apiKey = await getStoredApiKey();
-    if (!apiKey) {
-      setError("No API key configured. Set one in Settings.");
-      return;
-    }
-
     setTriaging(true);
     setError(null);
 
@@ -286,7 +273,6 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
         components: issue.components,
         labels: issue.labels,
         comments: commentTexts,
-        apiKey,
         model: getStoredModel(),
         provider: getStoredProvider(),
       });
@@ -301,12 +287,6 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
 
   async function handleGenerateBrief() {
     if (!issue) return;
-
-    const apiKey = await getStoredApiKey();
-    if (!apiKey) {
-      setError("No API key configured. Set one in Settings.");
-      return;
-    }
 
     setBriefing(true);
     setError(null);
@@ -323,7 +303,6 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
         components:  issue.components,
         labels:      issue.labels,
         comments:    commentTexts,
-        apiKey,
         model:    getStoredModel(),
         provider: getStoredProvider(),
       });

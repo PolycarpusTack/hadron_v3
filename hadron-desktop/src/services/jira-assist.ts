@@ -81,7 +81,7 @@ export async function triageJiraTicket(params: {
   components: string[];
   labels: string[];
   comments: string[];
-  apiKey: string;
+  // apiKey intentionally omitted — Rust command reads it from the encrypted store.
   model: string;
   provider: string;
 }): Promise<JiraTriageResult> {
@@ -96,7 +96,6 @@ export async function triageJiraTicket(params: {
       components: params.components,
       labels: params.labels,
       comments: params.comments,
-      api_key: params.apiKey,
       model: params.model,
       provider: params.provider,
     },
@@ -114,7 +113,7 @@ export async function generateTicketBrief(params: {
   components: string[];
   labels: string[];
   comments: string[];
-  apiKey: string;
+  // apiKey intentionally omitted — Rust command reads it from the encrypted store.
   model: string;
   provider: string;
 }): Promise<JiraBriefResult> {
@@ -129,7 +128,6 @@ export async function generateTicketBrief(params: {
       components:  params.components,
       labels:      params.labels,
       comments:    params.comments,
-      api_key:     params.apiKey,
       model:       params.model,
       provider:    params.provider,
     },

@@ -31,12 +31,30 @@ pub struct OpenSearchRequest {
     from: Option<u32>,
 }
 
+/// Validate an OpenSearch index name/pattern — allows lowercase alphanumeric,
+/// hyphens, underscores, dots, and `*` wildcards. Rejects slashes and dots
+/// at the start to prevent path traversal into other API endpoints.
+fn validate_opensearch_index(index: &str) -> Result<(), AppError> {
+    if index.is_empty() || index.starts_with('.') || index.starts_with('-') {
+        return Err(AppError(hadron_core::error::HadronError::validation(
+            "Invalid OpenSearch index name",
+        )));
+    }
+    if index.chars().any(|c| !matches!(c, 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '*')) {
+        return Err(AppError(hadron_core::error::HadronError::validation(
+            "Invalid OpenSearch index name",
+        )));
+    }
+    Ok(())
+}
+
 pub async fn opensearch_search(
     user: AuthenticatedUser,
     Json(req): Json<OpenSearchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Lead)?;
     ensure_opensearch_host_allowed(&req.url)?;
+    validate_opensearch_index(&req.index)?;
 
     let config = opensearch::OpenSearchConfig {
         url: req.url,
@@ -370,8 +388,8 @@ pub async fn jira_search(
     // let any authenticated user pivot queries across projects.
     if req.jql.is_some() {
         tracing::warn!(
-            "jira_search: ignoring user-supplied JQL (user {}, project {})",
-            user.user.email,
+            "jira_search: ignoring user-supplied JQL (user_id {}, project {})",
+            user.user.id,
             config.project_key
         );
     }
@@ -424,12 +442,37 @@ pub struct JiraTestRequest {
     api_token: String,
 }
 
+/// Validate a JIRA project key — uppercase alphanumeric + underscore, 2–10 chars.
+fn validate_jira_project_key(key: &str) -> Result<(), AppError> {
+    let valid = !key.is_empty()
+        && key.len() <= 10
+        && key.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+        && key.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    if !valid {
+        return Err(AppError(hadron_core::error::HadronError::validation(
+            "Invalid JIRA project key",
+        )));
+    }
+    Ok(())
+}
+
+/// Validate a Sentry issue ID — numeric only.
+fn validate_sentry_issue_id(id: &str) -> Result<(), AppError> {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
+        return Err(AppError(hadron_core::error::HadronError::validation(
+            "Invalid Sentry issue ID",
+        )));
+    }
+    Ok(())
+}
+
 pub async fn jira_fix_versions(
     user: AuthenticatedUser,
     State(state): State<AppState>,
     Path(project): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Lead)?;
+    validate_jira_project_key(&project)?;
     let mut config = crate::db::get_jira_config_from_poller(&state.db)
         .await
         .map_err(AppError)?;
@@ -511,6 +554,7 @@ pub async fn sentry_issue(
     Path(issue_id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Lead)?;
+    validate_sentry_issue_id(&issue_id)?;
     let config = crate::db::get_sentry_config(&state.db)
         .await
         .map_err(|e| AppError(e))?
@@ -531,6 +575,7 @@ pub async fn sentry_event(
     Path(issue_id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     require_role(&user, Role::Lead)?;
+    validate_sentry_issue_id(&issue_id)?;
     let config = crate::db::get_sentry_config(&state.db)
         .await
         .map_err(|e| AppError(e))?

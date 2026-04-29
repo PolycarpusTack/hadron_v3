@@ -332,23 +332,9 @@ export function generateTicketSummary(analysis: {
  */
 export async function testJiraConnection(): Promise<{ success: boolean; message: string; projects?: JiraProject[] }> {
   try {
-    const config = await getJiraConfig();
-    const apiToken = await getApiKey("jira");
-
-    if (!config.baseUrl || !config.email || !apiToken) {
-      return {
-        success: false,
-        message: "JIRA configuration is incomplete",
-      };
-    }
-
+    // Credentials are read from the store on the Rust side — not passed as args.
     const result = await invoke<{ success: boolean; message: string; projects?: JiraProject[] }>(
-      "test_jira_connection",
-      {
-        baseUrl: config.baseUrl,
-        email: config.email,
-        apiToken: apiToken,
-      }
+      "test_jira_connection"
     );
     return result;
   } catch (error) {
@@ -366,19 +352,14 @@ export async function testJiraConnection(): Promise<{ success: boolean; message:
  * Throws on API/network errors so callers can surface them.
  */
 export async function listJiraProjects(): Promise<JiraProjectInfo[]> {
-  const config = await getJiraConfig();
-  const apiToken = await getApiKey("jira");
-
-  if (!config.baseUrl || !config.email || !apiToken) {
-    return []; // Config not set up yet — not an error
+  // Credentials are read from the store on the Rust side.
+  // If JIRA isn't configured, the command returns an error — treat that as empty.
+  let result: JiraProjectInfo[];
+  try {
+    result = await invoke<JiraProjectInfo[]>("list_jira_projects");
+  } catch {
+    return [];
   }
-
-  // Let invoke errors propagate; callers must handle them
-  const result = await invoke<JiraProjectInfo[]>("list_jira_projects", {
-    baseUrl: config.baseUrl,
-    email: config.email,
-    apiToken,
-  });
 
   const projects = result || [];
   cacheJiraProjects(projects);
@@ -439,9 +420,6 @@ export async function createJiraTicket(ticket: JiraTicket): Promise<JiraCreateRe
     }
 
     const result = await invoke<JiraCreateResponse>("create_jira_ticket", {
-      baseUrl: config.baseUrl,
-      email: config.email,
-      apiToken: apiToken,
       projectKey: ticket.projectKey,
       issueType: config.issueType,
       ticket: {
@@ -493,9 +471,6 @@ export async function postAnalysisComment(
     }
 
     await invoke("post_jira_comment", {
-      baseUrl: config.baseUrl,
-      email: config.email,
-      apiToken,
       issueKey: issueKey.trim().toUpperCase(),
       commentBody,
     });

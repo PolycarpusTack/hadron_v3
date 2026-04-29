@@ -18,7 +18,7 @@ pub struct JiraTriageRequest {
     pub components: Vec<String>,
     pub labels: Vec<String>,
     pub comments: Vec<String>,
-    pub api_key: String,
+    // api_key intentionally absent — callers read it from the encrypted store.
     pub model: String,
     pub provider: String,
 }
@@ -78,7 +78,7 @@ Be direct. If the ticket is vague, lower your confidence and explain why.
 
 // ─── Core function ────────────────────────────────────────────────────────────
 
-pub async fn run_jira_triage(req: JiraTriageRequest) -> Result<JiraTriageResult, String> {
+pub async fn run_jira_triage(req: JiraTriageRequest, api_key: &str) -> Result<JiraTriageResult, String> {
     use crate::ai_service::{call_openai_raw, call_anthropic_raw, call_zai_raw};
 
     let user_prompt = build_prompt(&req);
@@ -87,9 +87,9 @@ pub async fn run_jira_triage(req: JiraTriageRequest) -> Result<JiraTriageResult,
     // into JiraTriageResult (different schema from the standard AnalysisResult).
     // llamacpp is not supported for structured JIRA triage.
     let raw: String = match req.provider.to_lowercase().as_str() {
-        "openai"    => call_openai_raw(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model, 1024).await?,
-        "anthropic" => call_anthropic_raw(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model).await?,
-        "zai"       => call_zai_raw(TRIAGE_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model).await?,
+        "openai"    => call_openai_raw(TRIAGE_SYSTEM_PROMPT, &user_prompt, api_key, &req.model, 1024).await?,
+        "anthropic" => call_anthropic_raw(TRIAGE_SYSTEM_PROMPT, &user_prompt, api_key, &req.model).await?,
+        "zai"       => call_zai_raw(TRIAGE_SYSTEM_PROMPT, &user_prompt, api_key, &req.model).await?,
         "llamacpp"  => return Err("JIRA triage requires a cloud AI provider (OpenAI, Anthropic, or Z.ai). llamacpp is not supported.".to_string()),
         p           => return Err(format!("Unknown AI provider: {}", p)),
     };

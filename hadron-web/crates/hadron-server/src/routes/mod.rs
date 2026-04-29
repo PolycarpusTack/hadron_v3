@@ -161,7 +161,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/investigation/expected-behavior", post(investigation::post_investigate_expected))
         .route("/investigation/customer-history", post(investigation::post_investigate_customer))
         .route("/confluence/search", post(investigation::post_confluence_search))
-        .route("/confluence/content/:id", get(investigation::get_confluence_page_handler))
+        .route("/confluence/content/{id}", get(investigation::get_confluence_page_handler))
         // Sentry integration
         .route("/sentry/test", post(integrations::sentry_test))
         .route("/sentry/projects", get(integrations::sentry_projects))

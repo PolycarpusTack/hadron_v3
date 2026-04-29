@@ -1,35 +1,75 @@
 //! JIRA integration commands — CRUD, search, linking, and deep analysis.
+//! SECURITY: JIRA credentials and AI API keys are never accepted as IPC args.
+//! They are read from the encrypted Tauri store on the Rust side.
 
 use super::common::DbState;
 use crate::database::{Analysis, JiraLink};
 use crate::jira_service;
 use serde::Deserialize;
 use std::sync::Arc;
+use tauri_plugin_store::StoreExt;
+
+// ============================================================================
+// Credential helper — reads JIRA creds from the encrypted Tauri store.
+// ============================================================================
+
+fn read_jira_creds(app: &tauri::AppHandle) -> Result<(String, String, String), String> {
+    let store = app
+        .get_store("settings.json")
+        .ok_or_else(|| "Settings store not available".to_string())?;
+    let get = |key: &str| -> String {
+        store
+            .get(key)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default()
+    };
+    let base_url = get("jira_base_url");
+    let email = get("jira_email");
+    let api_token = get("jira_api_key");
+    if base_url.is_empty() || email.is_empty() || api_token.is_empty() {
+        return Err("JIRA not configured. Please set up JIRA credentials in Settings.".to_string());
+    }
+    Ok((base_url, email, api_token))
+}
+
+/// Read AI API key from store for the given provider name.
+fn read_ai_api_key(app: &tauri::AppHandle, provider: &str) -> Result<String, String> {
+    let store = app
+        .get_store("settings.json")
+        .ok_or_else(|| "Settings store not available".to_string())?;
+    let key_name = format!("{}_api_key", provider.to_lowercase());
+    let api_key = store
+        .get(&key_name)
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default();
+    if api_key.is_empty() {
+        return Err(format!("No API key configured for provider '{provider}'"));
+    }
+    Ok(api_key)
+}
 
 // ============================================================================
 // JIRA Core Commands (migrated from commands_legacy.rs)
 // ============================================================================
 
-/// Test JIRA connection
+/// Test JIRA connection using saved credentials
 #[tauri::command]
 pub async fn test_jira_connection(
-    base_url: String,
-    email: String,
-    api_token: String,
+    app: tauri::AppHandle,
 ) -> Result<jira_service::JiraTestResponse, String> {
     log::debug!("cmd: test_jira_connection");
+    let (base_url, email, api_token) = read_jira_creds(&app)?;
     log::info!("Testing JIRA connection");
     jira_service::test_jira_connection(base_url, email, api_token).await
 }
 
-/// List JIRA projects for autocomplete
+/// List JIRA projects for autocomplete using saved credentials
 #[tauri::command]
 pub async fn list_jira_projects(
-    base_url: String,
-    email: String,
-    api_token: String,
+    app: tauri::AppHandle,
 ) -> Result<Vec<jira_service::JiraProjectInfo>, String> {
     log::debug!("cmd: list_jira_projects");
+    let (base_url, email, api_token) = read_jira_creds(&app)?;
     log::info!("Listing JIRA projects");
     jira_service::list_jira_projects(base_url, email, api_token).await
 }
@@ -37,14 +77,13 @@ pub async fn list_jira_projects(
 /// Create JIRA ticket from crash analysis
 #[tauri::command]
 pub async fn create_jira_ticket(
-    base_url: String,
-    email: String,
-    api_token: String,
+    app: tauri::AppHandle,
     project_key: String,
     issue_type: String,
     ticket: jira_service::JiraTicketRequest,
 ) -> Result<jira_service::JiraCreateResponse, String> {
     log::debug!("cmd: create_jira_ticket");
+    let (base_url, email, api_token) = read_jira_creds(&app)?;
     log::info!("Creating JIRA ticket");
     jira_service::create_jira_ticket(base_url, email, api_token, project_key, issue_type, ticket)
         .await
@@ -53,14 +92,13 @@ pub async fn create_jira_ticket(
 /// Search JIRA issues using JQL
 #[tauri::command]
 pub async fn search_jira_issues(
-    base_url: String,
-    email: String,
-    api_token: String,
+    app: tauri::AppHandle,
     jql: String,
     max_results: i32,
     include_comments: bool,
 ) -> Result<jira_service::JiraSearchResponse, String> {
     log::debug!("cmd: search_jira_issues");
+    let (base_url, email, api_token) = read_jira_creds(&app)?;
     log::info!("Searching JIRA issues with JQL");
     jira_service::search_jira_issues(base_url, email, api_token, jql, max_results, include_comments)
         .await
@@ -69,13 +107,12 @@ pub async fn search_jira_issues(
 /// Post a comment to a JIRA issue
 #[tauri::command]
 pub async fn post_jira_comment(
-    base_url: String,
-    email: String,
-    api_token: String,
+    app: tauri::AppHandle,
     issue_key: String,
     comment_body: String,
 ) -> Result<(), String> {
     log::debug!("cmd: post_jira_comment");
+    let (base_url, email, api_token) = read_jira_creds(&app)?;
     log::info!("Posting comment to JIRA issue {}", issue_key);
     jira_service::post_jira_comment(&base_url, &email, &api_token, &issue_key, &comment_body).await
 }
@@ -83,15 +120,14 @@ pub async fn post_jira_comment(
 /// Fetch the next page of JIRA issues using a cursor token
 #[tauri::command]
 pub async fn search_jira_issues_next_page(
-    base_url: String,
-    email: String,
-    api_token: String,
+    app: tauri::AppHandle,
     jql: String,
     max_results: i32,
     include_comments: bool,
     next_page_token: String,
 ) -> Result<jira_service::JiraSearchResponse, String> {
     log::debug!("cmd: search_jira_issues_next_page");
+    let (base_url, email, api_token) = read_jira_creds(&app)?;
     jira_service::search_jira_issues_page_cursor(
         base_url,
         email,
@@ -107,17 +143,21 @@ pub async fn search_jira_issues_next_page(
 /// Deep JIRA analysis — JIRA-specific prompt + structured JSON output stored in DB
 #[tauri::command]
 pub async fn analyze_jira_ticket_deep(
+    app: tauri::AppHandle,
     request: crate::jira_deep_analysis::JiraDeepRequest,
     db: DbState<'_>,
 ) -> Result<serde_json::Value, String> {
     log::debug!("cmd: analyze_jira_ticket_deep key={}", request.jira_key);
+
+    // Read the AI API key from the store — not from the request.
+    let api_key = read_ai_api_key(&app, &request.provider)?;
 
     // Clone fields needed after request is moved into run_jira_deep_analysis
     let jira_key = request.jira_key.clone();
     let model = request.model.clone();
     let provider = request.provider.clone();
 
-    let result = crate::jira_deep_analysis::run_jira_deep_analysis(request).await?;
+    let result = crate::jira_deep_analysis::run_jira_deep_analysis(request, &api_key).await?;
 
     // Persist to DB using the existing analyses table
     let db = Arc::clone(&db);

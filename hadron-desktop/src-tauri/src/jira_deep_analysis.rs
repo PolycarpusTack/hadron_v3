@@ -15,7 +15,8 @@ pub struct JiraDeepRequest {
     pub components: Vec<String>,
     pub labels: Vec<String>,
     pub comments: Vec<String>,
-    pub api_key: String,
+    // api_key intentionally absent — the command reads it from the encrypted
+    // Tauri store so it never travels as an IPC argument.
     pub model: String,
     pub provider: String,
 }
@@ -129,7 +130,7 @@ Be direct. Do not hedge unnecessarily. If the ticket is vague, say so clearly in
 
 // ─── Core function ────────────────────────────────────────────────────────────
 
-pub async fn run_jira_deep_analysis(req: JiraDeepRequest) -> Result<JiraDeepResult, String> {
+pub async fn run_jira_deep_analysis(req: JiraDeepRequest, api_key: &str) -> Result<JiraDeepResult, String> {
     use crate::ai_service::{call_openai_raw, call_anthropic_raw, call_zai_raw};
 
     let user_prompt = build_user_prompt(&req);
@@ -138,9 +139,9 @@ pub async fn run_jira_deep_analysis(req: JiraDeepRequest) -> Result<JiraDeepResu
     // into JiraDeepResult (which has a different schema than the standard AnalysisResult).
     // llamacpp is not supported for structured JIRA deep analysis.
     let raw_response: String = match req.provider.to_lowercase().as_str() {
-        "openai"    => call_openai_raw(JIRA_DEEP_ANALYSIS_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model, 4096).await?,
-        "anthropic" => call_anthropic_raw(JIRA_DEEP_ANALYSIS_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model).await?,
-        "zai"       => call_zai_raw(JIRA_DEEP_ANALYSIS_SYSTEM_PROMPT, &user_prompt, &req.api_key, &req.model).await?,
+        "openai"    => call_openai_raw(JIRA_DEEP_ANALYSIS_SYSTEM_PROMPT, &user_prompt, api_key, &req.model, 4096).await?,
+        "anthropic" => call_anthropic_raw(JIRA_DEEP_ANALYSIS_SYSTEM_PROMPT, &user_prompt, api_key, &req.model).await?,
+        "zai"       => call_zai_raw(JIRA_DEEP_ANALYSIS_SYSTEM_PROMPT, &user_prompt, api_key, &req.model).await?,
         "llamacpp"  => return Err("Deep JIRA analysis requires a cloud AI provider (OpenAI, Anthropic, or Z.ai). llamacpp is not supported.".to_string()),
         p           => return Err(format!("Unknown AI provider: {}", p)),
     };

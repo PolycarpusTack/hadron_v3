@@ -267,6 +267,7 @@ pub async fn chat_send(
     let pool = state.db.clone();
     let sid = session_id.clone();
     let user_id = user.user.id;
+    let user_role = user.user.role;
 
     tokio::spawn(async move {
         let result = run_agent_loop(
@@ -275,6 +276,7 @@ pub async fn chat_send(
             &system_prompt,
             &pool,
             user_id,
+            user_role,
             &sid,
             &tx,
         )
@@ -310,6 +312,7 @@ async fn run_agent_loop(
     system_prompt: &str,
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
+    user_role: hadron_core::models::Role,
     session_id: &str,
     tx: &mpsc::Sender<ChatStreamEvent>,
 ) -> Result<(), HadronError> {
@@ -364,6 +367,7 @@ async fn run_agent_loop(
                     let tool_result = crate::ai::tools::execute_tool(
                         pool,
                         user_id,
+                        user_role,
                         &call.name,
                         &call.arguments,
                     )

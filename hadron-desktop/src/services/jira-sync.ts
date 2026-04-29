@@ -138,14 +138,11 @@ export function getLastSyncResult(): SyncResult | null {
  */
 async function fetchTicketFromJira(
   jiraKey: string,
-  config: { baseUrl: string; email: string; apiToken: string }
+  _config: { baseUrl: string; email: string; apiToken: string }
 ): Promise<JiraIssueResponse | null> {
   try {
     const response = await executeWithResilience(async () => {
       return invoke<{ issues: JiraIssueResponse[] }>("search_jira_issues", {
-        baseUrl: config.baseUrl,
-        email: config.email,
-        apiToken: config.apiToken,
         jql: `key = ${jiraKey}`,
         maxResults: 1,
         includeComments: false,

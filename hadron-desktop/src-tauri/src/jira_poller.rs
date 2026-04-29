@@ -102,6 +102,11 @@ fn read_jira_creds(app: &AppHandle) -> Option<JiraCreds> {
         .get("jira_base_url")
         .and_then(|v| v.as_str().map(String::from))
         .filter(|s| !s.is_empty())?;
+    // Never send credentials over plain HTTP
+    if !base_url.starts_with("https://") {
+        log::warn!("poller: jira_base_url does not use https, skipping poll");
+        return None;
+    }
     let email = store
         .get("jira_email")
         .and_then(|v| v.as_str().map(String::from))
@@ -296,12 +301,11 @@ async fn run_poll_cycle(
             components,
             labels: issue.fields.labels.clone(),
             comments: Vec::new(), // no comments in feed fetch
-            api_key: ai.api_key.clone(),
             model: ai.model.clone(),
             provider: ai.provider.clone(),
         };
 
-        match crate::jira_triage::run_jira_triage(request).await {
+        match crate::jira_triage::run_jira_triage(request, &ai.api_key).await {
             Ok(result) => {
                 // Persist to ticket_briefs (same pattern as triage_jira_ticket command)
                 let tags_json = serde_json::to_string(&result.tags)

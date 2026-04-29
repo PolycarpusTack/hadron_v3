@@ -318,9 +318,26 @@ pub fn chat_tools() -> Vec<ToolDefinition> {
 pub async fn execute_tool(
     pool: &PgPool,
     user_id: Uuid,
+    user_role: hadron_core::models::Role,
     tool_name: &str,
     args: &serde_json::Value,
 ) -> Result<String, String> {
+    // Investigation and Confluence tools require Lead role, mirroring the HTTP
+    // route gates. Without this, any Analyst could reach these flows via chat.
+    const LEAD_ONLY_TOOLS: &[&str] = &[
+        "investigate_jira_ticket",
+        "investigate_regression_family",
+        "investigate_expected_behavior",
+        "investigate_customer_history",
+        "search_confluence",
+        "get_confluence_page",
+    ];
+    if LEAD_ONLY_TOOLS.contains(&tool_name)
+        && user_role < hadron_core::models::Role::Lead
+    {
+        return Err("This tool requires Lead role or above".to_string());
+    }
+
     match tool_name {
         "search_analyses" => {
             let query = args
@@ -664,6 +681,9 @@ pub async fn execute_tool(
         "investigate_jira_ticket" => {
             let key = args.get("ticket_key").and_then(|v| v.as_str())
                 .ok_or("ticket_key is required")?.to_string();
+            if !hadron_investigation::atlassian::jira::is_valid_ticket_key(&key) {
+                return Err(format!("Invalid ticket key format: {key}"));
+            }
             let config = load_investigation_config(pool).await?;
             let dossier = hadron_investigation::investigate_ticket(config, &key)
                 .await
@@ -674,6 +694,9 @@ pub async fn execute_tool(
         "investigate_regression_family" => {
             let key = args.get("ticket_key").and_then(|v| v.as_str())
                 .ok_or("ticket_key is required")?.to_string();
+            if !hadron_investigation::atlassian::jira::is_valid_ticket_key(&key) {
+                return Err(format!("Invalid ticket key format: {key}"));
+            }
             let config = load_investigation_config(pool).await?;
             let dossier = hadron_investigation::investigate_regression_family(config, &key)
                 .await
@@ -685,6 +708,9 @@ pub async fn execute_tool(
             let query = args.get("query").and_then(|v| v.as_str())
                 .ok_or("query is required")?.to_string();
             let key = args.get("ticket_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !key.is_empty() && !hadron_investigation::atlassian::jira::is_valid_ticket_key(&key) {
+                return Err(format!("Invalid ticket key format: {key}"));
+            }
             let config = load_investigation_config(pool).await?;
             let dossier = hadron_investigation::investigate_expected_behavior(config, &key, &query)
                 .await
@@ -695,6 +721,9 @@ pub async fn execute_tool(
         "investigate_customer_history" => {
             let key = args.get("ticket_key").and_then(|v| v.as_str())
                 .ok_or("ticket_key is required")?.to_string();
+            if !hadron_investigation::atlassian::jira::is_valid_ticket_key(&key) {
+                return Err(format!("Invalid ticket key format: {key}"));
+            }
             let config = load_investigation_config(pool).await?;
             let dossier = hadron_investigation::investigate_customer_history(config, &key)
                 .await
@@ -727,6 +756,9 @@ pub async fn execute_tool(
         "get_confluence_page" => {
             let page_id = args.get("page_id").and_then(|v| v.as_str())
                 .ok_or("page_id is required")?;
+            if !page_id.chars().all(|c| c.is_ascii_digit()) {
+                return Err(format!("Invalid page_id: must be numeric, got {page_id:?}"));
+            }
             let config = load_investigation_config(pool).await?;
             let client = hadron_investigation::atlassian::AtlassianClient::new(config);
             let doc = hadron_investigation::atlassian::confluence::get_confluence_content(&client, page_id)

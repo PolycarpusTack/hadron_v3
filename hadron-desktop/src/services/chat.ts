@@ -625,11 +625,8 @@ export async function updateSessionMetadata(
 // ============================================================================
 
 export async function postJiraComment(
-  baseUrl: string,
-  email: string,
-  apiToken: string,
   issueKey: string,
   commentBody: string
 ): Promise<void> {
-  await invoke("post_jira_comment", { baseUrl, email, apiToken, issueKey, commentBody });
+  await invoke("post_jira_comment", { issueKey, commentBody });
 }
