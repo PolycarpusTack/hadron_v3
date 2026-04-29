@@ -1864,6 +1864,10 @@ pub async fn get_signature_by_hash(
     Ok(row)
 }
 
+/// ORG-WIDE — returns analyses from all users that share this crash signature.
+/// Crash signatures are intentionally shared across the team (they are content-
+/// addressed fingerprints of stack traces, not per-user data). Callers that
+/// want user-scoped results should add their own filter on `analyses.user_id`.
 pub async fn get_signature_analyses(
     pool: &PgPool,
     hash: &str,

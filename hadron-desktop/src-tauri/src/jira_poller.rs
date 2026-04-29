@@ -102,6 +102,11 @@ fn read_jira_creds(app: &AppHandle) -> Option<JiraCreds> {
         .get("jira_base_url")
         .and_then(|v| v.as_str().map(String::from))
         .filter(|s| !s.is_empty())?;
+    // Never send credentials over plain HTTP
+    if !base_url.starts_with("https://") {
+        log::warn!("poller: jira_base_url does not use https, skipping poll");
+        return None;
+    }
     let email = store
         .get("jira_email")
         .and_then(|v| v.as_str().map(String::from))

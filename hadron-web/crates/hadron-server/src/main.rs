@@ -224,6 +224,12 @@ async fn main() -> anyhow::Result<()> {
             axum::http::header::HeaderName::from_static("strict-transport-security"),
             axum::http::HeaderValue::from_static("max-age=63072000; includeSubDomains"),
         ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::HeaderName::from_static("content-security-policy"),
+            axum::http::HeaderValue::from_static(
+                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://login.microsoftonline.com; frame-ancestors 'none'",
+            ),
+        ))
         .layer(cors_layer());
 
     // Serve frontend static files in production

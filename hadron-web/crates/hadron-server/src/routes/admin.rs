@@ -600,6 +600,13 @@ pub async fn update_investigation_settings(
             super::integrations::ensure_integration_host_allowed(u, label, env_var)?;
         }
     }
+    if let Some(id) = body.mod_docs_homepage_id.as_deref().filter(|s| !s.is_empty()) {
+        if !id.chars().all(|c| c.is_ascii_digit()) {
+            return Err(AppError(hadron_core::error::HadronError::validation(
+                "mod_docs_homepage_id must be numeric",
+            )));
+        }
+    }
     db::update_investigation_settings(
         &state.db,
         body.confluence_override_url.as_deref(),
