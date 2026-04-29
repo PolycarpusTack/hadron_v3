@@ -34,7 +34,10 @@ pub async fn complete(
     messages: Vec<AiMessage>,
     system_prompt: Option<&str>,
 ) -> HadronResult<String> {
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| HadronError::Http(format!("Failed to build AI HTTP client: {e}")))?;
 
     match config.provider {
         AiProvider::OpenAi => {
@@ -53,7 +56,14 @@ pub async fn stream_completion(
     system_prompt: Option<&str>,
     tx: mpsc::Sender<ChatStreamEvent>,
 ) -> HadronResult<String> {
-    let client = Client::new();
+    // Use connect_timeout only: reqwest's total `timeout()` would cut off long
+    // SSE streams at 120 s regardless of whether tokens are still flowing.
+    // A 10 s connect ceiling is enough to catch unreachable endpoints without
+    // killing legitimate long-running completions.
+    let client = Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| HadronError::Http(format!("Failed to build AI HTTP client: {e}")))?;
 
     match config.provider {
         AiProvider::OpenAi => {

@@ -345,7 +345,42 @@ pub async fn publish_confluence(
         .await?
         .unwrap_or_default();
 
-    let jira_config = db::get_jira_config_from_poller(&state.db).await?;
+    // R2 (2026-04-20 pass-3 audit): Confluence publish previously used the
+    // JIRA base URL without a separate Confluence allowlist check.  We now
+    // load the full poller config so we can use the dedicated
+    // `confluence_override_url` when configured, and always gate the
+    // effective Confluence host against CONFLUENCE_ALLOWED_HOSTS.
+    let poller = db::get_poller_config(&state.db).await?;
+
+    let (confluence_url, confluence_email, confluence_token) =
+        if !poller.confluence_override_url.is_empty() {
+            // Override URL was validated against CONFLUENCE_ALLOWED_HOSTS when
+            // saved — no need to re-validate here.
+            let token = crate::crypto::decrypt_value(&poller.confluence_override_token)
+                .map_err(|e| AppError(hadron_core::error::HadronError::validation(
+                    format!("Failed to decrypt Confluence token: {e}"),
+                )))?;
+            (poller.confluence_override_url.clone(), poller.confluence_override_email.clone(), token)
+        } else {
+            // No Confluence-specific override: fall back to JIRA credentials,
+            // but validate the JIRA base URL against the Confluence allowlist
+            // so a separate operator gate is always enforced.
+            if poller.jira_base_url.is_empty() {
+                return Err(AppError(hadron_core::error::HadronError::validation(
+                    "JIRA is not configured. Set up JIRA in the admin panel.",
+                )));
+            }
+            super::integrations::ensure_integration_host_allowed(
+                &poller.jira_base_url,
+                "Confluence",
+                "CONFLUENCE_ALLOWED_HOSTS",
+            )?;
+            let api_token = crate::crypto::decrypt_value(&poller.jira_api_token)
+                .map_err(|e| AppError(hadron_core::error::HadronError::validation(
+                    format!("Failed to decrypt JIRA token: {e}"),
+                )))?;
+            (poller.jira_base_url.clone(), poller.jira_email.clone(), api_token)
+        };
 
     let markdown = note
         .markdown_content
@@ -355,9 +390,9 @@ pub async fn publish_confluence(
     let wiki_text = hadron_core::ai::markdown_to_confluence(markdown);
 
     let result = crate::integrations::confluence::publish_page(
-        &jira_config.base_url,
-        &jira_config.email,
-        &jira_config.api_token,
+        &confluence_url,
+        &confluence_email,
+        &confluence_token,
         &space_key,
         &parent_page_id,
         &note.title,

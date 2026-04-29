@@ -98,6 +98,9 @@ pub(crate) fn ensure_integration_host_allowed(
         }
     }
 
+    // Strip a trailing dot before comparison: `example.com.` is the FQDN form
+    // of `example.com` and must match the same allowlist entry. (R7, audit
+    // 2026-04-20 pass-3.)
     let host = parsed
         .host_str()
         .ok_or_else(|| {
@@ -105,6 +108,7 @@ pub(crate) fn ensure_integration_host_allowed(
                 "{label} URL missing host"
             )))
         })?
+        .trim_end_matches('.')
         .to_ascii_lowercase();
 
     // Derive host:port so the allowlist can pin a specific port if it wants to.

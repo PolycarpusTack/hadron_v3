@@ -114,7 +114,15 @@ impl JwksCache {
         };
 
         if should_refresh {
-            let resp: JwksResponse = reqwest::get(jwks_url)
+            // R3: explicit 10 s timeout so a slow/absent JWKS endpoint cannot
+            // stall the auth middleware indefinitely.
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| format!("JWKS HTTP client build failed: {e}"))?;
+            let resp: JwksResponse = client
+                .get(jwks_url)
+                .send()
                 .await
                 .map_err(|e| format!("JWKS fetch failed: {e}"))?
                 .json()
