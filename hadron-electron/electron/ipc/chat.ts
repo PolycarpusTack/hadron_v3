@@ -1,4 +1,5 @@
 import { IpcMain } from 'electron'
+import log from 'electron-log'
 import { getDb } from '../database'
 import { callAi } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
@@ -15,12 +16,18 @@ interface StreamState {
 }
 
 const streamState: StreamState = { pendingText: '', done: false, error: null, events: [] }
+let streamActive = false
 
 function streamReset(): void {
   streamState.pendingText = ''
   streamState.done = false
   streamState.error = null
   streamState.events = []
+}
+
+function sanitizeFtsQuery(q: string): string {
+  // Wrap in double-quoted phrase to prevent FTS5 operator injection
+  return '"' + q.replace(/"/g, '""').substring(0, 200) + '"'
 }
 
 export function registerChatHandlers(ipcMain: IpcMain): void {
@@ -229,6 +236,10 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     verbosity?: string
   }) => {
     streamReset()
+    if (streamActive) {
+      log.warn('chat_send called while stream already active — previous stream cancelled')
+    }
+    streamActive = true
 
     const SERVICE_NAME = 'hadron-electron'
     let apiKey = args.api_key
@@ -254,7 +265,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
           JOIN analyses a ON analyses_fts.rowid = a.id
           WHERE analyses_fts MATCH ?
           LIMIT 5
-        `).all(query) as Array<{
+        `).all(sanitizeFtsQuery(query)) as Array<{
           id: number; filename: string; severity: string | null; root_cause: string | null;
           error_message: string | null; error_type: string | null
         }>
@@ -267,7 +278,9 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
             `</analysis>`
           ).join('\n\n')
         }
-      } catch { /* analyses_fts may not be populated yet */ }
+      } catch (err) {
+        log.warn('FTS context retrieval failed:', err)
+      }
     }
 
     const systemPrompt = `You are Ask Hadron, an expert regarding the Mediagenix WHATS'ON broadcast management software. You help users understand crashes, debug issues, and navigate historical analyses.${ftsContext ? `\n\n## Related Analyses\n${ftsContext}` : ''}`
@@ -287,10 +300,12 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
         },
       })
       streamState.done = true
+      streamActive = false
       return { content: result.content, inputTokens: result.inputTokens, outputTokens: result.outputTokens, cost: result.cost }
     } catch (err) {
       streamState.error = (err as Error).message
       streamState.done = true
+      streamActive = false
       return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
     }
   })
