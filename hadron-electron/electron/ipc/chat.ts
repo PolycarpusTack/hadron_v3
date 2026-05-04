@@ -1,6 +1,10 @@
 import { IpcMain } from 'electron'
 import { getDb } from '../database'
 
+// Timestamp format: INTEGER columns (chat_sessions.created_at/updated_at, chat_messages.timestamp)
+// use Date.now() (Unix milliseconds); TEXT columns (chat_feedback.created_at) use ISO strings
+// to match SQLite DEFAULT (datetime('now')). This is intentional and schema-dependent.
+
 export function registerChatHandlers(ipcMain: IpcMain): void {
   // Save (upsert) a chat session.
   // created_at / updated_at are stored as Unix ms integers.
@@ -145,7 +149,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     reason?: string
   }) => {
     const db = getDb()
-    const now = new Date().toISOString()
+    const now = new Date().toISOString() // TEXT column — ISO string matches DEFAULT datetime('now')
     const row = db.prepare(`
       INSERT INTO chat_feedback
         (session_id, message_id, rating, comment, tools_used, sources_cited, query, reason, created_at)
