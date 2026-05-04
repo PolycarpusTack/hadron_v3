@@ -10,7 +10,7 @@
     "preview": "electron-vite preview",
     "package": "electron-vite build && electron-builder",
     "test": "vitest run",
-    "postinstall": "electron-rebuild -f -w keytar -w better-sqlite3"
+    "postinstall": "electron-rebuild -f -w keytar,better-sqlite3"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
