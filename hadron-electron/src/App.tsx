@@ -1,0 +1,865 @@
+import { useEffect, useState, useCallback, lazy, Suspense, useRef } from "react";
+import { Loader2 } from "lucide-react";
+import FileDropZone from "./components/FileDropZone";
+import AnalysisResults from "./components/AnalysisResults";
+import SettingsPanel from "./components/SettingsPanel";
+import HistoryView from "./components/HistoryView";
+import CodeAnalyzerView from "./components/code-analyzer/CodeAnalyzerView";
+import PerformanceAnalyzerView from "./components/PerformanceAnalyzerView";
+import JiraAnalyzerView from "./components/JiraAnalyzerView";
+import SentryAnalyzerView from "./components/SentryAnalyzerView";
+import ConsoleViewer from "./components/ConsoleViewer";
+import DocumentationViewer from "./components/DocumentationViewer";
+import IntelligenceDashboard from "./components/IntelligenceDashboard";
+import Splashscreen from "./components/Splashscreen";
+import { ViewErrorBoundary, AppErrorBoundary } from "./components/ErrorBoundary";
+import Navigation from "./components/Navigation";
+import ErrorDisplay from "./components/ErrorDisplay";
+import ApiKeyWarning from "./components/ApiKeyWarning";
+import BatchProgressDisplay from "./components/BatchProgressDisplay";
+import AppHeader from "./components/AppHeader";
+import AppFooter from "./components/AppFooter";
+import AskHadronDrawer from "./components/AskHadronDrawer";
+import { analyzeCrashLog, getStoredModel, getStoredProvider, getAnalysisById, type AnalysisMode } from "./services/api";
+import { analyzeCode } from "./services/code-analysis";
+import { isJiraEnabled } from "./services/jira";
+import { isSentryEnabled } from "./services/sentry";
+import { checkAndUpdate } from "./services/updater";
+import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
+import { STORAGE_KEYS, getBooleanSetting } from "./utils/config";
+import { getApiKey, migrateFromLocalStorage } from "./services/secure-storage";
+import { isKeeperEnabledForProvider } from "./services/keeper";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useAppState } from "./hooks/useAppState";
+import { retryOperation, getUserFriendlyErrorMessage, getRecoverySuggestions } from "./utils/errorHandling";
+import logger from "./services/logger";
+import type { ChatMessage } from "./services/chat";
+import { getWidgetAutoAction } from "./components/widget/widgetAutoVisibility";
+
+// Lazy-loaded components for code splitting
+const AnalysisDetailView = lazy(() => import("./components/AnalysisDetailView"));
+const WhatsOnDetailView = lazy(() => import("./components/WhatsOnDetailView"));
+const QuickAnalysisDetailView = lazy(() => import("./components/QuickAnalysisDetailView"));
+const SentryDetailView = lazy(() => import("./components/sentry/SentryDetailView"));
+const AskHadronView = lazy(() => import("./components/AskHadronView"));
+const ReleaseNotesView = lazy(() => import("./components/ReleaseNotesView"));
+
+// Loading fallback component
+function LazyLoadFallback() {
+  return (
+    <div className="flex items-center justify-center p-8">
+      <Loader2 className="w-6 h-6 text-emerald-400 animate-spin" />
+      <span className="ml-2 text-gray-400">Loading...</span>
+    </div>
+  );
+}
+
+function App() {
+  const { state, actions } = useAppState();
+  const [showConsole, setShowConsole] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+  const [jiraEnabled, setJiraEnabled] = useState(false);
+  const [sentryEnabled, setSentryEnabled] = useState(false);
+  const [showCodeAnalyzer, setShowCodeAnalyzer] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true));
+  const [showPerformanceAnalyzer, setShowPerformanceAnalyzer] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true));
+  const [showAskHadron, setShowAskHadron] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true));
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [pendingWidgetMessages, setPendingWidgetMessages] = useState<ChatMessage[] | null>(null);
+  const widgetVisibilitySyncTimeoutRef = useRef<number | null>(null);
+  const widgetVisibilitySyncInFlightRef = useRef(false);
+  const queuedWidgetVisibilitySyncReasonRef = useRef<string | null>(null);
+
+  // Destructure for cleaner code
+  const {
+    currentView,
+    darkMode,
+    apiKey,
+    analyzing,
+    analysisResult,
+    selectedAnalysis,
+    batchProgress,
+    batchSummary,
+    error,
+    // Code Analyzer
+    codeAnalyzerTab,
+    codeAnalyzing,
+    codeAnalysisResult,
+    codeInput,
+    // Crash Analyzer persistence
+    crashFile,
+    crashAnalysisResult,
+  } = state;
+
+  const runtimeStateRef = useRef({
+    currentView,
+    analyzing,
+    codeAnalyzing,
+    selectedAnalysisId: selectedAnalysis?.id ?? null,
+  });
+
+  useEffect(() => {
+    runtimeStateRef.current = {
+      currentView,
+      analyzing,
+      codeAnalyzing,
+      selectedAnalysisId: selectedAnalysis?.id ?? null,
+    };
+  }, [currentView, analyzing, codeAnalyzing, selectedAnalysis?.id]);
+
+  useEffect(() => {
+    logger.info("View changed", {
+      view: currentView,
+      analyzing,
+      codeAnalyzing,
+      selectedAnalysisId: selectedAnalysis?.id ?? null,
+    }, {
+      source: "App",
+      category: "ui",
+    });
+  }, [currentView, analyzing, codeAnalyzing, selectedAnalysis?.id]);
+
+  const syncHoverButtonEnabled = useCallback((enabled: boolean) => {
+    invoke("set_hover_button_enabled", { enabled }).catch((e) => logger.warn("set_hover_button_enabled failed", { error: e }));
+    emit("settings:hover-button-changed", { enabled }).catch((e) => logger.warn("emit hover-button-changed failed", { error: e }));
+    if (!enabled) {
+      invoke("hide_widget").catch((e) => logger.warn("hide_widget failed", { error: e }));
+    }
+  }, []);
+
+  useEffect(() => {
+    syncHoverButtonEnabled(getBooleanSetting(STORAGE_KEYS.FEATURE_HOVER_BUTTON, true));
+  }, [syncHoverButtonEnabled]);
+
+  const syncWidgetAutoVisibility = useCallback(async (reason: string) => {
+    if (widgetVisibilitySyncInFlightRef.current) {
+      queuedWidgetVisibilitySyncReasonRef.current = reason;
+      return;
+    }
+
+    widgetVisibilitySyncInFlightRef.current = true;
+    try {
+      const hoverEnabled = getBooleanSetting(STORAGE_KEYS.FEATURE_HOVER_BUTTON, true);
+      const [mainVisible, widgetVisible] = await Promise.all([
+        invoke<boolean>("is_main_window_visible"),
+        invoke<boolean>("is_widget_visible"),
+      ]);
+      const action = getWidgetAutoAction(hoverEnabled, mainVisible, widgetVisible);
+
+      logger.debug("Widget visibility sync", {
+        reason,
+        hoverEnabled,
+        mainVisible,
+        widgetVisible,
+        action,
+      });
+
+      if (action === "show") {
+        await invoke("show_widget");
+      } else if (action === "hide") {
+        await invoke("hide_widget");
+      }
+    } catch (error) {
+      logger.warn("Failed to sync widget visibility", {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      widgetVisibilitySyncInFlightRef.current = false;
+
+      const queuedReason = queuedWidgetVisibilitySyncReasonRef.current;
+      if (queuedReason) {
+        queuedWidgetVisibilitySyncReasonRef.current = null;
+        window.setTimeout(() => {
+          syncWidgetAutoVisibility(queuedReason);
+        }, 0);
+      }
+    }
+  }, []);
+
+  const scheduleWidgetAutoVisibilitySync = useCallback((reason: string, delayMs = 150) => {
+    if (widgetVisibilitySyncTimeoutRef.current !== null) {
+      window.clearTimeout(widgetVisibilitySyncTimeoutRef.current);
+    }
+
+    widgetVisibilitySyncTimeoutRef.current = window.setTimeout(() => {
+      widgetVisibilitySyncTimeoutRef.current = null;
+      syncWidgetAutoVisibility(reason);
+    }, delayMs);
+  }, [syncWidgetAutoVisibility]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => scheduleWidgetAutoVisibilitySync(`visibility:${document.visibilityState}`);
+    const onFocus = () => scheduleWidgetAutoVisibilitySync("focus", 50);
+    const onBlur = () => scheduleWidgetAutoVisibilitySync("blur", 0);
+    const onPageHide = () => scheduleWidgetAutoVisibilitySync("pagehide", 0);
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("pagehide", onPageHide);
+
+    scheduleWidgetAutoVisibilitySync("startup", 0);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("pagehide", onPageHide);
+      if (widgetVisibilitySyncTimeoutRef.current !== null) {
+        window.clearTimeout(widgetVisibilitySyncTimeoutRef.current);
+        widgetVisibilitySyncTimeoutRef.current = null;
+      }
+      queuedWidgetVisibilitySyncReasonRef.current = null;
+    };
+  }, [scheduleWidgetAutoVisibilitySync]);
+
+  useEffect(() => {
+    const logWindowState = (event: string) => {
+      const snapshot = runtimeStateRef.current;
+      logger.info(`Window lifecycle: ${event}`, {
+        view: snapshot.currentView,
+        analyzing: snapshot.analyzing,
+        codeAnalyzing: snapshot.codeAnalyzing,
+        selectedAnalysisId: snapshot.selectedAnalysisId,
+        visibility: document.visibilityState,
+        hasFocus: typeof document.hasFocus === "function" ? document.hasFocus() : undefined,
+      }, {
+        source: "AppLifecycle",
+        category: "system",
+      });
+    };
+
+    const onVisibilityChange = () => logWindowState(`visibilitychange:${document.visibilityState}`);
+    const onFocus = () => logWindowState("focus");
+    const onBlur = () => logWindowState("blur");
+    const onPageHide = (event: PageTransitionEvent) => {
+      logWindowState(`pagehide:persisted=${event.persisted}`);
+    };
+    const onBeforeUnload = () => logWindowState("beforeunload");
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    const heartbeat = window.setInterval(() => {
+      const snapshot = runtimeStateRef.current;
+      const perfMem = (performance as unknown as { memory?: { usedJSHeapSize?: number; totalJSHeapSize?: number } }).memory;
+      logger.info("Heartbeat", {
+        view: snapshot.currentView,
+        analyzing: snapshot.analyzing,
+        codeAnalyzing: snapshot.codeAnalyzing,
+        selectedAnalysisId: snapshot.selectedAnalysisId,
+        visibility: document.visibilityState,
+        hasFocus: typeof document.hasFocus === "function" ? document.hasFocus() : undefined,
+        jsHeapUsed: perfMem?.usedJSHeapSize,
+        jsHeapTotal: perfMem?.totalJSHeapSize,
+      }, {
+        source: "AppLifecycle",
+        category: "system",
+      });
+    }, 30_000);
+
+    logWindowState("startup");
+
+    return () => {
+      window.clearInterval(heartbeat);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, []);
+
+  // Initialize app on mount
+  useEffect(() => {
+    async function initializeApp() {
+      // Run migration from localStorage to encrypted storage
+      await migrateFromLocalStorage();
+
+      // Load API key from encrypted storage or check Keeper
+      const provider = getStoredProvider();
+      const storedKey = await getApiKey(provider);
+      const keeperActive = !storedKey && await isKeeperEnabledForProvider(provider);
+
+      // Load theme (non-sensitive, keep in localStorage for now)
+      const storedTheme = localStorage.getItem(STORAGE_KEYS.THEME);
+      const isDark = storedTheme === "dark" || storedTheme === null;
+
+      // Initialize state — use a sentinel value when Keeper provides the key
+      // so the rest of the app knows an API key is available
+      actions.initComplete(storedKey || (keeperActive ? 'keeper-managed' : ''), isDark);
+
+      // Apply theme to document
+      if (isDark) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+
+      // Optional: auto-check for updates on startup
+      try {
+        const autoCheck = localStorage.getItem(STORAGE_KEYS.AUTO_CHECK_UPDATES) === "true";
+        if (autoCheck) {
+          checkAndUpdate().catch((e) => console.warn("Auto update check failed", e));
+        }
+      } catch (e) {
+        console.warn("Auto update check failed", e);
+      }
+    }
+
+    initializeApp();
+  }, [actions]);
+
+  useEffect(() => {
+    isJiraEnabled().then(setJiraEnabled);
+    isSentryEnabled().then(setSentryEnabled);
+  }, []);
+
+  // Update theme when it changes
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem(STORAGE_KEYS.THEME, "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem(STORAGE_KEYS.THEME, "light");
+    }
+  }, [darkMode]);
+
+  // Widget event listeners — handle "Open in Main" from widget window
+  useEffect(() => {
+    let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+
+    const setupListeners = async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      if (cancelled) return;
+
+      const unlistenOpenInMain = await listen<{ messages?: Array<{ role: string; content: string }> }>(
+        "widget:open-in-main",
+        (event) => {
+          const baseTimestamp = Date.now();
+          const importedMessages = (event.payload.messages || [])
+            .filter((message): message is { role: ChatMessage["role"]; content: string } =>
+              (message.role === "user" || message.role === "assistant" || message.role === "system")
+              && typeof message.content === "string"
+            )
+            .map((message, index) => ({
+              id: `widget-import-${baseTimestamp}-${index}`,
+              role: message.role,
+              content: message.content,
+              timestamp: baseTimestamp + index,
+            }));
+          setPendingWidgetMessages(importedMessages);
+          actions.setView("chat");
+        }
+      );
+      unlisteners.push(unlistenOpenInMain);
+      if (cancelled) { unlistenOpenInMain(); return; }
+
+      const unlistenOpenAnalysis = await listen<{ analysisId: string }>(
+        "widget:open-analysis-in-main",
+        async (event) => {
+          try {
+            const id = Number(event.payload.analysisId);
+            if (!id || isNaN(id)) {
+              logger.warn("widget:open-analysis-in-main received invalid analysisId", { payload: event.payload });
+              return;
+            }
+            const analysis = await getAnalysisById(id);
+            if (analysis) {
+              actions.viewAnalysis(analysis);
+            }
+          } catch (e) {
+            logger.error("Failed to open analysis from widget", { error: e });
+          }
+        }
+      );
+      unlisteners.push(unlistenOpenAnalysis);
+      if (cancelled) { unlistenOpenAnalysis(); return; }
+    };
+
+    setupListeners();
+
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((u) => u());
+    };
+  }, [actions]);
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onNewAnalysis: () => {
+      actions.setView("analyze");
+      actions.clearAnalysis();
+    },
+    onViewHistory: () => actions.setView("history"),
+    onOpenSettings: () => actions.setView('configure'),
+    onCloseModal: () => {
+      if (showDashboard) {
+        setShowDashboard(false);
+      } else if (showDocs) {
+        setShowDocs(false);
+      } else if (showConsole) {
+        setShowConsole(false);
+      } else if (currentView === "configure") {
+        actions.setView("analyze");
+      } else if (currentView === "detail") {
+        actions.backToHistory();
+      }
+    },
+    onToggleConsole: () => setShowConsole(prev => !prev),
+  });
+
+  // Handle single file analysis
+  const handleFileSelect = useCallback(async (filePath: string, analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
+    actions.startAnalysis();
+
+    // Persist file info in global state
+    const fileName = filePath.split(/[\\/]/).pop() || filePath;
+    actions.setCrashFile(filePath, fileName);
+
+    try {
+      if (!apiKey) {
+        throw new Error("Please set your OpenAI API key in Settings");
+      }
+
+      const model = getStoredModel();
+      const provider = getStoredProvider();
+
+      logger.info('Starting crash analysis', { filePath, model, provider, analysisType, analysisMode });
+
+      // For comprehensive/deep scan analysis, don't retry - it's expensive and takes several minutes
+      // For quick analysis, allow retries
+      const isComprehensive = analysisType === 'comprehensive' || analysisMode === 'deep_scan';
+      const result = await retryOperation(
+        () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType, analysisMode),
+        { maxAttempts: isComprehensive ? 1 : 3, delayMs: 1000, backoff: true }
+      );
+
+      logger.info('Analysis backend completed', {
+        id: result.id,
+        filename: result.filename,
+        severity: result.severity,
+        analysisMode: result.analysis_mode
+      });
+
+      // Fetch the full analysis from database (includes full_data with structured JSON)
+      const fullAnalysis = await getAnalysisById(result.id);
+
+      logger.info('Full analysis fetched from database', {
+        id: fullAnalysis.id,
+        analysisType: fullAnalysis.analysis_type,
+        hasFullData: !!fullAnalysis.full_data,
+        fullDataLength: fullAnalysis.full_data?.length
+      });
+
+      // Persist result so it survives tab switches
+      actions.setCrashAnalysisResult({ filename: result.filename, severity: result.severity });
+      actions.clearCrashFile();
+
+      // Navigate directly to detail view with full analysis data
+      actions.viewAnalysis(fullAnalysis);
+
+      logger.info('Navigating to detail view', {
+        id: result.id,
+        analysisType: fullAnalysis.analysis_type
+      });
+    } catch (err) {
+      logger.error('Analysis failed', {
+        error: err instanceof Error ? err.message : String(err),
+        filePath,
+        provider: getStoredProvider(),
+        model: getStoredModel(),
+      });
+
+      const friendlyMessage = getUserFriendlyErrorMessage(err);
+      const suggestions = getRecoverySuggestions(err);
+      actions.analysisError(friendlyMessage, suggestions);
+    }
+  }, [apiKey, actions]);
+
+  // Handle batch file analysis
+  const handleBatchSelect = useCallback(async (filePaths: string[], analysisType: string = "complete", analysisMode: AnalysisMode = "auto") => {
+    if (!filePaths || filePaths.length === 0) return;
+
+    actions.startBatch(filePaths.length);
+
+    try {
+      if (!apiKey) {
+        throw new Error("Please set your OpenAI API key in Settings");
+      }
+
+      const model = getStoredModel();
+      const provider = getStoredProvider();
+
+      // Track counts locally to avoid stale state reads in loop
+      let processedCount = 0;
+      let failedCount = 0;
+
+      for (const filePath of filePaths) {
+        // Update current file being processed
+        actions.batchProgress({ currentFile: filePath, processed: processedCount, failed: failedCount });
+
+        try {
+          logger.info("Starting batch crash analysis", { filePath, model, provider, analysisType, analysisMode });
+
+          const isBatchComprehensive = analysisType === 'comprehensive' || analysisMode === 'deep_scan';
+          await retryOperation(
+            () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType, analysisMode),
+            { maxAttempts: isBatchComprehensive ? 1 : 3, delayMs: 1000, backoff: true }
+          );
+
+          logger.info("Batch analysis succeeded", { filePath, model, provider, analysisType, analysisMode });
+        } catch (err) {
+          logger.error("Batch analysis failed", {
+            error: err instanceof Error ? err.message : String(err),
+            filePath,
+            provider: getStoredProvider(),
+            model: getStoredModel(),
+          });
+          failedCount += 1;
+        } finally {
+          processedCount += 1;
+          // Update progress with local counts (avoids stale state issue)
+          actions.batchProgress({ processed: processedCount, failed: failedCount });
+        }
+      }
+
+      const succeeded = filePaths.length - failedCount;
+      actions.batchComplete(`Batch complete: ${succeeded} succeeded, ${failedCount} failed.`);
+    } catch (err) {
+      const friendlyMessage = getUserFriendlyErrorMessage(err);
+      const suggestions = getRecoverySuggestions(err);
+      actions.setError(friendlyMessage, suggestions);
+    }
+  }, [apiKey, actions]);
+
+  // Handle code analysis
+  const handleCodeAnalysis = useCallback(async (code: string, filename: string, language: string) => {
+    actions.startCodeAnalysis();
+    try {
+      const result = await analyzeCode(code, filename, language);
+      actions.codeAnalysisSuccess(result);
+      return result;
+    } catch (err) {
+      const friendlyError = getUserFriendlyErrorMessage(err);
+      actions.codeAnalysisError(friendlyError);
+      throw err;
+    }
+  }, [actions]);
+
+  // Handle settings change
+  const handleSettingsChange = useCallback(async () => {
+    const provider = getStoredProvider();
+    const newApiKey = await getApiKey(provider);
+    const keeperActive = !newApiKey && await isKeeperEnabledForProvider(provider);
+    if (newApiKey) {
+      actions.setApiKey(newApiKey);
+    } else if (keeperActive) {
+      actions.setApiKey('keeper-managed');
+    }
+    const jiraStatus = await isJiraEnabled();
+    setJiraEnabled(jiraStatus);
+    if (!jiraStatus && currentView === "jira") {
+      actions.setView("analyze");
+    }
+    const sentryStatus = await isSentryEnabled();
+    setSentryEnabled(sentryStatus);
+    if (!sentryStatus && currentView === "sentry") {
+      actions.setView("analyze");
+    }
+    if (!jiraStatus && currentView === "release_notes") {
+      actions.setView("analyze");
+    }
+    // Re-read feature flags
+    const codeFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true);
+    const perfFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true);
+    const chatFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true);
+    const hoverFlag = getBooleanSetting(STORAGE_KEYS.FEATURE_HOVER_BUTTON, true);
+    setShowCodeAnalyzer(codeFlag);
+    setShowPerformanceAnalyzer(perfFlag);
+    setShowAskHadron(chatFlag);
+    syncHoverButtonEnabled(hoverFlag);
+    scheduleWidgetAutoVisibilitySync("settings-change", 0);
+    // Redirect if active view was disabled
+    if (!codeFlag && currentView === "translate") actions.setView("analyze");
+    if (!perfFlag && currentView === "performance") actions.setView("analyze");
+    if (!chatFlag && currentView === "chat") actions.setView("analyze");
+  }, [currentView, actions, scheduleWidgetAutoVisibilitySync, syncHoverButtonEnabled]);
+
+  // Handle navigation to analysis from chat
+  const handleNavigateToAnalysis = useCallback(async (id: number) => {
+    try {
+      const analysis = await getAnalysisById(id);
+      actions.viewAnalysis(analysis);
+    } catch (err) {
+      logger.error("Failed to navigate to analysis", { id, error: err instanceof Error ? err.message : String(err) });
+    }
+  }, [actions]);
+
+  // Splashscreen on app start - only show for minimum time, don't block on initialization
+  if (showSplash) {
+    return (
+      <Splashscreen
+        onComplete={() => setShowSplash(false)}
+        minDisplayTime={1500}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="min-h-screen transition-colors duration-200"
+      style={{
+        background: 'var(--hd-bg-base)',
+        backgroundImage: 'radial-gradient(ellipse at 15% 5%, rgba(16,185,129,0.06) 0%, transparent 50%), radial-gradient(ellipse at 85% 10%, rgba(59,130,246,0.04) 0%, transparent 40%)',
+        color: 'var(--hd-text)',
+      }}
+    >
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* Header */}
+        <AppHeader
+          providerName={getStoredProvider()}
+          jiraConnected={jiraEnabled}
+          sentryConnected={sentryEnabled}
+          onOpenSettings={() => actions.setView("configure")}
+          onOpenAskHadronDrawer={() => setDrawerOpen(true)}
+          onOpenDashboard={() => setShowDashboard(true)}
+          isSettingsActive={currentView === "configure"}
+        />
+
+        {/* Navigation Tabs */}
+        <Navigation
+          currentView={currentView}
+          onViewChange={actions.setView}
+          showJiraAnalyzer={jiraEnabled}
+          showSentryAnalyzer={sentryEnabled}
+          showReleaseNotes={jiraEnabled}
+          showCodeAnalyzer={showCodeAnalyzer}
+          showPerformanceAnalyzer={showPerformanceAnalyzer}
+          showAskHadron={showAskHadron}
+        />
+
+        {/* API Key Warning */}
+        <ApiKeyWarning hasApiKey={!!apiKey} />
+
+        {/* Error Display */}
+        <ErrorDisplay error={error} />
+
+        {/* Main Content */}
+        <div className="space-y-6">
+          {/* Analyze View */}
+          {currentView === "analyze" && (
+            <ViewErrorBoundary name="Analysis">
+              <div id="analyze-panel" role="tabpanel">
+                <BatchProgressDisplay
+                  batchProgress={batchProgress}
+                  batchSummary={batchSummary}
+                  isAnalyzing={analyzing}
+                />
+                {!analysisResult && (
+                  <FileDropZone
+                    onFileSelect={handleFileSelect}
+                    onBatchSelect={handleBatchSelect}
+                    onOpenAnalysis={(analysis) => actions.viewAnalysis(analysis)}
+                    isAnalyzing={analyzing}
+                    crashFile={crashFile}
+                    crashAnalysisResult={crashAnalysisResult}
+                    onClearCrashAnalysisResult={actions.clearCrashAnalysisResult}
+                  />
+                )}
+
+                {analysisResult && (
+                  <AnalysisResults
+                    result={analysisResult}
+                    onNewAnalysis={actions.clearAnalysis}
+                  />
+                )}
+              </div>
+            </ViewErrorBoundary>
+          )}
+
+          {/* Code Analyzer View */}
+          {currentView === "translate" && (
+            <ViewErrorBoundary name="Code Analyzer">
+              <div id="translate-panel" role="tabpanel">
+                <CodeAnalyzerView
+                  onAnalyze={handleCodeAnalysis}
+                  isAnalyzing={codeAnalyzing}
+                  analysisResult={codeAnalysisResult}
+                  codeInput={codeInput}
+                  activeTab={codeAnalyzerTab}
+                  onTabChange={actions.setCodeAnalyzerTab}
+                  onSetInput={actions.setCodeInput}
+                  onClear={actions.clearCodeAnalysis}
+                />
+              </div>
+            </ViewErrorBoundary>
+          )}
+
+          {/* History View */}
+          {currentView === "history" && (
+            <ViewErrorBoundary name="History">
+              <div id="history-panel" role="tabpanel">
+                <HistoryView
+                  onViewAnalysis={actions.viewAnalysis}
+                  onViewJiraTicket={(jiraKey) => {
+                    actions.setView("jira");
+                    sessionStorage.setItem("hadron_jira_navigate_key", jiraKey);
+                  }}
+                />
+              </div>
+            </ViewErrorBoundary>
+          )}
+
+          {/* JIRA Analyzer View */}
+          {currentView === "jira" && (
+            <ViewErrorBoundary name="JIRA Analyzer">
+              <div id="jira-panel" role="tabpanel">
+                <JiraAnalyzerView onAnalysisComplete={actions.viewAnalysis} />
+              </div>
+            </ViewErrorBoundary>
+          )}
+
+          {/* Sentry Analyzer View */}
+          {currentView === "sentry" && (
+            <ViewErrorBoundary name="Sentry Analyzer">
+              <div id="sentry-panel" role="tabpanel">
+                <SentryAnalyzerView onAnalysisComplete={actions.viewAnalysis} />
+              </div>
+            </ViewErrorBoundary>
+          )}
+
+          {/* Release Notes Generator View - lazy loaded */}
+          {currentView === "release_notes" && (
+            <ViewErrorBoundary name="Release Notes">
+              <Suspense fallback={<LazyLoadFallback />}>
+                <div id="release_notes-panel" role="tabpanel">
+                  <ReleaseNotesView />
+                </div>
+              </Suspense>
+            </ViewErrorBoundary>
+          )}
+
+          {/* Performance Analyzer View */}
+          {currentView === "performance" && (
+            <ViewErrorBoundary name="Performance">
+              <div id="performance-panel" role="tabpanel">
+                <PerformanceAnalyzerView />
+              </div>
+            </ViewErrorBoundary>
+          )}
+
+          {/* Ask Hadron Chat View - lazy loaded */}
+          {currentView === "chat" && (
+            <ViewErrorBoundary name="Ask Hadron">
+              <Suspense fallback={<LazyLoadFallback />}>
+                <div id="chat-panel" role="tabpanel">
+                  <AskHadronView
+                    selectedAnalysisId={selectedAnalysis?.id ?? null}
+                    onNavigateToAnalysis={handleNavigateToAnalysis}
+                    initialMessages={pendingWidgetMessages ?? undefined}
+                    onInitialMessagesConsumed={() => setPendingWidgetMessages(null)}
+                  />
+                </div>
+              </Suspense>
+            </ViewErrorBoundary>
+          )}
+
+          {/* Configure View (Settings as inline tab) */}
+          {currentView === "configure" && (
+            <ViewErrorBoundary name="Settings">
+              <SettingsPanel
+                isOpen={true}
+                onClose={() => actions.setView("analyze")}
+                darkMode={darkMode}
+                onThemeChange={actions.setDarkMode}
+                onSettingsChange={handleSettingsChange}
+                isInline={true}
+              />
+            </ViewErrorBoundary>
+          )}
+
+          {/* Detail View - lazy loaded */}
+          {currentView === "detail" && selectedAnalysis && (
+            <ViewErrorBoundary name="Analysis Details">
+              <Suspense fallback={<LazyLoadFallback />}>
+                {/* Route to appropriate detail view based on analysis type */}
+                {(selectedAnalysis.analysis_type === "whatson" || selectedAnalysis.analysis_type === "comprehensive") ? (
+                  <WhatsOnDetailView
+                    analysis={selectedAnalysis}
+                    onBack={actions.backToHistory}
+                  />
+                ) : selectedAnalysis.analysis_type === "quick" ? (
+                  <QuickAnalysisDetailView
+                    analysis={selectedAnalysis}
+                    onBack={actions.backToHistory}
+                  />
+                ) : selectedAnalysis.analysis_type === "sentry" ? (
+                  <SentryDetailView
+                    analysis={selectedAnalysis}
+                    onBack={actions.backToHistory}
+                  />
+                ) : (
+                  <AnalysisDetailView
+                    analysis={selectedAnalysis}
+                    onBack={actions.backToHistory}
+                  />
+                )}
+              </Suspense>
+            </ViewErrorBoundary>
+          )}
+        </div>
+
+        {/* Footer */}
+        <AppFooter hasApiKey={!!apiKey} />
+      </div>
+
+      {/* Console Viewer - toggle with Ctrl+Y */}
+      <ConsoleViewer
+        isOpen={showConsole}
+        onClose={() => setShowConsole(false)}
+      />
+
+      {/* Documentation Viewer */}
+      <DocumentationViewer
+        isOpen={showDocs}
+        onClose={() => setShowDocs(false)}
+      />
+
+      {/* Intelligence Dashboard */}
+      <IntelligenceDashboard
+        isOpen={showDashboard}
+        onClose={() => setShowDashboard(false)}
+      />
+
+      {/* Ask Hadron Drawer */}
+      <AskHadronDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onOpenFullView={() => {
+          setDrawerOpen(false);
+          actions.setView("chat");
+        }}
+      />
+    </div>
+  );
+}
+
+// Wrap App with error boundary to catch top-level errors
+function AppWithErrorBoundary() {
+  return (
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
+  );
+}
+
+export default AppWithErrorBoundary;

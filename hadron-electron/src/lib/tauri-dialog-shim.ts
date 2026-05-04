@@ -3,6 +3,7 @@ export async function open(options?: {
   filters?: Array<{ name: string; extensions: string[] }>
   directory?: boolean
   defaultPath?: string
+  title?: string
 }): Promise<string | string[] | null> {
   const result = await window.hadron.openFile({
     multiple: options?.multiple,
@@ -15,6 +16,7 @@ export async function open(options?: {
 export async function save(options?: {
   defaultPath?: string
   filters?: Array<{ name: string; extensions: string[] }>
+  title?: string
 }): Promise<string | null> {
   return window.hadron.saveFile(options)
 }

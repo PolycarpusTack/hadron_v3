@@ -1,0 +1,539 @@
+import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { format } from "date-fns";
+import logger from "../services/logger";
+import {
+  ArrowLeft,
+  Download,
+  Copy,
+  Check,
+  AlertCircle,
+  Package,
+  Info,
+  Ticket,
+  AlertTriangle,
+  TestTube,
+  Server,
+  Database,
+  HardDrive,
+  Layers,
+  Loader2,
+} from "lucide-react";
+import type { Analysis } from "../services/api";
+import { parseWhatsOnAnalysis, getSeverityColor } from "../utils/whatsOnParser";
+import JiraTicketModal from "./JiraTicketModal";
+import { isJiraEnabled } from "../services/jira";
+import Button from "./ui/Button";
+import { generateAnnotatedWcrDocx } from "../utils/generateAnnotatedWcrDocx";
+
+// Intelligence Platform Components
+import { FeedbackButtons } from "./FeedbackButtons";
+import { StarRating } from "./StarRating";
+import { GoldBadge } from "./GoldBadge";
+import { InlineEditor } from "./InlineEditor";
+import CitationPanel from "./CitationPanel";
+
+// Sub-components
+import SystemWarningsWidget from "./whatson/SystemWarningsWidget";
+import SuggestedFixCard from "./whatson/SuggestedFixCard";
+import ReproductionSteps from "./whatson/ReproductionSteps";
+import ImpactAnalysisSection from "./whatson/ImpactAnalysisSection";
+import TestScenariosSection from "./whatson/TestScenariosSection";
+import ContextTab from "./whatson/ContextTab";
+import DatabaseTab from "./whatson/DatabaseTab";
+import MemoryTab from "./whatson/MemoryTab";
+import EnhancedStackTrace from "./whatson/EnhancedStackTrace";
+import EnvironmentTab from "./whatson/EnvironmentTab";
+
+interface WhatsOnDetailViewProps {
+  analysis: Analysis;
+  onBack: () => void;
+}
+
+type TabId = "overview" | "testing" | "stacktrace" | "context" | "environment" | "database" | "memory";
+
+const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
+  { id: "overview", label: "Overview", icon: <Info className="w-4 h-4" /> },
+  { id: "testing", label: "Testing & Impact", icon: <TestTube className="w-4 h-4" /> },
+  { id: "stacktrace", label: "Stack Trace", icon: <Layers className="w-4 h-4" /> },
+  { id: "context", label: "Context", icon: <Package className="w-4 h-4" /> },
+  { id: "environment", label: "Environment", icon: <Server className="w-4 h-4" /> },
+  { id: "database", label: "Database", icon: <Database className="w-4 h-4" /> },
+  { id: "memory", label: "Memory", icon: <HardDrive className="w-4 h-4" /> },
+];
+
+export default function WhatsOnDetailView({ analysis, onBack }: WhatsOnDetailViewProps) {
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [copied, setCopied] = useState(false);
+  const [showJiraModal, setShowJiraModal] = useState(false);
+  const [jiraEnabled, setJiraEnabled] = useState(false);
+  const [isGold, setIsGold] = useState(false);
+  const [editableRootCause, setEditableRootCause] = useState<string | null>(null);
+  const [isExportingWcr, setIsExportingWcr] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Parse the WHATS'ON enhanced analysis data
+  const enhancedData = parseWhatsOnAnalysis(analysis.full_data, analysis.root_cause);
+
+  // Initialize editable root cause from parsed data
+  const currentRootCause = editableRootCause ?? enhancedData?.rootCause?.technical ?? "";
+
+  // Check if JIRA is enabled
+  useEffect(() => {
+    isJiraEnabled().then(setJiraEnabled);
+  }, []);
+
+  // Check if this is a gold analysis
+  useEffect(() => {
+    invoke<boolean>("is_gold_analysis", { analysisId: analysis.id })
+      .then(setIsGold)
+      .catch(err => logger.error("Failed to check gold analysis status", { error: String(err) }));
+  }, [analysis.id]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const handleExportAnnotatedWcr = async () => {
+    if (!enhancedData) return;
+    setIsExportingWcr(true);
+    try {
+      const blob = await generateAnnotatedWcrDocx(enhancedData, analysis);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${analysis.filename.replace(/\.(txt|log)$/i, "")}-annotated-wcr.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      logger.error("Annotated WCR export failed", { error: String(err) });
+    } finally {
+      setIsExportingWcr(false);
+    }
+  };
+
+  const handleCopyToClipboard = () => {
+    const text = enhancedData
+      ? `
+WHATS'ON Crash Analysis Report - ${analysis.filename}
+=====================================================
+
+SUMMARY
+-------
+Title: ${enhancedData.summary.title}
+Severity: ${enhancedData.summary.severity.toUpperCase()}
+Category: ${enhancedData.summary.category}
+Confidence: ${enhancedData.summary.confidence}
+Workflow: ${enhancedData.summary.affectedWorkflow || "N/A"}
+
+ROOT CAUSE
+----------
+Technical: ${enhancedData.rootCause.technical}
+Plain English: ${enhancedData.rootCause.plainEnglish}
+Affected Method: ${enhancedData.rootCause.affectedMethod}
+Affected Module: ${enhancedData.rootCause.affectedModule}
+
+SUGGESTED FIX
+-------------
+${enhancedData.suggestedFix.summary}
+Complexity: ${enhancedData.suggestedFix.complexity}
+Risk Level: ${enhancedData.suggestedFix.riskLevel}
+
+---
+Generated by Hadron - WHATS'ON Crash Analyzer
+      `.trim()
+      : `
+Analysis Report - ${analysis.filename}
+=====================================
+
+Error Type: ${analysis.error_type}
+Severity: ${analysis.severity.toUpperCase()}
+Analyzed: ${format(new Date(analysis.analyzed_at), "MMMM d, yyyy 'at' h:mm a")}
+
+ROOT CAUSE
+----------
+${analysis.root_cause}
+
+---
+Generated by Hadron - AI Support Assistant
+      `.trim();
+
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleExportMarkdown = () => {
+    const markdown = enhancedData
+      ? `# WHATS'ON Crash Analysis: ${analysis.filename}
+
+## Summary
+- **Title:** ${enhancedData.summary.title}
+- **Severity:** ${enhancedData.summary.severity.toUpperCase()}
+- **Category:** ${enhancedData.summary.category}
+- **Confidence:** ${enhancedData.summary.confidence}
+- **Affected Workflow:** ${enhancedData.summary.affectedWorkflow || "N/A"}
+
+## Root Cause
+
+### Technical Explanation
+${enhancedData.rootCause.technical}
+
+### Plain English
+${enhancedData.rootCause.plainEnglish}
+
+- **Affected Method:** \`${enhancedData.rootCause.affectedMethod}\`
+- **Affected Module:** ${enhancedData.rootCause.affectedModule}
+
+## Suggested Fix
+**${enhancedData.suggestedFix.summary}**
+
+${enhancedData.suggestedFix.reasoning}
+
+### Code Changes
+${enhancedData.suggestedFix.codeChanges
+  .map(
+    (change) => `
+#### ${change.file} (${change.priority})
+${change.description}
+
+${change.before ? `**Before:**\n\`\`\`smalltalk\n${change.before}\n\`\`\`\n` : ""}
+${change.after ? `**After:**\n\`\`\`smalltalk\n${change.after}\n\`\`\`` : ""}
+`
+  )
+  .join("\n")}
+
+## User Scenario
+${enhancedData.userScenario.description}
+
+### Reproduction Steps
+${enhancedData.userScenario.steps.map((s) => `${s.step}. ${s.action}${s.isCrashPoint ? " **[CRASH POINT]**" : ""}`).join("\n")}
+
+---
+*Generated by Hadron - WHATS'ON Crash Analyzer*
+`
+      : `# Analysis Report: ${analysis.filename}
+
+**Error Type:** ${analysis.error_type}
+**Severity:** ${analysis.severity.toUpperCase()}
+**Analyzed:** ${format(new Date(analysis.analyzed_at), "MMMM d, yyyy 'at' h:mm a")}
+
+## Root Cause
+${analysis.root_cause}
+
+---
+*Generated by Hadron - AI Support Assistant*
+`;
+
+    const blob = new Blob([markdown], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${analysis.filename.replace(/\.(txt|log)$/i, "")}-analysis.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Fallback view if enhanced data is not available
+  if (!enhancedData) {
+    // Diagnostic info for debugging
+    const diagnosticInfo = {
+      analysisType: analysis.analysis_type,
+      hasFullData: !!analysis.full_data,
+      fullDataLength: analysis.full_data?.length ?? 0,
+      fullDataPreview: analysis.full_data?.substring(0, 500),
+    };
+    logger.debug("WhatsOnDetailView: Enhanced data not available", diagnosticInfo);
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <nav className="flex items-center gap-1.5 text-sm">
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 text-gray-400 hover:text-white transition"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              History
+            </button>
+            <span className="text-gray-600">/</span>
+            <span className="text-gray-400 truncate max-w-xs">{analysis.filename}</span>
+          </nav>
+        </div>
+        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <AlertTriangle className="w-6 h-6 text-yellow-400" />
+            <h2 className="text-xl font-bold text-yellow-400">Enhanced Data Not Available</h2>
+          </div>
+          <p className="text-gray-300">
+            This analysis does not contain WHATS'ON enhanced data. This may be because:
+          </p>
+          <ul className="list-disc list-inside mt-2 text-gray-400 space-y-1">
+            <li>The analysis was performed using a different analysis type (current: {analysis.analysis_type || "unknown"})</li>
+            <li>The AI response could not be parsed as structured JSON</li>
+            <li>This is an older analysis from before the WHATS'ON enhancement</li>
+          </ul>
+          <p className="mt-4 text-sm text-gray-500">
+            Debug: full_data {analysis.full_data ? `present (${analysis.full_data.length} chars)` : "missing"} • Check browser console for details (Ctrl+Shift+I)
+          </p>
+          <p className="mt-4 text-gray-300">
+            The raw analysis content is available below:
+          </p>
+          <div className="mt-4 p-4 bg-gray-900 rounded-lg font-mono text-sm whitespace-pre-wrap max-h-96 overflow-y-auto">
+            {analysis.root_cause}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" onClick={onBack} icon={<ArrowLeft />}>
+          Back to History
+        </Button>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={handleCopyToClipboard}
+            icon={copied ? <Check className="text-green-400" /> : <Copy />}
+          >
+            {copied ? "Copied!" : "Copy Report"}
+          </Button>
+          <Button variant="primary" onClick={handleExportMarkdown} icon={<Download />}>
+            Export Markdown
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={handleExportAnnotatedWcr}
+            disabled={isExportingWcr}
+            loading={isExportingWcr}
+            icon={isExportingWcr ? <Loader2 className="animate-spin" /> : <Download />}
+            title="Export annotated Word document (.docx) with colour-coded crash annotations"
+          >
+            {isExportingWcr ? "Exporting…" : "Export Annotated WCR"}
+          </Button>
+          {jiraEnabled && (
+            <Button
+              variant="success"
+              onClick={() => setShowJiraModal(true)}
+              title="Create JIRA ticket from this analysis"
+              icon={<Ticket />}
+            >
+              Create JIRA Ticket
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* File Info Card with Summary */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex-1">
+            <h2 className="text-2xl font-bold mb-2">{enhancedData.summary.title}</h2>
+            <p className="text-gray-400 text-sm mb-3">{analysis.filename}</p>
+            <div className="flex items-center gap-3 text-sm text-gray-400 flex-wrap">
+              <span>{format(new Date(analysis.analyzed_at), "MMMM d, yyyy 'at' h:mm a")}</span>
+              <span>|</span>
+              <span className="capitalize">{enhancedData.summary.category}</span>
+              <span>|</span>
+              <span>{analysis.ai_model}</span>
+              <span>|</span>
+              <span>${analysis.cost.toFixed(4)}</span>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <span
+                className={`px-4 py-2 rounded-lg text-sm font-semibold border ${getSeverityColor(
+                  enhancedData.summary.severity
+                )}`}
+              >
+                {enhancedData.summary.severity.toUpperCase()}
+              </span>
+              <GoldBadge
+                analysisId={analysis.id}
+                isGold={isGold}
+                onPromoted={() => setIsGold(true)}
+              />
+            </div>
+            <span className="text-xs text-gray-500">
+              Confidence: {enhancedData.summary.confidence}
+            </span>
+          </div>
+        </div>
+
+        {enhancedData.summary.affectedWorkflow && (
+          <div className="mt-4 p-3 bg-gray-700/50 rounded-lg">
+            <span className="text-gray-400 text-sm">Affected Workflow: </span>
+            <span className="text-gray-200">{enhancedData.summary.affectedWorkflow}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-700">
+        <nav className="flex gap-1 overflow-x-auto pb-px" role="tablist">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "border-emerald-500 text-emerald-400"
+                  : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      <div className="space-y-6">
+        {/* Overview Tab */}
+        {activeTab === "overview" && (
+          <>
+            {/* System Warnings */}
+            {enhancedData.systemWarnings && enhancedData.systemWarnings.length > 0 && (
+              <SystemWarningsWidget warnings={enhancedData.systemWarnings} />
+            )}
+
+            {/* Root Cause Section */}
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-400" />
+                  <h3 className="text-lg font-semibold">Root Cause Analysis</h3>
+                </div>
+                <FeedbackButtons
+                  analysisId={analysis.id}
+                  fieldName="rootCause"
+                  currentValue={enhancedData.rootCause.technical}
+                />
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-400 mb-2">Technical Explanation</h4>
+                  <InlineEditor
+                    analysisId={analysis.id}
+                    fieldName="rootCause"
+                    value={currentRootCause}
+                    onSave={(newValue) => setEditableRootCause(newValue)}
+                  />
+                </div>
+
+                <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                  <h4 className="text-sm font-semibold text-blue-400 mb-2">Plain English</h4>
+                  <p className="text-gray-200">{enhancedData.rootCause.plainEnglish}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-400">Affected Method:</span>
+                    <code className="ml-2 px-2 py-1 bg-gray-900 rounded text-blue-400">
+                      {enhancedData.rootCause.affectedMethod}
+                    </code>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Affected Module:</span>
+                    <span className="ml-2 text-purple-400">{enhancedData.rootCause.affectedModule}</span>
+                  </div>
+                </div>
+
+                {enhancedData.rootCause.triggerCondition && (
+                  <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                    <span className="text-sm font-semibold text-yellow-400">Trigger Condition: </span>
+                    <span className="text-gray-200">{enhancedData.rootCause.triggerCondition}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Similar Historical Cases (RAG Citations) */}
+            <CitationPanel
+              query={`${analysis.error_type || ""} ${enhancedData.rootCause.affectedMethod || ""} ${analysis.stack_trace?.slice(0, 200) || ""}`}
+              component={analysis.component}
+              severity={analysis.severity?.toLowerCase()}
+              onCitationClick={() => {}}
+              defaultCollapsed={false}
+            />
+
+            {/* User Scenario - Reproduction Steps */}
+            <ReproductionSteps scenario={enhancedData.userScenario} />
+
+            {/* Suggested Fix */}
+            <SuggestedFixCard fix={enhancedData.suggestedFix} />
+
+            {/* Feedback Section */}
+            <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold mb-1">How was this analysis?</h3>
+                  <p className="text-sm text-gray-400">Your feedback helps improve future analyses</p>
+                </div>
+                <StarRating
+                  analysisId={analysis.id}
+                  size="large"
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Testing & Impact Tab */}
+        {activeTab === "testing" && (
+          <>
+            <ImpactAnalysisSection impact={enhancedData.impactAnalysis} />
+            <TestScenariosSection scenarios={enhancedData.testScenarios} />
+          </>
+        )}
+
+        {/* Stack Trace Tab */}
+        {activeTab === "stacktrace" && (
+          <EnhancedStackTrace
+            stackTrace={enhancedData.stackTrace}
+            rawStackTrace={analysis.stack_trace}
+          />
+        )}
+
+        {/* Context Tab */}
+        {activeTab === "context" && <ContextTab context={enhancedData.context} />}
+
+        {/* Environment Tab */}
+        {activeTab === "environment" && (
+          <EnvironmentTab environment={enhancedData.environment} analysis={analysis} />
+        )}
+
+        {/* Database Tab */}
+        {activeTab === "database" && <DatabaseTab database={enhancedData.databaseAnalysis} />}
+
+        {/* Memory Tab */}
+        {activeTab === "memory" && <MemoryTab memory={enhancedData.memoryAnalysis} />}
+      </div>
+
+      {/* JIRA Ticket Modal */}
+      <JiraTicketModal
+        analysis={analysis}
+        isOpen={showJiraModal}
+        onClose={() => setShowJiraModal(false)}
+      />
+    </div>
+  );
+}

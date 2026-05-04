@@ -1,10 +1,35 @@
 {
-  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
-  "include": ["src/**/*"],
   "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "composite": true,
     "outDir": "out/renderer",
     "baseUrl": ".",
-    "paths": {}
-  }
+    "paths": {
+      "@tauri-apps/api/core":                   ["src/lib/tauri-core-shim.ts"],
+      "@tauri-apps/api/event":                  ["src/lib/tauri-event-shim.ts"],
+      "@tauri-apps/api/window":                 ["src/lib/tauri-window-shim.ts"],
+      "@tauri-apps/api/webview":                ["src/lib/tauri-window-shim.ts"],
+      "@tauri-apps/api/path":                   ["src/lib/tauri-path-shim.ts"],
+      "@tauri-apps/plugin-dialog":              ["src/lib/tauri-dialog-shim.ts"],
+      "@tauri-apps/plugin-log":                 ["src/lib/tauri-log-shim.ts"],
+      "@tauri-apps/plugin-store":               ["src/lib/tauri-store-shim.ts"],
+      "@tauri-apps/plugin-updater":             ["src/lib/tauri-updater-shim.ts"],
+      "@tauri-apps/plugin-process":             ["src/lib/tauri-process-shim.ts"],
+      "@tauri-apps/plugin-clipboard-manager":   ["src/lib/tauri-clipboard-shim.ts"]
+    }
+  },
+  "include": ["src/**/*"]
 }

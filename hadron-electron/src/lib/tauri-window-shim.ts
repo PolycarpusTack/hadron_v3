@@ -1,4 +1,12 @@
-export async function getCurrentWindow() {
+export interface DragDropEvent {
+  payload: {
+    type: 'enter' | 'over' | 'drop' | 'leave'
+    paths: string[]
+    position?: { x: number; y: number }
+  }
+}
+
+export function getCurrentWindow() {
   return {
     isMinimized: async () => false,
     minimize: async () => {},
@@ -7,6 +15,7 @@ export async function getCurrentWindow() {
     close: async () => {},
     setTitle: async (_title: string) => {},
     isMaximized: async () => false,
+    startDragging: async () => {},
   }
 }
 
@@ -18,6 +27,13 @@ export async function currentMonitor() {
   }
 }
 
-export async function getCurrentWebview() {
-  return { setZoom: async (_factor: number) => {} }
+export function getCurrentWebview() {
+  return {
+    setZoom: async (_factor: number) => {},
+    /** Returns a Promise<unlisten> like the real Tauri API */
+    onDragDropEvent: (_handler: (event: DragDropEvent) => void): Promise<() => void> => {
+      // No-op in Electron — file drops are handled via HTML drag events
+      return Promise.resolve(() => {})
+    },
+  }
 }
