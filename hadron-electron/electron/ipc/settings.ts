@@ -1,8 +1,8 @@
 import { IpcMain, app, clipboard } from 'electron'
 import Store from 'electron-store'
-import keytar from 'keytar'
 import log from 'electron-log'
 import fs from 'fs/promises'
+import { getSecret, setSecret, deleteSecret } from '../services/safe-storage'
 
 const stores = new Map<string, InstanceType<typeof Store>>()
 
@@ -32,21 +32,21 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
     return Object.entries(getStore(store).store)
   })
 
-  ipcMain.handle('keytar:get', async (_e, { service, account }: { service: string; account: string }) => {
+  ipcMain.handle('keytar:get', (_e, { service, account }: { service: string; account: string }) => {
     try {
-      return await keytar.getPassword(service, account)
+      return getSecret(service, account)
     } catch (err) {
       log.warn('keytar:get failed', err)
       return null
     }
   })
 
-  ipcMain.handle('keytar:set', async (_e, { service, account, password }: { service: string; account: string; password: string }) => {
-    await keytar.setPassword(service, account, password)
+  ipcMain.handle('keytar:set', (_e, { service, account, password }: { service: string; account: string; password: string }) => {
+    setSecret(service, account, password)
   })
 
-  ipcMain.handle('keytar:delete', async (_e, { service, account }: { service: string; account: string }) => {
-    await keytar.deletePassword(service, account)
+  ipcMain.handle('keytar:delete', (_e, { service, account }: { service: string; account: string }) => {
+    deleteSecret(service, account)
   })
 
   ipcMain.handle('app:getPath', (_e, name: string) => {

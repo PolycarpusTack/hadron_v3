@@ -3,13 +3,19 @@ import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import log from 'electron-log'
-import keytar from 'keytar'
+import { getSecret } from '../services/safe-storage'
 import { getDb } from '../database'
 import { callAi, listModels } from '../services/ai-service'
 
 const SERVICE_NAME = 'hadron-electron'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const MAX_PROMPT_CHARS = 100_000
+
+function getKey(provider: string): string {
+  const key = getSecret(SERVICE_NAME, provider)
+  if (!key) throw new Error(`No API key configured for provider: ${provider}`)
+  return key
+}
 
 function isSafePath(filePath: string): boolean {
   const normalized = path.resolve(filePath)
@@ -36,11 +42,6 @@ Analyze the provided crash log and return a JSON response with this exact struct
 }
 Return only valid JSON, no markdown fences.`
 
-async function getKey(provider: string): Promise<string> {
-  const key = await keytar.getPassword(SERVICE_NAME, provider)
-  if (!key) throw new Error(`No API key configured for provider: ${provider}`)
-  return key
-}
 
 export function registerAiHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('analyze_crash_log', async (event, args: {
@@ -228,7 +229,7 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('list_models', async (_e, args: { provider: string }) => {
     try {
-      const apiKey = await keytar.getPassword(SERVICE_NAME, args.provider) ?? ''
+      const apiKey = getSecret(SERVICE_NAME, args.provider) ?? ''
       return await listModels(args.provider, apiKey)
     } catch { return [] }
   })
