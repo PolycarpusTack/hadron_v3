@@ -17,6 +17,7 @@ import { registerGoldAnswerHandlers } from './gold-answers'
 import { registerSummaryHandlers } from './summaries'
 import { registerSignatureHandlers } from './signatures'
 import { registerJiraHandlers } from './jira'
+import { registerSentryHandlers } from './sentry'
 
 export function registerAllHandlers(ipcMain: IpcMain): void {
   registerSettingsHandlers(ipcMain)
@@ -37,6 +38,7 @@ export function registerAllHandlers(ipcMain: IpcMain): void {
   registerSummaryHandlers(ipcMain)
   registerSignatureHandlers(ipcMain)
   registerJiraHandlers(ipcMain)
+  registerSentryHandlers(ipcMain)
 
   electronIpcMain.handle('app:version', () => app.getVersion())
   electronIpcMain.on('app:relaunch', () => { app.relaunch(); app.exit(0) })
