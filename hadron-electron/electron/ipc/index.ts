@@ -12,6 +12,7 @@ import { registerBulkHandlers } from './bulk'
 import { registerInfoHandlers } from './info'
 import { registerExportHandlers } from './export'
 import { registerWidgetHandlers } from './widget'
+import { registerChatHandlers } from './chat'
 
 export function registerAllHandlers(ipcMain: IpcMain): void {
   registerSettingsHandlers(ipcMain)
@@ -27,6 +28,7 @@ export function registerAllHandlers(ipcMain: IpcMain): void {
   registerInfoHandlers(ipcMain)
   registerExportHandlers(ipcMain)
   registerWidgetHandlers(ipcMain)
+  registerChatHandlers(ipcMain)
 
   electronIpcMain.handle('app:version', () => app.getVersion())
   electronIpcMain.on('app:relaunch', () => { app.relaunch(); app.exit(0) })
