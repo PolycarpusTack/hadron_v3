@@ -12,6 +12,17 @@ function readJiraCreds(): { baseUrl: string; email: string; apiToken: string } {
   if (!baseUrl || !email || !apiToken) {
     throw new Error('JIRA not configured. Please set up JIRA credentials in Settings.')
   }
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error('JIRA base URL must use https:// or http://')
+    }
+  } catch (e) {
+    if ((e as Error).message.includes('Invalid URL')) {
+      throw new Error('JIRA base URL is not a valid URL')
+    }
+    throw e
+  }
   return { baseUrl, email, apiToken }
 }
 
@@ -62,9 +73,15 @@ export function registerJiraHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('list_jira_projects', async () => {
-    const { baseUrl, email, apiToken } = readJiraCreds()
-    const data = await jiraFetch(baseUrl, email, apiToken, '/rest/api/3/project') as Array<{ id: string; key: string; name: string }>
-    return data.map(p => ({ id: p.id, key: p.key, name: p.name }))
+    try {
+      const { baseUrl, email, apiToken } = readJiraCreds()
+      const data = await jiraFetch(baseUrl, email, apiToken, '/rest/api/3/project') as Array<{ id: string; key: string; name: string }>
+      return data.map(p => ({ id: p.id, key: p.key, name: p.name }))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.warn('list_jira_projects failed:', message)
+      throw new Error(message)
+    }
   })
 
   ipcMain.handle('create_jira_ticket', async (_e, args: {
@@ -76,31 +93,37 @@ export function registerJiraHandlers(ipcMain: IpcMain): void {
     labels?: string[]
     [key: string]: unknown
   }) => {
-    const { baseUrl, email, apiToken } = readJiraCreds()
-    const body = {
-      fields: {
-        project: { key: args.projectKey },
-        summary: args.summary,
-        description: args.description
-          ? {
-              type: 'doc',
-              version: 1,
-              content: [{ type: 'paragraph', content: [{ type: 'text', text: args.description }] }],
-            }
-          : undefined,
-        issuetype: { name: args.issueType ?? 'Bug' },
-        ...(args.priority ? { priority: { name: args.priority } } : {}),
-        ...(args.labels ? { labels: args.labels } : {}),
-      },
-    }
-    const data = await jiraFetch(baseUrl, email, apiToken, '/rest/api/3/issue', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }) as { key: string; id: string }
-    return {
-      key: data.key,
-      id: data.id,
-      url: `${baseUrl.replace(/\/$/, '')}/browse/${data.key}`,
+    try {
+      const { baseUrl, email, apiToken } = readJiraCreds()
+      const body = {
+        fields: {
+          project: { key: args.projectKey },
+          summary: args.summary,
+          description: args.description
+            ? {
+                type: 'doc',
+                version: 1,
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: args.description }] }],
+              }
+            : undefined,
+          issuetype: { name: args.issueType ?? 'Bug' },
+          ...(args.priority ? { priority: { name: args.priority } } : {}),
+          ...(args.labels ? { labels: args.labels } : {}),
+        },
+      }
+      const data = await jiraFetch(baseUrl, email, apiToken, '/rest/api/3/issue', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }) as { key: string; id: string }
+      return {
+        key: data.key,
+        id: data.id,
+        url: `${baseUrl.replace(/\/$/, '')}/browse/${data.key}`,
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.warn('create_jira_ticket failed:', message)
+      throw new Error(message)
     }
   })
 
@@ -109,15 +132,21 @@ export function registerJiraHandlers(ipcMain: IpcMain): void {
     maxResults?: number
     fields?: string[]
   }) => {
-    const { baseUrl, email, apiToken } = readJiraCreds()
-    const params = new URLSearchParams({
-      jql: args.jql,
-      maxResults: String(args.maxResults ?? 50),
-    })
-    if (args.fields && args.fields.length > 0) {
-      params.set('fields', args.fields.join(','))
+    try {
+      const { baseUrl, email, apiToken } = readJiraCreds()
+      const params = new URLSearchParams({
+        jql: args.jql,
+        maxResults: String(Math.min(args.maxResults ?? 50, 100)),
+      })
+      if (args.fields && args.fields.length > 0) {
+        params.set('fields', args.fields.join(','))
+      }
+      return jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/search?${params.toString()}`)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.warn('search_jira_issues failed:', message)
+      throw new Error(message)
     }
-    return jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/search?${params.toString()}`)
   })
 
   ipcMain.handle('search_jira_issues_next_page', async (_e, args: {
@@ -126,34 +155,46 @@ export function registerJiraHandlers(ipcMain: IpcMain): void {
     maxResults?: number
     fields?: string[]
   }) => {
-    const { baseUrl, email, apiToken } = readJiraCreds()
-    const params = new URLSearchParams({
-      jql: args.jql,
-      startAt: String(args.startAt),
-      maxResults: String(args.maxResults ?? 50),
-    })
-    if (args.fields && args.fields.length > 0) {
-      params.set('fields', args.fields.join(','))
+    try {
+      const { baseUrl, email, apiToken } = readJiraCreds()
+      const params = new URLSearchParams({
+        jql: args.jql,
+        startAt: String(args.startAt),
+        maxResults: String(Math.min(args.maxResults ?? 50, 100)),
+      })
+      if (args.fields && args.fields.length > 0) {
+        params.set('fields', args.fields.join(','))
+      }
+      return jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/search?${params.toString()}`)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.warn('search_jira_issues_next_page failed:', message)
+      throw new Error(message)
     }
-    return jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/search?${params.toString()}`)
   })
 
   ipcMain.handle('post_jira_comment', async (_e, args: {
     issueKey: string
     body: string
   }) => {
-    const { baseUrl, email, apiToken } = readJiraCreds()
-    const commentBody = {
-      body: {
-        type: 'doc',
-        version: 1,
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: args.body }] }],
-      },
+    try {
+      const { baseUrl, email, apiToken } = readJiraCreds()
+      const commentBody = {
+        body: {
+          type: 'doc',
+          version: 1,
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: args.body }] }],
+        },
+      }
+      return jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/${encodeURIComponent(args.issueKey)}/comment`, {
+        method: 'POST',
+        body: JSON.stringify(commentBody),
+      })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.warn('post_jira_comment failed:', message)
+      throw new Error(message)
     }
-    return jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/${args.issueKey}/comment`, {
-      method: 'POST',
-      body: JSON.stringify(commentBody),
-    })
   })
 
   // ──────────────────────────────────────────────────────────────────────────
