@@ -9,7 +9,30 @@ interface SentryProject {
   organization: { slug: string }
 }
 
+function parseNextCursor(linkHeader: string | null): string | null {
+  if (!linkHeader) return null
+  for (const part of linkHeader.split(',')) {
+    if (/rel="next"/.test(part) && /results="true"/.test(part)) {
+      const m = part.match(/cursor="([^"]+)"/)
+      if (m) return m[1]
+    }
+  }
+  return null
+}
+
 async function sentryFetch(baseUrl: string, authToken: string, path: string): Promise<{ data: unknown; nextCursor: string | null }> {
+  // Validate baseUrl before sending credentials
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.protocol !== 'https:') {
+      throw new Error('Sentry base URL must use https://')
+    }
+  } catch (e) {
+    if ((e as Error).message.includes('Invalid URL')) {
+      throw new Error('Sentry base URL is not a valid URL')
+    }
+    throw e
+  }
   const { default: fetch } = await import('node-fetch')
   const url = `${baseUrl.replace(/\/$/, '')}${path}`
   const res = await fetch(url, {
@@ -22,9 +45,7 @@ async function sentryFetch(baseUrl: string, authToken: string, path: string): Pr
     const body = await res.text().catch(() => '')
     throw new Error(`Sentry API error ${res.status}: ${body.substring(0, 200)}`)
   }
-  const nextCursor = res.headers.get('Link')
-    ?.match(/cursor=([^,&">\s]+)[^,]*rel="next"/)
-    ?.[1] ?? null
+  const nextCursor = parseNextCursor(res.headers.get('Link'))
   return { data: await res.json(), nextCursor }
 }
 
@@ -90,7 +111,7 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
     cursor?: string
   }) => {
     try {
-      const limit = Math.min(25, 100)
+      const limit = 25
       const params = new URLSearchParams({ limit: String(limit) })
       if (args.query) params.set('query', args.query)
       if (args.cursor) params.set('cursor', args.cursor)
@@ -116,7 +137,7 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
     cursor?: string
   }) => {
     try {
-      const limit = Math.min(25, 100)
+      const limit = 25
       const params = new URLSearchParams({ limit: String(limit) })
       if (args.query) params.set('query', args.query)
       if (args.cursor) params.set('cursor', args.cursor)
