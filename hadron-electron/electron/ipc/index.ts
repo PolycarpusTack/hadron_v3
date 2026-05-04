@@ -18,6 +18,7 @@ import { registerSummaryHandlers } from './summaries'
 import { registerSignatureHandlers } from './signatures'
 import { registerJiraHandlers } from './jira'
 import { registerSentryHandlers } from './sentry'
+import { registerReleaseNotesHandlers } from './release-notes'
 
 export function registerAllHandlers(ipcMain: IpcMain): void {
   registerSettingsHandlers(ipcMain)
@@ -39,6 +40,7 @@ export function registerAllHandlers(ipcMain: IpcMain): void {
   registerSignatureHandlers(ipcMain)
   registerJiraHandlers(ipcMain)
   registerSentryHandlers(ipcMain)
+  registerReleaseNotesHandlers(ipcMain)
 
   electronIpcMain.handle('app:version', () => app.getVersion())
   electronIpcMain.on('app:relaunch', () => { app.relaunch(); app.exit(0) })
