@@ -1,7 +1,9 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import path from 'path'
 import { is } from '@electron-toolkit/utils'
 import log from 'electron-log'
+import { initDatabase } from './database'
+import { registerAllHandlers } from './ipc/index'
 
 log.initialize()
 log.transports.file.level = 'info'
@@ -19,7 +21,7 @@ function createWindow(): void {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
     }
   })
 
@@ -38,6 +40,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  initDatabase()
+  registerAllHandlers(ipcMain)
   createWindow()
 
   app.on('activate', () => {
