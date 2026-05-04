@@ -13,6 +13,9 @@ import { registerInfoHandlers } from './info'
 import { registerExportHandlers } from './export'
 import { registerWidgetHandlers } from './widget'
 import { registerChatHandlers } from './chat'
+import { registerGoldAnswerHandlers } from './gold-answers'
+import { registerSummaryHandlers } from './summaries'
+import { registerSignatureHandlers } from './signatures'
 
 export function registerAllHandlers(ipcMain: IpcMain): void {
   registerSettingsHandlers(ipcMain)
@@ -29,6 +32,9 @@ export function registerAllHandlers(ipcMain: IpcMain): void {
   registerExportHandlers(ipcMain)
   registerWidgetHandlers(ipcMain)
   registerChatHandlers(ipcMain)
+  registerGoldAnswerHandlers(ipcMain)
+  registerSummaryHandlers(ipcMain)
+  registerSignatureHandlers(ipcMain)
 
   electronIpcMain.handle('app:version', () => app.getVersion())
   electronIpcMain.on('app:relaunch', () => { app.relaunch(); app.exit(0) })
