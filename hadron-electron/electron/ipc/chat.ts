@@ -198,7 +198,9 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       args.reason ?? null,
       now,
     )
-    return { id: row.lastInsertRowid }
+    const saved = db.prepare('SELECT id FROM chat_feedback WHERE session_id = ? AND message_id = ?')
+      .get(args.session_id, args.message_id) as { id: number }
+    return { id: saved.id }
   })
 
   // Delete a feedback record by its integer primary key.

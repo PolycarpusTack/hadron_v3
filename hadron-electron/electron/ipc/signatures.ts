@@ -14,7 +14,7 @@ import { createHash } from 'crypto'
 
 export function registerSignatureHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('compute_crash_signature', (_e, args: {
-    errorType: string; stackTrace?: string; rootCause: string
+    errorType: string; stackTrace?: string; rootCause?: string
   }) => {
     const { hash, canonical, componentsJson } = computeHashParts(args.errorType, args.stackTrace ?? null)
     return {
@@ -34,7 +34,7 @@ export function registerSignatureHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('register_crash_signature', (_e, args: {
-    analysisId: number; errorType: string; stackTrace?: string; rootCause: string
+    analysisId: number; errorType: string; stackTrace?: string; rootCause?: string
   }) => {
     const db = getDb()
     const now = new Date().toISOString()
