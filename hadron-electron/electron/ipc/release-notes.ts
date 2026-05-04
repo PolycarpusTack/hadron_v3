@@ -70,7 +70,6 @@ interface JiraIssue {
     issuetype?: { name?: string }
     status?: { name?: string }
     priority?: { name?: string }
-    description?: unknown
   }
 }
 
@@ -138,8 +137,9 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
       sendProgress(10, 'Fetching JIRA tickets...')
 
       const { baseUrl, email, apiToken } = readJiraCreds()
-      const jql = args.config.jql
-        ?? `fixVersion = "${args.config.fixVersion}" ORDER BY created DESC`
+      const escapedVersion = args.config.fixVersion.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      const defaultJql = `fixVersion = "${escapedVersion}" ORDER BY created DESC`
+      const jql = args.config.jql ?? defaultJql
 
       const issues = await fetchJiraTickets(baseUrl, email, apiToken, jql)
 
@@ -295,6 +295,10 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
     reviewedBy?: string
   }) => {
     try {
+      const VALID_STATUSES = ['draft', 'in_review', 'approved', 'published', 'archived']
+      if (!VALID_STATUSES.includes(args.status)) {
+        throw new Error(`Invalid status: ${args.status}. Must be one of: ${VALID_STATUSES.join(', ')}`)
+      }
       const db = getDb()
       const now = new Date().toISOString()
       const updates: string[] = ['status = ?', 'updated_at = ?']
@@ -417,7 +421,7 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
         UPDATE release_notes
         SET markdown_content = ?, ticket_keys = ?, ticket_count = ?,
             tokens_used = ?, cost = ?, updated_at = ?
-        WHERE id = ?
+        WHERE id = ? AND deleted_at IS NULL
       `).run(
         appendedContent,
         JSON.stringify(mergedKeys),
