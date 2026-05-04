@@ -3,7 +3,7 @@
   "version": "4.6.0",
   "description": "Hadron - AI Support Assistant (Electron)",
   "type": "module",
-  "main": "out/main/index.js",
+  "main": "out/main/main.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

@@ -18,7 +18,7 @@ function createWindow(): void {
     minHeight: 600,
     title: 'Hadron',
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: path.join(__dirname, '../preload/preload.mjs'),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
