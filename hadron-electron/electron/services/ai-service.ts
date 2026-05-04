@@ -10,6 +10,7 @@ export interface AiCallOptions {
   maxTokens?: number
   stream?: boolean
   onChunk?: (text: string) => void
+  messages?: Array<{ role: string; content: string }>
 }
 
 export interface AiCallResult {
@@ -43,12 +44,16 @@ async function callAnthropic(opts: AiCallOptions): Promise<AiCallResult> {
   let inputTokens = 0
   let outputTokens = 0
 
+  const anthropicMessages = opts.messages
+    ? opts.messages.filter(m => m.role !== 'system') as Array<{ role: 'user' | 'assistant'; content: string }>
+    : [{ role: 'user' as const, content: opts.userPrompt }]
+
   if (opts.stream && opts.onChunk) {
     const stream = client.messages.stream({
       model: opts.model,
       max_tokens: opts.maxTokens ?? 8192,
       system: opts.systemPrompt,
-      messages: [{ role: 'user', content: opts.userPrompt }],
+      messages: anthropicMessages,
     })
     for await (const event of stream) {
       if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
@@ -64,7 +69,7 @@ async function callAnthropic(opts: AiCallOptions): Promise<AiCallResult> {
       model: opts.model,
       max_tokens: opts.maxTokens ?? 8192,
       system: opts.systemPrompt,
-      messages: [{ role: 'user', content: opts.userPrompt }],
+      messages: anthropicMessages,
     })
     content = msg.content.map(b => b.type === 'text' ? b.text : '').join('')
     inputTokens = msg.usage.input_tokens
@@ -76,13 +81,13 @@ async function callAnthropic(opts: AiCallOptions): Promise<AiCallResult> {
 
 async function callOpenAi(opts: AiCallOptions): Promise<AiCallResult> {
   const { default: fetch } = await import('node-fetch')
+  const openAiMessages = opts.messages
+    ? [{ role: 'system', content: opts.systemPrompt }, ...opts.messages.filter(m => m.role !== 'system')]
+    : [{ role: 'system', content: opts.systemPrompt }, { role: 'user', content: opts.userPrompt }]
   const body = JSON.stringify({
     model: opts.model,
     max_tokens: opts.maxTokens ?? 8192,
-    messages: [
-      { role: 'system', content: opts.systemPrompt },
-      { role: 'user',   content: opts.userPrompt },
-    ],
+    messages: openAiMessages,
     stream: false,
   })
 
@@ -108,16 +113,16 @@ async function callOpenAi(opts: AiCallOptions): Promise<AiCallResult> {
 
 async function callZai(opts: AiCallOptions): Promise<AiCallResult> {
   const { default: fetch } = await import('node-fetch')
+  const zaiMessages = opts.messages
+    ? [{ role: 'system', content: opts.systemPrompt }, ...opts.messages.filter(m => m.role !== 'system')]
+    : [{ role: 'system', content: opts.systemPrompt }, { role: 'user', content: opts.userPrompt }]
   const res = await fetch('https://api.zai.ai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.apiKey}` },
     body: JSON.stringify({
       model: opts.model,
       max_tokens: opts.maxTokens ?? 8192,
-      messages: [
-        { role: 'system', content: opts.systemPrompt },
-        { role: 'user',   content: opts.userPrompt },
-      ],
+      messages: zaiMessages,
     }),
   })
   if (!res.ok) throw new Error(`ZAI error ${res.status}: ${await res.text()}`)
