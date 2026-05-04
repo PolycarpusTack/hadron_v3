@@ -27,7 +27,8 @@ function streamReset(): void {
 
 function sanitizeFtsQuery(q: string): string {
   // Wrap in double-quoted phrase to prevent FTS5 operator injection
-  return '"' + q.replace(/"/g, '""').substring(0, 200) + '"'
+  const truncated = q.substring(0, 200)
+  return '"' + truncated.replace(/"/g, '""') + '"'
 }
 
 export function registerChatHandlers(ipcMain: IpcMain): void {
@@ -250,6 +251,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     if (!apiKey) {
       streamState.error = `No API key configured for provider: ${args.provider}`
       streamState.done = true
+      streamActive = false
       return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
     }
 
