@@ -131,8 +131,15 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
 
       db.prepare(`
         INSERT OR REPLACE INTO ticket_briefs
-          (jira_key, title, severity, category, tags, triage_json, created_at, updated_at)
+          (jira_key, title, severity, category, tags, triage_json, brief_json,
+           posted_to_jira, posted_at, engineer_rating, engineer_notes,
+           created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?,
+            COALESCE((SELECT brief_json FROM ticket_briefs WHERE jira_key=?), NULL),
+            COALESCE((SELECT posted_to_jira FROM ticket_briefs WHERE jira_key=?), 0),
+            COALESCE((SELECT posted_at FROM ticket_briefs WHERE jira_key=?), NULL),
+            COALESCE((SELECT engineer_rating FROM ticket_briefs WHERE jira_key=?), NULL),
+            COALESCE((SELECT engineer_notes FROM ticket_briefs WHERE jira_key=?), NULL),
             COALESCE((SELECT created_at FROM ticket_briefs WHERE jira_key=?), ?), ?)
       `).run(
         args.jiraKey,
@@ -141,6 +148,11 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
         (triage.category as string) ?? null,
         triage.tags ? JSON.stringify(triage.tags) : null,
         JSON.stringify(triage),
+        args.jiraKey,
+        args.jiraKey,
+        args.jiraKey,
+        args.jiraKey,
+        args.jiraKey,
         args.jiraKey,
         now,
         now,
@@ -184,8 +196,14 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
 
       db.prepare(`
         INSERT OR REPLACE INTO ticket_briefs
-          (jira_key, title, severity, category, tags, triage_json, brief_json, created_at, updated_at)
+          (jira_key, title, severity, category, tags, triage_json, brief_json,
+           posted_to_jira, posted_at, engineer_rating, engineer_notes,
+           created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?,
+            COALESCE((SELECT posted_to_jira FROM ticket_briefs WHERE jira_key=?), 0),
+            COALESCE((SELECT posted_at FROM ticket_briefs WHERE jira_key=?), NULL),
+            COALESCE((SELECT engineer_rating FROM ticket_briefs WHERE jira_key=?), NULL),
+            COALESCE((SELECT engineer_notes FROM ticket_briefs WHERE jira_key=?), NULL),
             COALESCE((SELECT created_at FROM ticket_briefs WHERE jira_key=?), ?), ?)
       `).run(
         args.jiraKey,
@@ -195,6 +213,10 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
         triage.tags ? JSON.stringify(triage.tags) : null,
         triage ? JSON.stringify(triage) : null,
         JSON.stringify(brief),
+        args.jiraKey,
+        args.jiraKey,
+        args.jiraKey,
+        args.jiraKey,
         args.jiraKey,
         now,
         now,
