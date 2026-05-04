@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('hadron', {
     return () => ipcRenderer.removeListener('stream:chunk', handler)
   },
 
-  getAppVersion: (): string => ipcRenderer.sendSync('app:version'),
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   relaunch: (): void => ipcRenderer.send('app:relaunch'),
   getPath: (name: string): Promise<string> => ipcRenderer.invoke('app:getPath', name),
   writeToClipboard: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),

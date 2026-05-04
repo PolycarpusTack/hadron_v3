@@ -10,6 +10,7 @@ log.transports.file.level = 'info'
 
 let mainWindow: BrowserWindow | null = null
 
+// TODO Phase 2: wire up floating widget BrowserWindow (widget-main.tsx)
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -19,7 +20,6 @@ function createWindow(): void {
     title: 'Hadron',
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.mjs'),
-      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     }

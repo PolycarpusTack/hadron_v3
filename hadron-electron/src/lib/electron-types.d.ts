@@ -9,7 +9,7 @@ declare global {
       writeFile(filePath: string, content: string): Promise<void>
       writeFileBytes(filePath: string, bytes: Uint8Array): Promise<void>
       onStreamChunk(callback: (chunk: string) => void): () => void
-      getAppVersion(): string
+      getAppVersion(): Promise<string>
       relaunch(): void
       getPath(name: string): Promise<string>
       writeToClipboard(text: string): Promise<void>

@@ -24,6 +24,6 @@ export function registerAllHandlers(ipcMain: IpcMain): void {
   registerBulkHandlers(ipcMain)
   registerInfoHandlers(ipcMain)
 
-  electronIpcMain.on('app:version', (event) => { event.returnValue = app.getVersion() })
+  electronIpcMain.handle('app:version', () => app.getVersion())
   electronIpcMain.on('app:relaunch', () => { app.relaunch(); app.exit(0) })
 }

@@ -9,6 +9,19 @@ import { callAi, listModels } from '../services/ai-service'
 
 const SERVICE_NAME = 'hadron-electron'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
+const MAX_PROMPT_CHARS = 100_000
+
+function isSafePath(filePath: string): boolean {
+  const normalized = path.resolve(filePath)
+  const dangerous = [
+    '/etc', '/sys', '/proc', '/root',
+    'C:\\Windows', 'C:\\System32',
+    process.env.USERPROFILE ? path.join(process.env.USERPROFILE as string, '.ssh') : '',
+    path.join(os.homedir(), '.ssh'),
+    path.join(os.homedir(), '.gnupg'),
+  ].filter(Boolean)
+  return !dangerous.some(d => normalized.startsWith(d))
+}
 
 const CRASH_SYSTEM_PROMPT = `You are an expert software engineer specializing in crash log analysis.
 Analyze the provided crash log and return a JSON response with this exact structure:
@@ -37,6 +50,9 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     analysis_type?: string
     redact_pii?: boolean
   }) => {
+    if (!isSafePath(args.file_path)) {
+      throw new Error('Access denied: file path is not allowed')
+    }
     const start = Date.now()
     const stat = await fs.stat(args.file_path)
     if (stat.size > MAX_FILE_BYTES) throw new Error('File too large (max 10 MB)')
@@ -122,6 +138,9 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     user_prompt: string
     max_tokens?: number
   }) => {
+    if ((args.system_prompt?.length ?? 0) + (args.user_prompt?.length ?? 0) > MAX_PROMPT_CHARS) {
+      throw new Error('Prompt too large (max 100KB combined)')
+    }
     const apiKey = await getKey(args.provider)
     const result = await callAi({
       provider: args.provider,
