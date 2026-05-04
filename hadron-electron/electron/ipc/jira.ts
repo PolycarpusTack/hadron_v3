@@ -14,8 +14,8 @@ function readJiraCreds(): { baseUrl: string; email: string; apiToken: string } {
   }
   try {
     const parsed = new URL(baseUrl)
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      throw new Error('JIRA base URL must use https:// or http://')
+    if (parsed.protocol !== 'https:') {
+      throw new Error('JIRA base URL must use https://')
     }
   } catch (e) {
     if ((e as Error).message.includes('Invalid URL')) {

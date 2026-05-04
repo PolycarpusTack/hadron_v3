@@ -81,6 +81,9 @@ export function registerInvestigationHandlers(ipcMain: IpcMain): void {
       try {
         const { baseUrl, email, apiToken } = readJiraCreds()
         const issue = await fetchJiraTicket(baseUrl, email, apiToken, args.key)
+        if (typeof issue !== 'object' || issue === null) {
+          throw new Error(`Unexpected response format from JIRA for ticket ${args.key}`)
+        }
         return buildDossier(args.key, issue as Record<string, unknown>, investigationType)
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err)
