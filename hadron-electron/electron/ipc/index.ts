@@ -10,6 +10,7 @@ import { registerArchiveHandlers } from './archive'
 import { registerAnalyticsHandlers } from './analytics'
 import { registerBulkHandlers } from './bulk'
 import { registerInfoHandlers } from './info'
+import { registerExportHandlers } from './export'
 
 export function registerAllHandlers(ipcMain: IpcMain): void {
   registerSettingsHandlers(ipcMain)
@@ -23,6 +24,7 @@ export function registerAllHandlers(ipcMain: IpcMain): void {
   registerAnalyticsHandlers(ipcMain)
   registerBulkHandlers(ipcMain)
   registerInfoHandlers(ipcMain)
+  registerExportHandlers(ipcMain)
 
   electronIpcMain.handle('app:version', () => app.getVersion())
   electronIpcMain.on('app:relaunch', () => { app.relaunch(); app.exit(0) })
