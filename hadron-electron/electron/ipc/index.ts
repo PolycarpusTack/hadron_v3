@@ -16,6 +16,7 @@ import { registerChatHandlers } from './chat'
 import { registerGoldAnswerHandlers } from './gold-answers'
 import { registerSummaryHandlers } from './summaries'
 import { registerSignatureHandlers } from './signatures'
+import { registerJiraHandlers } from './jira'
 
 export function registerAllHandlers(ipcMain: IpcMain): void {
   registerSettingsHandlers(ipcMain)
@@ -35,6 +36,7 @@ export function registerAllHandlers(ipcMain: IpcMain): void {
   registerGoldAnswerHandlers(ipcMain)
   registerSummaryHandlers(ipcMain)
   registerSignatureHandlers(ipcMain)
+  registerJiraHandlers(ipcMain)
 
   electronIpcMain.handle('app:version', () => app.getVersion())
   electronIpcMain.on('app:relaunch', () => { app.relaunch(); app.exit(0) })
