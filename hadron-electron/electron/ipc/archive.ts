@@ -7,7 +7,7 @@ export function registerArchiveHandlers(ipcMain: IpcMain): void {
     const row = db.prepare('SELECT * FROM analyses WHERE id = ?').get(args.id)
     if (!row) throw new Error('Analysis not found')
     db.prepare('INSERT INTO archived_analyses (original_id, data_json) VALUES (?, ?)').run(args.id, JSON.stringify(row))
-    db.prepare('UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?').run(args.id)
+    db.prepare(`UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?`).run(args.id)
   })
 
   ipcMain.handle('restore_analysis', (_e, args: { id: number }) => {
@@ -40,7 +40,7 @@ export function registerArchiveHandlers(ipcMain: IpcMain): void {
     }
     const db = getDb()
     const archiveStmt = db.prepare('INSERT OR IGNORE INTO archived_analyses (original_id, data_json) VALUES (?, ?)')
-    const deleteStmt = db.prepare('UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?')
+    const deleteStmt = db.prepare(`UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?`)
     db.transaction((ids: number[]) => {
       for (const id of ids) {
         const row = db.prepare('SELECT * FROM analyses WHERE id = ?').get(id)
@@ -50,7 +50,7 @@ export function registerArchiveHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('archive_translation', (_e, args: { id: number }) => {
-    getDb().prepare('UPDATE translations SET deleted_at = datetime('now') WHERE id = ?').run(args.id)
+    getDb().prepare(`UPDATE translations SET deleted_at = datetime('now') WHERE id = ?`).run(args.id)
   })
 
   ipcMain.handle('restore_translation', (_e, args: { id: number }) => {
