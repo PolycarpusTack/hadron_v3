@@ -94,7 +94,7 @@ function synthesizeFromFlat(
   const component   = (data?.component as string | undefined)
     || (data?.rootCause as Record<string, unknown> | undefined)?.affectedModule as string | undefined
     || "";
-  const severity    = parseSeverity(data?.severity ?? data?.summary && (data.summary as Record<string, unknown>)?.severity);
+  const severity    = parseSeverity(data?.severity ?? (data?.summary && (data.summary as Record<string, unknown>)?.severity));
   const confidence  = parseConfidence(data?.confidence);
   const fixes       = parseSuggestedFixes(data?.suggested_fixes);
   const stackTrace  = data?.stack_trace as string | undefined;
