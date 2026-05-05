@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Upload, FileText, Loader2, ClipboardPaste, X, Clock, AlertCircle, ChevronRight, RotateCcw, Eye, ChevronDown, Shield } from "lucide-react";
 import Button from "./ui/Button";
 import Modal from "./ui/Modal";
@@ -9,10 +9,9 @@ import logger from "../services/logger";
 import type { Analysis, AnalysisMode } from "../services/api";
 import { formatDistanceToNow } from "date-fns";
 import AnalysisProgressBar from "./AnalysisProgressBar";
-import { AI_PROVIDERS, getCuratedModelsForProvider, getDefaultModelForProvider } from "../constants/providers";
+import { AI_PROVIDERS, CURATED_MODELS, getCuratedModelsForProvider, getDefaultModelForProvider } from "../constants/providers";
 import { STORAGE_KEYS, providerModelKey } from "../utils/config";
 import { getModelSafeLimit, formatBytes } from "../utils/model-fit";
-import { CURATED_MODELS } from "../constants/providers";
 
 interface FileDropZoneProps {
   onFileSelect: (filePath: string, analysisType: string, analysisMode: AnalysisMode) => void;
@@ -247,6 +246,18 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
     }
   }, [pastedContent, onFileSelect, isAnalyzing, analysisType]);
 
+  // Memoized — limit + best-model suggestion for the current provider/model pair.
+  // 560_000 bytes ≈ 200_000 tokens × 4 bytes × 0.7 safety — the threshold below which
+  // logs are likely to be truncated.
+  const fitWarningInfo = useMemo(() => {
+    const limit = getModelSafeLimit(provider, model);
+    if (limit >= 560_000) return null;
+    const best = (CURATED_MODELS[provider] ?? [])
+      .filter((m) => (m.context ?? 0) > 0)
+      .sort((a, b) => (b.context ?? 0) - (a.context ?? 0))[0];
+    return { limit, bestLabel: best?.label ?? "a larger-context model" };
+  }, [provider, model]);
+
   const latestAnalysis = recentAnalyses.length > 0 ? recentAnalyses[0] : null;
   const recentThree = recentAnalyses.slice(0, 3);
 
@@ -441,28 +452,21 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
                     </div>
 
                     {/* Fit warning — shown when current model has < 200K context */}
-                    {(() => {
-                      const limit = getModelSafeLimit(provider, model);
-                      if (limit >= 560_000) return null;
-                      const best = (CURATED_MODELS[provider] ?? [])
-                        .filter((m) => m.suitableForHadron === true && (m.context ?? 0) > 0)
-                        .sort((a, b) => (b.context ?? 0) - (a.context ?? 0))[0];
-                      return (
-                        <div style={{
-                          background: "rgba(245,158,11,0.08)",
-                          border: "1px solid rgba(245,158,11,0.25)",
-                          borderRadius: "6px",
-                          padding: "8px 10px",
-                        }}>
-                          <p style={{ fontSize: "11px", fontWeight: 600, color: "#f59e0b", marginBottom: "2px", margin: 0 }}>
-                            ⚠ File may be truncated
-                          </p>
-                          <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)", margin: "4px 0 0" }}>
-                            Current model handles ~{formatBytes(limit)}. For large logs, consider {best?.label ?? "a larger-context model"}.
-                          </p>
-                        </div>
-                      );
-                    })()}
+                    {fitWarningInfo && (
+                      <div style={{
+                        background: "rgba(245,158,11,0.08)",
+                        border: "1px solid rgba(245,158,11,0.25)",
+                        borderRadius: "6px",
+                        padding: "8px 10px",
+                      }}>
+                        <p style={{ fontSize: "11px", fontWeight: 600, color: "#f59e0b", margin: "0 0 2px" }}>
+                          ⚠ File may be truncated
+                        </p>
+                        <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)", margin: 0 }}>
+                          Current model handles ~{formatBytes(fitWarningInfo.limit)}. For large logs, consider {fitWarningInfo.bestLabel}.
+                        </p>
+                      </div>
+                    )}
 
                     {/* PII Redaction */}
                     <div style={{
