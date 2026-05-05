@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef } from "react";
 import { ExternalLink } from "lucide-react";
 import type { DimensionStatus } from "../../hooks/useReadinessStatus";
 
@@ -6,10 +6,10 @@ interface StatusPopoverProps {
   dimension: DimensionStatus;
   onOpenSettings: (section: string) => void;
   onClose: () => void;
-  anchorRef: RefObject<HTMLElement>;
+  anchorEl: HTMLElement | null;
 }
 
-export default function StatusPopover({ dimension, onOpenSettings, onClose, anchorRef }: StatusPopoverProps) {
+export default function StatusPopover({ dimension, onOpenSettings, onClose, anchorEl }: StatusPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const needsAction = dimension.state === "warning" || dimension.state === "not-configured";
 
@@ -18,8 +18,8 @@ export default function StatusPopover({ dimension, onOpenSettings, onClose, anch
       if (
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node) &&
-        anchorRef.current &&
-        !anchorRef.current.contains(e.target as Node)
+        anchorEl &&
+        !anchorEl.contains(e.target as Node)
       ) {
         onClose();
       }
@@ -33,7 +33,7 @@ export default function StatusPopover({ dimension, onOpenSettings, onClose, anch
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [onClose, anchorRef]);
+  }, [onClose, anchorEl]);
 
   useEffect(() => {
     // When there is no actionable button, focus the container so Escape works for keyboard users.

@@ -6,7 +6,7 @@ import StatusPopover from "./ui/StatusPopover";
 
 interface AppHeaderProps {
   readinessStatus: ReadinessStatus;
-  onOpenSettings?: (section?: string) => void;
+  onOpenSettings: (section?: string) => void;
   onOpenAskHadronDrawer?: () => void;
   onOpenDashboard?: () => void;
   isSettingsActive?: boolean;
@@ -19,7 +19,7 @@ const STATE_COLORS: Record<string, string> = {
   disabled: "var(--hd-text-dim)",
 };
 
-const OVERALL_LABEL: Record<string, string> = {
+const OVERALL_LABEL: Record<ReadinessStatus["overall"], string> = {
   ready: "Ready",
   warning: "Needs attention",
   "not-configured": "Needs setup",
@@ -35,7 +35,7 @@ export default function AppHeader({
   const [openPopover, setOpenPopover] = useState<keyof ReadinessStatus | null>(null);
   const dotRefs = useRef<Partial<Record<keyof ReadinessStatus, HTMLButtonElement>>>({});
 
-  const dimensions: [keyof ReadinessStatus, DimensionStatus][] = [
+  const dimensions: [Exclude<keyof ReadinessStatus, "overall">, DimensionStatus][] = [
     ["ai", readinessStatus.ai],
     ["keeper", readinessStatus.keeper],
     ["mcp", readinessStatus.mcp],
@@ -78,21 +78,19 @@ export default function AppHeader({
               <BarChart3 className="w-4 h-4" />
             </button>
           )}
-          {onOpenSettings && (
-            <button
-              onClick={() => onOpenSettings()}
-              className={`hd-header-icon-btn ${isSettingsActive ? "hd-header-icon-btn-active" : ""}`}
-              title="Settings"
-              aria-label="Open settings"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-          )}
+          <button
+            onClick={() => onOpenSettings()}
+            className={`hd-header-icon-btn ${isSettingsActive ? "hd-header-icon-btn-active" : ""}`}
+            title="Settings"
+            aria-label="Open settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
       {/* Status bar */}
-      <div className="flex items-center gap-0 flex-wrap" style={{ borderTop: "1px solid var(--hd-border-subtle)", paddingTop: "6px" }}>
+      <div className="flex items-center flex-wrap" style={{ borderTop: "1px solid var(--hd-border-subtle)", paddingTop: "6px" }}>
         {dimensions.map(([key, dim], idx) => {
           const dotRef = (el: HTMLButtonElement | null) => {
             if (el) dotRefs.current[key] = el;
@@ -105,6 +103,8 @@ export default function AppHeader({
               <button
                 ref={dotRef}
                 onClick={() => setOpenPopover(isOpen ? null : key)}
+                aria-expanded={isOpen}
+                aria-haspopup="dialog"
                 className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
                 title={dim.label}
                 aria-label={`${key} status: ${dim.state}`}
@@ -127,20 +127,36 @@ export default function AppHeader({
                   dimension={dim}
                   onOpenSettings={(section) => onOpenSettings?.(section)}
                   onClose={() => setOpenPopover(null)}
-                  anchorRef={{ current: dotRefs.current[key] ?? null }}
+                  anchorEl={dotRefs.current[key] ?? null}
                 />
               )}
             </span>
           );
         })}
 
-        <span className="ml-auto">
+        <span className="ml-auto" aria-live="polite">
           <span
             className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px]"
             style={{
-              background: readinessStatus.overall === "ready" ? "rgba(16,185,129,0.08)" : "rgba(245,158,11,0.08)",
-              border: `1px solid ${readinessStatus.overall === "ready" ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)"}`,
-              color: readinessStatus.overall === "ready" ? "var(--hd-accent)" : "#f59e0b",
+              background:
+                readinessStatus.overall === "ready"
+                  ? "rgba(16,185,129,0.08)"
+                  : readinessStatus.overall === "not-configured"
+                  ? "rgba(239,68,68,0.08)"
+                  : "rgba(245,158,11,0.08)",
+              border: `1px solid ${
+                readinessStatus.overall === "ready"
+                  ? "rgba(16,185,129,0.2)"
+                  : readinessStatus.overall === "not-configured"
+                  ? "rgba(239,68,68,0.2)"
+                  : "rgba(245,158,11,0.2)"
+              }`,
+              color:
+                readinessStatus.overall === "ready"
+                  ? "var(--hd-accent)"
+                  : readinessStatus.overall === "not-configured"
+                  ? "#ef4444"
+                  : "#f59e0b",
             }}
           >
             {OVERALL_LABEL[readinessStatus.overall]}
