@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getModelSafeLimit } from "../src/utils/model-fit";
+import { getModelSafeLimit, formatBytes } from "../src/utils/model-fit";
 
 describe("getModelSafeLimit", () => {
   it("returns correct limit for GPT-5.4 Mini (400K ctx)", () => {
@@ -23,5 +23,17 @@ describe("getModelSafeLimit", () => {
   it("returns fallback for local providers with context=0", () => {
     // llamacpp default has context: 0 → fallback
     expect(getModelSafeLimit("llamacpp", "default")).toBe(512_000);
+  });
+});
+
+describe("formatBytes", () => {
+  it("formats bytes below 1 MB as KB", () => {
+    expect(formatBytes(512_000)).toBe("512 KB");
+  });
+  it("formats bytes at 1 MB boundary as MB", () => {
+    expect(formatBytes(1_000_000)).toBe("1.0 MB");
+  });
+  it("formats bytes above 1 MB", () => {
+    expect(formatBytes(1_120_000)).toBe("1.1 MB");
   });
 });
