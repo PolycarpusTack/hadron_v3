@@ -4,6 +4,6 @@ export function relaunch(): Promise<void> {
 }
 
 export function exit(code?: number): Promise<void> {
-  window.hadron.invoke('app:exit', { code: code ?? 0 })
+  window.hadron.exit(code)
   return Promise.resolve()
 }

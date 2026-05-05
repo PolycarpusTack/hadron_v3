@@ -84,9 +84,11 @@ async function callOpenAi(opts: AiCallOptions): Promise<AiCallResult> {
   const openAiMessages = opts.messages
     ? [{ role: 'system', content: opts.systemPrompt }, ...opts.messages.filter(m => m.role !== 'system')]
     : [{ role: 'system', content: opts.systemPrompt }, { role: 'user', content: opts.userPrompt }]
+  const isOSeries = /^o[1-9]/.test(opts.model)
+  const tokenParam = isOSeries ? 'max_completion_tokens' : 'max_tokens'
   const body = JSON.stringify({
     model: opts.model,
-    max_tokens: opts.maxTokens ?? 8192,
+    [tokenParam]: opts.maxTokens ?? 8192,
     messages: openAiMessages,
     stream: false,
   })
@@ -162,11 +164,13 @@ function openAiContext(id: string): number | undefined {
 export async function listModels(provider: string, apiKey: string): Promise<ProviderModel[]> {
   if (provider === 'anthropic') {
     return [
-      { id: 'claude-opus-4-7',           label: 'Claude Opus 4.7',   context: 200_000, category: 'claude-4' },
-      { id: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6', context: 200_000, category: 'claude-4' },
-      { id: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5',  context: 200_000, category: 'claude-4' },
+      { id: 'claude-opus-4-20250514',    label: 'Claude Opus 4',     context: 200_000, category: 'claude-4' },
+      { id: 'claude-sonnet-4-20250514',  label: 'Claude Sonnet 4',   context: 200_000, category: 'claude-4' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5',  context: 200_000, category: 'claude-4' },
       { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet', context: 200_000, category: 'claude-3' },
       { id: 'claude-3-5-haiku-20241022',  label: 'Claude 3.5 Haiku',  context: 200_000, category: 'claude-3' },
+      { id: 'claude-3-opus-20240229',     label: 'Claude 3 Opus',     context: 200_000, category: 'claude-3' },
+      { id: 'claude-3-haiku-20240307',    label: 'Claude 3 Haiku',    context: 200_000, category: 'claude-3' },
     ]
   }
   if (provider === 'openai') {

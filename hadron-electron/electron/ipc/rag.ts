@@ -36,20 +36,36 @@ export function registerRagHandlers(ipcMain: IpcMain): void {
     const topK = req.top_k ?? 5
 
     try {
-      // Try FTS5 search over retrieval_chunks content
-      let sql = `
+      // Search retrieval_chunks_fts (covers KB docs and indexed analysis chunks)
+      let chunkSql = `
         SELECT rc.id, rc.content, rc.source_type, rc.source_id, rc.metadata_json
-        FROM retrieval_chunks rc
-        WHERE rc.content MATCH ?
+        FROM retrieval_chunks_fts
+        JOIN retrieval_chunks rc ON retrieval_chunks_fts.rowid = rc.id
+        WHERE retrieval_chunks_fts MATCH ?
       `
-      const params: unknown[] = [ftsPhrase(req.query)]
+      const chunkParams: unknown[] = [ftsPhrase(req.query)]
 
-      if (req.component) { sql += ' AND json_extract(rc.metadata_json, "$.component") = ?'; params.push(req.component) }
-      if (req.severity)  { sql += ' AND json_extract(rc.metadata_json, "$.severity") = ?'; params.push(req.severity.toUpperCase()) }
-      sql += ' ORDER BY rank LIMIT ?'
-      params.push(topK)
+      if (req.component) { chunkSql += ' AND json_extract(rc.metadata_json, "$.component") = ?'; chunkParams.push(req.component) }
+      if (req.severity)  { chunkSql += ' AND json_extract(rc.metadata_json, "$.severity") = ?'; chunkParams.push(req.severity.toUpperCase()) }
+      chunkSql += ' LIMIT ?'
+      chunkParams.push(topK)
 
-      // retrieval_chunks has no FTS index — fall back to full-text scan via analyses_fts
+      const chunkRows = db.prepare(chunkSql).all(...chunkParams) as Array<Record<string, unknown>>
+
+      if (chunkRows.length > 0) {
+        return chunkRows.map((r, i) => ({
+          id: `chunk-${r.id}-${i}`,
+          content: (r.content as string) ?? '',
+          score: Math.max(0.1, 1.0 - i * 0.15),
+          metadata: {
+            source_type: r.source_type ?? null,
+            source_id: r.source_id ?? null,
+            ...JSON.parse((r.metadata_json as string) || '{}'),
+          },
+        }))
+      }
+
+      // Fall back to analyses_fts when no KB/chunk results found
       const ftsRows = db.prepare(`
         SELECT a.id, a.root_cause AS content, a.component, a.severity,
                a.error_type, 0 AS is_gold

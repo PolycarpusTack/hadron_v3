@@ -8,15 +8,15 @@ const SERVICE_NAME = 'hadron-electron'
 // ─── API Key functions (keytar via IPC) ───────────────────────────────────────
 
 export async function getApiKey(provider: string): Promise<string | null> {
-  return window.hadron.invoke('keytar:get', { service: SERVICE_NAME, account: provider }) as Promise<string | null>
+  return window.hadron.secret.get(SERVICE_NAME, provider)
 }
 
 export async function storeApiKey(provider: string, key: string): Promise<void> {
-  await window.hadron.invoke('keytar:set', { service: SERVICE_NAME, account: provider, password: key })
+  await window.hadron.secret.set(SERVICE_NAME, provider, key)
 }
 
 export async function deleteApiKey(provider: string): Promise<void> {
-  await window.hadron.invoke('keytar:delete', { service: SERVICE_NAME, account: provider })
+  await window.hadron.secret.delete(SERVICE_NAME, provider)
 }
 
 export async function hasApiKey(provider: string): Promise<boolean> {

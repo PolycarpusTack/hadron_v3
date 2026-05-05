@@ -28,7 +28,7 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (url.startsWith('https://')) shell.openExternal(url)
     return { action: 'deny' }
   })
 
