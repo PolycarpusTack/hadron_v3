@@ -10,7 +10,7 @@ export function registerNotesHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('update_note', (_e, args: { id: number; content: string }) => {
-    getDb().prepare('UPDATE analysis_notes SET content = ?, updated_at = datetime("now") WHERE id = ?')
+    getDb().prepare('UPDATE analysis_notes SET content = ?, updated_at = datetime('now') WHERE id = ?')
       .run(args.content, args.id)
   })
 

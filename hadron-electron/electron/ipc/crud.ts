@@ -27,12 +27,12 @@ export function registerCrudHandlers(ipcMain: IpcMain): void {
     const db = getDb()
     const row = db.prepare('SELECT * FROM analyses WHERE id = ?').get(args.id)
     if (!row) throw new Error(`Analysis ${args.id} not found`)
-    db.prepare('UPDATE analyses SET view_count = view_count + 1, last_viewed_at = datetime("now") WHERE id = ?').run(args.id)
+    db.prepare('UPDATE analyses SET view_count = view_count + 1, last_viewed_at = datetime('now') WHERE id = ?').run(args.id)
     return row
   })
 
   ipcMain.handle('delete_analysis', (_e, args: { id: number }) => {
-    getDb().prepare('UPDATE analyses SET deleted_at = datetime("now") WHERE id = ?').run(args.id)
+    getDb().prepare('UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?').run(args.id)
   })
 
   ipcMain.handle('export_analysis', (_e, args: { id: number }) => {
@@ -76,7 +76,7 @@ export function registerCrudHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('delete_translation', (_e, args: { id: number }) => {
-    getDb().prepare('UPDATE translations SET deleted_at = datetime("now") WHERE id = ?').run(args.id)
+    getDb().prepare('UPDATE translations SET deleted_at = datetime('now') WHERE id = ?').run(args.id)
   })
 
   ipcMain.handle('toggle_translation_favorite', (_e, args: { id: number }) => {

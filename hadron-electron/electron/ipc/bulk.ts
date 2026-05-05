@@ -27,14 +27,14 @@ export function registerBulkHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('bulk_delete_analyses', (_e, args: { ids: number[] }) => {
     const ids = sanitiseIds(args?.ids)
     const db = getDb()
-    const stmt = db.prepare('UPDATE analyses SET deleted_at = datetime("now") WHERE id = ?')
+    const stmt = db.prepare('UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?')
     db.transaction((xs: number[]) => xs.forEach(id => stmt.run(id)))(ids)
   })
 
   ipcMain.handle('bulk_delete_translations', (_e, args: { ids: number[] }) => {
     const ids = sanitiseIds(args?.ids)
     const db = getDb()
-    const stmt = db.prepare('UPDATE translations SET deleted_at = datetime("now") WHERE id = ?')
+    const stmt = db.prepare('UPDATE translations SET deleted_at = datetime('now') WHERE id = ?')
     db.transaction((xs: number[]) => xs.forEach(id => stmt.run(id)))(ids)
   })
 
