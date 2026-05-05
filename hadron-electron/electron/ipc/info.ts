@@ -2,21 +2,55 @@ import { IpcMain, app } from 'electron'
 import { getDb } from '../database'
 import fs from 'fs/promises'
 import path from 'path'
+import Store from 'electron-store'
+
+const settingsStore = new Store({ name: 'settings' })
 
 export function registerInfoHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('get_database_info', async () => {
     const db = getDb()
     const dbPath = path.join(app.getPath('userData'), 'hadron.db')
-    let sizeKb = 0
+    let sizeBytes = 0
     try {
       const stat = await fs.stat(dbPath)
-      sizeKb = stat.size / 1024
+      sizeBytes = stat.size
     } catch { /* ignore */ }
-    const version = (db.prepare('SELECT MAX(version) AS v FROM schema_versions').get() as { v: number }).v
-    return { path: dbPath, size_kb: sizeKb, schema_version: version }
+
+    let schemaVersion = 0
+    try {
+      schemaVersion = (db.prepare('SELECT MAX(version) AS v FROM schema_versions').get() as { v: number }).v
+    } catch { /* table may not exist on fresh DB */ }
+
+    const count = (sql: string) => {
+      try { return (db.prepare(sql).get() as { c: number }).c } catch { return 0 }
+    }
+
+    const lastAnalysis = (() => {
+      try {
+        const r = db.prepare('SELECT MAX(analyzed_at) AS t FROM analyses WHERE deleted_at IS NULL').get() as { t: string | null }
+        return r.t ?? undefined
+      } catch { return undefined }
+    })()
+
+    return {
+      path: dbPath,
+      size_kb: sizeBytes / 1024,
+      schema_version: schemaVersion,
+      needs_migration: false,
+      analyses_count: count('SELECT COUNT(*) AS c FROM analyses WHERE deleted_at IS NULL'),
+      translations_count: count('SELECT COUNT(*) AS c FROM translations WHERE deleted_at IS NULL'),
+      favorites_count: count('SELECT COUNT(*) AS c FROM analyses WHERE is_favorite=1 AND deleted_at IS NULL'),
+      database_size_bytes: sizeBytes,
+      last_analysis_at: lastAnalysis,
+    }
   })
 
   ipcMain.handle('get_file_stats', async (_e, args: { file_path: string }) => {
+    const normalized = path.resolve(args.file_path)
+    const dangerous = ['/etc', '/sys', '/proc', '/root', 'C:\\Windows'].filter(Boolean)
+    if (dangerous.some(d => normalized.startsWith(d))) {
+      return { size_bytes: 0, size_kb: 0, exists: false }
+    }
     try {
       const stat = await fs.stat(args.file_path)
       return { size_bytes: stat.size, size_kb: stat.size / 1024, exists: true }
@@ -25,8 +59,27 @@ export function registerInfoHandlers(ipcMain: IpcMain): void {
     }
   })
 
-  ipcMain.handle('get_crash_log_dir', () => app.getPath('userData'))
-  ipcMain.handle('set_crash_log_dir', () => {})
-  ipcMain.handle('get_stability_mode', () => 'normal')
-  ipcMain.handle('set_stability_mode', () => {})
+  ipcMain.handle('get_crash_log_dir', () => {
+    return (settingsStore.get('crash_log_dir', '') as string) || app.getPath('userData')
+  })
+
+  ipcMain.handle('set_crash_log_dir', (_e, args: { dir: string } | string) => {
+    const dir = typeof args === 'string' ? args : (args as { dir: string }).dir
+    if (dir) {
+      settingsStore.set('crash_log_dir', dir)
+    } else {
+      settingsStore.delete('crash_log_dir')
+    }
+    return dir || app.getPath('userData')
+  })
+
+  ipcMain.handle('get_stability_mode', () => {
+    return settingsStore.get('stability_mode', false) as boolean
+  })
+
+  ipcMain.handle('set_stability_mode', (_e, args: { enabled: boolean } | boolean) => {
+    const enabled = typeof args === 'boolean' ? args : (args as { enabled: boolean }).enabled
+    settingsStore.set('stability_mode', enabled)
+    return enabled
+  })
 }
