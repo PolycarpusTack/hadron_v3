@@ -10,7 +10,8 @@
     "preview": "electron-vite preview",
     "package": "electron-vite build && electron-builder",
     "test": "vitest run",
-    "postinstall": "echo 'no native rebuild needed'"
+    "postinstall": "echo 'Run npm run rebuild-native before packaging (Windows only)'",
+    "rebuild-native": "electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@electron-toolkit/utils": "^4.0.0",
+    "@electron/rebuild": "^3.7.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.28",
