@@ -7,6 +7,7 @@ import { getDb } from '../database'
 import { callAi, listModels } from '../services/ai-service'
 import { SERVICE_NAME } from '../services/jira-client'
 import { getApiKeyFromKeeper } from './keeper'
+import { isSystemPath } from '../services/path-security'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const MAX_PROMPT_CHARS = 100_000
 
@@ -29,17 +30,6 @@ async function resolveKey(provider: string, keeperSecretUid?: string | null): Pr
   throw new Error(`No API key configured for provider: ${provider}`)
 }
 
-function isSafePath(filePath: string): boolean {
-  const normalized = path.resolve(filePath)
-  const dangerous = [
-    '/etc', '/sys', '/proc', '/root',
-    'C:\\Windows', 'C:\\System32',
-    process.env.USERPROFILE ? path.join(process.env.USERPROFILE as string, '.ssh') : '',
-    path.join(os.homedir(), '.ssh'),
-    path.join(os.homedir(), '.gnupg'),
-  ].filter(Boolean)
-  return !dangerous.some(d => normalized.startsWith(d))
-}
 
 const CRASH_SYSTEM_PROMPT = `You are an expert software engineer specializing in crash log analysis.
 Analyze the provided crash log and return a JSON response with this exact structure:
@@ -69,7 +59,7 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
       file_path: string; model: string; provider: string
       analysis_type?: string; redact_pii?: boolean; keeper_secret_uid?: string; api_key?: string
     })
-    if (!isSafePath(p.file_path)) {
+    if (isSystemPath(p.file_path)) {
       throw new Error('Access denied: file path is not allowed')
     }
     try {
@@ -261,9 +251,24 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('save_pasted_log', async (_e, args: { content: string; filename: string }) => {
-    const safeName = path.basename(args.filename)
-    const tmpPath = path.join(os.tmpdir(), safeName)
-    await fs.writeFile(tmpPath, args.content, 'utf-8')
+    // SECURITY: cap content size so a malicious renderer cannot fill the
+    // disk with a single IPC call. Same MAX_FILE_BYTES as analyze_crash_log
+    // (10 MB) to keep the analyser pipeline coherent.
+    if (typeof args.content !== 'string') throw new Error('content must be a string')
+    if (Buffer.byteLength(args.content, 'utf-8') > MAX_FILE_BYTES) {
+      throw new Error('Pasted content too large (max 10 MB)')
+    }
+    // Strip any path separators and produce a tame filename. We also reject
+    // empty/`..` names and force a `.log` fallback if the input is unusable.
+    const rawName = typeof args.filename === 'string' ? args.filename : ''
+    let safeName = path.basename(rawName).replace(/[/\\:*?"<>|]/g, '_').slice(0, 128)
+    if (!safeName || safeName === '.' || safeName === '..') safeName = 'pasted.log'
+    // Generate a per-call unique prefix so concurrent saves never collide
+    // and predictable filenames cannot be used to overwrite existing files
+    // a different process placed under tmpdir.
+    const unique = `hadron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`
+    const tmpPath = path.join(os.tmpdir(), unique)
+    await fs.writeFile(tmpPath, args.content, { encoding: 'utf-8', flag: 'wx' })
     return { tmp_path: tmpPath }
   })
 
@@ -535,7 +540,7 @@ Return ONLY valid JSON with this structure (snake_case fields):
 Return only valid JSON, no markdown fences.`
 
   ipcMain.handle('analyze_performance_trace', async (_e, args: { filePath: string }) => {
-    if (!isSafePath(args.filePath)) throw new Error('Access denied: file path is not allowed')
+    if (isSystemPath(args.filePath)) throw new Error('Access denied: file path is not allowed')
     const stat = await fs.stat(args.filePath)
     if (stat.size > MAX_FILE_BYTES) throw new Error('File too large (max 10 MB)')
     const content = await fs.readFile(args.filePath, 'utf-8')

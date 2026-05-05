@@ -3,6 +3,8 @@ import { getDb } from '../database'
 import fs from 'fs/promises'
 import path from 'path'
 import Store from 'electron-store'
+import { isWriteAllowed } from './dialogAllowlist'
+import { isSystemPath } from '../services/path-security'
 
 const settingsStore = new Store({ name: 'settings' })
 
@@ -46,9 +48,10 @@ export function registerInfoHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('get_file_stats', async (_e, args: { file_path: string }) => {
-    const normalized = path.resolve(args.file_path)
-    const dangerous = ['/etc', '/sys', '/proc', '/root', 'C:\\Windows'].filter(Boolean)
-    if (dangerous.some(d => normalized.startsWith(d))) {
+    if (!args || typeof args.file_path !== 'string') {
+      return { size_bytes: 0, size_kb: 0, exists: false }
+    }
+    if (isSystemPath(args.file_path)) {
       return { size_bytes: 0, size_kb: 0, exists: false }
     }
     try {
@@ -64,13 +67,25 @@ export function registerInfoHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('set_crash_log_dir', (_e, args: { dir: string } | string) => {
-    const dir = typeof args === 'string' ? args : (args as { dir: string }).dir
-    if (dir) {
-      settingsStore.set('crash_log_dir', dir)
-    } else {
+    const dir = typeof args === 'string' ? args : (args as { dir: string })?.dir
+    // Clearing the override is always allowed — falls back to userData.
+    if (!dir) {
       settingsStore.delete('crash_log_dir')
+      return app.getPath('userData')
     }
-    return dir || app.getPath('userData')
+    // SECURITY: the renderer must have authorised this directory through an
+    // open-directory dialog (or it must be the app's own userData root).
+    // Without this, a compromised renderer could persist `/etc` or
+    // `~/.ssh` as the crash-log directory and trick later code paths
+    // into reading from it.
+    const resolved = path.resolve(dir)
+    const userData = path.resolve(app.getPath('userData'))
+    const isUserData = resolved === userData || resolved.startsWith(userData + path.sep)
+    if (isSystemPath(resolved) || (!isUserData && !isWriteAllowed(resolved))) {
+      throw new Error('Access denied: directory was not authorised by an open-directory dialog')
+    }
+    settingsStore.set('crash_log_dir', resolved)
+    return resolved
   })
 
   ipcMain.handle('get_stability_mode', () => {

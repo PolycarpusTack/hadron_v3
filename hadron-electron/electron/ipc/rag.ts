@@ -3,6 +3,27 @@ import { getDb } from '../database'
 import log from 'electron-log'
 import fsAsync from 'fs/promises'
 import path from 'path'
+import { isWriteAllowed } from './dialogAllowlist'
+import { isSystemPath } from '../services/path-security'
+
+// Files larger than this are skipped during KB import to bound memory and
+// prevent a malicious caller from indexing huge files into FTS.
+const KB_FILE_MAX_BYTES = 10 * 1024 * 1024
+// Hard ceiling on the number of files walked from a single import request.
+const KB_FILE_MAX_COUNT = 5000
+
+function isSafeImportPath(p: string): boolean {
+  if (!p || typeof p !== 'string') return false
+  const normalized = path.resolve(p)
+  // Hard denylist: refuse system/credential directories outright,
+  // even if a previous dialog accidentally authorised a parent path.
+  if (isSystemPath(normalized)) return false
+  // The renderer must have obtained this path via a directory dialog this
+  // session (or restored on startup from `_system`/allowed_export_dir).
+  // Without dialog consent the renderer cannot point us at an arbitrary
+  // path on disk to scan into the KB.
+  return isWriteAllowed(normalized)
+}
 
 // RAG, KB, and Pattern handlers for the Electron build.
 //
@@ -153,7 +174,17 @@ export function registerRagHandlers(ipcMain: IpcMain): void {
     const db = getDb()
     const sourceId = Number(analysis.id)
 
-    // Remove old chunks for this analysis
+    // Remove old chunks and keep the FTS index in sync.
+    // retrieval_chunks_fts is a content table with no auto-triggers, so we must
+    // manually issue 'delete' commands before removing rows from the base table.
+    const old = db.prepare(
+      "SELECT id, content, metadata_json FROM retrieval_chunks WHERE source_type = 'analysis' AND source_id = ?"
+    ).all(sourceId) as Array<{ id: number; content: string; metadata_json: string }>
+
+    const ftsDelete = db.prepare(
+      "INSERT INTO retrieval_chunks_fts(retrieval_chunks_fts, rowid, content, metadata_json) VALUES('delete', ?, ?, ?)"
+    )
+    for (const chunk of old) ftsDelete.run(chunk.id, chunk.content, chunk.metadata_json)
     db.prepare("DELETE FROM retrieval_chunks WHERE source_type = 'analysis' AND source_id = ?").run(sourceId)
 
     const textParts = [
@@ -171,6 +202,9 @@ export function registerRagHandlers(ipcMain: IpcMain): void {
         (source_type, source_id, chunk_index, content, metadata_json, created_at)
       VALUES ('analysis', ?, ?, ?, ?, ?)
     `)
+    const ftsInsert = db.prepare(
+      'INSERT INTO retrieval_chunks_fts(rowid, content, metadata_json) VALUES(?, ?, ?)'
+    )
 
     const metadata = JSON.stringify({
       component: analysis.component ?? null,
@@ -182,6 +216,7 @@ export function registerRagHandlers(ipcMain: IpcMain): void {
     const now = new Date().toISOString()
     for (let i = 0; i < chunks.length; i++) {
       const row = insert.run(sourceId, i, chunks[i], metadata, now)
+      ftsInsert.run(row.lastInsertRowid, chunks[i], metadata)
       ids.push(`chunk-${row.lastInsertRowid}`)
     }
 
@@ -250,8 +285,18 @@ export function registerRagHandlers(ipcMain: IpcMain): void {
 
     if (!rootPath) return { indexed_chunks: 0, won_version: wonVersion }
 
-    try { await fsAsync.access(rootPath) } catch {
-      throw new Error(`Cannot access path: ${rootPath}`)
+    // SECURITY: A malicious renderer must not be able to point this importer
+    // at /etc, ~/.ssh, the user's Documents folder, or any other arbitrary
+    // path. Require dialog consent (isWriteAllowed) and a hard denylist on
+    // sensitive directories. Without this, anything readable on disk could
+    // be slurped into the FTS index and exfiltrated via rag_query.
+    const resolvedRoot = path.resolve(rootPath)
+    if (!isSafeImportPath(resolvedRoot)) {
+      throw new Error('Access denied: path was not authorised by an open-directory dialog')
+    }
+
+    try { await fsAsync.access(resolvedRoot) } catch {
+      throw new Error(`Cannot access path: ${resolvedRoot}`)
     }
 
     const CHUNK_MAX = 2000
@@ -273,18 +318,30 @@ export function registerRagHandlers(ipcMain: IpcMain): void {
       return chunks
     }
 
-    async function walkDir(dir: string): Promise<string[]> {
-      const entries = await fsAsync.readdir(dir, { withFileTypes: true })
-      const files: string[] = []
+    // Walk only inside the resolved root. We resolve every entry and verify
+    // it stays under `resolvedRoot` (using path.relative) to defend against
+    // symlink-based escape attempts that would let the importer read outside
+    // the directory the user actually authorised.
+    async function walkDir(dir: string, files: string[]): Promise<void> {
+      if (files.length >= KB_FILE_MAX_COUNT) return
+      let entries: import('fs').Dirent[]
+      try {
+        entries = await fsAsync.readdir(dir, { withFileTypes: true })
+      } catch {
+        return
+      }
       for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name)
+        if (files.length >= KB_FILE_MAX_COUNT) return
+        const fullPath = path.resolve(dir, entry.name)
+        const rel = path.relative(resolvedRoot, fullPath)
+        if (rel.startsWith('..') || path.isAbsolute(rel)) continue // outside root
+        if (entry.isSymbolicLink()) continue                       // refuse symlinks
         if (entry.isDirectory()) {
-          files.push(...await walkDir(fullPath))
+          await walkDir(fullPath, files)
         } else if (entry.isFile() && ALLOWED_EXTS.has(path.extname(entry.name).toLowerCase())) {
           files.push(fullPath)
         }
       }
-      return files
     }
 
     const db = getDb()
@@ -292,14 +349,20 @@ export function registerRagHandlers(ipcMain: IpcMain): void {
       "DELETE FROM retrieval_chunks WHERE source_type = 'documentation' AND json_extract(metadata_json, '$.won_version') = ?"
     ).run(wonVersion)
 
-    const files = await walkDir(rootPath)
+    const files: string[] = []
+    await walkDir(resolvedRoot, files)
     let totalChunks = 0
 
     for (const filePath of files) {
+      // Bound per-file size so an attacker cannot OOM the main process by
+      // pointing us at a 5 GB log file.
+      let stat
+      try { stat = await fsAsync.stat(filePath) } catch { continue }
+      if (!stat.isFile() || stat.size > KB_FILE_MAX_BYTES) continue
       const text = await fsAsync.readFile(filePath, 'utf-8').catch(() => null)
       if (!text) continue
       const chunks = chunkText(text)
-      const relPath = path.relative(rootPath, filePath)
+      const relPath = path.relative(resolvedRoot, filePath)
 
       for (let i = 0; i < chunks.length; i++) {
         const meta = JSON.stringify({ won_version: wonVersion, file: relPath, chunk_index: i })
