@@ -16,6 +16,7 @@ import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey } from '../utils
 import Button from "./ui/Button";
 import Modal from "./ui/Modal";
 import FeatureToggleRow from "./FeatureToggleRow";
+import ModelPicker from "./ui/ModelPicker";
 
 // Lazy load heavy components since most users won't use them
 const KeeperSettings = lazy(() => import("./KeeperSettings"));
@@ -1054,19 +1055,16 @@ export default function SettingsPanel({
                       placeholder={`Filter ${currentModels.length} models… (e.g. "gpt-5", "400k", "1m")`}
                       className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 text-sm placeholder-gray-500"
                     />
-                    <select
-                      value={settings.model}
-                      onChange={(e) => { setModelFilter(""); setSettings({ ...settings, model: e.target.value }); }}
-                      className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 text-sm"
-                      size={filteredModels.length > 0 && modelFilter ? Math.min(filteredModels.length + 1, 8) : 1}
-                    >
-                      {filteredModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label} {m.context ? `(${Math.round(m.context / 1000)}K)` : ""}
-                        </option>
-                      ))}
-                      {!filterLower && <option value="custom">Custom Model...</option>}
-                    </select>
+                    <ModelPicker
+                      provider={settings.provider}
+                      value={settings.model === "custom" ? settings.customModel : settings.model}
+                      models={filteredModels}
+                      onChange={(id) => {
+                        setModelFilter("");
+                        setSettings((prev) => ({ ...prev, model: id, customModel: "" }));
+                        localStorage.setItem(providerModelKey(settings.provider), id);
+                      }}
+                    />
 
                     {settings.model === "custom" && (
                       <input
