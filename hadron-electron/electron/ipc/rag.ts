@@ -5,6 +5,7 @@ import fsAsync from 'fs/promises'
 import path from 'path'
 import { isWriteAllowed } from './dialogAllowlist'
 import { isSystemPath } from '../services/path-security'
+import { ftsPhrase } from '../services/db-helpers'
 
 // Files larger than this are skipped during KB import to bound memory and
 // prevent a malicious caller from indexing huge files into FTS.
@@ -34,11 +35,6 @@ function isSafeImportPath(p: string): boolean {
 // ============================================================================
 // RAG — SQLite FTS5-based similarity search
 // ============================================================================
-
-function ftsPhrase(q: string): string {
-  const truncated = q.substring(0, 200)
-  return '"' + truncated.replace(/"/g, '""') + '"'
-}
 
 function chunkText(text: string, chunkSize = 500): string[] {
   const words = text.split(/\s+/).filter(Boolean)

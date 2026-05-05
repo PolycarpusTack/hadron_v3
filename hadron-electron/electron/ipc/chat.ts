@@ -5,6 +5,7 @@ import { callAi } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
 import { SERVICE_NAME } from '../services/jira-client'
 import { getApiKeyFromKeeper } from './keeper'
+import { ftsPhrase } from '../services/db-helpers'
 
 // Timestamp format: INTEGER columns (chat_sessions.created_at/updated_at, chat_messages.timestamp)
 // use Date.now() (Unix milliseconds); TEXT columns (chat_feedback.created_at) use ISO strings
@@ -25,12 +26,6 @@ function streamReset(): void {
   streamState.done = false
   streamState.error = null
   streamState.events = []
-}
-
-function sanitizeFtsQuery(q: string): string {
-  // Wrap in double-quoted phrase to prevent FTS5 operator injection
-  const truncated = q.substring(0, 200)
-  return '"' + truncated.replace(/"/g, '""') + '"'
 }
 
 export function registerChatHandlers(ipcMain: IpcMain): void {
@@ -322,7 +317,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
           JOIN analyses a ON analyses_fts.rowid = a.id
           WHERE analyses_fts MATCH ?
           LIMIT 5
-        `).all(sanitizeFtsQuery(query)) as Array<{
+        `).all(ftsPhrase(query)) as Array<{
           id: number; filename: string; severity: string | null; root_cause: string | null;
           error_message: string | null; error_type: string | null
         }>

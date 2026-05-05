@@ -3,7 +3,8 @@ import { getDb } from '../database'
 import log from 'electron-log'
 import { callAi } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
-import { readJiraCreds, readJiraProjectKey, SERVICE_NAME } from '../services/jira-client'
+import { readJiraCreds, readJiraProjectKey, jiraFetch, SERVICE_NAME } from '../services/jira-client'
+import { ftsPhrase } from '../services/db-helpers'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // System prompts
@@ -389,7 +390,7 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
           AND tb.jira_key != ?
         ORDER BY rank
         LIMIT ?
-      `).all(queryText.substring(0, 500), args.jiraKey, limit) as Array<{
+      `).all(ftsPhrase(queryText), args.jiraKey, limit) as Array<{
         jira_key: string; title: string; similarity: number; severity: string | null; category: string | null
       }>
       return rows.map(r => ({
@@ -406,18 +407,17 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
   })
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 11. post_brief_to_jira — post investigation brief as JIRA comment
+  // 11. post_brief_to_jira — post investigation brief as JIRA comment.
+  // SECURITY: baseUrl/email/apiToken are read from main-process credential
+  // storage — NEVER trusted from the renderer. A malicious renderer cannot
+  // redirect this POST to an attacker-controlled URL or smuggle out the
+  // stored apiToken. jiraFetch() enforces https:// on the configured baseUrl.
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('post_brief_to_jira', async (_e, args: {
     jiraKey: string
     briefJson: string
-    baseUrl: string
-    email: string
-    apiToken: string
   }) => {
-    const { default: fetch } = await import('node-fetch')
-    const auth = Buffer.from(`${args.email}:${args.apiToken}`).toString('base64')
-    const url = `${args.baseUrl.replace(/\/$/, '')}/rest/api/3/issue/${encodeURIComponent(args.jiraKey)}/comment`
+    const { baseUrl, email, apiToken } = readJiraCreds()
 
     let briefText = args.briefJson
     try {
@@ -433,20 +433,11 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
       },
     }
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-
-    if (!res.ok) {
-      const err = await res.text().catch(() => '')
-      throw new Error(`JIRA post failed ${res.status}: ${err.substring(0, 200)}`)
-    }
+    await jiraFetch(
+      baseUrl, email, apiToken,
+      `/rest/api/3/issue/${encodeURIComponent(args.jiraKey)}/comment`,
+      { method: 'POST', body: JSON.stringify(body) },
+    )
 
     const db = getDb()
     db.prepare('UPDATE ticket_briefs SET posted_to_jira = 1, posted_at = ? WHERE jira_key = ?')

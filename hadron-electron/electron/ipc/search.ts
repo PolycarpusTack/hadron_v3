@@ -1,9 +1,6 @@
 import { IpcMain } from 'electron'
 import { getDb } from '../database'
-
-function ftsPhrase(q: string): string {
-  return '"' + q.substring(0, 200).replace(/"/g, '""') + '"'
-}
+import { ftsPhrase } from '../services/db-helpers'
 
 export function registerSearchHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('search_analyses', (_e, args: { query: string; limit?: number; offset?: number }) => {
