@@ -22,6 +22,7 @@ import { registerReleaseNotesHandlers } from './release-notes'
 import { registerJiraAssistHandlers } from './jira-assist'
 import { registerKeeperHandlers } from './keeper'
 import { registerInvestigationHandlers } from './investigation'
+import { registerRagHandlers } from './rag'
 
 export function registerAllHandlers(ipcMain: IpcMain): void {
   registerSettingsHandlers(ipcMain)
@@ -47,6 +48,7 @@ export function registerAllHandlers(ipcMain: IpcMain): void {
   registerJiraAssistHandlers(ipcMain)
   registerKeeperHandlers(ipcMain)
   registerInvestigationHandlers(ipcMain)
+  registerRagHandlers(ipcMain)
 
   electronIpcMain.handle('app:version', () => app.getVersion())
   electronIpcMain.on('app:relaunch', () => { app.relaunch(); app.exit(0) })

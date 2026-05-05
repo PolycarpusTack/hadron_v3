@@ -77,6 +77,15 @@ export async function initializeKeeper(
 }
 
 /**
+ * Fast check: is the Keeper config file present on this machine?
+ * Filesystem only — no network call. Safe to use on app startup.
+ */
+export async function isKeeperBackendConfigured(): Promise<boolean> {
+  const result = await invoke<{ configured: boolean }>("is_keeper_configured");
+  return result.configured;
+}
+
+/**
  * Get current Keeper connection status
  */
 export async function getKeeperStatus(): Promise<KeeperStatus> {

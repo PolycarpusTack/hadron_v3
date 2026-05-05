@@ -59,10 +59,12 @@ export function registerCrudHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('get_database_statistics', () => {
     const db = getDb()
-    const analyses = (db.prepare('SELECT COUNT(*) AS c FROM analyses WHERE deleted_at IS NULL').get() as { c: number }).c
-    const favorites = (db.prepare('SELECT COUNT(*) AS c FROM analyses WHERE is_favorite=1 AND deleted_at IS NULL').get() as { c: number }).c
-    const translations = (db.prepare('SELECT COUNT(*) AS c FROM translations WHERE deleted_at IS NULL').get() as { c: number }).c
-    return { analyses, favorites, translations }
+    const total_count = (db.prepare('SELECT COUNT(*) AS c FROM analyses WHERE deleted_at IS NULL').get() as { c: number }).c
+    const favorite_count = (db.prepare('SELECT COUNT(*) AS c FROM analyses WHERE is_favorite=1 AND deleted_at IS NULL').get() as { c: number }).c
+    const severity_breakdown = (db.prepare(
+      "SELECT severity, COUNT(*) AS count FROM analyses WHERE deleted_at IS NULL AND severity IS NOT NULL GROUP BY severity"
+    ).all() as Array<{ severity: string; count: number }>).map(r => [r.severity, r.count] as [string, number])
+    return { total_count, favorite_count, severity_breakdown }
   })
 
   ipcMain.handle('get_all_translations', () => {
@@ -107,7 +109,7 @@ export function registerCrudHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('auto_tag_analyses', (_e, args?: { limit?: number }) => {
-    // Auto-tagging is handled client-side in the desktop app; return empty for now
-    return { tagged: 0, limit: args?.limit ?? 100 }
+    // Auto-tagging is handled client-side in the desktop app
+    return { scanned: 0, tagged: 0, skipped: 0, failed: 0, limit: args?.limit ?? 100 }
   })
 }

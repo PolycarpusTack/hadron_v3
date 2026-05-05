@@ -40,7 +40,7 @@ export function registerSignatureHandlers(ipcMain: IpcMain): void {
     const now = new Date().toISOString()
     const { hash, canonical, componentsJson } = computeHashParts(args.errorType, args.stackTrace ?? null)
 
-    const existing = db.prepare('SELECT * FROM crash_signatures WHERE hash = ?').get(hash) as any
+    const existing = db.prepare('SELECT hash FROM crash_signatures WHERE hash = ?').get(hash)
     const isNew = !existing
 
     if (isNew) {
@@ -61,9 +61,9 @@ export function registerSignatureHandlers(ipcMain: IpcMain): void {
         .run(args.analysisId, hash)
     } catch { /* analysis may not exist */ }
 
-    const updated = db.prepare('SELECT * FROM crash_signatures WHERE hash = ?').get(hash) as any
+    const updated = db.prepare('SELECT * FROM crash_signatures WHERE hash = ?').get(hash) as Record<string, unknown>
     return {
-      signature: updated,
+      signature: mapSignature(updated),
       is_new: isNew,
       occurrence_count: updated.occurrence_count,
       linked_ticket_id: updated.linked_ticket_id ?? null,
@@ -97,7 +97,7 @@ export function registerSignatureHandlers(ipcMain: IpcMain): void {
     if (args?.status) { sql += ' WHERE status = ?'; params.push(args.status) }
     sql += ' ORDER BY occurrence_count DESC LIMIT ?'
     params.push(limit)
-    return db.prepare(sql).all(...params)
+    return (db.prepare(sql).all(...params) as Array<Record<string, unknown>>).map(mapSignature)
   })
 
   ipcMain.handle('update_signature_status', (_e, args: {
@@ -126,6 +126,31 @@ export function registerSignatureHandlers(ipcMain: IpcMain): void {
       WHERE hash = ?`)
       .run(args.ticketKey, args.ticketSystem ?? 'jira', args.ticketUrl ?? null, now, args.hash)
   })
+}
+
+function mapSignature(r: Record<string, unknown>) {
+  let components = { exceptionType: '', applicationFrames: [] as string[], affectedModule: undefined as string | undefined }
+  try {
+    const parsed = JSON.parse((r.components_json as string) ?? '[]') as string[]
+    components = {
+      exceptionType: parsed[0] ?? '',
+      applicationFrames: parsed.slice(1),
+      affectedModule: undefined,
+    }
+  } catch { /* ignore malformed JSON */ }
+
+  return {
+    hash: r.hash,
+    canonical: r.canonical,
+    components,
+    firstSeen: r.first_seen_at ?? '',
+    lastSeen: r.last_seen_at ?? '',
+    occurrenceCount: r.occurrence_count ?? 0,
+    linkedTicket: r.linked_ticket_id ?? undefined,
+    linkedTicketUrl: r.linked_ticket_url ?? undefined,
+    status: r.status ?? 'new',
+    statusMetadata: r.status_metadata_json ?? undefined,
+  }
 }
 
 interface HashParts {

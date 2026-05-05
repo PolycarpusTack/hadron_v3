@@ -139,27 +139,58 @@ async function callZai(opts: AiCallOptions): Promise<AiCallResult> {
   }
 }
 
-export async function listModels(provider: string, apiKey: string): Promise<string[]> {
+export interface ProviderModel {
+  id: string
+  label: string
+  context?: number
+  category?: string
+}
+
+// Context window sizes (tokens) for known OpenAI model families.
+// Used for display only — the actual limit is enforced by the API.
+function openAiContext(id: string): number | undefined {
+  if (/^o[1-9]/.test(id)) return 200_000          // o1, o3, o4 reasoning family
+  if (id.includes('gpt-4o'))      return 128_000
+  if (id.includes('gpt-4-turbo')) return 128_000
+  if (id.includes('gpt-4-32k'))   return 32_000
+  if (/^gpt-4/.test(id))          return 8_000
+  if (id.includes('gpt-3.5-turbo-16k')) return 16_000
+  if (id.includes('gpt-3.5'))     return 16_000
+  return undefined
+}
+
+export async function listModels(provider: string, apiKey: string): Promise<ProviderModel[]> {
   if (provider === 'anthropic') {
     return [
-      'claude-opus-4-7',
-      'claude-sonnet-4-6',
-      'claude-haiku-4-5-20251001',
-      'claude-3-5-sonnet-20241022',
-      'claude-3-5-haiku-20241022',
+      { id: 'claude-opus-4-7',           label: 'Claude Opus 4.7',   context: 200_000, category: 'claude-4' },
+      { id: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6', context: 200_000, category: 'claude-4' },
+      { id: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5',  context: 200_000, category: 'claude-4' },
+      { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet', context: 200_000, category: 'claude-3' },
+      { id: 'claude-3-5-haiku-20241022',  label: 'Claude 3.5 Haiku',  context: 200_000, category: 'claude-3' },
     ]
   }
   if (provider === 'openai') {
     try {
       const { default: fetch } = await import('node-fetch')
       const res = await fetch('https://api.openai.com/v1/models', {
-        headers: { Authorization: `Bearer ${apiKey}` }
+        headers: { Authorization: `Bearer ${apiKey}` },
       })
       const data = await res.json() as { data: Array<{ id: string }> }
-      return data.data.map(m => m.id).filter(id => id.startsWith('gpt')).sort()
+      return data.data
+        .map(m => m.id)
+        .filter(id =>
+          id.startsWith('gpt') ||
+          id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4')
+        )
+        .sort()
+        .map(id => ({ id, label: id, context: openAiContext(id) }))
     } catch (e) {
       log.warn('Failed to list OpenAI models', e)
-      return ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
+      return [
+        { id: 'gpt-4o',       label: 'gpt-4o',       context: 128_000 },
+        { id: 'gpt-4o-mini',  label: 'gpt-4o-mini',  context: 128_000 },
+        { id: 'gpt-4-turbo',  label: 'gpt-4-turbo',  context: 128_000 },
+      ]
     }
   }
   return []

@@ -28,8 +28,8 @@ import { checkAndUpdate } from "./services/updater";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { STORAGE_KEYS, getBooleanSetting } from "./utils/config";
-import { getApiKey, migrateFromLocalStorage } from "./services/secure-storage";
-import { isKeeperEnabledForProvider } from "./services/keeper";
+import { getApiKey, migrateFromLocalStorage, syncSettingsToElectronStore } from "./services/secure-storage";
+import { isKeeperEnabledForProvider, isKeeperBackendConfigured } from "./services/keeper";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAppState } from "./hooks/useAppState";
 import { retryOperation, getUserFriendlyErrorMessage, getRecoverySuggestions } from "./utils/errorHandling";
@@ -281,11 +281,16 @@ function App() {
     async function initializeApp() {
       // Run migration from localStorage to encrypted storage
       await migrateFromLocalStorage();
+      // Backfill electron-store with any settings saved before the bridge existed
+      await syncSettingsToElectronStore();
 
       // Load API key from encrypted storage or check Keeper
       const provider = getStoredProvider();
       const storedKey = await getApiKey(provider);
-      const keeperActive = !storedKey && await isKeeperEnabledForProvider(provider);
+      // Require both: renderer config says enabled AND backend config file exists
+      const keeperActive = !storedKey
+        && await isKeeperEnabledForProvider(provider)
+        && await isKeeperBackendConfigured();
 
       // Load theme (non-sensitive, keep in localStorage for now)
       const storedTheme = localStorage.getItem(STORAGE_KEYS.THEME);
@@ -559,7 +564,9 @@ function App() {
   const handleSettingsChange = useCallback(async () => {
     const provider = getStoredProvider();
     const newApiKey = await getApiKey(provider);
-    const keeperActive = !newApiKey && await isKeeperEnabledForProvider(provider);
+    const keeperActive = !newApiKey
+      && await isKeeperEnabledForProvider(provider)
+      && await isKeeperBackendConfigured();
     if (newApiKey) {
       actions.setApiKey(newApiKey);
     } else if (keeperActive) {

@@ -403,7 +403,6 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
           components: issue.components,
           labels: issue.labels,
           comments: issue.comments.map((c) => c.body),
-          apiKey,
           model,
           provider,
         });

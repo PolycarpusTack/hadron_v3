@@ -25,10 +25,14 @@ export default defineConfig({
   },
   renderer: {
     root: 'src',
+    publicDir: resolve('src/public'),
     build: {
       outDir: 'out/renderer',
       rollupOptions: {
-        input: resolve('src/index.html')
+        input: {
+          main: resolve('src/index.html'),
+          widget: resolve('src/widget.html'),
+        }
       }
     },
     plugins: [react()],

@@ -110,6 +110,7 @@ export default function SettingsPanel({
   });
 
   const [cachedModels, setCachedModels] = useState<Record<string, ModelOption[]>>({});
+  const [modelFilter, setModelFilter] = useState("");
 
   const [settings, setSettings] = useState<Settings>({
     provider: "openai",
@@ -560,6 +561,21 @@ export default function SettingsPanel({
   const currentModels = savedModelInList || settings.model === "custom"
     ? rawModels
     : [{ id: settings.model, label: settings.model, context: undefined, category: "saved" }, ...rawModels];
+
+  const filterLower = modelFilter.toLowerCase();
+  const filteredModels = filterLower
+    ? currentModels.filter((m) => {
+        if (m.id.toLowerCase().includes(filterLower)) return true;
+        if ((m.label ?? "").toLowerCase().includes(filterLower)) return true;
+        // "128k", "200k" etc — match on context size
+        if (m.context) {
+          const ctxLabel = `${Math.round(m.context / 1000)}k`;
+          if (ctxLabel.includes(filterLower)) return true;
+        }
+        return false;
+      })
+    : currentModels;
+
   const isKeeperActiveForProvider = keeperConfig?.enabled && !!keeperConfig.secretMappings[settings.provider as keyof typeof keeperConfig.secretMappings];
 
   // Render API Key input for a provider
@@ -948,17 +964,25 @@ export default function SettingsPanel({
                         Refresh Models
                       </Button>
                     </div>
+                    <input
+                      type="text"
+                      value={modelFilter}
+                      onChange={(e) => setModelFilter(e.target.value)}
+                      placeholder={`Filter ${currentModels.length} models… (e.g. "4o", "128k", "o3")`}
+                      className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 text-sm placeholder-gray-500"
+                    />
                     <select
                       value={settings.model}
-                      onChange={(e) => setSettings({ ...settings, model: e.target.value })}
+                      onChange={(e) => { setModelFilter(""); setSettings({ ...settings, model: e.target.value }); }}
                       className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 text-sm"
+                      size={filteredModels.length > 0 && modelFilter ? Math.min(filteredModels.length + 1, 8) : 1}
                     >
-                      {currentModels.map((m) => (
+                      {filteredModels.map((m) => (
                         <option key={m.id} value={m.id}>
-                          {m.label} {m.context ? `(${(m.context / 1000).toFixed(0)}K)` : ""}
+                          {m.label} {m.context ? `(${Math.round(m.context / 1000)}K)` : ""}
                         </option>
                       ))}
-                      <option value="custom">Custom Model...</option>
+                      {!filterLower && <option value="custom">Custom Model...</option>}
                     </select>
 
                     {settings.model === "custom" && (

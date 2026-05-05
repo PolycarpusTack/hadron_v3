@@ -3,6 +3,8 @@ import log from 'electron-log'
 import { getDb } from '../database'
 import { callAi } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
+import { SERVICE_NAME } from '../services/jira-client'
+import { getApiKeyFromKeeper } from './keeper'
 
 // Timestamp format: INTEGER columns (chat_sessions.created_at/updated_at, chat_messages.timestamp)
 // use Date.now() (Unix milliseconds); TEXT columns (chat_feedback.created_at) use ISO strings
@@ -35,14 +37,20 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
   // Save (upsert) a chat session.
   // created_at / updated_at are stored as Unix ms integers.
   ipcMain.handle('chat_save_session', (_e, args: {
-    id: string
-    title: string
-    provider?: string
-    model?: string
-    won_version?: string
-    customer?: string
-    analysis_id?: number
+    request?: {
+      id?: string; title?: string; won_version?: string; wonVersion?: string; customer?: string
+      messages?: Array<{ id: string; role: string; content: string; sources_json?: string | null; timestamp?: number }>
+    }
+    id?: string; title?: string; won_version?: string; wonVersion?: string; customer?: string
+    messages?: Array<{ id: string; role: string; content: string; sources_json?: string | null; timestamp?: number }>
   }) => {
+    // Accept both direct args and Tauri-style { request } wrapper
+    const p = (args.request ?? args) as {
+      id?: string; title?: string; won_version?: string; wonVersion?: string; customer?: string
+      messages?: Array<{ id: string; role: string; content: string; sources_json?: string | null; timestamp?: number }>
+    }
+    const id = (p.id ?? (p as Record<string, unknown>).sessionId) as string
+    const wonVersion = p.won_version ?? p.wonVersion ?? null
     const db = getDb()
     const now = Date.now()
     db.prepare(`
@@ -53,25 +61,32 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
         won_version = excluded.won_version,
         customer   = excluded.customer,
         updated_at = excluded.updated_at
-    `).run(
-      args.id,
-      args.title,
-      args.won_version ?? null,
-      args.customer ?? null,
-      now,
-      now,
-    )
-    return { id: args.id }
+    `).run(id, p.title ?? '', wonVersion, p.customer ?? null, now, now)
+
+    // Persist messages sent alongside the session (used by frontend saveChatSession)
+    if (p.messages?.length) {
+      const insertMsg = db.prepare(`
+        INSERT OR REPLACE INTO chat_messages
+          (id, session_id, role, content, sources_json, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      for (const m of p.messages) {
+        insertMsg.run(m.id, id, m.role, m.content, m.sources_json ?? null, m.timestamp ?? now)
+      }
+    }
+    return { id }
   })
 
   // List non-archived sessions ordered by recency.
   // chat_sessions has no `archived` column — we return all rows.
-  ipcMain.handle('chat_load_sessions', (_e, args?: { limit?: number; offset?: number }) => {
+  const loadSessions = (_e: unknown, args?: { limit?: number; offset?: number }) => {
     const db = getDb()
     return db.prepare(
       'SELECT * FROM chat_sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?'
     ).all(args?.limit ?? 50, args?.offset ?? 0)
-  })
+  }
+  ipcMain.handle('chat_load_sessions', loadSessions)
+  ipcMain.handle('chat_list_sessions', loadSessions) // alias used by some frontend callers
 
   // Load a single session by id.
   ipcMain.handle('chat_load_session', (_e, args: { id: string }) => {
@@ -81,12 +96,16 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
 
   // Load all messages for a session in chronological order.
   // Messages use `timestamp` (INTEGER ms) instead of `created_at`.
-  ipcMain.handle('chat_load_messages', (_e, args: { session_id: string }) => {
+  // Accepts session_id (snake_case) or sessionId (camelCase).
+  const loadMessages = (_e: unknown, args: { session_id?: string; sessionId?: string }) => {
     const db = getDb()
+    const sessionId = args.session_id ?? args.sessionId ?? ''
     return db.prepare(
       'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC'
-    ).all(args.session_id)
-  })
+    ).all(sessionId)
+  }
+  ipcMain.handle('chat_load_messages', loadMessages)
+  ipcMain.handle('chat_get_messages', loadMessages) // alias used by some frontend callers
 
   // Save (upsert) a chat message.
   // The schema stores `sources_json` and `timestamp`; there are no
@@ -119,45 +138,53 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
   })
 
   // Delete a session and its messages (messages cascade via FK).
-  ipcMain.handle('chat_delete_session', (_e, args: { id: string }) => {
+  ipcMain.handle('chat_delete_session', (_e, args: { id?: string; sessionId?: string }) => {
     const db = getDb()
-    db.prepare('DELETE FROM chat_sessions WHERE id = ?').run(args.id)
+    const id = args.sessionId ?? args.id ?? ''
+    db.prepare('DELETE FROM chat_sessions WHERE id = ?').run(id)
   })
 
   // Toggle the starred flag on a session.
   // Column added by m012: `is_starred INTEGER NOT NULL DEFAULT 0`
-  ipcMain.handle('chat_star_session', (_e, args: { id: string; starred: boolean }) => {
+  ipcMain.handle('chat_star_session', (_e, args: { id?: string; sessionId?: string; starred: boolean }) => {
     const db = getDb()
+    const id = args.sessionId ?? args.id ?? ''
     db.prepare('UPDATE chat_sessions SET is_starred = ? WHERE id = ?')
-      .run(args.starred ? 1 : 0, args.id)
+      .run(args.starred ? 1 : 0, id)
   })
 
   // Replace the tags array on a session.
   // Column added by m012: `tags TEXT` (stored as JSON string).
-  ipcMain.handle('chat_tag_session', (_e, args: { id: string; tags: string[] }) => {
+  ipcMain.handle('chat_tag_session', (_e, args: { id?: string; sessionId?: string; tags: string[] }) => {
     const db = getDb()
+    const id = args.sessionId ?? args.id ?? ''
     db.prepare('UPDATE chat_sessions SET tags = ? WHERE id = ?')
-      .run(JSON.stringify(args.tags), args.id)
+      .run(JSON.stringify(args.tags), id)
   })
 
   // Partial update of session metadata fields.
+  // Accepts both snake_case (won_version) and camelCase (wonVersion) keys.
   ipcMain.handle('chat_update_session_metadata', (_e, args: {
-    id: string
+    id?: string
+    sessionId?: string
     title?: string
     won_version?: string
+    wonVersion?: string
     customer?: string
   }) => {
     const db = getDb()
     const now = Date.now()
+    const id = args.sessionId ?? args.id ?? ''
+    const wonVersion = args.won_version ?? args.wonVersion
     const updates: string[] = []
     const params: unknown[] = []
-    if (args.title !== undefined)       { updates.push('title = ?');       params.push(args.title) }
-    if (args.won_version !== undefined) { updates.push('won_version = ?'); params.push(args.won_version) }
-    if (args.customer !== undefined)    { updates.push('customer = ?');    params.push(args.customer) }
+    if (args.title !== undefined)   { updates.push('title = ?');       params.push(args.title) }
+    if (wonVersion !== undefined)   { updates.push('won_version = ?'); params.push(wonVersion) }
+    if (args.customer !== undefined){ updates.push('customer = ?');    params.push(args.customer) }
     if (updates.length === 0) return
     updates.push('updated_at = ?')
     params.push(now)
-    params.push(args.id)
+    params.push(id)
     db.prepare(`UPDATE chat_sessions SET ${updates.join(', ')} WHERE id = ?`).run(...params)
   })
 
@@ -176,7 +203,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
   }) => {
     const db = getDb()
     const now = new Date().toISOString() // TEXT column — ISO string matches DEFAULT datetime('now')
-    const row = db.prepare(`
+    db.prepare(`
       INSERT INTO chat_feedback
         (session_id, message_id, rating, comment, tools_used, sources_cited, query, reason, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -223,32 +250,58 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
 
   // Send a chat message (full messages array) to the configured AI provider.
   // Streams tokens into streamState; caller polls via poll_chat_stream.
-  ipcMain.handle('chat_send', async (_e, args: {
-    messages: Array<{ role: string; content: string }>
-    api_key: string
-    model: string
-    provider: string
-    use_rag: boolean
-    use_kb: boolean
-    won_version?: string
-    customer?: string
-    analysis_id?: number
-    request_id?: string
+  // Frontend wraps args in { request: { ... } } (Tauri-style invoke convention).
+  ipcMain.handle('chat_send', async (_e, rawArgs: {
+    request?: {
+      messages: Array<{ role: string; content: string }>
+      api_key?: string
+      model: string
+      provider: string
+      use_rag?: boolean
+      use_kb?: boolean
+      won_version?: string
+      customer?: string
+      analysis_id?: number
+      request_id?: string
+      keeper_secret_uid?: string
+      auxiliary_model?: string
+      verbosity?: string
+    }
+    // also accept flat (non-wrapped) calls for backwards compat
+    messages?: Array<{ role: string; content: string }>
+    api_key?: string
+    model?: string
+    provider?: string
+    use_rag?: boolean
+    use_kb?: boolean
     keeper_secret_uid?: string
-    auxiliary_model?: string
-    verbosity?: string
   }) => {
+    const args = rawArgs.request ?? rawArgs as {
+      messages: Array<{ role: string; content: string }>
+      api_key?: string; model: string; provider: string
+      use_rag?: boolean; use_kb?: boolean
+      won_version?: string; customer?: string
+      analysis_id?: number; request_id?: string
+      keeper_secret_uid?: string; auxiliary_model?: string; verbosity?: string
+    }
+
     streamReset()
     if (streamActive) {
       log.warn('chat_send called while stream already active — previous stream cancelled')
     }
     streamActive = true
 
-    const SERVICE_NAME = 'hadron-electron'
-    let apiKey = args.api_key
+    let apiKey = args.api_key ?? ''
     if (!apiKey) {
       const stored = getSecret(SERVICE_NAME, args.provider)
       if (stored) apiKey = stored
+    }
+    if (!apiKey && args.keeper_secret_uid) {
+      try {
+        apiKey = await getApiKeyFromKeeper(args.keeper_secret_uid)
+      } catch (err: unknown) {
+        log.warn('Keeper lookup failed:', err instanceof Error ? err.message : err)
+      }
     }
     if (!apiKey) {
       streamState.error = `No API key configured for provider: ${args.provider}`
@@ -258,7 +311,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     }
 
     // FTS context: search analyses_fts for the last user message
-    const query = [...args.messages].reverse().find(m => m.role === 'user')?.content ?? ''
+    const query = [...(args.messages ?? [])].reverse().find(m => m.role === 'user')?.content ?? ''
     let ftsContext = ''
     if (query && args.use_rag) {
       try {

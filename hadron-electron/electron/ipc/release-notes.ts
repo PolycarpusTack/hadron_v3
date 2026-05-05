@@ -1,10 +1,8 @@
 import { IpcMain, BrowserWindow } from 'electron'
 import log from 'electron-log'
-import Store from 'electron-store'
 import { getDb } from '../database'
 import { callAi } from '../services/ai-service'
-
-const settingsStore = new Store({ name: 'settings' })
+import { readJiraCreds, jiraFetch } from '../services/jira-client'
 
 const RELEASE_NOTES_SYSTEM_PROMPT = `You are a technical writer creating release notes for WHATS'ON broadcast management software.
 Format as structured markdown with these sections:
@@ -15,53 +13,6 @@ Format as structured markdown with these sections:
 
 Each item: "- **[KEY]** Brief user-facing description."
 Be concise. Omit empty sections.`
-
-function readJiraCreds(): { baseUrl: string; email: string; apiToken: string } {
-  const baseUrl = settingsStore.get('jira_base_url', '') as string
-  const email = settingsStore.get('jira_email', '') as string
-  const apiToken = settingsStore.get('jira_api_key', '') as string
-  if (!baseUrl || !email || !apiToken) {
-    throw new Error('JIRA not configured. Please set up JIRA credentials in Settings.')
-  }
-  try {
-    const parsed = new URL(baseUrl)
-    if (parsed.protocol !== 'https:') {
-      throw new Error('JIRA base URL must use https://')
-    }
-  } catch (e) {
-    if ((e as Error).message.includes('Invalid URL')) {
-      throw new Error('JIRA base URL is not a valid URL')
-    }
-    throw e
-  }
-  return { baseUrl, email, apiToken }
-}
-
-async function jiraFetch(
-  baseUrl: string,
-  email: string,
-  apiToken: string,
-  path: string,
-  options: Record<string, unknown> = {}
-): Promise<unknown> {
-  const { default: fetch } = await import('node-fetch')
-  const auth = Buffer.from(`${email}:${apiToken}`).toString('base64')
-  const url = `${baseUrl.replace(/\/$/, '')}${path}`
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Authorization': `Basic ${auth}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      ...((options.headers as Record<string, string>) ?? {}),
-    },
-  } as Parameters<typeof fetch>[1])
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`JIRA API error ${res.status}: ${body.substring(0, 200)}`)
-  }
-  return res.json()
-}
 
 interface JiraIssue {
   key: string
@@ -334,7 +285,7 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('update_release_notes_checklist', (_e, args: {
     id: number
-    checklistState: string
+    checklistJson: string
   }) => {
     try {
       const db = getDb()
@@ -343,7 +294,7 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
         UPDATE release_notes
         SET checklist_state = ?, updated_at = ?
         WHERE id = ? AND deleted_at IS NULL
-      `).run(args.checklistState, now, args.id)
+      `).run(args.checklistJson, now, args.id)
       if (result.changes === 0) throw new Error(`Release notes not found: ${args.id}`)
       return { success: true }
     } catch (err: unknown) {
@@ -457,6 +408,123 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       log.warn('list_jira_fix_versions failed:', message)
+      throw new Error(message)
+    }
+  })
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 10. export_release_notes
+  // ──────────────────────────────────────────────────────────────────────────
+  ipcMain.handle('export_release_notes', (_e, args: { id: number; format: string }) => {
+    const db = getDb()
+    const row = db.prepare('SELECT * FROM release_notes WHERE id = ?').get(args.id) as Record<string, unknown> | undefined
+    if (!row) throw new Error(`Release notes ${args.id} not found`)
+    const content = (row.markdown_content as string) ?? ''
+    if (args.format === 'json') {
+      return JSON.stringify(row, null, 2)
+    }
+    // markdown or plain text — return content directly
+    return content
+  })
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 11. check_release_notes_compliance
+  // Frontend sends { content, apiKey, model, provider } — mirrors Tauri contract.
+  // Uses AI to produce a ComplianceReport with terminologyViolations, structureViolations,
+  // screenshotSuggestions, score, tokensUsed, cost.
+  // ──────────────────────────────────────────────────────────────────────────
+  ipcMain.handle('check_release_notes_compliance', async (_e, args: {
+    content: string; apiKey: string; model: string; provider: string
+  }) => {
+    const systemPrompt = `You are a WHATS'ON release notes style auditor. You enforce the company's release notes style guide with precision.
+
+Given a draft, analyze it and return a JSON object with exactly these fields:
+
+1. "terminologyViolations" — array of objects with: lineContext, violation, suggestedFix, ruleReference. Check wrong UI terms, abbreviations, "customers" vs "users", incorrect capitalization, passive voice, quotes around UI text instead of bold, etc.
+
+2. "structureViolations" — array of objects with: section, violation, suggestedFix, ruleReference. Check: features missing proper structure, fixes not starting with "Previously,...", missing ticket references in brackets, titles with colons or quotes, fixes not ending with "This issue has been fixed in this version.", etc.
+
+3. "screenshotSuggestions" — array of objects with: ticketKey, description, placementHint, inlinePlaceholder. Identify places where a screenshot would help. The inlinePlaceholder should be formatted as [SCREENSHOT: brief description].
+
+4. "score" — number 0-100 reflecting overall style guide compliance. 100 = perfect. Deduct: terminology -3, structure -5. Screenshots don't affect score.
+
+Return ONLY valid JSON. No markdown fences.`
+
+    const result = await callAi({
+      provider: args.provider,
+      model: args.model,
+      apiKey: args.apiKey,
+      systemPrompt,
+      userPrompt: `Review this release notes draft for style compliance:\n\n${args.content}`,
+      maxTokens: 4096,
+    })
+
+    let parsed: Record<string, unknown>
+    try {
+      const jsonStr = result.content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
+      parsed = JSON.parse(jsonStr)
+    } catch {
+      parsed = {}
+    }
+
+    return {
+      terminologyViolations: (parsed.terminologyViolations as unknown[]) ?? [],
+      structureViolations: (parsed.structureViolations as unknown[]) ?? [],
+      screenshotSuggestions: (parsed.screenshotSuggestions as unknown[]) ?? [],
+      score: typeof parsed.score === 'number' ? parsed.score : 100,
+      tokensUsed: (result.inputTokens ?? 0) + (result.outputTokens ?? 0),
+      cost: result.cost ?? 0,
+    }
+  })
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 12. preview_release_notes_tickets — fetch JIRA tickets for a fix version
+  // Returns ReleaseNoteTicketPreview[] for the UI to display before generation.
+  // ──────────────────────────────────────────────────────────────────────────
+  ipcMain.handle('preview_release_notes_tickets', async (_e, args: {
+    config: { fixVersion: string; contentType?: string; projectKey?: string; jqlFilter?: string }
+    baseUrl?: string
+    email?: string
+    apiToken?: string
+  }) => {
+    try {
+      let baseUrl: string
+      let email: string
+      let apiToken: string
+
+      if (args.baseUrl && args.email && args.apiToken) {
+        baseUrl = args.baseUrl
+        email = args.email
+        apiToken = args.apiToken
+      } else {
+        const creds = readJiraCreds()
+        baseUrl = creds.baseUrl
+        email = creds.email
+        apiToken = creds.apiToken
+      }
+
+      const fixVersion = args.config.fixVersion
+      const projectKey = args.config.projectKey
+      const jqlFilter = args.config.jqlFilter
+
+      // Escape JQL string values to prevent injection (same as generate_release_notes)
+      const escJql = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      let jql = jqlFilter || `fixVersion = "${escJql(fixVersion)}"`
+      if (projectKey && !jqlFilter) jql = `project = "${escJql(projectKey)}" AND fixVersion = "${escJql(fixVersion)}"`
+
+      const issues = await fetchJiraTickets(baseUrl, email, apiToken, jql, 100)
+      return issues.map(issue => ({
+        key: issue.key,
+        summary: issue.fields.summary ?? '(no summary)',
+        issueType: issue.fields.issuetype?.name ?? 'Unknown',
+        priority: issue.fields.priority?.name ?? 'Unknown',
+        status: issue.fields.status?.name ?? 'Unknown',
+        components: [],
+        labels: [],
+      }))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.warn('preview_release_notes_tickets failed:', message)
       throw new Error(message)
     }
   })

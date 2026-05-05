@@ -1,6 +1,7 @@
 import { IpcMain } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
+import os from 'os'
 import crypto from 'crypto'
 import * as XLSX from 'xlsx'
 
@@ -312,13 +313,27 @@ function formatReport(
 // IPC handler registration
 // ============================================================================
 
+function isSafePath(filePath: string): boolean {
+  const normalized = path.resolve(filePath)
+  const dangerous = [
+    '/etc', '/sys', '/proc', '/root',
+    'C:\\Windows', 'C:\\System32',
+    process.env.USERPROFILE ? path.join(process.env.USERPROFILE as string, '.ssh') : '',
+    path.join(os.homedir(), '.ssh'),
+    path.join(os.homedir(), '.gnupg'),
+  ].filter(Boolean)
+  return !dangerous.some(d => normalized.startsWith(d))
+}
+
 export function registerExportHandlers(ipc: IpcMain): void {
   // File write aliases used by ExportDialog / ExportMenu
   ipc.handle('write_export_text', async (_e, args: { path: string; content: string }) => {
+    if (!isSafePath(args.path)) throw new Error('Access denied: file path is not allowed')
     await fs.writeFile(args.path, args.content, 'utf-8')
   })
 
   ipc.handle('write_export_bytes', async (_e, args: { path: string; data: number[] }) => {
+    if (!isSafePath(args.path)) throw new Error('Access denied: file path is not allowed')
     await fs.writeFile(args.path, Buffer.from(args.data))
   })
 
@@ -410,20 +425,51 @@ export function registerExportHandlers(ipc: IpcMain): void {
   })
 
   // preview_report — returns HTML string for in-app preview
+  // Accepts both snake_case (crash_content/file_name) and camelCase (crashContent/fileName).
   ipc.handle('preview_report', (_e, args: {
-    crash_content: string
-    file_name: string
+    crash_content?: string; crashContent?: string
+    file_name?: string; fileName?: string
     format: string
     audience: string
     title?: string
   }): string => {
-    const body = applyAudienceFilter(args.crash_content, args.audience ?? 'technical')
+    const content = args.crash_content ?? args.crashContent ?? ''
+    const fileName = args.file_name ?? args.fileName ?? ''
+    const body = applyAudienceFilter(content, args.audience ?? 'technical')
     const sections: GenericSection[] = [{ id: 'analysis', label: 'Analysis', content: body }]
     const meta: ReportMeta = {
       generated_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
       report_id: makeReportId(),
-      source: args.file_name,
+      source: fileName,
     }
     return toHtml(args.title ?? 'Report Preview', sections, meta)
+  })
+
+  // preview_generic_report — preview non-crash reports in-app
+  // Accepts both camelCase (sourceType/sourceName) and snake_case.
+  ipc.handle('preview_generic_report', (_e, args: {
+    sourceType?: string; source_type?: string
+    sourceName?: string; source_name?: string
+    format: string
+    audience: string
+    title?: string | null
+    sections: GenericSection[]
+  }): string => {
+    const sourceType = args.sourceType ?? args.source_type ?? ''
+    const sourceName = args.sourceName ?? args.source_name ?? ''
+    const audience = args.audience ?? 'technical'
+    const sections: GenericSection[] = (args.sections ?? []).map(s => ({
+      ...s,
+      content: applyAudienceFilter(s.content, audience),
+    }))
+    const title = args.title ?? `${sourceType} Preview`
+    const meta: ReportMeta = {
+      generated_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      report_id: makeReportId(),
+      source: `${sourceType} (${sourceName})`,
+      source_type: sourceType,
+      source_name: sourceName,
+    }
+    return toHtml(title, sections, meta)
   })
 }

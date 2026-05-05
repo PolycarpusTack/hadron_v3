@@ -1,5 +1,22 @@
 import { IpcMain } from 'electron'
 import log from 'electron-log'
+import { getDb } from '../database'
+import { callAi } from '../services/ai-service'
+import { getSecret } from '../services/safe-storage'
+import { SERVICE_NAME } from '../services/jira-client'
+
+const SENTRY_CRASH_SYSTEM_PROMPT = `You are an expert software engineer specializing in crash log analysis.
+Analyze the provided Sentry issue and return a JSON response with this exact structure:
+{
+  "error_type": "string",
+  "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+  "component": "string",
+  "root_cause": "string",
+  "suggested_fixes": ["fix1", "fix2"],
+  "confidence": "HIGH|MEDIUM|LOW",
+  "stack_trace": "string"
+}
+Return only valid JSON, no markdown fences.`
 
 interface SentryProject {
   id: string
@@ -178,6 +195,97 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
       const message = err instanceof Error ? err.message : String(err)
       log.warn('fetch_sentry_latest_event failed:', message)
       throw new Error(message)
+    }
+  })
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // analyze_sentry_issue — fetch issue then analyze with AI
+  // ──────────────────────────────────────────────────────────────────────────
+  ipcMain.handle('analyze_sentry_issue', async (_e, args: {
+    baseUrl: string
+    authToken: string
+    issueId: string
+    apiKey?: string
+    model?: string
+    provider?: string
+  }) => {
+    const provider = args.provider ?? 'openai'
+    const model = args.model ?? 'gpt-4o'
+    let apiKey = args.apiKey ?? ''
+    if (!apiKey) apiKey = getSecret(SERVICE_NAME, provider) ?? ''
+    if (!apiKey) throw new Error(`No API key configured for provider: ${provider}`)
+
+    const { data: issueData } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(args.issueId)}/`)
+    const issue = issueData as Record<string, unknown>
+
+    let latestEvent: Record<string, unknown> = {}
+    try {
+      const { data } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(args.issueId)}/events/latest/`)
+      latestEvent = data as Record<string, unknown>
+    } catch {
+      // latest event is best-effort
+    }
+
+    const userPrompt = [
+      `Sentry Issue: ${issue.id ?? args.issueId}`,
+      `Title: ${issue.title ?? ''}`,
+      `Level: ${issue.level ?? ''}`,
+      `Culprit: ${issue.culprit ?? ''}`,
+      `Platform: ${issue.platform ?? ''}`,
+      `Count: ${issue.count ?? ''} occurrences`,
+      latestEvent.message ? `Message: ${latestEvent.message}` : '',
+    ].filter(Boolean).join('\n')
+
+    const start = Date.now()
+    const result = await callAi({
+      provider, model, apiKey,
+      systemPrompt: SENTRY_CRASH_SYSTEM_PROMPT,
+      userPrompt: `Analyze this Sentry issue:\n\n${userPrompt}`,
+      maxTokens: 4096,
+    })
+
+    let parsed: Record<string, unknown>
+    try {
+      const jsonStr = result.content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
+      parsed = JSON.parse(jsonStr)
+    } catch {
+      parsed = { error_type: 'Unknown', severity: 'MEDIUM', root_cause: result.content, suggested_fixes: [], confidence: 'LOW', stack_trace: null }
+    }
+
+    const db = getDb()
+    const now = new Date().toISOString()
+    const row = db.prepare(`
+      INSERT INTO analyses (filename, file_size_kb, error_type, error_message, severity, component,
+        stack_trace, root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
+        tokens_used, cost, was_truncated, analysis_duration_ms, full_data, analysis_type, source_type)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      `sentry_${args.issueId}`, 0,
+      (parsed.error_type as string) ?? 'Unknown',
+      null,
+      ((parsed.severity as string) ?? 'MEDIUM').toUpperCase(),
+      (parsed.component as string) ?? null,
+      (parsed.stack_trace as string) ?? null,
+      (parsed.root_cause as string) ?? '',
+      JSON.stringify(parsed.suggested_fixes ?? []),
+      (parsed.confidence as string) ?? 'MEDIUM',
+      now, model, provider,
+      result.inputTokens + result.outputTokens,
+      result.cost, 0,
+      Date.now() - start,
+      JSON.stringify(parsed),
+      'sentry', 'sentry',
+    )
+
+    return {
+      id: Number(row.lastInsertRowid),
+      filename: `sentry_${args.issueId}`,
+      error_type: (parsed.error_type as string) ?? 'Unknown',
+      severity: ((parsed.severity as string) ?? 'medium').toLowerCase() as 'critical' | 'high' | 'medium' | 'low',
+      root_cause: (parsed.root_cause as string) ?? '',
+      suggested_fixes: (parsed.suggested_fixes as string[]) ?? [],
+      analyzed_at: now,
+      cost: result.cost,
     }
   })
 }
