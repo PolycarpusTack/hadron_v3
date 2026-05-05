@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { ExternalLink } from "lucide-react";
 import type { DimensionStatus } from "../../hooks/useReadinessStatus";
 
@@ -6,11 +6,12 @@ interface StatusPopoverProps {
   dimension: DimensionStatus;
   onOpenSettings: (section: string) => void;
   onClose: () => void;
-  anchorRef: React.RefObject<HTMLElement>;
+  anchorRef: RefObject<HTMLElement>;
 }
 
 export default function StatusPopover({ dimension, onOpenSettings, onClose, anchorRef }: StatusPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
+  const needsAction = dimension.state === "warning" || dimension.state === "not-configured";
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -34,14 +35,20 @@ export default function StatusPopover({ dimension, onOpenSettings, onClose, anch
     };
   }, [onClose, anchorRef]);
 
-  const needsAction = dimension.state === "warning" || dimension.state === "not-configured";
+  useEffect(() => {
+    // When there is no actionable button, focus the container so Escape works for keyboard users.
+    if (!needsAction) popoverRef.current?.focus();
+  }, []); // mount only — dimension.state is stable for the popover's open lifetime
 
   return (
     <div
       ref={popoverRef}
+      role="dialog"
+      aria-label={`${dimension.label} status`}
+      tabIndex={needsAction ? undefined : -1}
       className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 w-64 rounded-lg shadow-xl p-3"
       style={{
-        background: "var(--hd-bg-elevated, #0f1929)",
+        background: "var(--hd-bg-raised)",
         border: "1px solid var(--hd-border)",
       }}
     >
@@ -50,6 +57,7 @@ export default function StatusPopover({ dimension, onOpenSettings, onClose, anch
       </p>
       {needsAction && (
         <button
+          autoFocus
           onClick={() => { onOpenSettings(dimension.settingsSection); onClose(); }}
           className="flex items-center gap-1.5 text-xs font-medium"
           style={{ color: "var(--hd-accent)" }}
