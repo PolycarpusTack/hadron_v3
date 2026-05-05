@@ -10,7 +10,6 @@ log.transports.file.level = 'info'
 
 let mainWindow: BrowserWindow | null = null
 
-// TODO Phase 2: wire up floating widget BrowserWindow (widget-main.tsx)
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,

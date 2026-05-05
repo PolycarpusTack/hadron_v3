@@ -16,5 +16,14 @@ export interface Update {
 }
 
 export async function check(): Promise<Update | null> {
-  return window.hadron.invoke('updater:check') as Promise<Update | null>
+  const raw = await window.hadron.invoke('updater:check') as {
+    available: boolean; currentVersion: string; version: string; date?: string; body?: string
+  } | null
+  if (!raw) return null
+  return {
+    ...raw,
+    download: async () => { await window.hadron.invoke('updater:download-and-install') },
+    install: async () => { /* handled by download-and-install combined */ },
+    downloadAndInstall: async () => { await window.hadron.invoke('updater:download-and-install') },
+  }
 }

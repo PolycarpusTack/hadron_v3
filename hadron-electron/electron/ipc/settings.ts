@@ -1,8 +1,10 @@
 import { IpcMain, app, clipboard } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import Store from 'electron-store'
 import log from 'electron-log'
 import fs from 'fs/promises'
 import { getSecret, setSecret, deleteSecret } from '../services/safe-storage'
+import { getDb } from '../database'
 
 const stores = new Map<string, InstanceType<typeof Store>>()
 
@@ -69,5 +71,51 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('fs:writeFileBytes', async (_e, { filePath, bytes }: { filePath: string; bytes: number[] }) => {
     await fs.writeFile(filePath, Buffer.from(bytes))
+  })
+
+  ipcMain.handle('export_diagnostics', () => {
+    const db = getDb()
+    const counts = {
+      analyses: (db.prepare('SELECT COUNT(*) AS c FROM analyses').get() as { c: number }).c,
+      translations: (db.prepare('SELECT COUNT(*) AS c FROM translations').get() as { c: number }).c,
+      chatSessions: (db.prepare('SELECT COUNT(*) AS c FROM chat_sessions').get() as { c: number }).c,
+    }
+    return JSON.stringify({ platform: 'electron', ...counts }, null, 2)
+  })
+
+  ipcMain.handle('updater:check', async () => {
+    try {
+      autoUpdater.autoDownload = false
+      const result = await autoUpdater.checkForUpdates()
+      if (!result) return null
+      const info = result.updateInfo
+      const currentVersion = app.getVersion()
+      const hasUpdate = info.version !== currentVersion
+      if (!hasUpdate) return null
+      return {
+        available: true,
+        currentVersion,
+        version: info.version,
+        date: info.releaseDate ?? null,
+        body: Array.isArray(info.releaseNotes)
+          ? info.releaseNotes.map((n: { note?: string | null } | string) =>
+              typeof n === 'string' ? n : (n.note ?? '')
+            ).join('\n')
+          : (info.releaseNotes as string | null ?? null),
+      }
+    } catch (err) {
+      log.warn('updater:check failed:', err)
+      return null
+    }
+  })
+
+  ipcMain.handle('updater:download-and-install', async () => {
+    try {
+      await autoUpdater.downloadUpdate()
+      autoUpdater.quitAndInstall()
+    } catch (err) {
+      log.warn('updater:download-and-install failed:', err)
+      throw err
+    }
   })
 }
