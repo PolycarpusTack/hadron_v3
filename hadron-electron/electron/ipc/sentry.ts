@@ -4,6 +4,7 @@ import { getDb } from '../database'
 import { callAi } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
 import { SERVICE_NAME } from '../services/jira-client'
+import { aiRateLimiter } from '../services/rate-limiter'
 
 const SENTRY_CRASH_SYSTEM_PROMPT = `You are an expert software engineer specializing in crash log analysis.
 Analyze the provided Sentry issue and return a JSON response with this exact structure:
@@ -209,6 +210,9 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
     model?: string
     provider?: string
   }) => {
+    if (!aiRateLimiter.tryAcquire('ai')) {
+      throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
+    }
     const provider = args.provider ?? 'openai'
     const model = args.model ?? 'gpt-4o'
     let apiKey = args.apiKey ?? ''

@@ -9,6 +9,7 @@ import { SERVICE_NAME } from '../services/jira-client'
 import { getApiKeyFromKeeper } from './keeper'
 import { isSystemPath } from '../services/path-security'
 import { wrapField } from '../services/prompt-helpers'
+import { aiRateLimiter } from '../services/rate-limiter'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const MAX_PROMPT_CHARS = 100_000
 
@@ -62,6 +63,9 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     })
     if (isSystemPath(p.file_path)) {
       throw new Error('Access denied: file path is not allowed')
+    }
+    if (!aiRateLimiter.tryAcquire('ai')) {
+      throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
     }
     try {
       setProgress({ phase: 'reading', progress: 10, message: 'Reading file…', current_step: 1, total_steps: 4 })
@@ -166,6 +170,9 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     keeperSecretUid?: string
     max_tokens?: number
   }) => {
+    if (!aiRateLimiter.tryAcquire('ai')) {
+      throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
+    }
     const systemPrompt = args.system_prompt ?? ''
     const userPrompt = args.user_prompt ?? args.content ?? ''
     if ((systemPrompt.length + userPrompt.length) > MAX_PROMPT_CHARS) {
@@ -190,6 +197,9 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     provider: string
     model: string
   }) => {
+    if (!aiRateLimiter.tryAcquire('ai')) {
+      throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
+    }
     const apiKey = await getKey(args.provider)
     const lang = args.target_language ?? 'English'
     let translated = ''
@@ -355,6 +365,9 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     }
   }) => {
     const p = args.request
+    if (!aiRateLimiter.tryAcquire('ai')) {
+      throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
+    }
     const provider = p.provider ?? 'openai'
     const model = p.model ?? 'gpt-4o'
     let apiKey = p.api_key ?? ''
@@ -455,6 +468,9 @@ Return only valid JSON, no markdown fences.`
     }
   }) => {
     const p = args.request
+    if (!aiRateLimiter.tryAcquire('ai')) {
+      throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
+    }
     const provider = p.provider ?? 'openai'
     const model = p.model ?? 'gpt-4o'
     const apiKey = getKey(provider)
@@ -542,6 +558,9 @@ Return only valid JSON, no markdown fences.`
 
   ipcMain.handle('analyze_performance_trace', async (_e, args: { filePath: string }) => {
     if (isSystemPath(args.filePath)) throw new Error('Access denied: file path is not allowed')
+    if (!aiRateLimiter.tryAcquire('ai')) {
+      throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
+    }
     const stat = await fs.stat(args.filePath)
     if (stat.size > MAX_FILE_BYTES) throw new Error('File too large (max 10 MB)')
     const content = await fs.readFile(args.filePath, 'utf-8')

@@ -6,6 +6,7 @@ import { getSecret } from '../services/safe-storage'
 import { readJiraCreds, readJiraProjectKey, jiraFetch, SERVICE_NAME } from '../services/jira-client'
 import { ftsPhrase } from '../services/db-helpers'
 import { wrapField } from '../services/prompt-helpers'
+import { aiRateLimiter } from '../services/rate-limiter'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // System prompts
@@ -221,6 +222,9 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
     jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string
   }) => {
     try {
+      if (!aiRateLimiter.tryAcquire('ai')) {
+        throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
+      }
       // Accept both direct args and Tauri-style { request } wrapper; accept jira_key or jiraKey
       const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string })
       const jiraKey = p.jira_key ?? p.jiraKey ?? ''
@@ -277,6 +281,9 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
     jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string
   }) => {
     try {
+      if (!aiRateLimiter.tryAcquire('ai')) {
+        throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
+      }
       // Accept both direct args and Tauri-style { request } wrapper; accept jira_key or jiraKey
       const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string })
       const jiraKey = p.jira_key ?? p.jiraKey ?? ''
