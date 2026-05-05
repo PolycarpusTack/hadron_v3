@@ -360,18 +360,49 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
   }))
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 10. find_similar_tickets — embedding similarity not available in Electron;
-  //     returns empty array so the UI gracefully shows no similar tickets.
+  // 10. find_similar_tickets via FTS5 on ticket_briefs_fts
   // ──────────────────────────────────────────────────────────────────────────
-  ipcMain.handle('find_similar_tickets', (_e, _args: {
+  ipcMain.handle('find_similar_tickets', (_e, args: {
     jiraKey: string
     title: string
-    description: string
+    description?: string
     apiKey?: string
     threshold?: number
     limit?: number
   }) => {
-    return []
+    const db = getDb()
+    const limit = args.limit ?? 5
+    const queryText = `${args.title} ${args.description ?? ''}`.replace(/[^\w\s]/g, ' ').trim()
+    if (!queryText) return []
+
+    try {
+      db.exec("INSERT INTO ticket_briefs_fts(ticket_briefs_fts) VALUES('rebuild')")
+    } catch { /* index may not exist yet */ }
+
+    try {
+      const rows = db.prepare(`
+        SELECT tb.jira_key, tb.title, tb.severity, tb.category,
+               (1.0 / (1.0 - ticket_briefs_fts.rank)) AS similarity
+        FROM ticket_briefs_fts
+        JOIN ticket_briefs tb ON ticket_briefs_fts.rowid = tb.rowid
+        WHERE ticket_briefs_fts MATCH ?
+          AND tb.jira_key != ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(queryText.substring(0, 500), args.jiraKey, limit) as Array<{
+        jira_key: string; title: string; similarity: number; severity: string | null; category: string | null
+      }>
+      return rows.map(r => ({
+        jira_key: r.jira_key,
+        title: r.title,
+        similarity: Math.min(r.similarity, 0.99),
+        severity: r.severity,
+        category: r.category,
+      }))
+    } catch (err) {
+      log.warn('find_similar_tickets FTS error:', err)
+      return []
+    }
   })
 
   // ──────────────────────────────────────────────────────────────────────────
