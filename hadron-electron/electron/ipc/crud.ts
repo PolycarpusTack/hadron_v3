@@ -1,12 +1,25 @@
 import { IpcMain } from 'electron'
 import { getDb } from '../database'
 
+// SQLite returns 0/1 for booleans and stores suggested_fixes as a JSON
+// array string. Normalise every raw DB row before sending to the renderer.
+function normalizeAnalysis(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...row,
+    is_favorite: Boolean(row.is_favorite),
+    was_truncated: Boolean(row.was_truncated),
+    // Keep as the original JSON string — AnalysisDetailView handles JSON.parse
+    suggested_fixes: row.suggested_fixes ?? '[]',
+  }
+}
+
 export function registerCrudHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('get_all_analyses', (_e, args?: { limit?: number; offset?: number }) => {
     const db = getDb()
-    return db.prepare(`
+    const rows = db.prepare(`
       SELECT * FROM analyses WHERE deleted_at IS NULL ORDER BY analyzed_at DESC LIMIT ? OFFSET ?
-    `).all(args?.limit ?? 100, args?.offset ?? 0)
+    `).all(args?.limit ?? 100, args?.offset ?? 0) as Record<string, unknown>[]
+    return rows.map(normalizeAnalysis)
   })
 
   ipcMain.handle('get_analyses_paginated', (_e, args: { page: number; page_size: number }) => {
@@ -14,9 +27,9 @@ export function registerCrudHandlers(ipcMain: IpcMain): void {
     const offset = (args.page - 1) * args.page_size
     const rows = db.prepare(`
       SELECT * FROM analyses WHERE deleted_at IS NULL ORDER BY analyzed_at DESC LIMIT ? OFFSET ?
-    `).all(args.page_size, offset)
+    `).all(args.page_size, offset) as Record<string, unknown>[]
     const total = (db.prepare('SELECT COUNT(*) AS c FROM analyses WHERE deleted_at IS NULL').get() as { c: number }).c
-    return { items: rows, total, page: args.page, page_size: args.page_size }
+    return { items: rows.map(normalizeAnalysis), total, page: args.page, page_size: args.page_size }
   })
 
   ipcMain.handle('get_analyses_count', () => {
@@ -25,10 +38,10 @@ export function registerCrudHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('get_analysis_by_id', (_e, args: { id: number }) => {
     const db = getDb()
-    const row = db.prepare('SELECT * FROM analyses WHERE id = ?').get(args.id)
+    const row = db.prepare('SELECT * FROM analyses WHERE id = ?').get(args.id) as Record<string, unknown> | undefined
     if (!row) throw new Error(`Analysis ${args.id} not found`)
     db.prepare(`UPDATE analyses SET view_count = view_count + 1, last_viewed_at = datetime('now') WHERE id = ?`).run(args.id)
-    return row
+    return normalizeAnalysis(row)
   })
 
   ipcMain.handle('delete_analysis', (_e, args: { id: number }) => {
@@ -36,7 +49,8 @@ export function registerCrudHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('export_analysis', (_e, args: { id: number }) => {
-    return getDb().prepare('SELECT * FROM analyses WHERE id = ?').get(args.id)
+    const row = getDb().prepare('SELECT * FROM analyses WHERE id = ?').get(args.id) as Record<string, unknown> | undefined
+    return row ? normalizeAnalysis(row) : undefined
   })
 
   ipcMain.handle('toggle_favorite', (_e, args: { id: number }) => {
@@ -47,14 +61,16 @@ export function registerCrudHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('get_favorites', () => {
-    return getDb().prepare('SELECT * FROM analyses WHERE is_favorite=1 AND deleted_at IS NULL ORDER BY analyzed_at DESC').all()
+    const rows = getDb().prepare('SELECT * FROM analyses WHERE is_favorite=1 AND deleted_at IS NULL ORDER BY analyzed_at DESC').all() as Record<string, unknown>[]
+    return rows.map(normalizeAnalysis)
   })
 
   ipcMain.handle('get_recent', (_e, args?: { limit?: number }) => {
-    return getDb().prepare(`
+    const rows = getDb().prepare(`
       SELECT * FROM analyses WHERE deleted_at IS NULL AND last_viewed_at IS NOT NULL
       ORDER BY last_viewed_at DESC LIMIT ?
-    `).all(args?.limit ?? 20)
+    `).all(args?.limit ?? 20) as Record<string, unknown>[]
+    return rows.map(normalizeAnalysis)
   })
 
   ipcMain.handle('get_database_statistics', () => {
