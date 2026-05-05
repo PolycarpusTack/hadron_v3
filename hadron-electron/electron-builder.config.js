@@ -38,7 +38,6 @@ const config = {
   asar: true,
   asarUnpack: [
     '**/node_modules/better-sqlite3/**',
-    '**/node_modules/keytar/**',
   ],
 }
 
