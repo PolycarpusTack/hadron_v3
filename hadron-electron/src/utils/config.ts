@@ -38,6 +38,10 @@ export const STORAGE_KEYS = {
   SENTRY_PROJECTS_CACHE: "sentry_projects_cache",
   SENTRY_PROJECTS_CACHE_TS: "sentry_projects_cache_ts",
 
+  // Readiness signals (written by integration settings on successful connection test)
+  JIRA_CONNECTION_OK: "jira_connection_ok",
+  SENTRY_CONNECTION_OK: "sentry_connection_ok",
+
   // Feature flags
   FEATURE_CODE_ANALYZER: "feature_code_analyzer",
   FEATURE_PERFORMANCE_ANALYZER: "feature_performance_analyzer",
