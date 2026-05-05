@@ -12,12 +12,66 @@ import { wrapField } from '../services/prompt-helpers'
 import { aiRateLimiter } from '../services/rate-limiter'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const MAX_PROMPT_CHARS = 100_000
+const OPENAI_400K_CRASH_LOG_CHARS = 320_000
+const OPENAI_1M_CRASH_LOG_CHARS = 760_000
+const DEFAULT_CRASH_LOG_CHARS = 140_000
 
 interface ProgressState {
   phase: string; progress: number; message: string; current_step?: number; total_steps?: number
 }
 let analysisProgress: ProgressState = { phase: 'idle', progress: 0, message: '' }
 function setProgress(p: ProgressState) { analysisProgress = p }
+
+function defaultModelForProvider(provider: string): string {
+  if (provider === 'openai') return 'gpt-5.4-mini'
+  if (provider === 'anthropic') return 'claude-sonnet-4-0'
+  if (provider === 'zai') return 'glm-4'
+  return 'default'
+}
+
+function crashLogCharBudget(provider: string, model: string): number {
+  if (provider === 'openai') {
+    if (model === 'gpt-5.4-mini' || model === 'gpt-5.4-nano') return OPENAI_400K_CRASH_LOG_CHARS
+    if (model.startsWith('gpt-5') || model.startsWith('gpt-4.1')) return OPENAI_1M_CRASH_LOG_CHARS
+  }
+  return DEFAULT_CRASH_LOG_CHARS
+}
+
+function compactCrashLog(content: string, budget: number): { content: string; wasTruncated: boolean } {
+  if (content.length <= budget) return { content, wasTruncated: false }
+
+  const markerBudget = 1_000
+  const usableBudget = Math.max(20_000, budget - markerBudget)
+  const headBudget = Math.floor(usableBudget * 0.35)
+  const signalBudget = Math.floor(usableBudget * 0.30)
+  const tailBudget = usableBudget - headBudget - signalBudget
+  const head = content.slice(0, headBudget)
+  const tail = content.slice(-tailBudget)
+
+  const signalPatterns = /(exception|error|fatal|crash|stack|traceback|caused by|segfault|access violation|assert|panic|fail|timeout|oom|out of memory|thread|at\s+\S+\(|^\s*#\d+\s+)/i
+  const signalLines: string[] = []
+  let signalChars = 0
+  for (const line of content.split(/\r?\n/)) {
+    if (!signalPatterns.test(line)) continue
+    const clippedLine = line.length > 1_000 ? `${line.slice(0, 1_000)} ...` : line
+    if (signalChars + clippedLine.length + 1 > signalBudget) break
+    signalLines.push(clippedLine)
+    signalChars += clippedLine.length + 1
+  }
+
+  return {
+    wasTruncated: true,
+    content: [
+      `[Hadron compacted this crash log from ${content.length.toLocaleString()} characters to fit the selected model context window.]`,
+      '[BEGINNING OF LOG]',
+      head,
+      '[ERROR/STACK SIGNAL LINES]',
+      signalLines.length > 0 ? signalLines.join('\n') : '[No distinct error/stack signal lines found.]',
+      '[END OF LOG]',
+      tail,
+    ].join('\n\n'),
+  }
+}
 
 function getKey(provider: string): string {
   const key = getSecret(SERVICE_NAME, provider)
@@ -33,18 +87,100 @@ async function resolveKey(provider: string, keeperSecretUid?: string | null): Pr
 }
 
 
-const CRASH_SYSTEM_PROMPT = `You are an expert software engineer specializing in crash log analysis.
-Analyze the provided crash log and return a JSON response with this exact structure:
+const CRASH_SYSTEM_PROMPT = `You are an expert software engineer specialising in crash log analysis.
+Analyse the provided crash log and return ONLY a JSON object (no markdown fences) with this exact structure.
+All fields are optional where marked — omit or set to null if the information cannot be determined from the log.
+
 {
-  "error_type": "string",
+  "error_type": "Exception class / type",
+  "error_message": "Exact error message string or null",
   "severity": "CRITICAL|HIGH|MEDIUM|LOW",
-  "component": "string",
-  "root_cause": "string",
-  "suggested_fixes": ["fix1", "fix2"],
+  "component": "Affected component or module name",
+  "root_cause": "One-paragraph plain-English explanation (backward-compat field — copy from rootCause.plainEnglish)",
+  "suggested_fixes": ["Brief fix 1", "Brief fix 2"],
   "confidence": "HIGH|MEDIUM|LOW",
-  "stack_trace": "string"
+  "stack_trace": "Raw stack trace string extracted from the log, or null",
+
+  "rootCause": {
+    "technical": "Developer-facing technical explanation — include class/method names, variable states, and the exact failure mode",
+    "plainEnglish": "Support-engineer-facing explanation a non-developer can understand",
+    "affectedMethod": "ClassName >> methodName: (or language-appropriate equivalent)",
+    "affectedModule": "Module or subsystem short name",
+    "triggerCondition": "The specific pre-condition that causes this crash"
+  },
+
+  "stackFrames": [
+    {
+      "id": 1,
+      "color": "red",
+      "method": "Fully.Qualified.ClassName >> methodName",
+      "label": "One-line role description for this frame",
+      "source": "Optional: relevant code snippet if determinable from the log"
+    }
+  ],
+
+  "userScenario": {
+    "steps": [
+      { "step": 1, "action": "What the user did", "isFailure": false },
+      { "step": 2, "action": "Where the system failed", "isFailure": true }
+    ],
+    "expectedResult": "What should have happened",
+    "actualResult": "What actually happened (the crash)"
+  },
+
+  "remediation": {
+    "p0": [{
+      "title": "Immediate fix (deploy today)",
+      "location": "ClassName >> methodName:",
+      "time": "1-2 hours",
+      "risk": "Low",
+      "code": "Corrected code snippet",
+      "before": "Before state (one line)",
+      "after": "After state (one line)"
+    }],
+    "p1": [{ "title": "Short-term hardening", "time": "half day", "description": "Description" }],
+    "p2": [{ "title": "Long-term improvement", "time": "2-3 days", "description": "Description" }]
+  },
+
+  "blastRadius": [
+    { "c": "ComponentName", "s": "vulnerable|safe|unknown" }
+  ],
+
+  "confidenceAssessment": {
+    "confirmed": ["Facts proven directly by the crash log"],
+    "inferred": ["Things likely true based on patterns, not proven"],
+    "unknown": ["Things that cannot be determined from the available data"]
+  },
+
+  "impactAnalysis": {
+    "dataAtRisk": "none | description of data at risk",
+    "directlyAffected": [
+      { "feature": "Feature name", "module": "Module code", "severity": "high|medium|low", "description": "Impact" }
+    ],
+    "potentiallyAffected": [
+      { "feature": "Feature name", "module": "Module code", "severity": "high|medium|low", "description": "Impact" }
+    ]
+  },
+
+  "reproduction": {
+    "steps": ["Step 1", "Step 2"],
+    "expected": "Expected behaviour",
+    "actual": "Actual behaviour — the crash"
+  },
+
+  "environment": {
+    "application": { "version": "x.y.z or null", "build": "build id or null" },
+    "database": { "type": "DB type or null", "connectionInfo": "host:port/db or null" }
+  }
 }
-Return only valid JSON, no markdown fences.`
+
+stackFrames color rules:
+- "red"    — exception origin, crash point, nil/null dereference
+- "blue"   — fix target, guard candidate, where the fix should be applied
+- "orange" — database query, external service call, IO operation
+- "gray"   — framework, infrastructure, event dispatch, boilerplate
+
+Return only the JSON object. No markdown fences, no explanation.`
 
 
 export function registerAiHandlers(ipcMain: IpcMain): void {
@@ -76,19 +212,20 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
       const filename = path.basename(p.file_path)
       const fileSizeKb = content.length / 1024
       const apiKey = p.api_key || await resolveKey(p.provider, p.keeper_secret_uid)
+      let compacted = compactCrashLog(content, crashLogCharBudget(p.provider, p.model))
 
       setProgress({ phase: 'analyzing', progress: 30, message: 'Sending to AI…', current_step: 2, total_steps: 4 })
       let resultText = ''
       let tokenCount = 0
       const win = BrowserWindow.fromWebContents(event.sender)
 
-      const result = await callAi({
+      const analyzeCompactedContent = () => callAi({
         provider: p.provider,
         model: p.model,
         apiKey,
         systemPrompt: CRASH_SYSTEM_PROMPT,
-        userPrompt: `Analyze this crash log:\n\n${wrapField('FILENAME', filename)}\n\n${wrapField('CRASH_LOG', content)}`,
-        maxTokens: 4096,
+        userPrompt: `Analyze this crash log:\n\n${wrapField('FILENAME', filename)}\n\n${wrapField('CRASH_LOG', compacted.content)}`,
+        maxTokens: 8192,
         stream: true,
         onChunk: (chunk) => {
           resultText += chunk
@@ -98,6 +235,22 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
           win?.webContents.send('stream:chunk', chunk)
         },
       })
+
+      let result
+      try {
+        result = await analyzeCompactedContent()
+      } catch (err) {
+        const message = (err as Error).message
+        if (!/context_length_exceeded|exceeds the context window|input exceeds/i.test(message)) throw err
+
+        setProgress({ phase: 'analyzing', progress: 35, message: 'Compacting large log…', current_step: 2, total_steps: 4 })
+        compacted = compactCrashLog(content, Math.floor(crashLogCharBudget(p.provider, p.model) / 2))
+        resultText = ''
+        tokenCount = 0
+        result = await analyzeCompactedContent()
+      }
+
+      if (!resultText) resultText = result.content
 
       setProgress({ phase: 'saving', progress: 90, message: 'Saving result…', current_step: 3, total_steps: 4 })
       let parsed: Record<string, unknown>
@@ -125,7 +278,7 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
       `).run(
         filename, fileSizeKb,
         (parsed.error_type as string) ?? 'Unknown',
-        null,
+        (parsed.error_message as string) ?? null,
         ((parsed.severity as string) ?? 'MEDIUM').toUpperCase(),
         (parsed.component as string) ?? null,
         (parsed.stack_trace as string) ?? null,
@@ -135,7 +288,7 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
         now,
         p.model, p.provider,
         result.inputTokens + result.outputTokens,
-        result.cost, 0,
+        result.cost, compacted.wasTruncated ? 1 : 0,
         Date.now() - start,
         JSON.stringify(parsed),
         p.analysis_type ?? 'comprehensive',
@@ -295,12 +448,14 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     try {
       const key = args.apiKey || await resolveKey(args.provider, args.keeperSecretUid)
       await callAi({
-        provider: args.provider, model: args.model ?? 'gpt-4o-mini', apiKey: key,
+        provider: args.provider,
+        model: args.model ?? defaultModelForProvider(args.provider),
+        apiKey: key,
         systemPrompt: 'You are a test.', userPrompt: 'Reply with "ok"', maxTokens: 10,
       })
-      return { success: true }
+      return { success: true, message: 'Connection successful' }
     } catch (err) {
-      return { success: false, error: (err as Error).message }
+      return { success: false, message: (err as Error).message }
     }
   })
 
