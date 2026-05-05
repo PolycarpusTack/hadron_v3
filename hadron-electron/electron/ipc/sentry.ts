@@ -5,6 +5,7 @@ import { callAi } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
 import { SERVICE_NAME } from '../services/jira-client'
 import { aiRateLimiter } from '../services/rate-limiter'
+import { wrapField } from '../services/prompt-helpers'
 
 const SENTRY_CRASH_SYSTEM_PROMPT = `You are an expert software engineer specializing in crash log analysis.
 Analyze the provided Sentry issue and return a JSON response with this exact structure:
@@ -232,12 +233,12 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
 
     const userPrompt = [
       `Sentry Issue: ${issue.id ?? args.issueId}`,
-      `Title: ${issue.title ?? ''}`,
+      wrapField('TITLE', issue.title ?? ''),
       `Level: ${issue.level ?? ''}`,
-      `Culprit: ${issue.culprit ?? ''}`,
+      wrapField('CULPRIT', issue.culprit ?? ''),
       `Platform: ${issue.platform ?? ''}`,
       `Count: ${issue.count ?? ''} occurrences`,
-      latestEvent.message ? `Message: ${latestEvent.message}` : '',
+      latestEvent.message ? wrapField('MESSAGE', latestEvent.message) : '',
     ].filter(Boolean).join('\n')
 
     const start = Date.now()

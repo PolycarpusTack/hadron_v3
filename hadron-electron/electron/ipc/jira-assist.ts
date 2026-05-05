@@ -138,6 +138,10 @@ async function runPollerCycle(): Promise<void> {
       const provider = getSecret(SERVICE_NAME, 'openai') ? 'openai' : 'anthropic'
       const model = provider === 'openai' ? 'gpt-4o-mini' : 'claude-haiku-4-5-20251001'
 
+      // Rate limiter is intentionally not applied here — the poller runs on a
+      // server-side timer, not from a renderer IPC call, so it cannot be
+      // triggered by a compromised renderer. Applying it would also block
+      // legitimate user-triggered calls while a poller batch is in flight.
       const triageResult = await callAi({
         provider, model, apiKey,
         systemPrompt: TRIAGE_SYSTEM_PROMPT,
