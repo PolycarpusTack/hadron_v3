@@ -12,14 +12,40 @@ log.transports.file.level = 'info'
 
 let mainWindow: BrowserWindow | null = null
 
-function createWindow(): void {
+/** Resolve a file inside the resources directory in both dev and production. */
+function resourcePath(...segments: string[]): string {
+  const base = app.isPackaged
+    ? process.resourcesPath
+    : path.join(__dirname, '..', '..', 'resources')
+  return path.join(base, ...segments)
+}
+
+function createSplashWindow(): BrowserWindow {
+  const splash = new BrowserWindow({
+    width: 520,
+    height: 340,
+    frame: false,
+    transparent: false,
+    resizable: false,
+    center: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    icon: resourcePath('icon.ico'),
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  })
+  splash.loadFile(resourcePath('splash.html'))
+  return splash
+}
+
+function createWindow(splash: BrowserWindow | null): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 600,
     title: 'Hadron',
-    icon: path.join(__dirname, '../../resources/icon.ico'),
+    icon: resourcePath('icon.ico'),
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.cjs'),
       contextIsolation: true,
@@ -28,7 +54,10 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  mainWindow.once('ready-to-show', () => {
+    if (splash && !splash.isDestroyed()) splash.destroy()
+    mainWindow?.show()
+  })
 
   // SECURITY: only forward https:// URLs to the OS. We re-parse via the URL
   // constructor and re-check the protocol so that crafted strings such as
@@ -67,10 +96,14 @@ app.whenReady().then(() => {
   preloadSavedExportDir()
   initDatabase()
   registerAllHandlers(ipcMain)
-  createWindow()
+
+  const splash = createSplashWindow()
+  createWindow(splash)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow(null)
+    }
   })
 })
 
