@@ -88,99 +88,86 @@ async function resolveKey(provider: string, keeperSecretUid?: string | null): Pr
 
 
 const CRASH_SYSTEM_PROMPT = `You are an expert software engineer specialising in crash log analysis.
-Analyse the provided crash log and return ONLY a JSON object (no markdown fences) with this exact structure.
-All fields are optional where marked — omit or set to null if the information cannot be determined from the log.
+Analyse the provided crash log and return ONLY a valid JSON object — no markdown fences, no explanation.
 
-{
-  "error_type": "Exception class / type",
-  "error_message": "Exact error message string or null",
-  "severity": "CRITICAL|HIGH|MEDIUM|LOW",
-  "component": "Affected component or module name",
-  "root_cause": "One-paragraph plain-English explanation (backward-compat field — copy from rootCause.plainEnglish)",
-  "suggested_fixes": ["Brief fix 1", "Brief fix 2"],
-  "confidence": "HIGH|MEDIUM|LOW",
-  "stack_trace": "Raw stack trace string extracted from the log, or null",
+The JSON must contain ALL of the following fields.
+If a value cannot be determined from the log, use reasonable defaults (empty string, empty array, "unknown", "none", etc.).
 
-  "rootCause": {
-    "technical": "Developer-facing technical explanation — include class/method names, variable states, and the exact failure mode",
-    "plainEnglish": "Support-engineer-facing explanation a non-developer can understand",
-    "affectedMethod": "ClassName >> methodName: (or language-appropriate equivalent)",
-    "affectedModule": "Module or subsystem short name",
-    "triggerCondition": "The specific pre-condition that causes this crash"
-  },
+=== FLAT FIELDS (required for database storage) ===
+"error_type"     — exception class / error type string
+"error_message"  — exact error message, or null
+"severity"       — "CRITICAL", "HIGH", "MEDIUM", or "LOW"
+"component"      — primary affected class, module, or component name
+"root_cause"     — one-paragraph plain-English explanation (copy from rootCause.plainEnglish below)
+"suggested_fixes"— array of 2–4 brief fix strings
+"confidence"     — "HIGH", "MEDIUM", or "LOW"
+"stack_trace"    — raw stack trace extracted from the log, or null
 
-  "stackFrames": [
-    {
-      "id": 1,
-      "color": "red",
-      "method": "Fully.Qualified.ClassName >> methodName",
-      "label": "One-line role description for this frame",
-      "source": "Optional: relevant code snippet if determinable from the log"
-    }
-  ],
+=== STRUCTURED ANALYSIS ===
 
-  "userScenario": {
-    "steps": [
-      { "step": 1, "action": "What the user did", "isFailure": false },
-      { "step": 2, "action": "Where the system failed", "isFailure": true }
-    ],
-    "expectedResult": "What should have happened",
-    "actualResult": "What actually happened (the crash)"
-  },
-
-  "remediation": {
-    "p0": [{
-      "title": "Immediate fix (deploy today)",
-      "location": "ClassName >> methodName:",
-      "time": "1-2 hours",
-      "risk": "Low",
-      "code": "Corrected code snippet",
-      "before": "Before state (one line)",
-      "after": "After state (one line)"
-    }],
-    "p1": [{ "title": "Short-term hardening", "time": "half day", "description": "Description" }],
-    "p2": [{ "title": "Long-term improvement", "time": "2-3 days", "description": "Description" }]
-  },
-
-  "blastRadius": [
-    { "c": "ComponentName", "s": "vulnerable|safe|unknown" }
-  ],
-
-  "confidenceAssessment": {
-    "confirmed": ["Facts proven directly by the crash log"],
-    "inferred": ["Things likely true based on patterns, not proven"],
-    "unknown": ["Things that cannot be determined from the available data"]
-  },
-
-  "impactAnalysis": {
-    "dataAtRisk": "none | description of data at risk",
-    "directlyAffected": [
-      { "feature": "Feature name", "module": "Module code", "severity": "high|medium|low", "description": "Impact" }
-    ],
-    "potentiallyAffected": [
-      { "feature": "Feature name", "module": "Module code", "severity": "high|medium|low", "description": "Impact" }
-    ]
-  },
-
-  "reproduction": {
-    "steps": ["Step 1", "Step 2"],
-    "expected": "Expected behaviour",
-    "actual": "Actual behaviour — the crash"
-  },
-
-  "environment": {
-    "application": { "version": "x.y.z or null", "build": "build id or null" },
-    "database": { "type": "DB type or null", "connectionInfo": "host:port/db or null" }
-  }
+"summary": {
+  "title": "Concise crash title (≤12 words)",
+  "severity": "critical|high|medium|low",
+  "category": "scheduling|playout|database|memory|integration|ui|rights|timing|other",
+  "confidence": "high|medium|low",
+  "affectedWorkflow": "The user workflow that triggered the crash"
 }
 
-stackFrames color rules:
-- "red"    — exception origin, crash point, nil/null dereference
-- "blue"   — fix target, guard candidate, where the fix should be applied
-- "orange" — database query, external service call, IO operation
-- "gray"   — framework, infrastructure, event dispatch, boilerplate
+"rootCause": {
+  "technical": "Developer-facing explanation — include class/method names, variable states, exact failure mode",
+  "plainEnglish": "Support-engineer-facing explanation a non-developer can understand",
+  "affectedMethod": "ClassName >> methodName: (or language-appropriate equivalent)",
+  "affectedModule": "Module / subsystem short name or abbreviation",
+  "triggerCondition": "The specific pre-condition that triggers this crash"
+}
 
-Return only the JSON object. No markdown fences, no explanation.`
+"userScenario": {
+  "description": "Brief description of what the user was doing",
+  "workflow": "Workflow name (e.g. 'Programme Planning')",
+  "steps": [
+    { "step": 1, "action": "What the user did", "isCrashPoint": false },
+    { "step": 2, "action": "Where the system crashed", "isCrashPoint": true }
+  ],
+  "expectedResult": "What should have happened",
+  "actualResult": "What actually happened — the crash",
+  "reproductionLikelihood": "always|often|sometimes|rarely|unknown"
+}
+
+"suggestedFix": {
+  "summary": "Brief description of the primary fix",
+  "reasoning": "Why this fix addresses the root cause",
+  "codeChanges": [
+    {
+      "file": "ClassName or filename",
+      "description": "What to change",
+      "before": "Code or state before the fix (optional)",
+      "after": "Code or state after the fix (optional)",
+      "priority": "P0"
+    }
+  ],
+  "complexity": "simple|moderate|complex",
+  "estimatedEffort": "hours|days|weeks",
+  "riskLevel": "low|medium|high"
+}
+
+"systemWarnings": []
+
+"impactAnalysis": {
+  "dataAtRisk": "none|low|moderate|high|critical",
+  "directlyAffected": [
+    { "feature": "Feature name", "module": "Module", "description": "Impact", "severity": "high|medium|low" }
+  ],
+  "potentiallyAffected": []
+}
+
+"testScenarios": []
+
+"environment": {
+  "application": { "version": null, "build": null },
+  "database": { "type": null, "connectionInfo": null }
+}
+
+Return only the JSON object. No markdown fences.`
 
 
 export function registerAiHandlers(ipcMain: IpcMain): void {
