@@ -1,24 +1,6 @@
 import { IpcMain } from 'electron'
-import Store from 'electron-store'
 import log from 'electron-log'
-
-const settingsStore = new Store({ name: 'settings' })
-
-function readJiraCreds(): { baseUrl: string; email: string; apiToken: string } {
-  const baseUrl = settingsStore.get('jira_base_url', '') as string
-  const email = settingsStore.get('jira_email', '') as string
-  const apiToken = settingsStore.get('jira_api_key', '') as string
-  if (!baseUrl || !email || !apiToken) throw new Error('JIRA not configured')
-  // https-only validation
-  try {
-    const parsed = new URL(baseUrl)
-    if (parsed.protocol !== 'https:') throw new Error('JIRA base URL must use https://')
-  } catch (e) {
-    if ((e as Error).message.includes('Invalid URL')) throw new Error('JIRA base URL is not a valid URL')
-    throw e
-  }
-  return { baseUrl, email, apiToken }
-}
+import { readJiraCreds, readConfluenceCreds } from '../services/jira-client'
 
 async function fetchJiraTicket(baseUrl: string, email: string, apiToken: string, key: string): Promise<unknown> {
   const { default: fetch } = await import('node-fetch')
@@ -42,29 +24,32 @@ function extractText(doc: unknown): string {
   return ''
 }
 
-function buildDossier(key: string, issue: Record<string, unknown>, investigationType: string) {
+function buildDossier(key: string, issue: Record<string, unknown>, baseUrl: string, investigationType: string) {
   const fields = (issue.fields ?? {}) as Record<string, unknown>
   const comments = (fields.comment as { comments?: unknown[] })?.comments ?? []
   return {
     ticket_key: key,
-    investigation_type: investigationType,
-    summary: (fields.summary as string) ?? key,
-    description: extractText(fields.description),
+    ticket_summary: (fields.summary as string) ?? key,
+    ticket_url: `${baseUrl.replace(/\/$/, '')}/browse/${key}`,
     status: (fields.status as { name?: string })?.name ?? 'Unknown',
-    priority: (fields.priority as { name?: string })?.name ?? 'Unknown',
     assignee: (fields.assignee as { displayName?: string })?.displayName ?? null,
-    comments: comments.map((c: unknown) => {
-      const comment = c as { author?: { displayName?: string }; body?: unknown; created?: string }
+    claims: comments.slice(0, 5).map((c: unknown) => {
+      const comment = c as { author?: { displayName?: string }; body?: unknown }
       return {
-        author: comment.author?.displayName ?? 'Unknown',
-        body: extractText(comment.body),
-        created: comment.created ?? '',
+        text: extractText(comment.body),
+        category: 'issue_comment' as const,
+        entities: comment.author?.displayName ? [comment.author.displayName] : [],
       }
     }),
-    jira_links: [],
-    confluence_pages: [],
-    related_tickets: [],
-    note: 'Investigation via Electron uses direct JIRA data only. Confluence + deep analysis available in Tauri build.',
+    related_issues: [],
+    confluence_docs: [],
+    hypotheses: [],
+    open_questions: [],
+    next_checks: [],
+    attachments: [],
+    warnings: [],
+    investigation_type: investigationType as 'ticket' | 'regression_family' | 'expected_behavior' | 'customer_history',
+    investigation_status: 'partial_failure' as const,
   }
 }
 
@@ -72,19 +57,19 @@ export function registerInvestigationHandlers(ipcMain: IpcMain): void {
   const handlers: Array<[string, string]> = [
     ['investigate_jira_ticket', 'ticket'],
     ['investigate_jira_regression_family', 'regression_family'],
-    ['investigate_expected_behavior', 'expected_behavior'],
-    ['investigate_customer_history', 'customer_history'],
+    ['investigate_jira_expected_behavior', 'expected_behavior'],
+    ['investigate_jira_customer_history', 'customer_history'],
   ]
 
   for (const [channel, investigationType] of handlers) {
-    ipcMain.handle(channel, async (_e, args: { key: string }) => {
+    ipcMain.handle(channel, async (_e, args: { key: string; query?: string }) => {
       try {
         const { baseUrl, email, apiToken } = readJiraCreds()
         const issue = await fetchJiraTicket(baseUrl, email, apiToken, args.key)
         if (typeof issue !== 'object' || issue === null) {
           throw new Error(`Unexpected response format from JIRA for ticket ${args.key}`)
         }
-        return buildDossier(args.key, issue as Record<string, unknown>, investigationType)
+        return buildDossier(args.key, issue as Record<string, unknown>, baseUrl, investigationType)
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err)
         log.warn(`${channel} failed:`, message)
@@ -93,14 +78,87 @@ export function registerInvestigationHandlers(ipcMain: IpcMain): void {
     })
   }
 
-  // Confluence stubs — not available in Electron
-  ipcMain.handle('search_confluence', () => ({
-    results: [],
-    note: 'Confluence search not available in Electron build',
-  }))
+  ipcMain.handle('search_confluence_docs', async (_e, args: {
+    query: string
+    spaceKey?: string | null
+    limit?: number | null
+  }) => {
+    let creds: { baseUrl: string; email: string; apiToken: string }
+    try { creds = readConfluenceCreds() } catch { return [] }
 
-  ipcMain.handle('get_confluence_content', () => ({
-    content: null,
-    note: 'Confluence content not available in Electron build',
-  }))
+    const { default: fetch } = await import('node-fetch')
+    const auth = Buffer.from(`${creds.email}:${creds.apiToken}`).toString('base64')
+    const limit = args.limit ?? 10
+
+    const safeQuery = args.query.replace(/"/g, '\\"').substring(0, 200)
+    const cql = args.spaceKey
+      ? `space = "${args.spaceKey.replace(/"/g, '\\"')}" AND text ~ "${safeQuery}"`
+      : `text ~ "${safeQuery}"`
+
+    const url = `${creds.baseUrl.replace(/\/$/, '')}/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=${limit}&expand=excerpt`
+
+    try {
+      const res = await fetch(url, { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } })
+      if (!res.ok) {
+        log.warn(`search_confluence_docs: ${res.status}`)
+        return []
+      }
+      const data = await res.json() as {
+        results?: Array<{
+          id: string; title: string; excerpt?: string; _links?: { webui?: string }
+          space?: { key?: string }
+        }>
+      }
+      return (data.results ?? []).map(r => ({
+        id: r.id,
+        title: r.title,
+        excerpt: r.excerpt ?? '',
+        url: r._links?.webui
+          ? `${creds.baseUrl.replace(/\/$/, '')}/wiki${r._links.webui}`
+          : `${creds.baseUrl.replace(/\/$/, '')}/wiki/spaces/${r.space?.key ?? ''}/pages/${r.id}`,
+        space_key: r.space?.key ?? null,
+      }))
+    } catch (err) {
+      log.warn('search_confluence_docs error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle('get_confluence_page', async (_e, args: { contentId: string }) => {
+    if (!args.contentId || !/^\d{1,19}$/.test(args.contentId)) {
+      throw new Error('Invalid Confluence content ID')
+    }
+
+    let creds: { baseUrl: string; email: string; apiToken: string }
+    try { creds = readConfluenceCreds() } catch (e) { throw e }
+
+    const { default: fetch } = await import('node-fetch')
+    const auth = Buffer.from(`${creds.email}:${creds.apiToken}`).toString('base64')
+    const url = `${creds.baseUrl.replace(/\/$/, '')}/wiki/rest/api/content/${args.contentId}?expand=body.view,space`
+
+    const res = await fetch(url, { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Confluence error ${res.status}: ${body.substring(0, 200)}`)
+    }
+    const data = await res.json() as {
+      id: string; title: string
+      body?: { view?: { value?: string } }
+      _links?: { webui?: string }
+      space?: { key?: string }
+    }
+
+    const rawHtml = data.body?.view?.value ?? ''
+    const excerpt = rawHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 1000)
+
+    return {
+      id: data.id,
+      title: data.title,
+      excerpt,
+      url: data._links?.webui
+        ? `${creds.baseUrl.replace(/\/$/, '')}/wiki${data._links.webui}`
+        : `${creds.baseUrl.replace(/\/$/, '')}/wiki/pages/${data.id}`,
+      space_key: data.space?.key ?? null,
+    }
+  })
 }

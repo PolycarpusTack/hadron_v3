@@ -27,6 +27,21 @@ export function readJiraProjectKey(): string {
   return (settingsStore.get('jira_project_key', '') as string) || ''
 }
 
+export function readConfluenceCreds(): { baseUrl: string; email: string; apiToken: string } {
+  const overrideUrl = settingsStore.get('confluence.overrideUrl', '') as string
+  const overrideEmail = settingsStore.get('confluence.overrideEmail', '') as string
+  const jiraCreds = (() => { try { return readJiraCreds() } catch { return null } })()
+
+  const baseUrl = overrideUrl || (jiraCreds?.baseUrl ?? '')
+  const email = overrideEmail || (jiraCreds?.email ?? '')
+  const apiToken = getSecret(SERVICE_NAME, 'confluence') ?? jiraCreds?.apiToken ?? ''
+
+  if (!baseUrl || !email || !apiToken) {
+    throw new Error('Confluence not configured. Set Confluence credentials in JIRA Settings.')
+  }
+  return { baseUrl, email, apiToken }
+}
+
 export async function jiraFetch(
   baseUrl: string,
   email: string,
