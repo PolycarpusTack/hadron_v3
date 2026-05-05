@@ -6,9 +6,10 @@ import { checkForUpdates } from "../services/updater";
 import { isJiraEnabled } from "../services/jira";
 import { isSentryEnabled } from "../services/sentry";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI, autoTagAnalyses } from "../services/api";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { getKeeperConfig, getKeeperSecretForProvider, type KeeperConfig } from "../services/keeper";
-import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
+import { getCodexMgXConfig, saveCodexMgXConfig } from "../services/codexmgx";
+import { open as tauriOpen } from "../lib/tauri-dialog-shim";
 import logger from '../services/logger';
 import { AI_PROVIDERS, getDefaultModelForProvider, getCuratedModelsForProvider, MODEL_CACHE_TTL_MS } from '../constants/providers';
 import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey } from '../utils/config';
@@ -52,7 +53,16 @@ interface ModelOption {
   label: string;
   context?: number;
   category?: string;
+  maxOutputTokens?: number;
+  preferredEndpoint?: "responses" | "chat_completions";
+  suitableForHadron?: boolean;
 }
+
+const OPENAI_LARGE_FILE_UNSUITABLE_DEFAULTS = new Set([
+  "gpt-4o",
+  "gpt-4o-mini",
+  "gpt-4-turbo",
+]);
 
 // AI_PROVIDERS imported from constants/providers.ts
 
@@ -100,6 +110,10 @@ export default function SettingsPanel({
   // (parallel=1 instead of 2), and widens progress debounce 150ms → 1s.
   const [stabilityMode, setStabilityMode] = useState<boolean>(false);
   const [stabilityMsg, setStabilityMsg] = useState<string | null>(null);
+  const [codexMgxConfig, setCodexMgxConfig] = useState<{ scriptPath: string; enabled: boolean }>({
+    scriptPath: 'C:\\whatsOn\\CodexMgX plugin\\plugins\\codexmgx-plugin\\scripts\\start-codexmgx-mcp.ps1',
+    enabled: false,
+  });
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
@@ -223,6 +237,7 @@ export default function SettingsPanel({
     if (isOpen) {
       isJiraEnabled().then(setJiraConnected).catch(() => setJiraConnected(false));
       isSentryEnabled().then(setSentryConnected).catch(() => setSentryConnected(false));
+      getCodexMgXConfig().then(setCodexMgxConfig).catch(() => {});
     }
   }, [isOpen]);
 
@@ -258,7 +273,10 @@ export default function SettingsPanel({
     const anthropicKey = await getApiKey("anthropic") || "";
     const zaiKey = await getApiKey("zai") || "";
 
-    const model = localStorage.getItem(STORAGE_KEYS.AI_MODEL) || getDefaultModelForProvider(provider);
+    const savedModel = localStorage.getItem(STORAGE_KEYS.AI_MODEL) || "";
+    const model = provider === "openai" && OPENAI_LARGE_FILE_UNSUITABLE_DEFAULTS.has(savedModel)
+      ? getDefaultModelForProvider(provider)
+      : savedModel || getDefaultModelForProvider(provider);
     const customModel = localStorage.getItem(STORAGE_KEYS.AI_CUSTOM_MODEL) || "";
     const auxiliaryModel = localStorage.getItem(STORAGE_KEYS.AI_AUXILIARY_MODEL) || "";
     const piiRedactionEnabled = localStorage.getItem(STORAGE_KEYS.PII_REDACTION_ENABLED) === "true";
@@ -403,16 +421,16 @@ export default function SettingsPanel({
       // Save default analysis mode
       localStorage.setItem(STORAGE_KEYS.ANALYSIS_DEFAULT_TYPE, defaultAnalysisMode);
 
-      // Save ALL API keys to encrypted storage
-      if (settings.apiKeys.openai) {
-        await storeApiKey("openai", settings.apiKeys.openai);
+      // Save ALL API keys to encrypted storage (delete if cleared)
+      for (const [provider, key] of Object.entries(settings.apiKeys) as [string, string][]) {
+        if (key) {
+          await storeApiKey(provider, key);
+        } else {
+          await deleteApiKey(provider);
+        }
       }
-      if (settings.apiKeys.anthropic) {
-        await storeApiKey("anthropic", settings.apiKeys.anthropic);
-      }
-      if (settings.apiKeys.zai) {
-        await storeApiKey("zai", settings.apiKeys.zai);
-      }
+
+      await saveCodexMgXConfig(codexMgxConfig);
 
       setSaveMessage("Settings saved successfully!");
       safeTimeout(() => {
@@ -495,7 +513,11 @@ export default function SettingsPanel({
         [settings.provider]: models as ModelOption[]
       }));
 
-      setModelsMessage(`Loaded ${models.length} models`);
+      setModelsMessage(
+        settings.provider === "openai"
+          ? `Loaded ${models.length} Hadron-suitable models`
+          : `Loaded ${models.length} models`
+      );
     } catch (error) {
       setConnectionTestResult(`Failed to fetch models: ${error}`);
     } finally {
@@ -558,9 +580,12 @@ export default function SettingsPanel({
 
   // Ensure the currently saved model always appears in the dropdown
   const savedModelInList = rawModels.some((m) => m.id === settings.model);
+  const savedModelLabel = settings.provider === "openai"
+    ? `${settings.model} (Saved; may not handle large files)`
+    : settings.model;
   const currentModels = savedModelInList || settings.model === "custom"
     ? rawModels
-    : [{ id: settings.model, label: settings.model, context: undefined, category: "saved" }, ...rawModels];
+    : [{ id: settings.model, label: savedModelLabel, context: undefined, category: "saved" }, ...rawModels];
 
   const filterLower = modelFilter.toLowerCase();
   const filteredModels = filterLower
@@ -570,7 +595,9 @@ export default function SettingsPanel({
         // "128k", "200k" etc — match on context size
         if (m.context) {
           const ctxLabel = `${Math.round(m.context / 1000)}k`;
+          const ctxMillionLabel = m.context >= 1000000 ? `${Math.round(m.context / 1000000)}m` : "";
           if (ctxLabel.includes(filterLower)) return true;
+          if (ctxMillionLabel.includes(filterLower)) return true;
         }
         return false;
       })
@@ -853,6 +880,43 @@ export default function SettingsPanel({
               }>
                 <OpenSearchSettings onConfigChange={onSettingsChange} />
               </Suspense>
+
+              {/* CodexMgX MCP Integration */}
+              <div className="hd-panel-soft p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-sm font-semibold" style={{ color: 'var(--hd-text)' }}>CodexMgX Integration</h3>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--hd-text-dim)' }}>
+                      Deep JIRA investigation, Confluence, MOD docs, and KB via MCP server
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={codexMgxConfig.enabled}
+                      onChange={(e) => setCodexMgxConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600" />
+                  </label>
+                </div>
+                {codexMgxConfig.enabled && (
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'var(--hd-text-dim)' }}>MCP Server Script Path</label>
+                    <input
+                      type="text"
+                      value={codexMgxConfig.scriptPath}
+                      onChange={(e) => setCodexMgxConfig(prev => ({ ...prev, scriptPath: e.target.value }))}
+                      placeholder="C:\whatsOn\CodexMgX plugin\plugins\..."
+                      className="w-full text-xs rounded-md px-3 py-2 placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
+                      style={{ background: 'var(--hd-bg)', border: '1px solid var(--hd-border)', color: 'var(--hd-text)' }}
+                    />
+                    <p className="text-xs mt-1" style={{ color: 'var(--hd-text-muted)' }}>
+                      Default: <code style={{ color: 'var(--hd-text-dim)' }}>C:\whatsOn\CodexMgX plugin\...</code>
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -968,7 +1032,7 @@ export default function SettingsPanel({
                       type="text"
                       value={modelFilter}
                       onChange={(e) => setModelFilter(e.target.value)}
-                      placeholder={`Filter ${currentModels.length} models… (e.g. "4o", "128k", "o3")`}
+                      placeholder={`Filter ${currentModels.length} models… (e.g. "gpt-5", "400k", "1m")`}
                       className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 text-sm placeholder-gray-500"
                     />
                     <select
