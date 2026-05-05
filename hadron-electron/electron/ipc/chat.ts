@@ -1,15 +1,28 @@
 import { IpcMain } from 'electron'
 import log from 'electron-log'
 import { getDb } from '../database'
-import { callAi } from '../services/ai-service'
+import { callAiWithTools, callAiStreaming, buildToolResultMessages } from '../services/ai-service'
+import type { ToolCall, ToolResult } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
 import { SERVICE_NAME } from '../services/jira-client'
 import { getApiKeyFromKeeper } from './keeper'
 import { ftsPhrase } from '../services/db-helpers'
+import { getToolDefinitions, executeTool } from '../services/chat-tools'
+import type { ToolContext } from '../services/chat-tools'
+import { tryMcpCallTool } from '../services/mcp-client'
+import Store from 'electron-store'
+
+const settingsStore = new Store({ name: 'settings' })
 
 // Timestamp format: INTEGER columns (chat_sessions.created_at/updated_at, chat_messages.timestamp)
 // use Date.now() (Unix milliseconds); TEXT columns (chat_feedback.created_at) use ISO strings
 // to match SQLite DEFAULT (datetime('now')). This is intentional and schema-dependent.
+
+const MAX_AGENT_ITERATIONS = 5
+
+// ── Per-request stream state ─────────────────────────────────────────────────
+// Each chat_send creates a fresh state object and stores it here.
+// poll_chat_stream drains from it. No singleton mutation race.
 
 interface StreamState {
   pendingText: string
@@ -18,15 +31,38 @@ interface StreamState {
   events: Array<{ kind: string; [k: string]: unknown }>
 }
 
-const streamState: StreamState = { pendingText: '', done: false, error: null, events: [] }
-let streamActive = false
+let activeStream: StreamState | null = null
 
-function streamReset(): void {
-  streamState.pendingText = ''
-  streamState.done = false
-  streamState.error = null
-  streamState.events = []
+function streamReset(): StreamState {
+  const s: StreamState = { pendingText: '', done: false, error: null, events: [] }
+  activeStream = s
+  return s
 }
+
+// ── System Prompt ────────────────────────────────────────────────────────────
+
+const CHAT_SYSTEM_PROMPT_BASE = `You are Ask Hadron, an expert regarding the Mediagenix WHATS'ON broadcast management software, its customer-agnostic general BASE implementation, as well as specific customer implementation customizations. You help users understand crashes, debug issues, navigate documentation, and leverage historical analyses.
+
+## Your Tools
+You have tools to search and retrieve information from Hadron's databases. USE YOUR TOOLS proactively — do not guess or make up information.
+
+Tool usage strategy:
+- For documentation/feature questions: use \`search_kb\` if KB is available, otherwise \`search_gold_answers\` first
+- For questions about specific crashes or errors: use \`search_analyses\` first, then \`get_analysis_detail\` for specifics
+- For "how many" / trend / pattern questions: use \`get_trend_data\`, \`get_error_patterns\`, or \`get_statistics\`
+- For signature/recurring crash questions: use \`get_top_signatures\` or \`get_crash_signature\`
+- For cross-referencing crashes with JIRA: use \`correlate_crash_to_jira\`
+- For JIRA investigations: use \`investigate_jira_ticket\` when the user gives you a ticket key
+- For regression patterns: use \`investigate_regression_family\`
+- For component health assessment: use \`get_component_health\`
+- Always cite your sources (analysis IDs, KB doc titles/URLs, JIRA keys)
+
+## Response Formatting
+- Be concise but thorough. Default to 2-3 paragraphs unless asked for more detail.
+- When presenting data from multiple sources, use **tables** for structured comparisons.
+- Base your response ONLY on retrieved tool results. Do not make up information.
+- If tool searches return no results, say so honestly.
+- Format code references with backticks, use markdown headers for structure.`
 
 export function registerChatHandlers(ipcMain: IpcMain): void {
   // Save (upsert) a chat session.
@@ -39,7 +75,6 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     id?: string; title?: string; won_version?: string; wonVersion?: string; customer?: string
     messages?: Array<{ id: string; role: string; content: string; sources_json?: string | null; timestamp?: number }>
   }) => {
-    // Accept both direct args and Tauri-style { request } wrapper
     const p = (args.request ?? args) as {
       id?: string; title?: string; won_version?: string; wonVersion?: string; customer?: string
       messages?: Array<{ id: string; role: string; content: string; sources_json?: string | null; timestamp?: number }>
@@ -58,7 +93,6 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
         updated_at = excluded.updated_at
     `).run(id, p.title ?? '', wonVersion, p.customer ?? null, now, now)
 
-    // Persist messages sent alongside the session (used by frontend saveChatSession)
     if (p.messages?.length) {
       const insertMsg = db.prepare(`
         INSERT OR REPLACE INTO chat_messages
@@ -72,8 +106,6 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     return { id }
   })
 
-  // List non-archived sessions ordered by recency.
-  // chat_sessions has no `archived` column — we return all rows.
   const loadSessions = (_e: unknown, args?: { limit?: number; offset?: number }) => {
     const db = getDb()
     return db.prepare(
@@ -81,17 +113,13 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     ).all(args?.limit ?? 50, args?.offset ?? 0)
   }
   ipcMain.handle('chat_load_sessions', loadSessions)
-  ipcMain.handle('chat_list_sessions', loadSessions) // alias used by some frontend callers
+  ipcMain.handle('chat_list_sessions', loadSessions)
 
-  // Load a single session by id.
   ipcMain.handle('chat_load_session', (_e, args: { id: string }) => {
     const db = getDb()
     return db.prepare('SELECT * FROM chat_sessions WHERE id = ?').get(args.id) ?? null
   })
 
-  // Load all messages for a session in chronological order.
-  // Messages use `timestamp` (INTEGER ms) instead of `created_at`.
-  // Accepts session_id (snake_case) or sessionId (camelCase).
   const loadMessages = (_e: unknown, args: { session_id?: string; sessionId?: string }) => {
     const db = getDb()
     const sessionId = args.session_id ?? args.sessionId ?? ''
@@ -100,11 +128,8 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     ).all(sessionId)
   }
   ipcMain.handle('chat_load_messages', loadMessages)
-  ipcMain.handle('chat_get_messages', loadMessages) // alias used by some frontend callers
+  ipcMain.handle('chat_get_messages', loadMessages)
 
-  // Save (upsert) a chat message.
-  // The schema stores `sources_json` and `timestamp`; there are no
-  // tool_calls_json / tool_results_json columns in the actual migration.
   ipcMain.handle('chat_save_message', (_e, args: {
     id: string
     session_id: string
@@ -120,45 +145,29 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       INSERT OR REPLACE INTO chat_messages
         (id, session_id, role, content, sources_json, timestamp)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      args.id,
-      args.session_id,
-      args.role,
-      args.content,
-      args.sources_json ?? null,
-      ts,
-    )
+    `).run(args.id, args.session_id, args.role, args.content, args.sources_json ?? null, ts)
     db.prepare('UPDATE chat_sessions SET updated_at = ? WHERE id = ?').run(now, args.session_id)
     return { id: args.id }
   })
 
-  // Delete a session and its messages (messages cascade via FK).
   ipcMain.handle('chat_delete_session', (_e, args: { id?: string; sessionId?: string }) => {
     const db = getDb()
     const id = args.sessionId ?? args.id ?? ''
     db.prepare('DELETE FROM chat_sessions WHERE id = ?').run(id)
   })
 
-  // Toggle the starred flag on a session.
-  // Column added by m012: `is_starred INTEGER NOT NULL DEFAULT 0`
   ipcMain.handle('chat_star_session', (_e, args: { id?: string; sessionId?: string; starred: boolean }) => {
     const db = getDb()
     const id = args.sessionId ?? args.id ?? ''
-    db.prepare('UPDATE chat_sessions SET is_starred = ? WHERE id = ?')
-      .run(args.starred ? 1 : 0, id)
+    db.prepare('UPDATE chat_sessions SET is_starred = ? WHERE id = ?').run(args.starred ? 1 : 0, id)
   })
 
-  // Replace the tags array on a session.
-  // Column added by m012: `tags TEXT` (stored as JSON string).
   ipcMain.handle('chat_tag_session', (_e, args: { id?: string; sessionId?: string; tags: string[] }) => {
     const db = getDb()
     const id = args.sessionId ?? args.id ?? ''
-    db.prepare('UPDATE chat_sessions SET tags = ? WHERE id = ?')
-      .run(JSON.stringify(args.tags), id)
+    db.prepare('UPDATE chat_sessions SET tags = ? WHERE id = ?').run(JSON.stringify(args.tags), id)
   })
 
-  // Partial update of session metadata fields.
-  // Accepts both snake_case (won_version) and camelCase (wonVersion) keys.
   ipcMain.handle('chat_update_session_metadata', (_e, args: {
     id?: string
     sessionId?: string
@@ -173,9 +182,9 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     const wonVersion = args.won_version ?? args.wonVersion
     const updates: string[] = []
     const params: unknown[] = []
-    if (args.title !== undefined)   { updates.push('title = ?');       params.push(args.title) }
-    if (wonVersion !== undefined)   { updates.push('won_version = ?'); params.push(wonVersion) }
-    if (args.customer !== undefined){ updates.push('customer = ?');    params.push(args.customer) }
+    if (args.title !== undefined)    { updates.push('title = ?');       params.push(args.title) }
+    if (wonVersion !== undefined)    { updates.push('won_version = ?'); params.push(wonVersion) }
+    if (args.customer !== undefined) { updates.push('customer = ?');    params.push(args.customer) }
     if (updates.length === 0) return
     updates.push('updated_at = ?')
     params.push(now)
@@ -183,9 +192,6 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     db.prepare(`UPDATE chat_sessions SET ${updates.join(', ')} WHERE id = ?`).run(...params)
   })
 
-  // Submit (upsert) feedback for a message.
-  // Actual schema: rating TEXT, no feedback_type column.
-  // UNIQUE constraint on (session_id, message_id) — one feedback record per message.
   ipcMain.handle('chat_submit_feedback', (_e, args: {
     session_id: string
     message_id: string
@@ -197,7 +203,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     reason?: string
   }) => {
     const db = getDb()
-    const now = new Date().toISOString() // TEXT column — ISO string matches DEFAULT datetime('now')
+    const now = new Date().toISOString()
     db.prepare(`
       INSERT INTO chat_feedback
         (session_id, message_id, rating, comment, tools_used, sources_cited, query, reason, created_at)
@@ -210,42 +216,46 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
         query        = excluded.query,
         reason       = excluded.reason
     `).run(
-      args.session_id,
-      args.message_id,
-      args.rating,
-      args.comment ?? null,
-      args.tools_used ?? null,
-      args.sources_cited ?? null,
-      args.query ?? null,
-      args.reason ?? null,
-      now,
+      args.session_id, args.message_id, args.rating,
+      args.comment ?? null, args.tools_used ?? null, args.sources_cited ?? null,
+      args.query ?? null, args.reason ?? null, now,
     )
     const saved = db.prepare('SELECT id FROM chat_feedback WHERE session_id = ? AND message_id = ?')
       .get(args.session_id, args.message_id) as { id: number }
     return { id: saved.id }
   })
 
-  // Delete a feedback record by its integer primary key.
-  ipcMain.handle('chat_delete_feedback', (_e, args: { id: number }) => {
+  ipcMain.handle('chat_delete_feedback', (_e, args: {
+    id?: number
+    session_id?: string
+    sessionId?: string
+    message_id?: string
+    messageId?: string
+  }) => {
     const db = getDb()
-    db.prepare('DELETE FROM chat_feedback WHERE id = ?').run(args.id)
+    if (args.id) {
+      db.prepare('DELETE FROM chat_feedback WHERE id = ?').run(args.id)
+    } else {
+      const sessionId = args.session_id ?? args.sessionId ?? ''
+      const messageId = args.message_id ?? args.messageId ?? ''
+      db.prepare('DELETE FROM chat_feedback WHERE session_id = ? AND message_id = ?').run(sessionId, messageId)
+    }
   })
 
   // Poll the current streaming response chunk buffer.
-  // Drains pendingText and events each call; done/error persist until next chat_send.
   ipcMain.handle('poll_chat_stream', () => {
-    const text = streamState.pendingText
-    const done = streamState.done
-    const error = streamState.error ?? undefined
-    const events = [...streamState.events]
-    streamState.pendingText = ''
-    streamState.events = []
+    if (!activeStream) return { text: '', done: true, error: null, events: [] }
+    const s = activeStream
+    const text = s.pendingText
+    const done = s.done
+    const error = s.error ?? undefined
+    const events = [...s.events]
+    s.pendingText = ''
+    s.events = []
     return { text, done, error, events }
   })
 
-  // Send a chat message (full messages array) to the configured AI provider.
-  // Streams tokens into streamState; caller polls via poll_chat_stream.
-  // Frontend wraps args in { request: { ... } } (Tauri-style invoke convention).
+  // Send a chat message to the AI provider with the full agentic tool-use loop.
   ipcMain.handle('chat_send', async (_e, rawArgs: {
     request?: {
       messages: Array<{ role: string; content: string }>
@@ -261,8 +271,12 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       keeper_secret_uid?: string
       auxiliary_model?: string
       verbosity?: string
+      opensearch_config?: unknown
+      jira_base_url?: string
+      jira_email?: string
+      jira_api_token?: string
+      jira_project_key?: string
     }
-    // also accept flat (non-wrapped) calls for backwards compat
     messages?: Array<{ role: string; content: string }>
     api_key?: string
     model?: string
@@ -280,85 +294,278 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       keeper_secret_uid?: string; auxiliary_model?: string; verbosity?: string
     }
 
-    streamReset()
-    if (streamActive) {
-      log.warn('chat_send called while stream already active — previous stream cancelled')
-    }
-    streamActive = true
+    const ss = streamReset()
 
+    // ── Resolve API key ────────────────────────────────────────────────────
     let apiKey = args.api_key ?? ''
     if (!apiKey) {
       const stored = getSecret(SERVICE_NAME, args.provider)
       if (stored) apiKey = stored
     }
     if (!apiKey && args.keeper_secret_uid) {
-      try {
-        apiKey = await getApiKeyFromKeeper(args.keeper_secret_uid)
-      } catch (err: unknown) {
-        log.warn('Keeper lookup failed:', err instanceof Error ? err.message : err)
-      }
+      try { apiKey = await getApiKeyFromKeeper(args.keeper_secret_uid) }
+      catch (err) { log.warn('Keeper lookup failed:', err instanceof Error ? err.message : err) }
     }
     if (!apiKey) {
-      streamState.error = `No API key configured for provider: ${args.provider}`
-      streamState.done = true
-      streamActive = false
+      ss.error = `No API key configured for provider: ${args.provider}`
+      ss.done = true
       return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
     }
 
-    // FTS context: search analyses_fts for the last user message
-    const query = [...(args.messages ?? [])].reverse().find(m => m.role === 'user')?.content ?? ''
-    let ftsContext = ''
-    if (query && args.use_rag) {
+    const provider = args.provider
+    const model = args.model
+    const db = getDb()
+
+    // ── JIRA availability ──────────────────────────────────────────────────
+    const jiraBaseUrl = (args as { jira_base_url?: string }).jira_base_url ?? (settingsStore.get('jira_base_url', '') as string)
+    const hasJira = !!jiraBaseUrl
+
+    // ── CodexMgX MCP availability ──────────────────────────────────────────
+    const mcpEnabled = settingsStore.get('codexmgx_enabled', false) as boolean
+    const mcpCallTool = mcpEnabled
+      ? (name: string, mcpArgs: Record<string, unknown>) =>
+          tryMcpCallTool(name, mcpArgs).then(r => r ?? '(MCP unavailable)')
+      : undefined
+
+    // ── Tool context ───────────────────────────────────────────────────────
+    const toolCtx: ToolContext = {
+      db,
+      apiKey,
+      provider,
+      model,
+      wonVersion: args.won_version ?? null,
+      customer: args.customer ?? null,
+      useKb: args.use_kb ?? false,
+      useMcp: mcpEnabled,
+    }
+
+    // ── Filter tools by user toggles ───────────────────────────────────────
+    const useRag = args.use_rag ?? true
+    const allTools = getToolDefinitions()
+    const tools = allTools.filter(t => {
+      switch (t.name) {
+        case 'search_analyses':
+        case 'find_similar_crashes':
+        case 'get_analysis_detail':
+          return useRag
+        case 'search_kb':
+          return args.use_kb ?? false
+        case 'search_jira':
+        case 'create_jira_ticket':
+        case 'investigate_jira_ticket':
+        case 'investigate_regression_family':
+        case 'investigate_expected_behavior':
+        case 'investigate_customer_history':
+        case 'search_confluence':
+        case 'get_confluence_page':
+          return hasJira
+        default:
+          return true
+      }
+    })
+
+    // ── System prompt ─────────────────────────────────────────────────────
+    let systemPrompt = CHAT_SYSTEM_PROMPT_BASE
+
+    if (hasJira) {
+      systemPrompt += '\n\n## JIRA Investigation Tools\nYou have deep investigation tools. When a user says "investigate ticket MGX-56673" or "look into BR-997", call `investigate_jira_ticket` immediately.'
+    }
+
+    switch (args.verbosity) {
+      case 'concise':
+        systemPrompt += '\n\nIMPORTANT: Be brief and concise. Answer in 2-3 sentences maximum unless explicitly asked for more.'
+        break
+      case 'detailed':
+        systemPrompt += '\n\nProvide a thorough, detailed response. Include all relevant details, examples, source citations, and reasoning.'
+        break
+    }
+
+    // Inject selected analysis context
+    if (args.analysis_id) {
       try {
-        const db = getDb()
+        type Row = { id: number; filename: string; severity: string; error_type: string; error_message: string | null; component: string | null; root_cause: string; suggested_fixes: string; stack_trace: string | null }
+        const analysis = db.prepare('SELECT * FROM analyses WHERE id = ?').get(args.analysis_id) as Row | undefined
+        if (analysis) {
+          let fixes: string[] = []
+          try { fixes = JSON.parse(analysis.suggested_fixes) } catch { fixes = [] }
+          systemPrompt += `\n\n## Currently Selected Analysis\nThe user is viewing this analysis. Answer questions in its context.\n` +
+            `<current_analysis id="${analysis.id}" filename="${analysis.filename}" severity="${analysis.severity}" type="${analysis.error_type}">\n` +
+            `Error: ${analysis.error_message ?? 'N/A'}\n` +
+            `Component: ${analysis.component ?? 'unknown'}\n` +
+            `Root Cause: ${analysis.root_cause}\n` +
+            `Suggested Fixes: ${fixes.join('; ')}\n` +
+            `</current_analysis>`
+        }
+      } catch (e) {
+        log.warn('Failed to load analysis for chat context:', e)
+      }
+    }
+
+    // ── Initial FTS context (fast pre-fetch for 0-tool responses) ─────────
+    const query = [...(args.messages ?? [])].reverse().find(m => m.role === 'user')?.content ?? ''
+    if (query && useRag) {
+      try {
+        type FtsRow = { id: number; filename: string; severity: string | null; root_cause: string | null; error_message: string | null; error_type: string | null }
         const rows = db.prepare(`
           SELECT a.id, a.filename, a.severity, a.root_cause, a.error_message, a.error_type
-          FROM analyses_fts
-          JOIN analyses a ON analyses_fts.rowid = a.id
-          WHERE analyses_fts MATCH ?
-          LIMIT 5
-        `).all(ftsPhrase(query)) as Array<{
-          id: number; filename: string; severity: string | null; root_cause: string | null;
-          error_message: string | null; error_type: string | null
-        }>
+          FROM analyses_fts JOIN analyses a ON analyses_fts.rowid = a.id
+          WHERE analyses_fts MATCH ? LIMIT 3
+        `).all(ftsPhrase(query)) as FtsRow[]
         if (rows.length > 0) {
-          ftsContext = rows.map(r =>
+          systemPrompt += '\n\n## Quick Context (Full-Text Search)\n' + rows.map(r =>
             `<analysis id="${r.id}" filename="${r.filename}" severity="${r.severity ?? 'UNKNOWN'}">\n` +
             (r.error_type ? `Error Type: ${r.error_type}\n` : '') +
             (r.root_cause ? `Root Cause: ${r.root_cause}\n` : '') +
-            (r.error_message ? `Error: ${r.error_message}\n` : '') +
             `</analysis>`
           ).join('\n\n')
         }
-      } catch (err) {
-        log.warn('FTS context retrieval failed:', err)
-      }
+      } catch { /* non-fatal */ }
     }
 
-    const systemPrompt = `You are Ask Hadron, an expert regarding the Mediagenix WHATS'ON broadcast management software. You help users understand crashes, debug issues, and navigate historical analyses.${ftsContext ? `\n\n## Related Analyses\n${ftsContext}` : ''}`
+    // ── Agent loop ────────────────────────────────────────────────────────
+    let agentMessages: unknown[] = (args.messages ?? []).map(m => ({ role: m.role, content: m.content }))
+    const synthesisMessages = [...agentMessages]
+
+    let totalToolCalls = 0
+    const allToolResults: ToolResult[] = []
+    const allToolNames: string[] = []
+    const contextSummary = { rag_results: 0, kb_results: 0, gold_matches: 0, fts_results: 0, kind: 'context' as const }
+
+    for (let iteration = 0; iteration < MAX_AGENT_ITERATIONS; iteration++) {
+      let llmResult
+      try {
+        llmResult = await callAiWithTools({
+          provider,
+          model,
+          apiKey,
+          systemPrompt,
+          messages: agentMessages,
+          tools,
+          maxTokens: 4000,
+        })
+      } catch (e) {
+        ss.error = e instanceof Error ? e.message : String(e)
+        ss.done = true
+        return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
+      }
+
+      if (!llmResult.wantsTools) {
+        ss.events.push(contextSummary)
+
+        if (totalToolCalls === 0) {
+          // No tools used at all — stream the direct response
+          ss.pendingText += llmResult.content
+          ss.done = true
+          return { content: llmResult.content, inputTokens: llmResult.inputTokens, outputTokens: llmResult.outputTokens, cost: 0 }
+        }
+
+        // Tools were used — emit diagnostics, then do streaming synthesis
+        ss.events.push({
+          kind: 'diagnostics',
+          tools_used: [...new Set(allToolNames)],
+          total_tool_calls: totalToolCalls,
+          retrieval_latency_ms: 0,
+          evidence_sufficient: allToolResults.some(r => !r.isError),
+          evidence_confidence: 0.8,
+          evidence_reason: `${totalToolCalls} tool calls completed`,
+        })
+
+        const sourceXml = buildToolResultsXml(allToolResults, allToolNames)
+        const synthSystemPrompt = systemPrompt + (sourceXml ? '\n\n## Retrieved Context\n' + sourceXml : '')
+
+        try {
+          let finalContent = ''
+          await callAiStreaming({
+            provider,
+            model,
+            apiKey,
+            systemPrompt: synthSystemPrompt,
+            messages: synthesisMessages,
+            maxTokens: 4096,
+            onChunk: (text) => {
+              ss.pendingText += text
+              finalContent += text
+            },
+          })
+          ss.done = true
+          return { content: finalContent, inputTokens: 0, outputTokens: 0, cost: 0 }
+        } catch (e) {
+          ss.error = e instanceof Error ? e.message : String(e)
+          ss.done = true
+          return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
+        }
+      }
+
+      // ── Execute tool calls in parallel ──────────────────────────────────
+      const toolCalls: ToolCall[] = llmResult.toolCalls
+
+      for (const tc of toolCalls) {
+        ss.events.push({ kind: 'tool_use', tool_name: tc.name, tool_args: tc.arguments, iteration })
+        log.info(`[Chat] Tool call: ${tc.name}(${JSON.stringify(tc.arguments).substring(0, 100)})`)
+        if (['search_analyses', 'find_similar_crashes', 'get_analysis_detail'].includes(tc.name)) contextSummary.fts_results++
+        if (tc.name === 'search_gold_answers') contextSummary.gold_matches++
+        if (tc.name === 'search_kb') contextSummary.kb_results++
+      }
+
+      const results = await Promise.all(
+        toolCalls.map(tc => executeTool(tc.name, tc.arguments, toolCtx, mcpCallTool))
+      )
+
+      // Tag each result with the correct toolUseId from the LLM call
+      const taggedResults = results.map((r, i) => ({ ...r, toolUseId: toolCalls[i].id }))
+
+      allToolResults.push(...taggedResults)
+      allToolNames.push(...toolCalls.map(tc => tc.name))
+      totalToolCalls += toolCalls.length
+
+      agentMessages = [
+        ...agentMessages,
+        llmResult.assistantMessage,
+        ...buildToolResultMessages(taggedResults, provider),
+      ]
+    }
+
+    // ── Max iterations — force final streaming response ───────────────────
+    ss.events.push(contextSummary)
+    ss.events.push({
+      kind: 'diagnostics',
+      tools_used: [...new Set(allToolNames)],
+      total_tool_calls: totalToolCalls,
+      retrieval_latency_ms: 0,
+      evidence_sufficient: allToolResults.some(r => !r.isError),
+      evidence_confidence: 0.7,
+      evidence_reason: `Max iterations reached (${MAX_AGENT_ITERATIONS})`,
+    })
+
+    const sourceXml = buildToolResultsXml(allToolResults, allToolNames)
+    const synthSystemPrompt = systemPrompt + (sourceXml ? '\n\n## Retrieved Context\n' + sourceXml : '')
 
     try {
-      const result = await callAi({
-        provider: args.provider,
-        model: args.model,
+      let finalContent = ''
+      await callAiStreaming({
+        provider,
+        model,
         apiKey,
-        systemPrompt,
-        userPrompt: '',
+        systemPrompt: synthSystemPrompt,
+        messages: synthesisMessages,
         maxTokens: 4096,
-        stream: true,
-        messages: args.messages,
-        onChunk: (chunk) => {
-          streamState.pendingText += chunk
-        },
+        onChunk: (text) => { ss.pendingText += text; finalContent += text },
       })
-      streamState.done = true
-      streamActive = false
-      return { content: result.content, inputTokens: result.inputTokens, outputTokens: result.outputTokens, cost: result.cost }
-    } catch (err) {
-      streamState.error = (err as Error).message
-      streamState.done = true
-      streamActive = false
+      ss.done = true
+      return { content: finalContent, inputTokens: 0, outputTokens: 0, cost: 0 }
+    } catch (e) {
+      ss.error = e instanceof Error ? e.message : String(e)
+      ss.done = true
       return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
     }
   })
+}
+
+function buildToolResultsXml(results: ToolResult[], names: string[]): string {
+  if (results.length === 0) return ''
+  return results.map((r, i) => {
+    const name = names[i] ?? 'tool'
+    if (r.isError) return `<tool_result name="${name}" error="true">\n${r.content}\n</tool_result>`
+    return `<tool_result name="${name}">\n${r.content.substring(0, 3000)}\n</tool_result>`
+  }).join('\n\n')
 }
