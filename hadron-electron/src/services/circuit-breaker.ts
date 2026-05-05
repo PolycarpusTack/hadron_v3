@@ -6,11 +6,11 @@
  * Alex Chen's Rule: "Make it boring, make it reliable"
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../lib/tauri-core-shim';
 import logger from './logger';
 import type { AnalysisResponse } from './api';
 import { getApiKey } from './secure-storage';
-import { getDefaultModelForProvider } from '../constants/providers';
+import { getDefaultModelForProvider, AI_PROVIDERS } from '../constants/providers';
 import { STORAGE_KEYS } from '../utils/config';
 import { getBooleanSetting } from '../utils/config';
 import { apiCache, CacheKeys } from './cache';
@@ -181,21 +181,23 @@ async function callAIProvider(request: AnalysisRequest): Promise<AnalysisRespons
 /**
  * Get active providers from localStorage
  */
+const VALID_PROVIDER_KEYS = new Set(AI_PROVIDERS.map(p => p.value))
+
 function getActiveProviders(): string[] {
   const savedActiveProviders = localStorage.getItem(STORAGE_KEYS.ACTIVE_PROVIDERS);
   if (savedActiveProviders) {
     try {
       const activeProviders = JSON.parse(savedActiveProviders);
-      // Type-safe validation
       if (typeof activeProviders === 'object' && activeProviders !== null) {
-        return Object.keys(activeProviders).filter(p => activeProviders[p] === true);
+        const valid = Object.keys(activeProviders)
+          .filter(p => activeProviders[p] === true && VALID_PROVIDER_KEYS.has(p));
+        if (valid.length > 0) return valid;
       }
     } catch (e) {
       logger.warn('Failed to parse active providers, using defaults', { error: e });
     }
   }
-  // Default to primary providers (vLLM and llama.cpp are opt-in)
-  return ['openai', 'anthropic', 'llamacpp', 'zai'];
+  return ['openai'];
 }
 
 /**
@@ -287,13 +289,16 @@ export async function analyzeWithResilience(
       // Check if Keeper is configured for this provider
       const keeperSecretUid = await getKeeperSecretForProvider(provider);
 
-      // llama.cpp runs locally and doesn't need an API key
-      // If Keeper is configured, we don't need a direct API key
-      const providerKey = provider === "llamacpp"
+      if (provider === "llamacpp" || provider === "vllm") {
+        throw new Error(`${provider} is not available for crash-log failover in Electron`);
+      }
+
+      // If Keeper is configured, we don't need a direct API key. Never reuse
+      // the preferred provider's key for a different provider.
+      const storedProviderKey = await getApiKey(provider);
+      const providerKey = keeperSecretUid
         ? ""
-        : keeperSecretUid
-          ? ""  // Keeper will provide the key in the backend
-          : ((await getApiKey(provider)) || apiKey);
+        : storedProviderKey || (provider === preferredProvider ? apiKey : "");
 
       // Only check for API key if not using llama.cpp and not using Keeper
       if (provider !== "llamacpp" && !providerKey && !keeperSecretUid) {
@@ -351,6 +356,10 @@ export async function analyzeWithResilience(
         provider,
         error: errorMessage
       });
+
+      if (/context_length_exceeded|exceeds the context window|input exceeds/i.test(errorMessage)) {
+        throw new Error(sanitizeErrorMessage(errorMessage));
+      }
 
       // Continue to next provider in chain
     }

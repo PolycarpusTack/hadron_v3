@@ -151,7 +151,7 @@ async function runPollerCycle(): Promise<void> {
       }
       if (!provider || !apiKey) continue
 
-      const model = provider === 'openai' ? 'gpt-4o-mini' : 'claude-haiku-4-5-20251001'
+      const model = provider === 'openai' ? 'gpt-4.1-mini' : 'claude-3-5-haiku-20241022'
 
       // Rate limiter is intentionally not applied here — the poller runs on a
       // server-side timer, not from a renderer IPC call, so it cannot be

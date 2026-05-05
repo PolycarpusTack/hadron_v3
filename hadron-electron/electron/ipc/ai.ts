@@ -73,12 +73,6 @@ function compactCrashLog(content: string, budget: number): { content: string; wa
   }
 }
 
-function getKey(provider: string): string {
-  const key = getSecret(SERVICE_NAME, provider)
-  if (!key) throw new Error(`No API key configured for provider: ${provider}`)
-  return key
-}
-
 async function resolveKey(provider: string, keeperSecretUid?: string | null): Promise<string> {
   const stored = getSecret(SERVICE_NAME, provider)
   if (stored) return stored
@@ -713,8 +707,8 @@ Return only valid JSON, no markdown fences.`
 
     // No provider/model sent by frontend — pick the first configured one (direct then Keeper)
     const FALLBACK_PROVIDERS: Array<[string, string]> = [
-      ['openai', 'gpt-4o'],
-      ['anthropic', 'claude-sonnet-4-6'],
+      ['openai', 'gpt-5.4-mini'],
+      ['anthropic', 'claude-sonnet-4-0'],
     ]
     let provider: string | null = null
     let model: string | null = null
