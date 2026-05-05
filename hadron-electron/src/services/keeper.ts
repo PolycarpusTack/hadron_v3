@@ -6,7 +6,7 @@
  * about available secrets is exposed.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { getSetting, storeSetting } from "./secure-storage";
 import logger from "./logger";
 
@@ -131,9 +131,10 @@ export async function disconnectKeeper(): Promise<void> {
  * Get stored Keeper configuration
  */
 export async function getKeeperConfig(): Promise<KeeperConfig> {
-  const stored = await getSetting<string>(KEEPER_CONFIG_KEY);
+  const stored = await getSetting<string | KeeperConfig>(KEEPER_CONFIG_KEY);
   if (stored) {
     try {
+      if (typeof stored === "object") return stored;
       return JSON.parse(stored);
     } catch {
       logger.warn("Failed to parse Keeper config, using defaults");
@@ -143,6 +144,17 @@ export async function getKeeperConfig(): Promise<KeeperConfig> {
     enabled: false,
     secretMappings: {},
   };
+}
+
+/**
+ * Check if Keeper is enabled and has a secret mapped for the given provider,
+ * using an already-fetched KeeperConfig to avoid a second storage read.
+ */
+export function isProviderMappedInConfig(config: KeeperConfig, provider: string): boolean {
+  return (
+    config.enabled &&
+    !!config.secretMappings[provider as keyof typeof config.secretMappings]
+  );
 }
 
 /**

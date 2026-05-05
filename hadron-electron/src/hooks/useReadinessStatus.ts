@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { getStoredProvider, getStoredModel } from "../services/api";
 import { getApiKey } from "../services/secure-storage";
-import { getKeeperConfig, getKeeperStatus } from "../services/keeper";
+import { getKeeperConfig, getKeeperStatus, isProviderMappedInConfig } from "../services/keeper";
 import { getCodexMgXConfig } from "../services/codexmgx";
 import { isJiraEnabled } from "../services/jira";
 import { isSentryEnabled } from "../services/sentry";
@@ -156,9 +156,7 @@ export function useReadinessStatus(): ReadinessStatus {
         isSentryEnabled(),
       ]);
 
-      const keeperActiveForProvider =
-        keeperCfg.enabled &&
-        !!keeperCfg.secretMappings[provider as keyof typeof keeperCfg.secretMappings];
+      const keeperActiveForProvider = isProviderMappedInConfig(keeperCfg, provider);
 
       const jiraConnOkRaw = localStorage.getItem(STORAGE_KEYS.JIRA_CONNECTION_OK);
       const sentryConnOkRaw = localStorage.getItem(STORAGE_KEYS.SENTRY_CONNECTION_OK);

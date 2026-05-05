@@ -9,6 +9,14 @@ vi.mock("../src/services/jira", () => ({ isJiraEnabled: vi.fn() }));
 vi.mock("../src/services/sentry", () => ({ isSentryEnabled: vi.fn() }));
 vi.mock("../src/lib/tauri-core-shim", () => ({ invoke: vi.fn() }));
 vi.mock("../src/services/logger", () => ({ default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock("../src/constants/providers", () => ({
+  CURATED_MODELS: {
+    openai: [
+      { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", context: 400000, suitableForHadron: true },
+      { id: "gpt-4o-mini", label: "GPT-4o Mini", context: 128000, suitableForHadron: false },
+    ],
+  },
+}));
 
 import { computeReadinessStatus } from "../src/hooks/useReadinessStatus";
 import type { ReadinessInput } from "../src/hooks/useReadinessStatus";
@@ -80,6 +88,12 @@ describe("computeReadinessStatus", () => {
     const status = computeReadinessStatus(
       baseInput({ jiraEnabled: true, jiraConnectionOk: false })
     );
+    expect(status.overall).toBe("warning");
+  });
+
+  it("returns ai=warning when model has suitableForHadron: false", () => {
+    const status = computeReadinessStatus(baseInput({ model: "gpt-4o-mini" }));
+    expect(status.ai.state).toBe("warning");
     expect(status.overall).toBe("warning");
   });
 });
