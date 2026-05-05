@@ -5,6 +5,7 @@ import Store from 'electron-store'
 import log from 'electron-log'
 import { getSecret, setSecret, deleteSecret } from '../services/safe-storage'
 import { getDb } from '../database'
+import { shutdownMcpClient } from '../services/mcp-client'
 
 const stores = new Map<string, InstanceType<typeof Store>>()
 
@@ -146,8 +147,6 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
     const s = getStore('settings')
     s.set('codexmgx_script_path', args.scriptPath)
     s.set('codexmgx_enabled', args.enabled)
-    // Reset singleton so it re-initializes with the new path on next use
-    const { shutdownMcpClient } = require('../services/mcp-client') as typeof import('../services/mcp-client')
     shutdownMcpClient()
     return { ok: true }
   })
