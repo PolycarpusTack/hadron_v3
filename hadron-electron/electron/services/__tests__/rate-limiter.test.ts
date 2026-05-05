@@ -46,4 +46,13 @@ describe('RateLimiter', () => {
     limiter.tryAcquire('chan')
     expect(limiter.remaining('chan')).toBe(3)
   })
+
+  it('expires calls at exactly the window boundary', () => {
+    const limiter = new RateLimiter(3, 60_000)
+    limiter.tryAcquire('chan') // t=0
+    limiter.tryAcquire('chan') // t=0
+    limiter.tryAcquire('chan') // t=0
+    vi.advanceTimersByTime(60_000) // exactly one window width: t > cutoff means t=0 is expired
+    expect(limiter.tryAcquire('chan')).toBe(true)
+  })
 })
