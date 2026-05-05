@@ -1,6 +1,6 @@
 import type { Database as BetterSqlite3 } from 'better-sqlite3'
 import type { ToolDefinition, ToolResult } from './ai-service'
-import { readJiraCreds, readJiraProjectKey, jiraFetch, readConfluenceCreds } from './jira-client'
+import { readJiraCreds, jiraFetch, readConfluenceCreds } from './jira-client'
 import { ftsPhrase } from './db-helpers'
 import log from 'electron-log'
 
