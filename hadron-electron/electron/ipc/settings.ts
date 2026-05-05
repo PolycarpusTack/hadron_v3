@@ -134,18 +134,18 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
     }
   })
 
-  const codexMgxStore = new Store({ name: 'settings' })
-
   ipcMain.handle('get_codexmgx_config', () => {
+    const s = getStore('settings')
     return {
-      scriptPath: codexMgxStore.get('codexmgx_script_path', '') as string,
-      enabled: codexMgxStore.get('codexmgx_enabled', false) as boolean,
+      scriptPath: s.get('codexmgx_script_path', '') as string,
+      enabled: s.get('codexmgx_enabled', false) as boolean,
     }
   })
 
   ipcMain.handle('save_codexmgx_config', (_e, args: { scriptPath: string; enabled: boolean }) => {
-    codexMgxStore.set('codexmgx_script_path', args.scriptPath)
-    codexMgxStore.set('codexmgx_enabled', args.enabled)
+    const s = getStore('settings')
+    s.set('codexmgx_script_path', args.scriptPath)
+    s.set('codexmgx_enabled', args.enabled)
     // Reset singleton so it re-initializes with the new path on next use
     const { shutdownMcpClient } = require('../services/mcp-client') as typeof import('../services/mcp-client')
     shutdownMcpClient()

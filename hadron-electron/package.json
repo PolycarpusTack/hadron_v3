@@ -31,6 +31,30 @@
     "remark-gfm": "^4.0.1",
     "xlsx": "^0.18.5"
   },
+  "build": {
+    "appId": "com.mediagenix.hadron",
+    "productName": "Hadron",
+    "directories": {
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/codexmgx",
+        "to": "codexmgx"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@electron-toolkit/utils": "^4.0.0",

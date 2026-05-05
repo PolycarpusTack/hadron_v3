@@ -111,9 +111,10 @@ export default function SettingsPanel({
   const [stabilityMode, setStabilityMode] = useState<boolean>(false);
   const [stabilityMsg, setStabilityMsg] = useState<string | null>(null);
   const [codexMgxConfig, setCodexMgxConfig] = useState<{ scriptPath: string; enabled: boolean }>({
-    scriptPath: 'C:\\whatsOn\\CodexMgX plugin\\plugins\\codexmgx-plugin\\scripts\\start-codexmgx-mcp.ps1',
+    scriptPath: '',
     enabled: false,
   });
+  const [codexMgxAdvanced, setCodexMgxAdvanced] = useState(false);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
@@ -901,19 +902,36 @@ export default function SettingsPanel({
                   </label>
                 </div>
                 {codexMgxConfig.enabled && (
-                  <div>
-                    <label className="block text-xs mb-1" style={{ color: 'var(--hd-text-dim)' }}>MCP Server Script Path</label>
-                    <input
-                      type="text"
-                      value={codexMgxConfig.scriptPath}
-                      onChange={(e) => setCodexMgxConfig(prev => ({ ...prev, scriptPath: e.target.value }))}
-                      placeholder="C:\whatsOn\CodexMgX plugin\plugins\..."
-                      className="w-full text-xs rounded-md px-3 py-2 placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
-                      style={{ background: 'var(--hd-bg)', border: '1px solid var(--hd-border)', color: 'var(--hd-text)' }}
-                    />
-                    <p className="text-xs mt-1" style={{ color: 'var(--hd-text-muted)' }}>
-                      Default: <code style={{ color: 'var(--hd-text-dim)' }}>C:\whatsOn\CodexMgX plugin\...</code>
-                    </p>
+                  <div className="space-y-3">
+                    <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-xs" style={{ color: 'var(--hd-text-muted)' }}>
+                      <p className="font-medium text-blue-300 mb-1">Credentials required</p>
+                      <p>CodexMgX reads credentials from:</p>
+                      <code className="block mt-1 text-blue-200 break-all">%USERPROFILE%\.codex\plugins\codexmgx-plugin\codexmgx-env.ps1</code>
+                      <p className="mt-1">Copy <code>codexmgx-env.example.ps1</code> from the Hadron install folder to that location and fill in your credentials.</p>
+                    </div>
+                    <button
+                      onClick={() => setCodexMgxAdvanced(!codexMgxAdvanced)}
+                      className="flex items-center gap-1.5 text-xs"
+                      style={{ color: 'var(--hd-text-dim)' }}
+                    >
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${codexMgxAdvanced ? 'rotate-180' : ''}`} />
+                      Advanced: override script path
+                    </button>
+                    {codexMgxAdvanced && (
+                      <div>
+                        <label className="block text-xs mb-1" style={{ color: 'var(--hd-text-dim)' }}>
+                          Custom script path <span style={{ color: 'var(--hd-text-muted)' }}>(leave blank to use bundled scripts)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={codexMgxConfig.scriptPath}
+                          onChange={(e) => setCodexMgxConfig(prev => ({ ...prev, scriptPath: e.target.value }))}
+                          placeholder="Leave blank to use bundled scripts"
+                          className="w-full text-xs rounded-md px-3 py-2 placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
+                          style={{ background: 'var(--hd-bg)', border: '1px solid var(--hd-border)', color: 'var(--hd-text)' }}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

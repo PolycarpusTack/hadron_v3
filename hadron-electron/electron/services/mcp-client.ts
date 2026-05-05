@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from 'child_process'
+import path from 'path'
 import log from 'electron-log'
 import Store from 'electron-store'
 
@@ -29,6 +30,19 @@ type PendingRequest = {
   reject: (reason: unknown) => void
 }
 
+/**
+ * Path to the bundled CodexMgX launcher script, valid in both dev and production.
+ * In dev: process.resourcesPath = <project>/resources
+ * In prod: process.resourcesPath = <installDir>/resources
+ * Fallback: derive from __dirname (out/main → ../../resources) for safety.
+ */
+function getBundledScriptPath(): string {
+  const resPath: string =
+    (process as unknown as { resourcesPath?: string }).resourcesPath ??
+    path.join(__dirname, '..', '..', 'resources')
+  return path.join(resPath, 'codexmgx', 'scripts', 'start-codexmgx-mcp.ps1')
+}
+
 class McpClient {
   private process: ChildProcess | null = null
   private nextId = 1
@@ -37,13 +51,14 @@ class McpClient {
   private initialized = false
   private tools: McpTool[] = []
 
+  /** Effective script path: stored override or bundled default. */
   private get scriptPath(): string {
-    return (settingsStore.get('codexmgx_script_path', '') as string) ||
-      `C:\\whatsOn\\CodexMgX plugin\\plugins\\codexmgx-plugin\\scripts\\start-codexmgx-mcp.ps1`
+    return (settingsStore.get('codexmgx_script_path', '') as string) || getBundledScriptPath()
   }
 
+  /** Whether CodexMgX is enabled by the user. Bundled scripts are always present. */
   isConfigured(): boolean {
-    return !!(settingsStore.get('codexmgx_enabled', false) as boolean) && !!this.scriptPath
+    return !!(settingsStore.get('codexmgx_enabled', false) as boolean)
   }
 
   async ensureInitialized(): Promise<void> {
@@ -81,6 +96,12 @@ class McpClient {
     })
     this.process.on('error', (err) => {
       log.error('[MCP] Process error:', err)
+      // Reject all pending requests — process won't recover
+      for (const [, { reject }] of this.pending) {
+        reject(err)
+      }
+      this.pending.clear()
+      this.initialized = false
     })
 
     await this.sendRequest('initialize', {
@@ -118,7 +139,7 @@ class McpClient {
           }
         }
       } catch {
-        // Non-JSON output (e.g. startup logs) — ignore
+        // Non-JSON output (startup logs, etc.) — ignore
       }
     }
   }
@@ -188,6 +209,10 @@ export function shutdownMcpClient(): void {
   instance = null
 }
 
+/**
+ * Try to call a CodexMgX MCP tool. Returns null if MCP is disabled or the call fails.
+ * Safe to call at any time — catches all errors internally.
+ */
 export async function tryMcpCallTool(name: string, args: Record<string, unknown>): Promise<string | null> {
   const client = getMcpClient()
   if (!client.isConfigured()) return null
