@@ -54,8 +54,19 @@ export function registerInfoHandlers(ipcMain: IpcMain): void {
     if (isSystemPath(args.file_path)) {
       return { size_bytes: 0, size_kb: 0, exists: false }
     }
+    // SECURITY: a malicious renderer must not be able to probe arbitrary
+    // filesystem locations through this IPC. Restrict to (a) the app's own
+    // userData root, or (b) paths the user has authorised this session via
+    // a file/save dialog. Without this gate, any compromised renderer could
+    // map out the user's home directory by checking which paths exist.
+    const resolved = path.resolve(args.file_path)
+    const userData = path.resolve(app.getPath('userData'))
+    const isUserData = resolved === userData || resolved.startsWith(userData + path.sep)
+    if (!isUserData && !isWriteAllowed(resolved)) {
+      return { size_bytes: 0, size_kb: 0, exists: false }
+    }
     try {
-      const stat = await fs.stat(args.file_path)
+      const stat = await fs.stat(resolved)
       return { size_bytes: stat.size, size_kb: stat.size / 1024, exists: true }
     } catch {
       return { size_bytes: 0, size_kb: 0, exists: false }

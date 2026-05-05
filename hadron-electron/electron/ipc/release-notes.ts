@@ -221,6 +221,13 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
     content: string
   }) => {
     try {
+      // SECURITY: cap renderer-supplied content so the SQLite database
+      // cannot be filled with megabytes per call.
+      if (typeof args.content !== 'string') throw new Error('content must be a string')
+      const MAX_CONTENT_BYTES = 1 * 1024 * 1024 // 1 MB
+      if (Buffer.byteLength(args.content, 'utf-8') > MAX_CONTENT_BYTES) {
+        throw new Error('Release notes content too large (max 1 MB)')
+      }
       const db = getDb()
       const now = new Date().toISOString()
       const result = db.prepare(`
@@ -288,6 +295,19 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
     checklistJson: string
   }) => {
     try {
+      // SECURITY: cap renderer-supplied JSON to a sane size and verify it
+      // parses, so a malformed or oversized payload cannot bloat the row
+      // or get stored as something that JSON.parse() will choke on later.
+      if (typeof args.checklistJson !== 'string') {
+        throw new Error('checklistJson must be a string')
+      }
+      const MAX_CHECKLIST_BYTES = 256 * 1024 // 256 KB
+      if (Buffer.byteLength(args.checklistJson, 'utf-8') > MAX_CHECKLIST_BYTES) {
+        throw new Error('Checklist payload too large (max 256 KB)')
+      }
+      try { JSON.parse(args.checklistJson) } catch {
+        throw new Error('checklistJson must be valid JSON')
+      }
       const db = getDb()
       const now = new Date().toISOString()
       const result = db.prepare(`
@@ -480,28 +500,16 @@ Return ONLY valid JSON. No markdown fences.`
   // ──────────────────────────────────────────────────────────────────────────
   // 12. preview_release_notes_tickets — fetch JIRA tickets for a fix version
   // Returns ReleaseNoteTicketPreview[] for the UI to display before generation.
+  // SECURITY: Always uses main-process JIRA creds. Do not honour
+  // renderer-supplied baseUrl/email/apiToken — that would let a compromised
+  // renderer redirect the request to an attacker-controlled host or smuggle
+  // out a different account's token. jiraFetch() enforces https://.
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('preview_release_notes_tickets', async (_e, args: {
     config: { fixVersion: string; contentType?: string; projectKey?: string; jqlFilter?: string }
-    baseUrl?: string
-    email?: string
-    apiToken?: string
   }) => {
     try {
-      let baseUrl: string
-      let email: string
-      let apiToken: string
-
-      if (args.baseUrl && args.email && args.apiToken) {
-        baseUrl = args.baseUrl
-        email = args.email
-        apiToken = args.apiToken
-      } else {
-        const creds = readJiraCreds()
-        baseUrl = creds.baseUrl
-        email = creds.email
-        apiToken = creds.apiToken
-      }
+      const { baseUrl, email, apiToken } = readJiraCreds()
 
       const fixVersion = args.config.fixVersion
       const projectKey = args.config.projectKey

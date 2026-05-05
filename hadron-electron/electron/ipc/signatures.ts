@@ -103,12 +103,23 @@ export function registerSignatureHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('update_signature_status', (_e, args: {
     hash: string; status: string; metadata?: string
   }) => {
+    // SECURITY: enforce a fixed enum on `status` so the renderer cannot
+    // poison the column with arbitrary strings (which downstream code
+    // assumes are one of these values).
+    const VALID_STATUSES = new Set(['new', 'investigating', 'resolved', 'wont_fix', 'duplicate'])
+    if (typeof args.status !== 'string' || !VALID_STATUSES.has(args.status)) {
+      throw new Error(`Invalid signature status: ${args.status}`)
+    }
+    if (typeof args.hash !== 'string' || !/^[a-f0-9]{1,64}$/.test(args.hash)) {
+      throw new Error('Invalid signature hash')
+    }
     const db = getDb()
     const now = new Date().toISOString()
     // metadata maps to status_metadata_json (m004 column name)
     if (args.metadata !== undefined) {
+      const meta = typeof args.metadata === 'string' ? args.metadata.slice(0, 64 * 1024) : null
       db.prepare('UPDATE crash_signatures SET status = ?, status_metadata_json = ?, updated_at = ? WHERE hash = ?')
-        .run(args.status, args.metadata, now, args.hash)
+        .run(args.status, meta, now, args.hash)
     } else {
       db.prepare('UPDATE crash_signatures SET status = ?, updated_at = ? WHERE hash = ?')
         .run(args.status, now, args.hash)
@@ -159,12 +170,16 @@ interface HashParts {
   componentsJson: string
 }
 
-function computeHashParts(errorType: string, stackTrace: string | null): HashParts {
-  const canonical = errorType.trim().toLowerCase()
+function computeHashParts(errorType: unknown, stackTrace: unknown): HashParts {
+  // SECURITY: defensively coerce inputs from the renderer. Without this,
+  // sending a non-string errorType crashes the handler on .trim()/.split().
+  const safeErrorType = typeof errorType === 'string' ? errorType : ''
+  const safeStackTrace = typeof stackTrace === 'string' ? stackTrace : null
+  const canonical = safeErrorType.trim().toLowerCase()
   const components: string[] = [canonical]
 
-  if (stackTrace) {
-    const frames = stackTrace.split('\n')
+  if (safeStackTrace) {
+    const frames = safeStackTrace.split('\n')
       .map(l => l.trim())
       .filter(l => l.startsWith('at ') || /^\s*\d+:/.test(l))
       .slice(0, 3)

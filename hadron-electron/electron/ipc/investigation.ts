@@ -61,9 +61,18 @@ export function registerInvestigationHandlers(ipcMain: IpcMain): void {
     ['investigate_jira_customer_history', 'customer_history'],
   ]
 
+  // JIRA issue keys are uppercase letters / digits / hyphen-prefixed numbers
+  // (e.g. WON-1234). Reject anything else early to avoid the renderer
+  // crafting weird ticket keys that could surprise the JIRA backend or the
+  // dossier builder downstream.
+  const JIRA_KEY_RE = /^[A-Z][A-Z0-9_]+-\d+$/
+
   for (const [channel, investigationType] of handlers) {
     ipcMain.handle(channel, async (_e, args: { key: string; query?: string }) => {
       try {
+        if (typeof args?.key !== 'string' || !JIRA_KEY_RE.test(args.key)) {
+          throw new Error('Invalid JIRA ticket key')
+        }
         const { baseUrl, email, apiToken } = readJiraCreds()
         const issue = await fetchJiraTicket(baseUrl, email, apiToken, args.key)
         if (typeof issue !== 'object' || issue === null) {
@@ -88,11 +97,22 @@ export function registerInvestigationHandlers(ipcMain: IpcMain): void {
 
     const { default: fetch } = await import('node-fetch')
     const auth = Buffer.from(`${creds.email}:${creds.apiToken}`).toString('base64')
-    const limit = args.limit ?? 10
+    // Coerce limit to a bounded integer so a renderer cannot smuggle non-numeric
+    // payloads (e.g. "10&extraParam=...") into the URL — defence in depth even
+    // though the URL is otherwise built from constants and encodeURIComponent'd.
+    const limit = Math.max(1, Math.min(50, Math.floor(Number(args.limit ?? 10) || 10)))
 
-    const safeQuery = args.query.replace(/"/g, '\\"').substring(0, 200)
-    const cql = args.spaceKey
-      ? `space = "${args.spaceKey.replace(/"/g, '\\"')}" AND text ~ "${safeQuery}"`
+    const queryStr = typeof args.query === 'string' ? args.query : ''
+    // Escape backslash first, then double-quote, so a crafted query like
+    // `\"` cannot break out of the surrounding `text ~ "..."` CQL clause.
+    const safeQuery = queryStr.replace(/\\/g, '\\\\').replace(/"/g, '\\"').substring(0, 200)
+    const safeSpaceKey = typeof args.spaceKey === 'string'
+      // Confluence space keys are alphanumeric — strip everything else so a
+      // crafted value cannot escape the surrounding quotes or inject CQL.
+      ? args.spaceKey.replace(/[^A-Za-z0-9_~-]/g, '').slice(0, 100)
+      : ''
+    const cql = safeSpaceKey
+      ? `space = "${safeSpaceKey}" AND text ~ "${safeQuery}"`
       : `text ~ "${safeQuery}"`
 
     const url = `${creds.baseUrl.replace(/\/$/, '')}/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=${limit}&expand=excerpt`

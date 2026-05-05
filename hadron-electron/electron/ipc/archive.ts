@@ -27,6 +27,17 @@ export function registerArchiveHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('bulk_archive_analyses', (_e, args: { ids: number[] }) => {
+    // SECURITY: cap renderer-supplied id arrays and reject non-integer ids
+    // so a single malicious IPC call cannot pin the main process.
+    const MAX_BULK_IDS = 10_000
+    const safeIds: number[] = []
+    if (Array.isArray(args?.ids)) {
+      for (const v of args.ids) {
+        const n = Number(v)
+        if (Number.isInteger(n) && n > 0) safeIds.push(n)
+        if (safeIds.length >= MAX_BULK_IDS) break
+      }
+    }
     const db = getDb()
     const archiveStmt = db.prepare('INSERT OR IGNORE INTO archived_analyses (original_id, data_json) VALUES (?, ?)')
     const deleteStmt = db.prepare('UPDATE analyses SET deleted_at = datetime("now") WHERE id = ?')
@@ -35,7 +46,7 @@ export function registerArchiveHandlers(ipcMain: IpcMain): void {
         const row = db.prepare('SELECT * FROM analyses WHERE id = ?').get(id)
         if (row) { archiveStmt.run(id, JSON.stringify(row)); deleteStmt.run(id) }
       }
-    })(args.ids)
+    })(safeIds)
   })
 
   ipcMain.handle('archive_translation', (_e, args: { id: number }) => {

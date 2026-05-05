@@ -68,6 +68,27 @@ async function sentryFetch(baseUrl: string, authToken: string, path: string): Pr
   return { data: await res.json(), nextCursor }
 }
 
+// Sentry issue IDs are short alphanumeric strings (numeric short IDs or
+// 32-char hex group IDs). Reject anything else early so a malicious
+// renderer cannot smuggle path traversal segments or excessively long
+// strings into the URL.
+const SENTRY_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+function validateSentryId(id: unknown): string {
+  if (typeof id !== 'string' || !SENTRY_ID_RE.test(id)) {
+    throw new Error('Invalid Sentry issue ID')
+  }
+  return id
+}
+
+// Sentry org/project slugs are lowercase alphanumeric with hyphens.
+const SENTRY_SLUG_RE = /^[A-Za-z0-9_-]{1,64}$/
+function validateSentrySlug(slug: unknown, kind: string): string {
+  if (typeof slug !== 'string' || !SENTRY_SLUG_RE.test(slug)) {
+    throw new Error(`Invalid Sentry ${kind} slug`)
+  }
+  return slug
+}
+
 export function registerSentryHandlers(ipcMain: IpcMain): void {
   // ──────────────────────────────────────────────────────────────────────────
   // test_sentry_connection — returns success/failure, never throws
@@ -130,11 +151,13 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
     cursor?: string
   }) => {
     try {
+      const org = validateSentrySlug(args.org, 'org')
+      const project = validateSentrySlug(args.project, 'project')
       const limit = 25
       const params = new URLSearchParams({ limit: String(limit) })
-      if (args.query) params.set('query', args.query)
-      if (args.cursor) params.set('cursor', args.cursor)
-      const path = `/api/0/projects/${encodeURIComponent(args.org)}/${encodeURIComponent(args.project)}/issues/?${params.toString()}`
+      if (args.query) params.set('query', String(args.query).slice(0, 500))
+      if (args.cursor) params.set('cursor', String(args.cursor).slice(0, 200))
+      const path = `/api/0/projects/${encodeURIComponent(org)}/${encodeURIComponent(project)}/issues/?${params.toString()}`
       const { data, nextCursor } = await sentryFetch(args.baseUrl, args.authToken, path)
       return { issues: data, next_cursor: nextCursor }
     } catch (err: unknown) {
@@ -156,11 +179,12 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
     cursor?: string
   }) => {
     try {
+      const org = validateSentrySlug(args.org, 'org')
       const limit = 25
       const params = new URLSearchParams({ limit: String(limit) })
-      if (args.query) params.set('query', args.query)
-      if (args.cursor) params.set('cursor', args.cursor)
-      const path = `/api/0/organizations/${encodeURIComponent(args.org)}/issues/?${params.toString()}`
+      if (args.query) params.set('query', String(args.query).slice(0, 500))
+      if (args.cursor) params.set('cursor', String(args.cursor).slice(0, 200))
+      const path = `/api/0/organizations/${encodeURIComponent(org)}/issues/?${params.toString()}`
       const { data, nextCursor } = await sentryFetch(args.baseUrl, args.authToken, path)
       return { issues: data, next_cursor: nextCursor }
     } catch (err: unknown) {
@@ -176,7 +200,8 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('fetch_sentry_issue', async (_e, args: { baseUrl: string; authToken: string; issueId: string }) => {
     try {
-      const { data } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(args.issueId)}/`)
+      const issueId = validateSentryId(args.issueId)
+      const { data } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(issueId)}/`)
       return data
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
@@ -191,7 +216,8 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('fetch_sentry_latest_event', async (_e, args: { baseUrl: string; authToken: string; issueId: string }) => {
     try {
-      const { data } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(args.issueId)}/events/latest/`)
+      const issueId = validateSentryId(args.issueId)
+      const { data } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(issueId)}/events/latest/`)
       return data
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
@@ -220,19 +246,20 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
     if (!apiKey) apiKey = getSecret(SERVICE_NAME, provider) ?? ''
     if (!apiKey) throw new Error(`No API key configured for provider: ${provider}`)
 
-    const { data: issueData } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(args.issueId)}/`)
+    const issueId = validateSentryId(args.issueId)
+    const { data: issueData } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(issueId)}/`)
     const issue = issueData as Record<string, unknown>
 
     let latestEvent: Record<string, unknown> = {}
     try {
-      const { data } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(args.issueId)}/events/latest/`)
+      const { data } = await sentryFetch(args.baseUrl, args.authToken, `/api/0/issues/${encodeURIComponent(issueId)}/events/latest/`)
       latestEvent = data as Record<string, unknown>
     } catch {
       // latest event is best-effort
     }
 
     const userPrompt = [
-      `Sentry Issue: ${issue.id ?? args.issueId}`,
+      `Sentry Issue: ${issue.id ?? issueId}`,
       wrapField('TITLE', issue.title ?? ''),
       `Level: ${issue.level ?? ''}`,
       wrapField('CULPRIT', issue.culprit ?? ''),
@@ -265,7 +292,7 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
         tokens_used, cost, was_truncated, analysis_duration_ms, full_data, analysis_type, source_type)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
-      `sentry_${args.issueId}`, 0,
+      `sentry_${issueId}`, 0,
       (parsed.error_type as string) ?? 'Unknown',
       null,
       ((parsed.severity as string) ?? 'MEDIUM').toUpperCase(),
@@ -284,7 +311,7 @@ export function registerSentryHandlers(ipcMain: IpcMain): void {
 
     return {
       id: Number(row.lastInsertRowid),
-      filename: `sentry_${args.issueId}`,
+      filename: `sentry_${issueId}`,
       error_type: (parsed.error_type as string) ?? 'Unknown',
       severity: ((parsed.severity as string) ?? 'medium').toLowerCase() as 'critical' | 'high' | 'medium' | 'low',
       root_cause: (parsed.root_cause as string) ?? '',

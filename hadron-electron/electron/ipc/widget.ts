@@ -14,10 +14,10 @@ function getOrCreateWidgetWindow(): BrowserWindow {
   const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize
 
   widgetWindow = new BrowserWindow({
-    width: 56,
-    height: 56,
-    x: screenW - 80,
-    y: screenH - 80,
+    width: 68,
+    height: 68,
+    x: screenW - 84,
+    y: screenH - 84,
     frame: false,
     transparent: true,
     resizable: false,
@@ -37,6 +37,23 @@ function getOrCreateWidgetWindow(): BrowserWindow {
   } else {
     widgetWindow.loadFile(path.join(__dirname, '../renderer/widget.html'))
   }
+
+  widgetWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // SECURITY: re-parse the URL and re-check the protocol so a string that
+    // merely starts with "https://" cannot smuggle a non-web scheme into
+    // shell.openExternal. Mirrors the safeOpenExternal pattern in main.ts.
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'https:') {
+        const { shell } = require('electron') as typeof import('electron')
+        shell.openExternal(parsed.toString())
+      }
+    } catch { /* ignore malformed URLs */ }
+    return { action: 'deny' }
+  })
+  widgetWindow.webContents.on('will-navigate', (event: Electron.Event) => {
+    event.preventDefault()
+  })
 
   widgetWindow.on('closed', () => { widgetWindow = null })
 
@@ -68,15 +85,30 @@ export function registerWidgetHandlers(ipcMain: IpcMain): void {
     }
   })
 
+  // SECURITY: clamp renderer-supplied geometry. Without these guards a
+  // compromised renderer could pass NaN, Infinity, negative or absurdly
+  // large values into the native window APIs, crashing the process or
+  // hiding the widget off-screen permanently.
+  const clampInt = (v: unknown, min: number, max: number, fallback: number): number => {
+    const n = Math.round(Number(v))
+    if (!Number.isFinite(n)) return fallback
+    return Math.max(min, Math.min(max, n))
+  }
+
   ipcMain.handle('resize_widget', (_e, args: { width: number; height: number }) => {
     if (widgetWindow && !widgetWindow.isDestroyed()) {
-      widgetWindow.setSize(args.width, args.height, false)
+      const w = clampInt(args?.width, 32, 800, 68)
+      const h = clampInt(args?.height, 32, 800, 68)
+      widgetWindow.setSize(w, h, false)
     }
   })
 
   ipcMain.handle('move_widget', (_e, args: { x: number; y: number }) => {
     if (widgetWindow && !widgetWindow.isDestroyed()) {
-      widgetWindow.setPosition(Math.round(args.x), Math.round(args.y), false)
+      const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize
+      const x = clampInt(args?.x, -screenW, screenW * 2, screenW - 80)
+      const y = clampInt(args?.y, -screenH, screenH * 2, screenH - 80)
+      widgetWindow.setPosition(x, y, false)
     }
   })
 

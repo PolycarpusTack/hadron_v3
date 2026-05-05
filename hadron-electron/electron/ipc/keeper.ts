@@ -157,12 +157,26 @@ export function registerKeeperHandlers(ipcMain: IpcMain): void {
       const token = (args.token ?? args.one_time_token ?? '').trim()
       if (!token) return { success: false, message: 'No token provided', secrets_count: 0 }
 
+      // SECURITY: hostname is forwarded to the Keeper SDK and used as the
+      // initial enrolment endpoint. A malicious renderer must not be able
+      // to redirect the one-time token to an attacker-controlled host, so
+      // restrict to Keeper's documented region hostnames.
+      const KEEPER_HOSTS = new Set([
+        'keepersecurity.com', 'keepersecurity.eu', 'keepersecurity.com.au',
+        'keepersecurity.jp', 'keepersecurity.ca', 'govcloud.keepersecurity.us',
+      ])
+      const rawHost = typeof args.hostname === 'string' ? args.hostname.trim() : ''
+      if (rawHost && !KEEPER_HOSTS.has(rawHost.toLowerCase())) {
+        return { success: false, message: `Unsupported Keeper hostname: ${rawHost}`, secrets_count: 0 }
+      }
+      const hostname = rawHost ? rawHost.toLowerCase() : undefined
+
       const configPath = getConfigPath()
       try {
         if (fs.existsSync(configPath)) fs.unlinkSync(configPath)
 
         const storage = localConfigStorage(configPath)
-        await initializeStorage(storage, token, args.hostname ?? undefined)
+        await initializeStorage(storage, token, hostname)
         const { records } = await getSecrets({ storage })
 
         secretsCache = buildCache(records)
