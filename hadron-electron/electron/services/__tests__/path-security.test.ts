@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { isSystemPath } from '../path-security'
 
 describe('isSystemPath', () => {
+  it('blocks C:\\Windows', () => expect(isSystemPath('C:\\Windows')).toBe(true))
+  it('blocks C:\\System32', () => expect(isSystemPath('C:\\System32')).toBe(true))
   it('blocks /etc', () => expect(isSystemPath('/etc')).toBe(true))
   it('blocks /etc/passwd', () => expect(isSystemPath('/etc/passwd')).toBe(true))
   it('blocks /sys', () => expect(isSystemPath('/sys')).toBe(true))

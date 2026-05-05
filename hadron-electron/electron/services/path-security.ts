@@ -16,6 +16,8 @@ if (process.env.USERPROFILE) {
   EXTRA.push(
     path.join(process.env.USERPROFILE, '.ssh'),
     path.join(process.env.USERPROFILE, '.gnupg'),
+    path.join(process.env.USERPROFILE, '.aws'),
+    path.join(process.env.USERPROFILE, '.azure'),
   )
 }
 
@@ -24,5 +26,16 @@ const ALL_BLOCKED = [...SYSTEM_PATHS, ...EXTRA].filter(Boolean)
 export function isSystemPath(p: unknown): boolean {
   if (!p || typeof p !== 'string') return false
   const normalized = path.resolve(p)
-  return ALL_BLOCKED.some(d => normalized === d || normalized.startsWith(d + path.sep))
+  // Also check the raw input for Windows-style paths (e.g. C:\Windows) which
+  // path.resolve() mangles on Linux/macOS.
+  const raw = p
+  return ALL_BLOCKED.some(d => {
+    // Resolved comparison (works for POSIX paths and Windows when running on Windows)
+    if (normalized === d || normalized.startsWith(d + path.sep)) return true
+    // Raw case-insensitive comparison for Windows-style paths on any OS
+    const dl = d.toLowerCase()
+    const rl = raw.toLowerCase()
+    const sep = d.includes('\\') ? '\\' : '/'
+    return rl === dl || rl.startsWith(dl + sep)
+  })
 }
