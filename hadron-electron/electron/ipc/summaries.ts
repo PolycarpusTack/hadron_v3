@@ -3,6 +3,7 @@ import { getDb } from '../database'
 import { callAi } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
 import { SERVICE_NAME } from '../services/jira-client'
+import { wrapField } from '../services/prompt-helpers'
 
 const SUMMARY_SYSTEM_PROMPT = `You are a technical writer. Summarize the following support conversation into a structured document. Use this exact format:
 
@@ -40,7 +41,7 @@ export function registerSummaryHandlers(ipcMain: IpcMain): void {
 
     const transcript = messages
       .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => `**${m.role === 'user' ? 'User' : 'Hadron'}:** ${m.content}`)
+      .map(m => `**${m.role === 'user' ? 'User' : 'Hadron'}:** ${wrapField('MESSAGE', m.content)}`)
       .join('\n\n')
 
     let apiKey = p.apiKey ?? ''

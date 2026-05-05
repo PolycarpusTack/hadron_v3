@@ -8,6 +8,7 @@ import { callAi, listModels } from '../services/ai-service'
 import { SERVICE_NAME } from '../services/jira-client'
 import { getApiKeyFromKeeper } from './keeper'
 import { isSystemPath } from '../services/path-security'
+import { wrapField } from '../services/prompt-helpers'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const MAX_PROMPT_CHARS = 100_000
 
@@ -82,7 +83,7 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
         model: p.model,
         apiKey,
         systemPrompt: CRASH_SYSTEM_PROMPT,
-        userPrompt: `Analyze this crash log:\n\nFilename: ${filename}\n\n${content}`,
+        userPrompt: `Analyze this crash log:\n\n${wrapField('FILENAME', filename)}\n\n${wrapField('CRASH_LOG', content)}`,
         maxTokens: 4096,
         stream: true,
         onChunk: (chunk) => {
@@ -361,13 +362,13 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
 
     const userPrompt = [
       `JIRA Ticket: ${p.jira_key}`,
-      `Summary: ${p.summary}`,
-      p.description ? `Description: ${p.description}` : '',
+      `Summary: ${wrapField('SUMMARY', p.summary)}`,
+      p.description ? `Description: ${wrapField('DESCRIPTION', p.description)}` : '',
       p.priority ? `Priority: ${p.priority}` : '',
       p.status ? `Status: ${p.status}` : '',
       p.components?.length ? `Components: ${p.components.join(', ')}` : '',
-      p.labels?.length ? `Labels: ${p.labels.join(', ')}` : '',
-      p.comments?.length ? `Comments:\n${p.comments.join('\n')}` : '',
+      p.labels?.length ? `Labels: ${p.labels.map(l => wrapField('LABEL', l)).join('\n')}` : '',
+      p.comments?.length ? `Comments:\n${p.comments.map(c => wrapField('COMMENT', c)).join('\n')}` : '',
     ].filter(Boolean).join('\n')
 
     const now = new Date().toISOString()
@@ -461,13 +462,13 @@ Return only valid JSON, no markdown fences.`
     const userPrompt = [
       `JIRA Ticket: ${p.jira_key}`,
       `Issue Type: ${p.issue_type ?? 'Unknown'}`,
-      `Summary: ${p.summary}`,
-      p.description ? `Description: ${p.description}` : '',
+      `Summary: ${wrapField('SUMMARY', p.summary)}`,
+      p.description ? `Description: ${wrapField('DESCRIPTION', p.description)}` : '',
       p.priority ? `Priority: ${p.priority}` : '',
       p.status ? `Status: ${p.status}` : '',
       p.components?.length ? `Components: ${p.components.join(', ')}` : '',
-      p.labels?.length ? `Labels: ${p.labels.join(', ')}` : '',
-      p.comments?.length ? `Comments:\n${p.comments.join('\n')}` : '',
+      p.labels?.length ? `Labels: ${p.labels.map(l => wrapField('LABEL', l)).join('\n')}` : '',
+      p.comments?.length ? `Comments:\n${p.comments.map(c => wrapField('COMMENT', c)).join('\n')}` : '',
     ].filter(Boolean).join('\n')
 
     const result = await callAi({
@@ -559,7 +560,7 @@ Return only valid JSON, no markdown fences.`
     const result = await callAi({
       provider, model, apiKey,
       systemPrompt: PERF_SYSTEM_PROMPT,
-      userPrompt: `Analyze this performance trace file:\n\nFilename: ${filename}\n\n${content.substring(0, MAX_PROMPT_CHARS)}`,
+      userPrompt: `Analyze this performance trace file:\n\n${wrapField('FILENAME', filename)}\n\n${wrapField('TRACE_CONTENT', content.substring(0, MAX_PROMPT_CHARS))}`,
       maxTokens: 4096,
     })
 

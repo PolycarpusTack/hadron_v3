@@ -5,6 +5,7 @@ import { callAi } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
 import { readJiraCreds, readJiraProjectKey, jiraFetch, SERVICE_NAME } from '../services/jira-client'
 import { ftsPhrase } from '../services/db-helpers'
+import { wrapField } from '../services/prompt-helpers'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // System prompts
@@ -139,7 +140,7 @@ async function runPollerCycle(): Promise<void> {
       const triageResult = await callAi({
         provider, model, apiKey,
         systemPrompt: TRIAGE_SYSTEM_PROMPT,
-        userPrompt: `Ticket: ${issue.key}\nSummary: ${summary}\nDescription: ${description}`,
+        userPrompt: `Ticket: ${issue.key}\nSummary: ${wrapField('SUMMARY', summary)}\nDescription: ${wrapField('DESCRIPTION', description)}`,
         maxTokens: 512,
       })
 
@@ -224,7 +225,7 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
       const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string })
       const jiraKey = p.jira_key ?? p.jiraKey ?? ''
       const apiKey = getApiKey(p.provider)
-      const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${p.title}\n\nDescription:\n${p.description}`
+      const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${wrapField('TITLE', p.title)}\n\nDescription:\n${wrapField('DESCRIPTION', p.description)}`
 
       const aiResult = await callAi({
         provider: p.provider,
@@ -280,7 +281,7 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
       const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string })
       const jiraKey = p.jira_key ?? p.jiraKey ?? ''
       const apiKey = getApiKey(p.provider)
-      const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${p.title}\n\nDescription:\n${p.description}`
+      const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${wrapField('TITLE', p.title)}\n\nDescription:\n${wrapField('DESCRIPTION', p.description)}`
 
       const aiResult = await callAi({
         provider: p.provider,
