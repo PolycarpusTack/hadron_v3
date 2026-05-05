@@ -1,12 +1,18 @@
 import { IpcMain, app, clipboard } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import updaterPkg from 'electron-updater'
+const { autoUpdater } = updaterPkg
 import Store from 'electron-store'
 import log from 'electron-log'
-import fs from 'fs/promises'
 import { getSecret, setSecret, deleteSecret } from '../services/safe-storage'
 import { getDb } from '../database'
 
 const stores = new Map<string, InstanceType<typeof Store>>()
+
+// Store names prefixed with '_' are reserved for main-process-only use.
+// The renderer must never be allowed to write to them.
+function isRendererWritable(name: string): boolean {
+  return !name.startsWith('_')
+}
 
 function getStore(name: string): InstanceType<typeof Store> {
   if (!stores.has(name)) stores.set(name, new Store({ name }))
@@ -19,10 +25,12 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('store:set', (_e, { store, key, value }: { store: string; key: string; value: unknown }) => {
+    if (!isRendererWritable(store)) return
     getStore(store).set(key, value)
   })
 
   ipcMain.handle('store:delete', (_e, { store, key }: { store: string; key: string }) => {
+    if (!isRendererWritable(store)) return
     getStore(store).delete(key)
   })
 
@@ -31,28 +39,43 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('store:entries', (_e, { store }: { store: string }) => {
+    if (!isRendererWritable(store)) return []
     return Object.entries(getStore(store).store)
   })
 
-  ipcMain.handle('keytar:get', (_e, { service, account }: { service: string; account: string }) => {
+  // Keytar handlers ignore the renderer-supplied service and always use the
+  // app's own service name, preventing a compromised renderer from reading
+  // credentials that belong to other applications.
+  const KEYTAR_SERVICE = 'hadron-electron'
+
+  ipcMain.handle('keytar:get', (_e, { account }: { service?: string; account: string }) => {
     try {
-      return getSecret(service, account)
+      return getSecret(KEYTAR_SERVICE, account)
     } catch (err) {
       log.warn('keytar:get failed', err)
       return null
     }
   })
 
-  ipcMain.handle('keytar:set', (_e, { service, account, password }: { service: string; account: string; password: string }) => {
-    setSecret(service, account, password)
+  ipcMain.handle('keytar:set', (_e, { account, password }: { service?: string; account: string; password: string }) => {
+    setSecret(KEYTAR_SERVICE, account, password)
   })
 
-  ipcMain.handle('keytar:delete', (_e, { service, account }: { service: string; account: string }) => {
-    deleteSecret(service, account)
+  ipcMain.handle('keytar:delete', (_e, { account }: { service?: string; account: string }) => {
+    deleteSecret(KEYTAR_SERVICE, account)
   })
 
+  // Only expose a vetted subset of app.getPath() names. This prevents the
+  // renderer from probing locations the UI never legitimately needs (e.g.
+  // 'crashDumps', 'sessionData') and stops typos/junk from throwing
+  // unhelpful errors that could leak internals.
+  const ALLOWED_GET_PATH = new Set<Parameters<typeof app.getPath>[0]>([
+    'home', 'appData', 'userData', 'sessionData', 'temp', 'logs', 'documents', 'downloads', 'desktop',
+  ])
   ipcMain.handle('app:getPath', (_e, name: string) => {
-    return app.getPath(name as Parameters<typeof app.getPath>[0])
+    const n = name as Parameters<typeof app.getPath>[0]
+    if (!ALLOWED_GET_PATH.has(n)) throw new Error(`Disallowed path name: ${name}`)
+    return app.getPath(n)
   })
 
   ipcMain.handle('app:exit', (_e, { code }: { code: number }) => {
@@ -64,14 +87,6 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('clipboard:read', () => clipboard.readText())
-
-  ipcMain.handle('fs:writeFile', async (_e, { filePath, content }: { filePath: string; content: string }) => {
-    await fs.writeFile(filePath, content, 'utf-8')
-  })
-
-  ipcMain.handle('fs:writeFileBytes', async (_e, { filePath, bytes }: { filePath: string; bytes: number[] }) => {
-    await fs.writeFile(filePath, Buffer.from(bytes))
-  })
 
   ipcMain.handle('export_diagnostics', () => {
     const db = getDb()
@@ -117,5 +132,23 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
       log.warn('updater:download-and-install failed:', err)
       throw err
     }
+  })
+
+  const codexMgxStore = new Store({ name: 'settings' })
+
+  ipcMain.handle('get_codexmgx_config', () => {
+    return {
+      scriptPath: codexMgxStore.get('codexmgx_script_path', '') as string,
+      enabled: codexMgxStore.get('codexmgx_enabled', false) as boolean,
+    }
+  })
+
+  ipcMain.handle('save_codexmgx_config', (_e, args: { scriptPath: string; enabled: boolean }) => {
+    codexMgxStore.set('codexmgx_script_path', args.scriptPath)
+    codexMgxStore.set('codexmgx_enabled', args.enabled)
+    // Reset singleton so it re-initializes with the new path on next use
+    const { shutdownMcpClient } = require('../services/mcp-client') as typeof import('../services/mcp-client')
+    shutdownMcpClient()
+    return { ok: true }
   })
 }

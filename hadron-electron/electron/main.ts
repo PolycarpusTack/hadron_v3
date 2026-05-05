@@ -5,6 +5,7 @@ import log from 'electron-log'
 import { initDatabase } from './database'
 import { registerAllHandlers } from './ipc/index'
 import { preloadSavedExportDir } from './ipc/dialogAllowlist'
+import { shutdownMcpClient } from './services/mcp-client'
 
 log.initialize()
 log.transports.file.level = 'info'
@@ -75,4 +76,8 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  shutdownMcpClient()
 })
