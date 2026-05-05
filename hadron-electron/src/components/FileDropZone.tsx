@@ -1,14 +1,18 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Upload, FileText, Loader2, ClipboardPaste, X, Clock, AlertCircle, ChevronRight, RotateCcw, Eye } from "lucide-react";
+import { Upload, FileText, Loader2, ClipboardPaste, X, Clock, AlertCircle, ChevronRight, RotateCcw, Eye, ChevronDown, Shield } from "lucide-react";
 import Button from "./ui/Button";
 import Modal from "./ui/Modal";
-import { open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "../lib/tauri-dialog-shim";
+import { invoke } from "../lib/tauri-core-shim";
+import { getCurrentWebview } from "../lib/tauri-window-shim";
 import logger from "../services/logger";
 import type { Analysis, AnalysisMode } from "../services/api";
 import { formatDistanceToNow } from "date-fns";
 import AnalysisProgressBar from "./AnalysisProgressBar";
+import { AI_PROVIDERS, getCuratedModelsForProvider, getDefaultModelForProvider } from "../constants/providers";
+import { STORAGE_KEYS, providerModelKey } from "../utils/config";
+import { getModelSafeLimit, formatBytes } from "../utils/model-fit";
+import { CURATED_MODELS } from "../constants/providers";
 
 interface FileDropZoneProps {
   onFileSelect: (filePath: string, analysisType: string, analysisMode: AnalysisMode) => void;
@@ -69,6 +73,13 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
   const [pastedContent, setPastedContent] = useState("");
   const [recentAnalyses, setRecentAnalyses] = useState<Analysis[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
+  const [showOptions, setShowOptions] = useState(false);
+  const [provider, setProvider] = useState(() => localStorage.getItem(STORAGE_KEYS.AI_PROVIDER) || "openai");
+  const [model, setModel] = useState(() => {
+    const p = localStorage.getItem(STORAGE_KEYS.AI_PROVIDER) || "openai";
+    return localStorage.getItem(STORAGE_KEYS.AI_MODEL) || getDefaultModelForProvider(p);
+  });
+  const [piiRedaction, setPiiRedaction] = useState(() => localStorage.getItem(STORAGE_KEYS.PII_REDACTION_ENABLED) === "true");
 
   // Fetch recent analyses on mount
   useEffect(() => {
@@ -152,6 +163,29 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
     e.preventDefault();
     setIsDragging(false);
     // Actual file handling is done by Tauri's onDragDropEvent above
+  }, []);
+
+  const handleProviderChange = useCallback((newProvider: string) => {
+    setProvider(newProvider);
+    localStorage.setItem(STORAGE_KEYS.AI_PROVIDER, newProvider);
+    const savedModel = localStorage.getItem(providerModelKey(newProvider));
+    const newModel = savedModel || getDefaultModelForProvider(newProvider);
+    setModel(newModel);
+    localStorage.setItem(STORAGE_KEYS.AI_MODEL, newModel);
+  }, []);
+
+  const handleModelChange = useCallback((newModel: string, currentProvider: string) => {
+    setModel(newModel);
+    localStorage.setItem(STORAGE_KEYS.AI_MODEL, newModel);
+    localStorage.setItem(providerModelKey(currentProvider), newModel);
+  }, []);
+
+  const handlePiiToggle = useCallback(() => {
+    setPiiRedaction(prev => {
+      const next = !prev;
+      localStorage.setItem(STORAGE_KEYS.PII_REDACTION_ENABLED, String(next));
+      return next;
+    });
   }, []);
 
   const handleSelectFile = useCallback(async () => {
@@ -277,7 +311,7 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
                     or select files to analyze
                   </p>
                   <p className="text-xs mb-5" style={{ color: 'var(--hd-text-dim)' }}>
-                    Supports .txt and .log files up to 5MB
+                    Recommended under 1MB · .txt and .log files
                   </p>
                   {dropRejectedMsg && (
                     <p className="text-xs mb-3 text-amber-400">{dropRejectedMsg}</p>
@@ -334,6 +368,137 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
                 >
                   Start Analysis
                 </Button>
+              </div>
+
+              {/* Analysis Options — inline provider / model / PII controls */}
+              <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowOptions(v => !v)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '6px', width: '100%', textAlign: 'left',
+                    fontSize: '12px', color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none',
+                    cursor: 'pointer', padding: '2px 0',
+                  }}
+                >
+                  <ChevronDown style={{ width: 13, height: 13, transform: showOptions ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
+                  <span>Analysis Options</span>
+                  {!showOptions && (
+                    <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'rgba(255,255,255,0.25)', fontFamily: 'JetBrains Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '220px' }}>
+                      {AI_PROVIDERS.find(p => p.value === provider)?.label ?? provider}
+                      {' · '}
+                      {(() => { const m = model.split('/').pop() ?? model; return m.length > 22 ? m.slice(0, 22) + '…' : m; })()}
+                      {piiRedaction ? ' · PII on' : ''}
+                    </span>
+                  )}
+                </button>
+
+                {showOptions && (
+                  <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {/* Provider + Model */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '5px' }}>
+                          Provider
+                        </label>
+                        <select
+                          value={provider}
+                          onChange={e => handleProviderChange(e.target.value)}
+                          disabled={isAnalyzing}
+                          style={{
+                            width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px', padding: '6px 8px', fontSize: '12px', color: 'rgba(255,255,255,0.85)',
+                            cursor: isAnalyzing ? 'not-allowed' : 'pointer', outline: 'none',
+                          }}
+                        >
+                          {AI_PROVIDERS.map(p => (
+                            <option key={p.value} value={p.value} style={{ background: '#1a1a1e' }}>{p.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '5px' }}>
+                          Model
+                        </label>
+                        <select
+                          value={model}
+                          onChange={e => handleModelChange(e.target.value, provider)}
+                          disabled={isAnalyzing}
+                          style={{
+                            width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px', padding: '6px 8px', fontSize: '12px', color: 'rgba(255,255,255,0.85)',
+                            cursor: isAnalyzing ? 'not-allowed' : 'pointer', outline: 'none',
+                          }}
+                        >
+                          {getCuratedModelsForProvider(provider).map(m => (
+                            <option key={m.id} value={m.id} style={{ background: '#1a1a1e' }}>
+                              {m.label}{m.context ? ` (${Math.round(m.context / 1000)}K)` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Fit warning — shown when current model has < 200K context */}
+                    {(() => {
+                      const limit = getModelSafeLimit(provider, model);
+                      if (limit >= 560_000) return null;
+                      const best = (CURATED_MODELS[provider] ?? [])
+                        .filter((m) => m.suitableForHadron === true && (m.context ?? 0) > 0)
+                        .sort((a, b) => (b.context ?? 0) - (a.context ?? 0))[0];
+                      return (
+                        <div style={{
+                          background: "rgba(245,158,11,0.08)",
+                          border: "1px solid rgba(245,158,11,0.25)",
+                          borderRadius: "6px",
+                          padding: "8px 10px",
+                        }}>
+                          <p style={{ fontSize: "11px", fontWeight: 600, color: "#f59e0b", marginBottom: "2px", margin: 0 }}>
+                            ⚠ File may be truncated
+                          </p>
+                          <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)", margin: "4px 0 0" }}>
+                            Current model handles ~{formatBytes(limit)}. For large logs, consider {best?.label ?? "a larger-context model"}.
+                          </p>
+                        </div>
+                      );
+                    })()}
+
+                    {/* PII Redaction */}
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px 10px',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Shield style={{ width: 13, height: 13, color: piiRedaction ? '#10b981' : 'rgba(255,255,255,0.3)', flexShrink: 0 }} />
+                        <div>
+                          <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', margin: 0, lineHeight: '1.4' }}>PII Redaction</p>
+                          <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', margin: 0, lineHeight: '1.4' }}>
+                            Strip emails, IPs, and identifiers before sending to AI
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handlePiiToggle}
+                        aria-label={piiRedaction ? 'Disable PII redaction' : 'Enable PII redaction'}
+                        style={{
+                          width: '36px', height: '20px', borderRadius: '10px', border: 'none',
+                          cursor: 'pointer', background: piiRedaction ? '#10b981' : 'rgba(255,255,255,0.12)',
+                          position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                        }}
+                      >
+                        <span style={{
+                          position: 'absolute', top: '2px',
+                          left: piiRedaction ? '18px' : '2px',
+                          width: '16px', height: '16px', borderRadius: '50%',
+                          background: 'white', transition: 'left 0.15s', display: 'block',
+                        }} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
