@@ -125,7 +125,7 @@ export default function AppHeader({
               {isOpen && (
                 <StatusPopover
                   dimension={dim}
-                  onOpenSettings={(section) => onOpenSettings?.(section)}
+                  onOpenSettings={onOpenSettings}
                   onClose={() => setOpenPopover(null)}
                   anchorEl={dotRefs.current[key] ?? null}
                 />
