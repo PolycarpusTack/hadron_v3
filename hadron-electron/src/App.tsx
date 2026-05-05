@@ -25,13 +25,14 @@ import { analyzeCode } from "./services/code-analysis";
 import { isJiraEnabled } from "./services/jira";
 import { isSentryEnabled } from "./services/sentry";
 import { checkAndUpdate } from "./services/updater";
-import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { invoke } from "./lib/tauri-core-shim";
+import { emit } from "./lib/tauri-event-shim";
 import { STORAGE_KEYS, getBooleanSetting } from "./utils/config";
 import { getApiKey, migrateFromLocalStorage, syncSettingsToElectronStore } from "./services/secure-storage";
 import { isKeeperEnabledForProvider, isKeeperBackendConfigured } from "./services/keeper";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAppState } from "./hooks/useAppState";
+import { useReadinessStatus } from "./hooks/useReadinessStatus";
 import { retryOperation, getUserFriendlyErrorMessage, getRecoverySuggestions } from "./utils/errorHandling";
 import logger from "./services/logger";
 import type { ChatMessage } from "./services/chat";
@@ -57,6 +58,7 @@ function LazyLoadFallback() {
 
 function App() {
   const { state, actions } = useAppState();
+  const readinessStatus = useReadinessStatus();
   const [showConsole, setShowConsole] = useState(false);
   const [showDocs, setShowDocs] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
@@ -322,8 +324,8 @@ function App() {
   }, [actions]);
 
   useEffect(() => {
-    isJiraEnabled().then(setJiraEnabled);
-    isSentryEnabled().then(setSentryEnabled);
+    isJiraEnabled().then(setJiraEnabled).catch(() => {});
+    isSentryEnabled().then(setSentryEnabled).catch(() => {});
   }, []);
 
   // Update theme when it changes
@@ -343,7 +345,7 @@ function App() {
     const unlisteners: Array<() => void> = [];
 
     const setupListeners = async () => {
-      const { listen } = await import("@tauri-apps/api/event");
+      const { listen } = await import("./lib/tauri-event-shim");
       if (cancelled) return;
 
       const unlistenOpenInMain = await listen<{ messages?: Array<{ role: string; content: string }> }>(
@@ -432,7 +434,7 @@ function App() {
 
     try {
       if (!apiKey) {
-        throw new Error("Please set your OpenAI API key in Settings");
+        throw new Error("Please configure an API key in Settings");
       }
 
       const model = getStoredModel();
@@ -498,7 +500,7 @@ function App() {
 
     try {
       if (!apiKey) {
-        throw new Error("Please set your OpenAI API key in Settings");
+        throw new Error("Please configure an API key in Settings");
       }
 
       const model = getStoredModel();
@@ -633,9 +635,7 @@ function App() {
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
         <AppHeader
-          providerName={getStoredProvider()}
-          jiraConnected={jiraEnabled}
-          sentryConnected={sentryEnabled}
+          readinessStatus={readinessStatus}
           onOpenSettings={() => actions.setView("configure")}
           onOpenAskHadronDrawer={() => setDrawerOpen(true)}
           onOpenDashboard={() => setShowDashboard(true)}
