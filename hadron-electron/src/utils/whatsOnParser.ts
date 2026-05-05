@@ -178,7 +178,7 @@ function synthesizeFromFlat(
       potentiallyAffected: [],
     },
     testScenarios: [],
-    stackTrace: stackTrace ? { frames: [], rawTrace: stackTrace } : undefined,
+    stackTrace: stackTrace ? { frames: [], totalFrames: 0 } : undefined,
   };
 }
 

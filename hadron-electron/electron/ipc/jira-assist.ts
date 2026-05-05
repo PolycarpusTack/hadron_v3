@@ -7,6 +7,7 @@ import { readJiraCreds, readJiraProjectKey, jiraFetch, SERVICE_NAME } from '../s
 import { ftsPhrase } from '../services/db-helpers'
 import { wrapField } from '../services/prompt-helpers'
 import { aiRateLimiter } from '../services/rate-limiter'
+import { getApiKeyFromKeeper, getKeeperUidForProvider } from './keeper'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // System prompts
@@ -49,10 +50,11 @@ Return only valid JSON with no markdown fences.`
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-function getApiKey(provider: string): string {
-  const key = getSecret(SERVICE_NAME, provider)
-  if (!key) throw new Error(`No API key configured for provider '${provider}'`)
-  return key
+async function resolveApiKey(provider: string, keeperSecretUid?: string | null): Promise<string> {
+  const stored = getSecret(SERVICE_NAME, provider)
+  if (stored) return stored
+  if (keeperSecretUid) return getApiKeyFromKeeper(keeperSecretUid)
+  throw new Error(`No API key configured for provider '${provider}'`)
 }
 
 function parseJsonResponse(content: string, fallback: unknown): unknown {
@@ -132,10 +134,23 @@ async function runPollerCycle(): Promise<void> {
         ? (typeof fields.description === 'string' ? fields.description : JSON.stringify(fields.description)).substring(0, 2000)
         : ''
 
-      const apiKey = getSecret(SERVICE_NAME, 'openai') || getSecret(SERVICE_NAME, 'anthropic') || ''
-      if (!apiKey) continue
+      const POLLER_PROVIDERS = ['openai', 'anthropic'] as const
+      let provider: (typeof POLLER_PROVIDERS)[number] | null = null
+      let apiKey = ''
+      for (const p of POLLER_PROVIDERS) {
+        const direct = getSecret(SERVICE_NAME, p)
+        if (direct) { provider = p; apiKey = direct; break }
+      }
+      if (!provider) {
+        for (const p of POLLER_PROVIDERS) {
+          const uid = getKeeperUidForProvider(p)
+          if (uid) {
+            try { apiKey = await getApiKeyFromKeeper(uid); provider = p; break } catch { /* try next */ }
+          }
+        }
+      }
+      if (!provider || !apiKey) continue
 
-      const provider = getSecret(SERVICE_NAME, 'openai') ? 'openai' : 'anthropic'
       const model = provider === 'openai' ? 'gpt-4o-mini' : 'claude-haiku-4-5-20251001'
 
       // Rate limiter is intentionally not applied here — the poller runs on a
@@ -222,17 +237,17 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
   // 5. triage_jira_ticket
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('triage_jira_ticket', async (_e, args: {
-    request?: { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string }
-    jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string
+    request?: { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string; keeperSecretUid?: string | null }
+    jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string; keeperSecretUid?: string | null
   }) => {
     try {
       if (!aiRateLimiter.tryAcquire('ai')) {
         throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
       }
       // Accept both direct args and Tauri-style { request } wrapper; accept jira_key or jiraKey
-      const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string })
+      const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string; keeperSecretUid?: string | null })
       const jiraKey = p.jira_key ?? p.jiraKey ?? ''
-      const apiKey = getApiKey(p.provider)
+      const apiKey = await resolveApiKey(p.provider, p.keeperSecretUid)
       const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${wrapField('TITLE', p.title)}\n\nDescription:\n${wrapField('DESCRIPTION', p.description)}`
 
       const aiResult = await callAi({
@@ -281,17 +296,17 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
   // 6. generate_ticket_brief
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('generate_ticket_brief', async (_e, args: {
-    request?: { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string }
-    jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string
+    request?: { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string; keeperSecretUid?: string | null }
+    jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string; keeperSecretUid?: string | null
   }) => {
     try {
       if (!aiRateLimiter.tryAcquire('ai')) {
         throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
       }
       // Accept both direct args and Tauri-style { request } wrapper; accept jira_key or jiraKey
-      const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string })
+      const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string; keeperSecretUid?: string | null })
       const jiraKey = p.jira_key ?? p.jiraKey ?? ''
-      const apiKey = getApiKey(p.provider)
+      const apiKey = await resolveApiKey(p.provider, p.keeperSecretUid)
       const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${wrapField('TITLE', p.title)}\n\nDescription:\n${wrapField('DESCRIPTION', p.description)}`
 
       const aiResult = await callAi({

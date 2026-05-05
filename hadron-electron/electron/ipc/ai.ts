@@ -6,7 +6,7 @@ import { getSecret } from '../services/safe-storage'
 import { getDb } from '../database'
 import { callAi, listModels } from '../services/ai-service'
 import { SERVICE_NAME } from '../services/jira-client'
-import { getApiKeyFromKeeper } from './keeper'
+import { getApiKeyFromKeeper, getKeeperUidForProvider } from './keeper'
 import { isSystemPath } from '../services/path-security'
 import { wrapField } from '../services/prompt-helpers'
 import { aiRateLimiter } from '../services/rate-limiter'
@@ -336,11 +336,12 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     target_language?: string
     provider: string
     model: string
+    keeper_secret_uid?: string | null
   }) => {
     if (!aiRateLimiter.tryAcquire('ai')) {
       throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
     }
-    const apiKey = await getKey(args.provider)
+    const apiKey = await resolveKey(args.provider, args.keeper_secret_uid)
     const lang = args.target_language ?? 'English'
     let translated = ''
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -498,6 +499,7 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
       components?: string[]
       labels?: string[]
       api_key?: string
+      keeper_secret_uid?: string | null
       model?: string
       provider?: string
       use_rag?: boolean
@@ -513,7 +515,7 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     const provider = p.provider ?? 'openai'
     const model = p.model ?? 'gpt-4o'
     let apiKey = p.api_key ?? ''
-    if (!apiKey) apiKey = getKey(provider)
+    if (!apiKey) apiKey = await resolveKey(provider, p.keeper_secret_uid)
 
     const userPrompt = [
       `JIRA Ticket: ${p.jira_key}`,
@@ -530,7 +532,7 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     const start = Date.now()
     const result = await callAi({
       provider, model, apiKey,
-      systemPrompt: CRASH_SYSTEM_PROMPT,
+      systemPrompt: JIRA_DEEP_SYSTEM_PROMPT,
       userPrompt: `Analyze this JIRA ticket:\n\n${userPrompt}`,
       maxTokens: 4096,
     })
@@ -607,6 +609,7 @@ Return only valid JSON, no markdown fences.`
       comments?: string[]
       model?: string
       provider?: string
+      keeper_secret_uid?: string | null
     }
   }) => {
     const p = args.request
@@ -615,7 +618,7 @@ Return only valid JSON, no markdown fences.`
     }
     const provider = p.provider ?? 'openai'
     const model = p.model ?? 'gpt-4o'
-    const apiKey = getKey(provider)
+    const apiKey = await resolveKey(provider, p.keeper_secret_uid)
 
     const userPrompt = [
       `JIRA Ticket: ${p.jira_key}`,
@@ -708,15 +711,27 @@ Return only valid JSON, no markdown fences.`
     const content = await fs.readFile(args.filePath, 'utf-8')
     const filename = path.basename(args.filePath)
 
-    // No provider/model sent by frontend — pick the first configured one
+    // No provider/model sent by frontend — pick the first configured one (direct then Keeper)
     const FALLBACK_PROVIDERS: Array<[string, string]> = [
       ['openai', 'gpt-4o'],
       ['anthropic', 'claude-sonnet-4-6'],
     ]
-    const entry = FALLBACK_PROVIDERS.find(([p]) => !!getSecret(SERVICE_NAME, p))
-    if (!entry) throw new Error('No AI provider configured. Add an API key in Settings.')
-    const [provider, model] = entry
-    const apiKey = getKey(provider)
+    let provider: string | null = null
+    let model: string | null = null
+    let apiKey = ''
+    for (const [p, m] of FALLBACK_PROVIDERS) {
+      const direct = getSecret(SERVICE_NAME, p)
+      if (direct) { provider = p; model = m; apiKey = direct; break }
+    }
+    if (!provider) {
+      for (const [p, m] of FALLBACK_PROVIDERS) {
+        const uid = getKeeperUidForProvider(p)
+        if (uid) {
+          try { apiKey = await getApiKeyFromKeeper(uid); provider = p; model = m; break } catch { /* try next */ }
+        }
+      }
+    }
+    if (!provider || !model || !apiKey) throw new Error('No AI provider configured. Add an API key in Settings.')
 
     const result = await callAi({
       provider, model, apiKey,

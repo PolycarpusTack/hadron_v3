@@ -1,12 +1,15 @@
 import { IpcMain, app } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import Store from 'electron-store'
 import {
   initializeStorage,
   getSecrets,
   localConfigStorage,
   type KeeperRecord,
 } from '@keeper-security/secrets-manager-core'
+
+const keeperSettingsStore = new Store({ name: 'settings' })
 
 const CACHE_TTL_MS = 5 * 60 * 1000
 
@@ -118,6 +121,23 @@ function buildCache(records: KeeperRecord[]): SecretsCache {
       password: extractSecretValue(r),
     })),
     cachedAt: Date.now(),
+  }
+}
+
+/**
+ * Read the Keeper secret UID mapped to a provider from the main-process settings store.
+ * Used by background workers (poller, perf trace) that have no frontend-provided UID.
+ * Returns null if Keeper is not enabled or the provider has no mapping.
+ */
+export function getKeeperUidForProvider(provider: string): string | null {
+  const raw = keeperSettingsStore.get('keeper_config') as string | undefined
+  if (!raw) return null
+  try {
+    const cfg = JSON.parse(raw) as { enabled?: boolean; secretMappings?: Record<string, string> }
+    if (!cfg.enabled) return null
+    return cfg.secretMappings?.[provider] ?? null
+  } catch {
+    return null
   }
 }
 

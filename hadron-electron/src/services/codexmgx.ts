@@ -16,5 +16,5 @@ export async function getCodexMgXConfig(): Promise<CodexMgXConfig> {
 }
 
 export async function saveCodexMgXConfig(config: CodexMgXConfig): Promise<void> {
-  await invoke<void>('save_codexmgx_config', config)
+  await invoke<void>('save_codexmgx_config', config as unknown as Record<string, unknown>)
 }

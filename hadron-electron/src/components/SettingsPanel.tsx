@@ -115,6 +115,7 @@ export default function SettingsPanel({
     enabled: false,
   });
   const [codexMgxAdvanced, setCodexMgxAdvanced] = useState(false);
+  const codexMgxLoadedRef = useRef(false);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
@@ -238,7 +239,7 @@ export default function SettingsPanel({
     if (isOpen) {
       isJiraEnabled().then(setJiraConnected).catch(() => setJiraConnected(false));
       isSentryEnabled().then(setSentryConnected).catch(() => setSentryConnected(false));
-      getCodexMgXConfig().then(setCodexMgxConfig).catch(() => {});
+      getCodexMgXConfig().then(cfg => { setCodexMgxConfig(cfg); codexMgxLoadedRef.current = true }).catch(() => {});
     }
   }, [isOpen]);
 
@@ -431,7 +432,7 @@ export default function SettingsPanel({
         }
       }
 
-      await saveCodexMgXConfig(codexMgxConfig);
+      if (codexMgxLoadedRef.current) await saveCodexMgXConfig(codexMgxConfig);
 
       setSaveMessage("Settings saved successfully!");
       safeTimeout(() => {

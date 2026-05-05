@@ -47,7 +47,8 @@ class McpClient {
   private process: ChildProcess | null = null
   private nextId = 1
   private pending = new Map<number, PendingRequest>()
-  private buffer = ''
+  // Raw buffer for Content-Length framing (never decoded as a whole string)
+  private rawBuffer = Buffer.alloc(0)
   private initialized = false
   private tools: McpTool[] = []
 
@@ -77,9 +78,10 @@ class McpClient {
       windowsHide: true,
     })
 
-    this.process.stdout!.setEncoding('utf8')
-    this.process.stdout!.on('data', (chunk: string) => {
-      this.buffer += chunk
+    // Work with raw Buffers — the server uses Content-Length framing where the
+    // header byte count may differ from character count for non-ASCII JSON.
+    this.process.stdout!.on('data', (chunk: Buffer) => {
+      this.rawBuffer = Buffer.concat([this.rawBuffer, chunk])
       this.processBuffer()
     })
     this.process.stderr!.on('data', (data: Buffer) => {
@@ -96,7 +98,6 @@ class McpClient {
     })
     this.process.on('error', (err) => {
       log.error('[MCP] Process error:', err)
-      // Reject all pending requests — process won't recover
       for (const [, { reject }] of this.pending) {
         reject(err)
       }
@@ -119,14 +120,34 @@ class McpClient {
     this.initialized = true
   }
 
+  /**
+   * Parse LSP-style Content-Length framing from the raw byte buffer.
+   * Format: "Content-Length: <n>\r\n\r\n<utf8-body>"
+   */
   private processBuffer(): void {
-    const lines = this.buffer.split('\n')
-    this.buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
+    while (true) {
+      // Look for the \r\n\r\n header terminator
+      const headerEnd = this.rawBuffer.indexOf('\r\n\r\n')
+      if (headerEnd === -1) break
+
+      const headerStr = this.rawBuffer.slice(0, headerEnd).toString('ascii')
+      const match = headerStr.match(/Content-Length:\s*(\d+)/i)
+      if (!match) {
+        // Malformed header — skip past the separator and try again
+        this.rawBuffer = this.rawBuffer.slice(headerEnd + 4)
+        continue
+      }
+
+      const contentLength = parseInt(match[1], 10)
+      const bodyStart = headerEnd + 4
+
+      if (this.rawBuffer.length < bodyStart + contentLength) break // incomplete, wait for more data
+
+      const body = this.rawBuffer.slice(bodyStart, bodyStart + contentLength).toString('utf8')
+      this.rawBuffer = this.rawBuffer.slice(bodyStart + contentLength)
+
       try {
-        const msg = JSON.parse(trimmed) as JsonRpcResponse
+        const msg = JSON.parse(body) as JsonRpcResponse
         if (msg.id !== undefined) {
           const pending = this.pending.get(msg.id)
           if (pending) {
@@ -139,7 +160,7 @@ class McpClient {
           }
         }
       } catch {
-        // Non-JSON output (startup logs, etc.) — ignore
+        // Non-JSON body (startup messages, etc.) — ignore
       }
     }
   }
@@ -149,12 +170,12 @@ class McpClient {
       const id = this.nextId++
       const req: JsonRpcRequest = { jsonrpc: '2.0', id, method, params }
       this.pending.set(id, { resolve, reject })
-      const line = JSON.stringify(req) + '\n'
       try {
-        this.process!.stdin!.write(line)
+        this.writeFramed(req)
       } catch (e) {
         this.pending.delete(id)
         reject(e)
+        return
       }
       setTimeout(() => {
         if (this.pending.has(id)) {
@@ -166,8 +187,16 @@ class McpClient {
   }
 
   private sendNotification(method: string, params: unknown): void {
-    const msg = JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n'
-    try { this.process?.stdin?.write(msg) } catch { /* ignore */ }
+    try {
+      this.writeFramed({ jsonrpc: '2.0', method, params })
+    } catch { /* ignore */ }
+  }
+
+  /** Write a single JSON-RPC message with Content-Length framing. */
+  private writeFramed(msg: unknown): void {
+    const bodyBytes = Buffer.from(JSON.stringify(msg), 'utf8')
+    const header = Buffer.from(`Content-Length: ${bodyBytes.length}\r\n\r\n`, 'ascii')
+    this.process!.stdin!.write(Buffer.concat([header, bodyBytes]))
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<string> {
@@ -193,6 +222,7 @@ class McpClient {
     try { this.process?.kill() } catch { /* ignore */ }
     this.process = null
     this.initialized = false
+    this.rawBuffer = Buffer.alloc(0)
     this.pending.clear()
   }
 }
