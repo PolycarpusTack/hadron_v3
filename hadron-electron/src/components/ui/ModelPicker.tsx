@@ -50,7 +50,7 @@ export default function ModelPicker({ provider, value, models, onChange, classNa
   });
 
   // Mutually exclusive groups — order: local → recommended → mayTruncate
-  const local = enriched.filter((m) => !m.context || m.context === 0);
+  const local = enriched.filter((m) => (!m.context || m.context === 0) && m.suitableForHadron !== true);
   const recommended = enriched.filter((m) => m.suitableForHadron === true);
   const mayTruncate = enriched.filter((m) => m.suitableForHadron !== true && m.context && m.context > 0);
 
