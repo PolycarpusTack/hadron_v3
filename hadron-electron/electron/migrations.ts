@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import log from 'electron-log'
 
-const CURRENT_VERSION = 14
+const CURRENT_VERSION = 15
 
 export function runMigrations(db: Database.Database): void {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_versions (
@@ -31,6 +31,7 @@ export function runMigrations(db: Database.Database): void {
     { version: 12, name: 'ask_hadron_2',            up: m012 },
     { version: 13, name: 'canonicalize_jira_type',  up: m013 },
     { version: 14, name: 'jira_assist_tables',      up: m014 },
+    { version: 15, name: 'fts_indices',             up: m015 },
   ]
 
   for (const m of migrations) {
@@ -416,5 +417,15 @@ function m014(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_ticket_embeddings_jira_key ON ticket_embeddings(jira_key);
+  `)
+}
+
+function m015(db: Database.Database): void {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS ticket_briefs_fts
+      USING fts5(jira_key, title, triage_json, content=ticket_briefs, content_rowid=rowid);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS retrieval_chunks_fts
+      USING fts5(content, metadata_json, content=retrieval_chunks, content_rowid=id);
   `)
 }

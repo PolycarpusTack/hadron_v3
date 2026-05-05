@@ -12,17 +12,17 @@ beforeEach(() => {
 afterEach(() => db.close())
 
 describe('migrations', () => {
-  it('runs all 14 migrations from empty', () => {
+  it('runs all 15 migrations from empty', () => {
     runMigrations(db)
     const version = (db.prepare('SELECT MAX(version) AS v FROM schema_versions').get() as { v: number }).v
-    expect(version).toBe(14)
+    expect(version).toBe(15)
   })
 
   it('is idempotent — running twice is safe', () => {
     runMigrations(db)
     runMigrations(db)
     const count = (db.prepare('SELECT COUNT(*) AS c FROM schema_versions').get() as { c: number }).c
-    expect(count).toBe(14)
+    expect(count).toBe(15)
   })
 
   it('seeds 8 default tags', () => {
