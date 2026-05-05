@@ -8,10 +8,16 @@ describe('sanitiseForPrompt', () => {
     expect(sanitiseForPrompt('<<<INJECT')).not.toContain('<<<'))
   it('replaces >>> with the safe lookalike', () =>
     expect(sanitiseForPrompt('INJECT>>>')).not.toContain('>>>'))
-  it('handles non-string input', () =>
+  it('handles null input', () =>
     expect(sanitiseForPrompt(null as any)).toBe(''))
+  it('handles undefined input', () =>
+    expect(sanitiseForPrompt(undefined as any)).toBe(''))
   it('handles empty string', () =>
     expect(sanitiseForPrompt('')).toBe(''))
+  it('coerces number to string', () =>
+    expect(sanitiseForPrompt(42 as any)).toBe('42'))
+  it('coerces boolean to string', () =>
+    expect(sanitiseForPrompt(true as any)).toBe('true'))
 })
 
 describe('wrapField', () => {
@@ -30,5 +36,11 @@ describe('wrapField', () => {
     const result = wrapField('X', null as any)
     expect(result).toContain('<<<FIELD:X>>>')
     expect(result).toContain('<<<END:X>>>')
+  })
+  it('strips angle brackets from fieldName', () => {
+    const result = wrapField('FOO>>>', 'val')
+    expect(result).toContain('<<<FIELD:FOO>>>')
+    expect(result).toContain('<<<END:FOO>>>')
+    expect(result).not.toContain('<<<FIELD:FOO>>>>')
   })
 })

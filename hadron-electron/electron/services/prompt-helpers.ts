@@ -4,11 +4,13 @@ const LT3 = '‹‹‹' // ‹‹‹  (single angle quotation marks)
 const GT3 = '›››' // ›››
 
 export function sanitiseForPrompt(value: unknown): string {
-  if (!value || typeof value !== 'string') return ''
-  return value.replace(/<<</g, LT3).replace(/>>>/g, GT3)
+  if (value === null || value === undefined) return ''
+  const str = typeof value === 'string' ? value : String(value)
+  return str.replace(/<<</g, LT3).replace(/>>>/g, GT3)
 }
 
 export function wrapField(fieldName: string, value: unknown): string {
+  const safeName = fieldName.replace(/[<>]/g, '')
   const sanitised = sanitiseForPrompt(value)
-  return `<<<FIELD:${fieldName}>>>\n${sanitised}\n<<<END:${fieldName}>>>`
+  return `<<<FIELD:${safeName}>>>\n${sanitised}\n<<<END:${safeName}>>>`
 }
