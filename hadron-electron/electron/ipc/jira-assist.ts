@@ -1,10 +1,9 @@
 import { IpcMain } from 'electron'
 import { getDb } from '../database'
-import Store from 'electron-store'
 import log from 'electron-log'
 import { callAi } from '../services/ai-service'
-
-const settingsStore = new Store({ name: 'settings' })
+import { getSecret } from '../services/safe-storage'
+import { readJiraCreds, readJiraProjectKey, SERVICE_NAME } from '../services/jira-client'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // System prompts
@@ -48,7 +47,7 @@ Return only valid JSON with no markdown fences.`
 // ──────────────────────────────────────────────────────────────────────────────
 
 function getApiKey(provider: string): string {
-  const key = settingsStore.get(`${provider.toLowerCase()}_api_key`, '') as string
+  const key = getSecret(SERVICE_NAME, provider)
   if (!key) throw new Error(`No API key configured for provider '${provider}'`)
   return key
 }
@@ -59,6 +58,116 @@ function parseJsonResponse(content: string, fallback: unknown): unknown {
   } catch {
     return fallback
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Poller state (module-level, single instance per main process)
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface PollerState {
+  running: boolean
+  lastPolledAt: string | null
+  ticketsTriagedTotal: number
+  intervalMins: number
+  timer: ReturnType<typeof setInterval> | null
+}
+
+const pollerState: PollerState = {
+  running: false,
+  lastPolledAt: null,
+  ticketsTriagedTotal: 0,
+  intervalMins: 15,
+  timer: null,
+}
+
+async function runPollerCycle(): Promise<void> {
+  let creds: { baseUrl: string; email: string; apiToken: string }
+  let projectKey: string
+  try {
+    creds = readJiraCreds()
+    projectKey = readJiraProjectKey()
+  } catch {
+    log.debug('Poller: JIRA not configured, skipping cycle')
+    return
+  }
+  if (!projectKey) {
+    log.debug('Poller: no project key configured, skipping cycle')
+    return
+  }
+
+  const db = getDb()
+  const { default: fetch } = await import('node-fetch')
+  const auth = Buffer.from(`${creds.email}:${creds.apiToken}`).toString('base64')
+
+  const since = new Date(Date.now() - pollerState.intervalMins * 2 * 60 * 1000)
+  const sinceStr = since.toISOString().replace('T', ' ').substring(0, 16)
+  const jql = encodeURIComponent(
+    `project = ${projectKey} AND updated >= "${sinceStr}" ORDER BY updated DESC`
+  )
+  const url = `${creds.baseUrl.replace(/\/$/, '')}/rest/api/3/search?jql=${jql}&fields=summary,description,status,priority,labels,components&maxResults=20`
+
+  let issues: Array<{ key: string; fields: Record<string, unknown> }>
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } })
+    if (!res.ok) { log.warn('Poller fetch failed:', res.status); return }
+    const data = await res.json() as { issues: typeof issues }
+    issues = data.issues ?? []
+  } catch (err) {
+    log.warn('Poller network error:', err)
+    return
+  }
+
+  let triaged = 0
+  for (const issue of issues) {
+    const existing = db.prepare('SELECT jira_key FROM ticket_briefs WHERE jira_key = ?').get(issue.key)
+    if (existing) continue
+
+    try {
+      const fields = issue.fields
+      const summary = (fields.summary as string) ?? issue.key
+      const description = fields.description
+        ? (typeof fields.description === 'string' ? fields.description : JSON.stringify(fields.description)).substring(0, 2000)
+        : ''
+
+      const apiKey = getSecret(SERVICE_NAME, 'openai') || getSecret(SERVICE_NAME, 'anthropic') || ''
+      if (!apiKey) continue
+
+      const provider = getSecret(SERVICE_NAME, 'openai') ? 'openai' : 'anthropic'
+      const model = provider === 'openai' ? 'gpt-4o-mini' : 'claude-haiku-4-5-20251001'
+
+      const triageResult = await callAi({
+        provider, model, apiKey,
+        systemPrompt: TRIAGE_SYSTEM_PROMPT,
+        userPrompt: `Ticket: ${issue.key}\nSummary: ${summary}\nDescription: ${description}`,
+        maxTokens: 512,
+      })
+
+      let triage: Record<string, unknown> = {}
+      try { triage = JSON.parse(triageResult.content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()) } catch { /* use empty */ }
+
+      const now = new Date().toISOString()
+      db.prepare(`
+        INSERT OR IGNORE INTO ticket_briefs
+          (jira_key, title, severity, category, tags, triage_json, brief_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        issue.key, summary,
+        (triage.severity as string) ?? null,
+        (triage.category as string) ?? null,
+        triage.tags ? JSON.stringify(triage.tags) : null,
+        JSON.stringify(triage),
+        JSON.stringify({ summary }),
+        now, now,
+      )
+      triaged++
+    } catch (err) {
+      log.warn(`Poller: triage failed for ${issue.key}:`, err)
+    }
+  }
+
+  pollerState.lastPolledAt = new Date().toISOString()
+  pollerState.ticketsTriagedTotal += triaged
+  log.info(`Poller cycle complete: checked ${issues.length} tickets, triaged ${triaged} new`)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -106,19 +215,19 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
   // 5. triage_jira_ticket
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('triage_jira_ticket', async (_e, args: {
-    jiraKey: string
-    title: string
-    description: string
-    provider: string
-    model: string
+    request?: { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string }
+    jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string
   }) => {
     try {
-      const apiKey = getApiKey(args.provider)
-      const userPrompt = `JIRA Key: ${args.jiraKey}\nTitle: ${args.title}\n\nDescription:\n${args.description}`
+      // Accept both direct args and Tauri-style { request } wrapper; accept jira_key or jiraKey
+      const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string })
+      const jiraKey = p.jira_key ?? p.jiraKey ?? ''
+      const apiKey = getApiKey(p.provider)
+      const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${p.title}\n\nDescription:\n${p.description}`
 
       const aiResult = await callAi({
-        provider: args.provider,
-        model: args.model,
+        provider: p.provider,
+        model: p.model,
         apiKey,
         systemPrompt: TRIAGE_SYSTEM_PROMPT,
         userPrompt,
@@ -142,20 +251,12 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
             COALESCE((SELECT engineer_notes FROM ticket_briefs WHERE jira_key=?), NULL),
             COALESCE((SELECT created_at FROM ticket_briefs WHERE jira_key=?), ?), ?)
       `).run(
-        args.jiraKey,
-        args.title,
+        jiraKey, p.title,
         (triage.severity as string) ?? null,
         (triage.category as string) ?? null,
         triage.tags ? JSON.stringify(triage.tags) : null,
         JSON.stringify(triage),
-        args.jiraKey,
-        args.jiraKey,
-        args.jiraKey,
-        args.jiraKey,
-        args.jiraKey,
-        args.jiraKey,
-        now,
-        now,
+        jiraKey, jiraKey, jiraKey, jiraKey, jiraKey, jiraKey, now, now,
       )
 
       return triage
@@ -170,19 +271,19 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
   // 6. generate_ticket_brief
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('generate_ticket_brief', async (_e, args: {
-    jiraKey: string
-    title: string
-    description: string
-    provider: string
-    model: string
+    request?: { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string }
+    jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string
   }) => {
     try {
-      const apiKey = getApiKey(args.provider)
-      const userPrompt = `JIRA Key: ${args.jiraKey}\nTitle: ${args.title}\n\nDescription:\n${args.description}`
+      // Accept both direct args and Tauri-style { request } wrapper; accept jira_key or jiraKey
+      const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string })
+      const jiraKey = p.jira_key ?? p.jiraKey ?? ''
+      const apiKey = getApiKey(p.provider)
+      const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${p.title}\n\nDescription:\n${p.description}`
 
       const aiResult = await callAi({
-        provider: args.provider,
-        model: args.model,
+        provider: p.provider,
+        model: p.model,
         apiKey,
         systemPrompt: BRIEF_SYSTEM_PROMPT,
         userPrompt,
@@ -206,20 +307,13 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
             COALESCE((SELECT engineer_notes FROM ticket_briefs WHERE jira_key=?), NULL),
             COALESCE((SELECT created_at FROM ticket_briefs WHERE jira_key=?), ?), ?)
       `).run(
-        args.jiraKey,
-        args.title,
+        jiraKey, p.title,
         (triage.severity as string) ?? null,
         (triage.category as string) ?? null,
         triage.tags ? JSON.stringify(triage.tags) : null,
         triage ? JSON.stringify(triage) : null,
         JSON.stringify(brief),
-        args.jiraKey,
-        args.jiraKey,
-        args.jiraKey,
-        args.jiraKey,
-        args.jiraKey,
-        now,
-        now,
+        jiraKey, jiraKey, jiraKey, jiraKey, jiraKey, now, now,
       )
 
       return brief
@@ -231,23 +325,119 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
   })
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 7. start_jira_poller (stub)
+  // 7. start_jira_poller + alias start_poller
   // ──────────────────────────────────────────────────────────────────────────
-  ipcMain.handle('start_jira_poller', () => {
-    return { status: 'not_available', message: 'Background poller not implemented in Electron' }
+  const startPollerHandler = async () => {
+    if (pollerState.timer) clearInterval(pollerState.timer)
+    pollerState.running = true
+    pollerState.timer = setInterval(() => {
+      runPollerCycle().catch(err => log.warn('Poller cycle error:', err))
+    }, pollerState.intervalMins * 60 * 1000)
+    runPollerCycle().catch(err => log.warn('Poller initial cycle error:', err))
+    return { status: 'started', message: `Polling every ${pollerState.intervalMins} minutes` }
+  }
+  ipcMain.handle('start_jira_poller', startPollerHandler)
+  ipcMain.handle('start_poller', startPollerHandler)
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 8. stop_jira_poller + alias stop_poller
+  // ──────────────────────────────────────────────────────────────────────────
+  const stopPollerHandler = () => {
+    if (pollerState.timer) { clearInterval(pollerState.timer); pollerState.timer = null }
+    pollerState.running = false
+  }
+  ipcMain.handle('stop_jira_poller', stopPollerHandler)
+  ipcMain.handle('stop_poller', stopPollerHandler)
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 9. get_poller_status
+  // ──────────────────────────────────────────────────────────────────────────
+  ipcMain.handle('get_poller_status', () => ({
+    running: pollerState.running,
+    last_polled_at: pollerState.lastPolledAt,
+    tickets_triaged_total: pollerState.ticketsTriagedTotal,
+    interval_mins: pollerState.intervalMins,
+  }))
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 10. find_similar_tickets — embedding similarity not available in Electron;
+  //     returns empty array so the UI gracefully shows no similar tickets.
+  // ──────────────────────────────────────────────────────────────────────────
+  ipcMain.handle('find_similar_tickets', (_e, _args: {
+    jiraKey: string
+    title: string
+    description: string
+    apiKey?: string
+    threshold?: number
+    limit?: number
+  }) => {
+    return []
   })
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 8. stop_jira_poller (stub)
+  // 11. post_brief_to_jira — post investigation brief as JIRA comment
   // ──────────────────────────────────────────────────────────────────────────
-  ipcMain.handle('stop_jira_poller', () => {
-    // no-op
+  ipcMain.handle('post_brief_to_jira', async (_e, args: {
+    jiraKey: string
+    briefJson: string
+    baseUrl: string
+    email: string
+    apiToken: string
+  }) => {
+    const { default: fetch } = await import('node-fetch')
+    const auth = Buffer.from(`${args.email}:${args.apiToken}`).toString('base64')
+    const url = `${args.baseUrl.replace(/\/$/, '')}/rest/api/3/issue/${encodeURIComponent(args.jiraKey)}/comment`
+
+    let briefText = args.briefJson
+    try {
+      const parsed = JSON.parse(args.briefJson)
+      briefText = JSON.stringify(parsed, null, 2)
+    } catch { /* use raw string */ }
+
+    const body = {
+      body: {
+        type: 'doc',
+        version: 1,
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: `Hadron Investigation Brief:\n\n${briefText}` }] }],
+      },
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (!res.ok) {
+      const err = await res.text().catch(() => '')
+      throw new Error(`JIRA post failed ${res.status}: ${err.substring(0, 200)}`)
+    }
+
+    const db = getDb()
+    db.prepare('UPDATE ticket_briefs SET posted_to_jira = 1, posted_at = ? WHERE jira_key = ?')
+      .run(new Date().toISOString(), args.jiraKey)
   })
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 9. get_poller_status (stub)
+  // 12. submit_engineer_feedback — store rating + notes in ticket_briefs
   // ──────────────────────────────────────────────────────────────────────────
-  ipcMain.handle('get_poller_status', () => {
-    return { running: false, status: 'stopped' }
+  ipcMain.handle('submit_engineer_feedback', (_e, args: {
+    jiraKey: string
+    rating: number | null
+    notes: string | null
+  }) => {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const existing = db.prepare('SELECT jira_key FROM ticket_briefs WHERE jira_key = ?').get(args.jiraKey)
+    if (existing) {
+      db.prepare('UPDATE ticket_briefs SET engineer_rating = ?, engineer_notes = ?, updated_at = ? WHERE jira_key = ?')
+        .run(args.rating, args.notes, now, args.jiraKey)
+    } else {
+      log.warn('submit_engineer_feedback: ticket_brief not found for', args.jiraKey)
+    }
   })
 }
