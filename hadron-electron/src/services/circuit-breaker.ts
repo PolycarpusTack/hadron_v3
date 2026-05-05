@@ -181,7 +181,7 @@ async function callAIProvider(request: AnalysisRequest): Promise<AnalysisRespons
 /**
  * Get active providers from localStorage
  */
-const VALID_PROVIDER_KEYS = new Set(AI_PROVIDERS.map(p => p.value))
+const VALID_PROVIDER_KEYS = new Set<string>(AI_PROVIDERS.map(p => p.value))
 
 function getActiveProviders(): string[] {
   const savedActiveProviders = localStorage.getItem(STORAGE_KEYS.ACTIVE_PROVIDERS);
