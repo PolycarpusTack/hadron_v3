@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import {
   X,
   BarChart3,
@@ -18,7 +18,7 @@ import Button from "./ui/Button";
 import { exportGoldAnswersJsonl } from "../services/gold-answers";
 import { exportSummariesBundle } from "../services/summaries";
 import { exportGoldJsonl } from "../services/api";
-import { save as tauriSave } from "@tauri-apps/plugin-dialog";
+import { save as tauriSave } from "../lib/tauri-dialog-shim";
 
 interface DashboardStats {
   scanDay: number;

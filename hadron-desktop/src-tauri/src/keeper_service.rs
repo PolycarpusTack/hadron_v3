@@ -81,6 +81,8 @@ pub struct KeeperSecretInfo {
     pub uid: String,
     pub title: String,
     pub record_type: String,
+    /// Whether an API-key-like value could be extracted from this record
+    pub has_api_key: bool,
 }
 
 /// Result of fetching secrets list
@@ -126,15 +128,18 @@ fn format_keeper_error(e: KSMRError) -> String {
     }
 }
 
-/// Helper to extract a string value from a serde_json::Value
+/// Helper to extract a non-empty string value from a serde_json::Value
 fn value_to_string(value: serde_json::Value) -> Option<String> {
     match value {
-        serde_json::Value::String(s) => Some(s),
+        serde_json::Value::String(s) => {
+            let s = s.trim().to_string();
+            if s.is_empty() { None } else { Some(s) }
+        }
         serde_json::Value::Array(arr) => {
-            // If array, try to get first string element
             arr.into_iter().find_map(|v| {
                 if let serde_json::Value::String(s) = v {
-                    Some(s)
+                    let s = s.trim().to_string();
+                    if s.is_empty() { None } else { Some(s) }
                 } else {
                     None
                 }
@@ -236,7 +241,7 @@ fn extract_by_label_case_insensitive(
             for field in fields {
                 let label = field.get("label").and_then(|l| l.as_str()).unwrap_or("");
                 let label_lower = label.to_lowercase();
-                if KEY_LABELS.iter().any(|k| label_lower == *k) {
+                if KEY_LABELS.iter().any(|k| label_lower.contains(*k)) {
                     if let Some(value) = extract_field_value(field) {
                         log::info!(
                             "Keeper: extracted value via case-insensitive label match '{}' in {}",
@@ -345,7 +350,6 @@ pub fn initialize_keeper(
         log::Level::Error,
         hostname.map(|h| h.to_string()),
         None,
-        None,
         KSMCache::None,
     );
 
@@ -433,15 +437,26 @@ pub fn list_keeper_secrets() -> Result<KeeperSecretsListResult, String> {
     let mut cache = SECRETS_CACHE.lock();
     *cache = Some(SecretsCache::new(cached));
 
-    // Return only metadata, not values
-    let secret_infos: Vec<KeeperSecretInfo> = secrets
-        .iter()
-        .map(|s| KeeperSecretInfo {
-            uid: s.uid.clone(),
-            title: s.title.clone(),
-            record_type: s.record_type.clone(),
-        })
-        .collect();
+    // Return only metadata, not values — but include whether extraction succeeded
+    let secret_infos: Vec<KeeperSecretInfo> = {
+        let cache_guard = SECRETS_CACHE.lock();
+        let cache_ref = cache_guard.as_ref();
+        secrets
+            .iter()
+            .map(|s| {
+                let has_api_key = cache_ref
+                    .and_then(|c| c.secrets.iter().find(|cs| cs.uid == s.uid))
+                    .map(|cs| cs.password.is_some())
+                    .unwrap_or(false);
+                KeeperSecretInfo {
+                    uid: s.uid.clone(),
+                    title: s.title.clone(),
+                    record_type: s.record_type.clone(),
+                    has_api_key,
+                }
+            })
+            .collect()
+    };
 
     Ok(KeeperSecretsListResult {
         success: true,

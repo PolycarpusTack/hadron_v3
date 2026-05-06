@@ -4,7 +4,7 @@
  * Tauri invoke wrappers for AI-generated session summaries and export.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 
 // ============================================================================
 // Types
@@ -28,6 +28,7 @@ export interface GenerateSummaryParams {
   provider: string;
   model: string;
   apiKey: string;
+  keeperSecretUid?: string | null;
 }
 
 export interface SaveSummaryParams {

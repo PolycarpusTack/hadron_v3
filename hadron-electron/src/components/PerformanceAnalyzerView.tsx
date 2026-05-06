@@ -6,8 +6,8 @@ import {
   BarChart3, GitBranch, List, Target, Lightbulb, RefreshCw,
   Loader2
 } from 'lucide-react';
-import { open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core"; // used by analyze_performance_trace and get_file_stats
+import { open } from "../lib/tauri-dialog-shim";
+import { invoke } from "../lib/tauri-core-shim"; // used by analyze_performance_trace and get_file_stats
 import logger from "../services/logger";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
 import Button from "./ui/Button";

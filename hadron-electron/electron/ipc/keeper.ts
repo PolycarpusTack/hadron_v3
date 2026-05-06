@@ -130,10 +130,12 @@ function buildCache(records: KeeperRecord[]): SecretsCache {
  * Returns null if Keeper is not enabled or the provider has no mapping.
  */
 export function getKeeperUidForProvider(provider: string): string | null {
-  const raw = keeperSettingsStore.get('keeper_config') as string | undefined
+  const raw = keeperSettingsStore.get('keeper_config') as string | { enabled?: boolean; secretMappings?: Record<string, string> } | undefined
   if (!raw) return null
   try {
-    const cfg = JSON.parse(raw) as { enabled?: boolean; secretMappings?: Record<string, string> }
+    const cfg = typeof raw === 'string'
+      ? JSON.parse(raw) as { enabled?: boolean; secretMappings?: Record<string, string> }
+      : raw
     if (!cfg.enabled) return null
     return cfg.secretMappings?.[provider] ?? null
   } catch {

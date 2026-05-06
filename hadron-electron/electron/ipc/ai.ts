@@ -10,6 +10,7 @@ import { getApiKeyFromKeeper, getKeeperUidForProvider } from './keeper'
 import { isSystemPath } from '../services/path-security'
 import { wrapField } from '../services/prompt-helpers'
 import { aiRateLimiter } from '../services/rate-limiter'
+import { buildCrashAnalysisPrompt } from '../services/crash-prompts'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const MAX_PROMPT_CHARS = 100_000
 const OPENAI_400K_CRASH_LOG_CHARS = 320_000
@@ -80,88 +81,55 @@ async function resolveKey(provider: string, keeperSecretUid?: string | null): Pr
   throw new Error(`No API key configured for provider: ${provider}`)
 }
 
-
-const CRASH_SYSTEM_PROMPT = `You are an expert software engineer specialising in crash log analysis.
-Analyse the provided crash log and return ONLY a valid JSON object — no markdown fences, no explanation.
-
-The JSON must contain ALL of the following fields.
-If a value cannot be determined from the log, use reasonable defaults (empty string, empty array, "unknown", "none", etc.).
-
-=== FLAT FIELDS (required for database storage) ===
-"error_type"     — exception class / error type string
-"error_message"  — exact error message, or null
-"severity"       — "CRITICAL", "HIGH", "MEDIUM", or "LOW"
-"component"      — primary affected class, module, or component name
-"root_cause"     — one-paragraph plain-English explanation (copy from rootCause.plainEnglish below)
-"suggested_fixes"— array of 2–4 brief fix strings
-"confidence"     — "HIGH", "MEDIUM", or "LOW"
-"stack_trace"    — raw stack trace extracted from the log, or null
-
-=== STRUCTURED ANALYSIS ===
-
-"summary": {
-  "title": "Concise crash title (≤12 words)",
-  "severity": "critical|high|medium|low",
-  "category": "scheduling|playout|database|memory|integration|ui|rights|timing|other",
-  "confidence": "high|medium|low",
-  "affectedWorkflow": "The user workflow that triggered the crash"
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
 }
 
-"rootCause": {
-  "technical": "Developer-facing explanation — include class/method names, variable states, exact failure mode",
-  "plainEnglish": "Support-engineer-facing explanation a non-developer can understand",
-  "affectedMethod": "ClassName >> methodName: (or language-appropriate equivalent)",
-  "affectedModule": "Module / subsystem short name or abbreviation",
-  "triggerCondition": "The specific pre-condition that triggers this crash"
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return null
 }
 
-"userScenario": {
-  "description": "Brief description of what the user was doing",
-  "workflow": "Workflow name (e.g. 'Programme Planning')",
-  "steps": [
-    { "step": 1, "action": "What the user did", "isCrashPoint": false },
-    { "step": 2, "action": "Where the system crashed", "isCrashPoint": true }
-  ],
-  "expectedResult": "What should have happened",
-  "actualResult": "What actually happened — the crash",
-  "reproductionLikelihood": "always|often|sometimes|rarely|unknown"
+function displayAnalysisMode(analysisType: string, analysisMode: string, wasCompacted: boolean): string {
+  if (analysisMode === 'deep_scan') return wasCompacted ? 'Deep Scan (Compacted)' : 'Deep Scan'
+  if (analysisMode === 'quick' || analysisType === 'quick') return wasCompacted ? 'Quick (Compacted)' : 'Quick'
+  return wasCompacted ? 'Comprehensive (Compacted)' : 'Comprehensive'
 }
 
-"suggestedFix": {
-  "summary": "Brief description of the primary fix",
-  "reasoning": "Why this fix addresses the root cause",
-  "codeChanges": [
-    {
-      "file": "ClassName or filename",
-      "description": "What to change",
-      "before": "Code or state before the fix (optional)",
-      "after": "Code or state after the fix (optional)",
-      "priority": "P0"
-    }
-  ],
-  "complexity": "simple|moderate|complex",
-  "estimatedEffort": "hours|days|weeks",
-  "riskLevel": "low|medium|high"
+function normalizeAnalysisJson(parsed: Record<string, unknown>, rawFallback: string): Record<string, unknown> {
+  const summary = asRecord(parsed.summary)
+  const rootCause = asRecord(parsed.rootCause)
+  const solution = asRecord(parsed.solution)
+  const suggestedFix = asRecord(parsed.suggestedFix)
+
+  const suggestedFixes = Array.isArray(parsed.suggested_fixes)
+    ? parsed.suggested_fixes
+    : [
+        firstString(suggestedFix?.summary, solution?.summary),
+        ...(Array.isArray(solution?.steps) ? solution.steps : []),
+      ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+
+  return {
+    ...parsed,
+    error_type: firstString(parsed.error_type, parsed.errorType) ?? 'Unknown',
+    error_message: typeof parsed.error_message === 'string' ? parsed.error_message : null,
+    severity: firstString(parsed.severity, summary?.severity) ?? 'MEDIUM',
+    component: firstString(
+      parsed.component,
+      rootCause?.affectedModule,
+      rootCause?.affectedMethod,
+      rootCause?.affectedComponent,
+    ),
+    root_cause: firstString(parsed.root_cause, rootCause?.plainEnglish, rootCause?.technical, rawFallback) ?? '',
+    suggested_fixes: suggestedFixes,
+    confidence: firstString(parsed.confidence, summary?.confidence) ?? 'MEDIUM',
+    stack_trace: firstString(parsed.stack_trace, asRecord(parsed.stackTrace)?.errorFrame),
+  }
 }
-
-"systemWarnings": []
-
-"impactAnalysis": {
-  "dataAtRisk": "none|low|moderate|high|critical",
-  "directlyAffected": [
-    { "feature": "Feature name", "module": "Module", "description": "Impact", "severity": "high|medium|low" }
-  ],
-  "potentiallyAffected": []
-}
-
-"testScenarios": []
-
-"environment": {
-  "application": { "version": null, "build": null },
-  "database": { "type": null, "connectionInfo": null }
-}
-
-Return only the JSON object. No markdown fences.`
 
 
 export function registerAiHandlers(ipcMain: IpcMain): void {
@@ -173,10 +141,12 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
     }
     file_path?: string; model?: string; provider?: string
     analysis_type?: string; redact_pii?: boolean; keeper_secret_uid?: string; api_key?: string
+    use_rag?: boolean; analysis_mode?: string
   }) => {
     const p = args.request ?? (args as {
       file_path: string; model: string; provider: string
       analysis_type?: string; redact_pii?: boolean; keeper_secret_uid?: string; api_key?: string
+      use_rag?: boolean; analysis_mode?: string
     })
     if (isSystemPath(p.file_path)) {
       throw new Error('Access denied: file path is not allowed')
@@ -193,6 +163,8 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
       const filename = path.basename(p.file_path)
       const fileSizeKb = content.length / 1024
       const apiKey = p.api_key || await resolveKey(p.provider, p.keeper_secret_uid)
+      const analysisType = p.analysis_type ?? 'comprehensive'
+      const analysisMode = p.analysis_mode ?? (analysisType === 'quick' ? 'quick' : 'comprehensive')
       let compacted = compactCrashLog(content, crashLogCharBudget(p.provider, p.model))
 
       setProgress({ phase: 'analyzing', progress: 30, message: 'Sending to AI…', current_step: 2, total_steps: 4 })
@@ -200,22 +172,33 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
       let tokenCount = 0
       const win = BrowserWindow.fromWebContents(event.sender)
 
-      const analyzeCompactedContent = () => callAi({
-        provider: p.provider,
-        model: p.model,
-        apiKey,
-        systemPrompt: CRASH_SYSTEM_PROMPT,
-        userPrompt: `Analyze this crash log:\n\n${wrapField('FILENAME', filename)}\n\n${wrapField('CRASH_LOG', compacted.content)}`,
-        maxTokens: 8192,
-        stream: true,
-        onChunk: (chunk) => {
-          resultText += chunk
-          tokenCount += chunk.length
-          const streamPct = Math.min(30 + Math.floor((tokenCount / 3000) * 55), 85)
-          setProgress({ phase: 'analyzing', progress: streamPct, message: 'Analyzing…', current_step: 2, total_steps: 4 })
-          win?.webContents.send('stream:chunk', chunk)
-        },
-      })
+      const analyzeCompactedContent = () => {
+        const prompt = buildCrashAnalysisPrompt({
+          analysisType,
+          analysisMode,
+          filename,
+          crashLog: compacted.content,
+          wasCompacted: compacted.wasTruncated,
+          originalCharCount: content.length,
+        })
+
+        return callAi({
+          provider: p.provider,
+          model: p.model,
+          apiKey,
+          systemPrompt: prompt.systemPrompt,
+          userPrompt: prompt.userPrompt,
+          maxTokens: prompt.maxTokens,
+          stream: true,
+          onChunk: (chunk) => {
+            resultText += chunk
+            tokenCount += chunk.length
+            const streamPct = Math.min(30 + Math.floor((tokenCount / 3000) * 55), 85)
+            setProgress({ phase: 'analyzing', progress: streamPct, message: 'Analyzing…', current_step: 2, total_steps: 4 })
+            win?.webContents.send('stream:chunk', chunk)
+          },
+        })
+      }
 
       let result
       try {
@@ -248,6 +231,13 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
           stack_trace: null,
         }
       }
+      parsed = {
+        ...normalizeAnalysisJson(parsed, resultText),
+        analysis_mode: displayAnalysisMode(analysisType, analysisMode, compacted.wasTruncated),
+        coverage_summary: compacted.wasTruncated
+          ? 'Large log was compacted to preserve the beginning, error/stack signal lines, and end of the file.'
+          : 'Full file was sent to the selected model.',
+      }
 
       const db = getDb()
       const now = new Date().toISOString()
@@ -272,7 +262,7 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
         result.cost, compacted.wasTruncated ? 1 : 0,
         Date.now() - start,
         JSON.stringify(parsed),
-        p.analysis_type ?? 'comprehensive',
+        analysisType,
         'file',
       )
 
@@ -280,11 +270,16 @@ export function registerAiHandlers(ipcMain: IpcMain): void {
       return {
         id: row.lastInsertRowid,
         ...parsed,
+        filename,
+        file_size_kb: fileSizeKb,
+        severity: ((parsed.severity as string) ?? 'MEDIUM').toLowerCase(),
         analyzed_at: now,
         ai_model: p.model,
         ai_provider: p.provider,
         tokens_used: result.inputTokens + result.outputTokens,
         cost: result.cost,
+        was_truncated: compacted.wasTruncated,
+        analysis_type: analysisType,
       }
     } catch (err) {
       setProgress({ phase: 'failed', progress: 0, message: (err as Error).message })

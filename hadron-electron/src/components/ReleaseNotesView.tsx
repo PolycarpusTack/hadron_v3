@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FileText, Wand2, CheckCircle, BookOpen, History, AlertCircle, Loader2 } from "lucide-react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../lib/tauri-event-shim";
 import { isJiraEnabled } from "../services/jira";
 import { getReleaseNotes } from "../services/release-notes";
 import logger from "../services/logger";

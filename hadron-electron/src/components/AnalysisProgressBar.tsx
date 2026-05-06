@@ -52,7 +52,7 @@ export function AnalysisProgressBar({ isAnalyzing }: AnalysisProgressBarProps) {
     // Polls every 200ms while analysis is active.
     const poll = async () => {
       try {
-        const { invoke } = await import('@tauri-apps/api/core');
+        const { invoke } = await import('../lib/tauri-core-shim');
         while (!cancelled) {
           const state = await invoke<AnalysisProgress | null>('get_analysis_progress');
           if (cancelled) break;

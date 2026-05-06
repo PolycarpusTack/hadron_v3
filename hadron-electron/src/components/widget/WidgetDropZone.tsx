@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { FileDown } from "lucide-react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "../../lib/tauri-dialog-shim";
 
 interface WidgetDropZoneProps {
   onFileSelected: (filePath: string) => void;

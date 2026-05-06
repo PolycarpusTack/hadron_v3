@@ -5,8 +5,8 @@
  * for Hadron desktop application.
  */
 
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
+import { check } from '../lib/tauri-updater-shim';
+import { relaunch } from '../lib/tauri-process-shim';
 import logger from './logger';
 
 export interface UpdateInfo {

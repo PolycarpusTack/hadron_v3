@@ -177,7 +177,7 @@ export async function analyzeCode(
   logger.info("Starting code analysis", { filename, language, model, provider });
 
   const prompt = buildCodeAnalysisPrompt(code, filename, language);
-  const response = await callAi(prompt, apiKey, model, provider);
+  const response = await callAi(prompt, apiKey, model, provider, keeperSecretUid);
 
   let result: CodeAnalysisResult;
   try {

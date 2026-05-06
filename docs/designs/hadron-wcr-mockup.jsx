@@ -1,0 +1,628 @@
+import { useState } from "react";
+
+const mono = "'JetBrains Mono','Fira Code',monospace";
+const sans = "'IBM Plex Sans',-apple-system,sans-serif";
+
+// Frame classification — matches design system
+const FC = {
+  red:    { bg: "rgba(239,68,68,0.08)",   border: "#ef4444", text: "#fca5a5", dot: "#ef4444", label: "Crash cause" },
+  blue:   { bg: "rgba(59,130,246,0.08)",  border: "#3b82f6", text: "#93c5fd", dot: "#3b82f6", label: "Fix target" },
+  orange: { bg: "rgba(249,115,22,0.08)",  border: "#f97316", text: "#fdba74", dot: "#f97316", label: "Query / DB" },
+  gray:   { bg: "rgba(107,114,128,0.06)", border: "#4b5563", text: "#9ca3af", dot: "#6b7280", label: "Infrastructure" },
+};
+const SEV = {
+  critical: { color: "#ef4444", bg: "rgba(239,68,68,0.12)",    label: "CRITICAL" },
+  high:     { color: "#f59e0b", bg: "rgba(245,158,11,0.12)",   label: "HIGH" },
+  medium:   { color: "#3b82f6", bg: "rgba(59,130,246,0.12)",   label: "MEDIUM" },
+  low:      { color: "#10b981", bg: "rgba(16,185,129,0.12)",   label: "LOW" },
+};
+
+function clip(t) { navigator.clipboard?.writeText(t); }
+
+// ═══ Mock data — realistic Hadron AnalysisResult + WhatsOnEnhancedAnalysis ═══
+const D = {
+  // AnalysisResult fields
+  id: 47,
+  filename: "WCR_RAI_20250205_091422.txt",
+  file_size_kb: 42,
+  error_type: "Error(NullPointerError)",
+  error_message: "Nil object received unexpected message: #licenseStatus",
+  severity: "high",
+  component: "ProgrammePlanner",
+  analyzed_at: "2025-02-05T09:47:11",
+  ai_model: "claude-sonnet-4-20250514",
+  ai_provider: "anthropic",
+  tokens_used: 4847,
+  cost: 0.048,
+  analysis_duration_ms: 11240,
+  confidence: "HIGH",
+  analysis_type: "whatson",
+  analysis_mode: "Deep Scan",
+
+  // Derived display fields
+  crash_id: "HAD-2025-0205-0047",
+  site: "RAI",
+  timestamp: "2025-02-05T09:14:22",
+  user: "g.ferrari",
+  username: "giovanni.ferrari@rai.it",
+
+  // WhatsOnEnhancedAnalysis (what full_data parses into)
+  summary: {
+    title: "Nil license proxy crash in ProgrammePlanner",
+    severity: "high",
+    category: "scheduling",
+    confidence: "high",
+    affectedWorkflow: "Programme planning — open expired content",
+  },
+  rootCause: {
+    technical: "ProgrammePlanner >> loadExpiredContent: sends #licenseStatus to a nil CM2LicenseProxy. The proxy is nil because the license expired 3 days prior and was archived. No nil guard exists at the call site.",
+    plainEnglish: "A programme was opened in the planner whose broadcast license had already expired. The system tried to check the license status but the license record was gone — and instead of showing a warning, it crashed.",
+    affectedMethod: "ProgrammePlanner >> loadExpiredContent:",
+    affectedModule: "PL (Programme Planning)",
+    triggerCondition: "Opening a programme run whose CM2License.expiryDate is in the past and archiveFlag = true",
+  },
+  stackFrames: [
+    { id: 1, color: "red",    method: "Error class >> signal:",                                            label: "Exception origin — unhandled nil message send" },
+    { id: 2, color: "red",    method: "ProgrammePlanner >> loadExpiredContent:",                           label: "Nil dereference — licenseProxy is nil here",
+      source: "loadExpiredContent: aRunOid\n    | run license |\n    run := self fetchProgrammeRun: aRunOid.\n    license := run licenseProxy.        \"← nil when archived\"\n    self displayHeader: license licenseStatus.  \"← CRASH\"\n    self loadPlanningGrid: run" },
+    { id: 3, color: "blue",   method: "ProgrammePlanner >> validateContentRights:",                        label: "Guard candidate — FIX HERE",
+      source: "validateContentRights: aRunOid\n    \"Called before loadExpiredContent:.\"\n    \"Missing: nil check on licenseProxy.\"\n    ^ true" },
+    { id: 4, color: "blue",   method: "CM2LicenseProxy >> licenseStatus",                                 label: "Would raise LicenseExpiredException if guarded" },
+    { id: 5, color: "orange", method: "CM2Database >> fetchActiveContracts:",                             label: "Returns nil instead of placeholder — DB query gap" },
+    { id: 6, color: "gray",   method: "PlanningBoard >> openProgramDetail:",                              label: "UI dispatch — entry point" },
+    { id: 7, color: "gray",   method: "ApplicationController >> processEvent:",                           label: "Event framework" },
+  ],
+  userScenario: {
+    steps: [
+      { step: 1, action: "Logged into WHATS'ON as g.ferrari (giovanni.ferrari@rai.it)" },
+      { step: 2, action: "Opened Planning Board for Rete 4 — week of 2025-02-03" },
+      { step: 3, action: "Selected programme run 'Porta a Porta ep.442'" },
+      { step: 4, action: "Double-clicked to open programme detail panel" },
+      { step: 5, action: "System attempted to load licence information", isFailure: true },
+      { step: 6, action: "Nil object received #licenseStatus — application crash", isFailure: true },
+    ],
+    expectedResult: "Programme detail panel opens with an 'expired licence' notice or disabled editing",
+    actualResult: "Application crashes with Error(NullPointerError)",
+  },
+  remediation: {
+    p0: [{
+      title: "Nil guard before #licenseStatus call",
+      location: "ProgrammePlanner >> loadExpiredContent:",
+      time: "1-2 hours", risk: "Low",
+      code: "loadExpiredContent: aRunOid\n    | run license |\n    run := self fetchProgrammeRun: aRunOid.\n    license := run licenseProxy.\n    license isNil ifTrue: [\n        self showExpiredLicenceNotice: run.\n        ^self].\n    self displayHeader: license licenseStatus.\n    self loadPlanningGrid: run",
+      before: "Nil → #licenseStatus → CRASH",
+      after: "Nil → notice dialog → safe return",
+    }],
+    p1: [
+      { title: "validateContentRights: checks proxy before dispatch", time: "half day", description: "Add licence nil check to the pre-load validation so the crash is impossible, not just handled." },
+      { title: "CM2Database returns LicenceExpiredProxy instead of nil", time: "1 day", description: "fetchActiveContracts: should return a Null Object pattern proxy rather than nil for expired records." },
+    ],
+    p2: [
+      { title: "Prefetch licence status at programme load", time: "2-3 days", description: "Load licence metadata with the programme run in one query. Eliminates the separate proxy lookup entirely." },
+    ],
+  },
+  reproduction: {
+    steps: [
+      "Log in with any account that has planning access",
+      "Open Planning Board for any channel",
+      "Find a programme run whose broadcast licence expired (check CM2LICENSE.EXPIRY_DATE < SYSDATE)",
+      "Double-click the programme run to open detail panel",
+    ],
+    expected: "Graceful 'licence expired' notice or read-only mode",
+    actual: "Application crash — Error(NullPointerError): Nil object received unexpected message: #licenseStatus",
+  },
+  similarCrashes: [
+    { id: "HAD-2025-0128-0031", site: "BBC", date: "2025-01-28", component: "SeriesBrowser",       similarity: 0.91, status: "fixed",  fixVersion: "2024r8.1" },
+    { id: "HAD-2025-0119-0018", site: "RAI", date: "2025-01-19", component: "ProgrammePlanner",    similarity: 0.98, status: "open" },
+    { id: "HAD-2024-1204-0004", site: "VRT", date: "2024-12-04", component: "ContractBrowser",     similarity: 0.83, status: "fixed",  fixVersion: "2024r8.0" },
+  ],
+  blastRadius: [
+    { c: "ProgrammePlanner",    s: "vulnerable" },
+    { c: "SeriesBrowser",       s: "vulnerable" },
+    { c: "ContractBrowser",     s: "vulnerable" },
+    { c: "RightsSummaryViewer", s: "safe" },
+    { c: "ScheduleExporter",    s: "safe" },
+    { c: "ReportingModule",     s: "unknown" },
+  ],
+  confidence: {
+    confirmed: [
+      "Nil proxy dereference at ProgrammePlanner >> loadExpiredContent: (stack frame [2])",
+      "CM2LICENSE record for run 'Porta a Porta ep.442' has EXPIRY_DATE = 2025-02-02 (exception args)",
+      "No nil guard at the call site (code inspection)",
+    ],
+    inferred: [
+      "SeriesBrowser and ContractBrowser share the same proxy-fetch pattern — likely affected (code similarity analysis)",
+      "BBC fix in 2024r8.1 targeted SeriesBrowser; ProgrammePlanner was not included (changelog review)",
+    ],
+    unknown: [
+      "Whether RAI has a custom CM2Database override that affects proxy archiving",
+      "How many programme runs are currently in expired-licence state at RAI",
+    ],
+  },
+  impactAnalysis: {
+    dataAtRisk: "none",
+    directlyAffected: [
+      { feature: "Programme planning", module: "PL", severity: "high", description: "Cannot open expired-licence content in planning board" },
+    ],
+    potentiallyAffected: [
+      { feature: "Series browser",     module: "PL", severity: "medium", description: "Same proxy pattern — may crash on expired series contracts" },
+      { feature: "Contract browser",   module: "BM", severity: "medium", description: "Similar nil proxy risk in contract detail view" },
+    ],
+  },
+  environment: {
+    application: { version: "2024r8.000.002c", build: "20250203-1142" },
+    database: { type: "Oracle 19c Enterprise", connectionInfo: "rai-db-07:1521/p07prod" },
+  },
+};
+
+// ═══ Primitives ═══
+function CopyBtn({ text, label = "Copy" }) {
+  const [ok, set] = useState(false);
+  return <button onClick={() => { clip(text); set(true); setTimeout(() => set(false), 2000); }}
+    style={{ background: ok ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${ok ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.08)"}`, color: ok ? "#6ee7b7" : "#9ca3af", padding: "4px 10px", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontFamily: mono, transition: "all .2s" }}>{ok ? "✓ Copied" : label}</button>;
+}
+function Bdg({ severity }) {
+  const s = SEV[severity] || SEV.medium;
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: s.bg, color: s.color, padding: "3px 10px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, letterSpacing: ".08em", fontFamily: mono }}><span style={{ fontSize: "6px" }}>⬤</span>{s.label}</span>;
+}
+function Crd({ label, value, accent, sub }) {
+  return <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderTop: `2px solid ${accent}`, borderRadius: "0 0 6px 6px", padding: "12px" }}>
+    <div style={{ color: "#6b7280", fontSize: "10px", letterSpacing: ".1em", fontFamily: mono }}>{label}</div>
+    <div style={{ color: "#e5e7eb", fontSize: "13px", fontWeight: 600, marginTop: "4px", fontFamily: mono }}>{value}</div>
+    {sub && <div style={{ color: "#6b7280", fontSize: "10px", marginTop: "3px" }}>{sub}</div>}
+  </div>;
+}
+function Tag({ text, color }) {
+  return <span style={{ fontSize: "9px", fontWeight: 700, letterSpacing: ".06em", fontFamily: mono, color, background: `${color}18`, padding: "2px 6px", borderRadius: "3px" }}>{text}</span>;
+}
+function Sec({ title, children, actions, open: init = true }) {
+  const [open, set] = useState(init);
+  return <div style={{ marginBottom: "4px" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: open ? "12px" : 0, cursor: "pointer" }} onClick={() => set(!open)}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <span style={{ color: "#6b7280", fontSize: "10px", transform: open ? "rotate(90deg)" : "rotate(0)", transition: "transform .15s", display: "inline-block" }}>▶</span>
+        <span style={{ color: "#6b7280", fontSize: "10px", fontWeight: 700, letterSpacing: ".12em", fontFamily: mono }}>{title}</span>
+      </div>
+      {actions && open && <div onClick={e => e.stopPropagation()}>{actions}</div>}
+    </div>
+    {open && children}
+  </div>;
+}
+
+// ═══ Stack trace with color classification ═══
+function StackTrace({ exp }) {
+  const [expanded, setE] = useState(new Set([1, 2, 3]));
+  const [inspector, setIns] = useState(null);
+  return <div>
+    <div style={{ display: "flex", gap: "14px", marginBottom: "12px", flexWrap: "wrap" }}>
+      {Object.entries(FC).map(([k, v]) => <div key={k} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+        <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: v.dot }} />
+        <span style={{ color: "#9ca3af", fontSize: "11px" }}>{v.label}</span>
+      </div>)}
+    </div>
+    <div style={{ display: "flex", gap: exp ? "14px" : 0 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px" }}>
+        {D.stackFrames.map(f => {
+          const c = FC[f.color]; const isE = expanded.has(f.id); const isI = inspector === f.id;
+          return <div key={f.id} style={{ background: isE || isI ? c.bg : "transparent", borderLeft: `3px solid ${isE || isI ? c.border : "transparent"}`, padding: "7px 12px", cursor: "pointer", borderRadius: "0 4px 4px 0", transition: "all .15s" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={() => { const n = new Set(expanded); n.has(f.id) ? n.delete(f.id) : n.add(f.id); setE(n); }}>
+              <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono, width: "22px", textAlign: "right" }}>[{f.id}]</span>
+              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: c.dot, flexShrink: 0 }} />
+              <span style={{ color: c.text, fontSize: "12.5px", fontFamily: mono, flex: 1 }}>{f.method}</span>
+              {exp && f.source && <button onClick={e => { e.stopPropagation(); setIns(isI ? null : f.id); }} style={{ background: isI ? "rgba(255,255,255,0.08)" : "transparent", border: `1px solid ${isI ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)"}`, color: isI ? "#d1d5db" : "#4b5563", padding: "2px 8px", borderRadius: "3px", fontSize: "10px", cursor: "pointer", fontFamily: mono }}>{isI ? "Hide" : "Source"}</button>}
+            </div>
+            {isE && <div style={{ marginTop: "4px", marginLeft: "38px", color: "#9ca3af", fontSize: "12px" }}>{f.label}</div>}
+          </div>;
+        })}
+      </div>
+      {exp && inspector && (() => {
+        const f = D.stackFrames.find(x => x.id === inspector); if (!f?.source) return null;
+        const c = FC[f.color];
+        return <div style={{ width: "340px", flexShrink: 0, background: "rgba(0,0,0,0.3)", border: `1px solid ${c.border}33`, borderRadius: "8px", padding: "14px", alignSelf: "flex-start" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+            <span style={{ color: c.text, fontSize: "11px", fontFamily: mono, fontWeight: 700 }}>FRAME [{f.id}]</span>
+            <CopyBtn text={f.source} />
+          </div>
+          <pre style={{ fontFamily: mono, fontSize: "11px", color: "#d1d5db", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>{f.source}</pre>
+        </div>;
+      })()}
+    </div>
+  </div>;
+}
+
+// ═══ User journey ═══
+function Journey() {
+  return <div style={{ position: "relative", paddingLeft: "24px" }}>
+    <div style={{ position: "absolute", left: "7px", top: "4px", bottom: "4px", width: "1px", background: "rgba(255,255,255,0.08)" }} />
+    {D.userScenario.steps.map((s, i) => <div key={s.step} style={{ position: "relative", paddingBottom: i < D.userScenario.steps.length - 1 ? "14px" : 0 }}>
+      <div style={{ position: "absolute", left: "-20px", top: "4px", width: "11px", height: "11px", borderRadius: "50%", background: s.isFailure ? "#ef4444" : "rgba(255,255,255,0.08)", border: `2px solid ${s.isFailure ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.12)"}`, zIndex: 1 }} />
+      <span style={{ color: "#6b7280", fontSize: "11px", fontFamily: mono, marginRight: "8px" }}>{s.step}.</span>
+      <span style={{ color: s.isFailure ? "#fca5a5" : "#d1d5db", fontSize: "13px" }}>{s.action}</span>
+    </div>)}
+  </div>;
+}
+
+// ═══ Remediation P0/P1/P2 ═══
+function Remed() {
+  const PS = { p0: { a: "#ef4444", l: "P0 — FIX TODAY" }, p1: { a: "#f59e0b", l: "P1 — THIS SPRINT" }, p2: { a: "#6b7280", l: "P2 — NEXT RELEASE" } };
+  return <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+    {Object.entries(PS).map(([k, s]) => {
+      const items = D.remediation[k]; if (!items?.length) return null;
+      return <div key={k}>
+        <div style={{ fontSize: "10px", fontWeight: 700, letterSpacing: ".1em", color: s.a, marginBottom: "8px", fontFamily: mono }}>{s.l}</div>
+        {items.map((it, i) => <div key={i} style={{ background: `${s.a}0a`, border: `1px solid ${s.a}22`, borderRadius: "6px", padding: "12px", marginBottom: "6px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+            <span style={{ color: "#e5e7eb", fontSize: "13px", fontWeight: 600 }}>{it.title}</span>
+            <div style={{ display: "flex", gap: "6px" }}>
+              {it.risk && <Tag text={`Risk: ${it.risk}`} color="#9ca3af" />}
+              {it.time && <Tag text={`⏱ ${it.time}`} color="#9ca3af" />}
+            </div>
+          </div>
+          {it.location && <div style={{ fontSize: "12px", color: "#93c5fd", fontFamily: mono, marginBottom: "6px" }}>📍 {it.location}</div>}
+          {it.description && <div style={{ fontSize: "12px", color: "#9ca3af", lineHeight: 1.5 }}>{it.description}</div>}
+          {it.code && <>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", marginBottom: "4px" }}>
+              <span style={{ fontSize: "10px", color: "#6b7280", fontFamily: mono }}>PROPOSED FIX</span>
+              <CopyBtn text={it.code} />
+            </div>
+            <pre style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "4px", padding: "10px", fontSize: "11.5px", color: "#d1d5db", fontFamily: mono, lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" }}>{it.code}</pre>
+          </>}
+          {it.before && <div style={{ marginTop: "8px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+            <div style={{ background: "rgba(239,68,68,0.06)", borderRadius: "4px", padding: "8px" }}><div style={{ fontSize: "10px", color: "#ef4444", fontFamily: mono, marginBottom: "3px" }}>BEFORE</div><div style={{ fontSize: "11px", color: "#fca5a5", fontFamily: mono }}>{it.before}</div></div>
+            <div style={{ background: "rgba(16,185,129,0.06)", borderRadius: "4px", padding: "8px" }}><div style={{ fontSize: "10px", color: "#10b981", fontFamily: mono, marginBottom: "3px" }}>AFTER</div><div style={{ fontSize: "11px", color: "#6ee7b7", fontFamily: mono }}>{it.after}</div></div>
+          </div>}
+        </div>)}
+      </div>;
+    })}
+  </div>;
+}
+
+// ═══ Expanded panels ═══
+function SimilarCrashes() {
+  const sc = { fixed: "#10b981", open: "#f59e0b" };
+  return <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+    {D.similarCrashes.map(c => <div key={c.id} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "6px", padding: "11px", display: "flex", alignItems: "center", gap: "12px" }}>
+      <div style={{ width: "38px", height: "38px", borderRadius: "50%", background: `conic-gradient(${c.similarity > 0.9 ? "#ef4444" : "#f59e0b"} ${c.similarity * 360}deg, rgba(255,255,255,0.04) 0deg)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "#111114", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontFamily: mono, color: "#d1d5db", fontWeight: 700 }}>{Math.round(c.similarity * 100)}</div>
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ color: "#e5e7eb", fontSize: "12px", fontFamily: mono, fontWeight: 600 }}>{c.id}</span>
+          <Tag text={c.site} color="#8b5cf6" />
+          <Tag text={c.status.toUpperCase()} color={sc[c.status]} />
+          {c.fixVersion && <Tag text={`Fixed ${c.fixVersion}`} color="#10b981" />}
+        </div>
+        <div style={{ color: "#6b7280", fontSize: "11px", marginTop: "3px" }}>{c.component} · {c.date}</div>
+      </div>
+    </div>)}
+  </div>;
+}
+
+function Confidence() {
+  const S = [
+    { k: "confirmed", l: "CONFIRMED", c: "#10b981", i: "✓", d: "Direct evidence in WCR" },
+    { k: "inferred",  l: "INFERRED",  c: "#f59e0b", i: "~", d: "Pattern-based, not proven" },
+    { k: "unknown",   l: "UNKNOWN",   c: "#6b7280", i: "?", d: "Cannot determine from available data" },
+  ];
+  return <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+    {S.map(s => <div key={s.k} style={{ background: `${s.c}08`, border: `1px solid ${s.c}22`, borderRadius: "8px", padding: "12px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+        <span style={{ width: "16px", height: "16px", borderRadius: "3px", background: `${s.c}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 700, color: s.c, fontFamily: mono }}>{s.i}</span>
+        <span style={{ color: s.c, fontSize: "10px", fontWeight: 700, letterSpacing: ".1em", fontFamily: mono }}>{s.l}</span>
+        <span style={{ color: "#4b5563", fontSize: "10px" }}>— {s.d}</span>
+      </div>
+      {D.confidence[s.k].map((t, i) => <div key={i} style={{ padding: "3px 0 3px 22px", color: "#d1d5db", fontSize: "12px", lineHeight: 1.5, borderBottom: i < D.confidence[s.k].length - 1 ? "1px solid rgba(255,255,255,0.03)" : "none" }}>{t}</div>)}
+    </div>)}
+  </div>;
+}
+
+function BlastRadius() {
+  const sc = { vulnerable: { c: "#ef4444", i: "✗" }, safe: { c: "#10b981", i: "✓" }, unknown: { c: "#6b7280", i: "?" } };
+  const groups = { vulnerable: D.blastRadius.filter(x => x.s === "vulnerable"), safe: D.blastRadius.filter(x => x.s === "safe"), unknown: D.blastRadius.filter(x => x.s === "unknown") };
+  return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+    {Object.entries(groups).map(([k, items]) => { if (!items.length) return null; const s = sc[k]; return <div key={k} style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${s.c}22`, borderRadius: "8px", padding: "12px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "8px" }}>
+        <span style={{ color: s.c, fontWeight: 700, fontSize: "12px" }}>{s.i}</span>
+        <span style={{ color: s.c, fontSize: "10px", fontWeight: 700, letterSpacing: ".08em", fontFamily: mono, textTransform: "uppercase" }}>{k}</span>
+        <span style={{ color: "#4b5563", fontSize: "10px", fontFamily: mono }}>({items.length})</span>
+      </div>
+      {items.map(x => <div key={x.c} style={{ padding: "3px 0", borderBottom: "1px solid rgba(255,255,255,0.03)", color: "#d1d5db", fontSize: "12px", fontFamily: mono }}>{x.c}</div>)}
+    </div>; })}
+  </div>;
+}
+
+function Notes() {
+  const [notes, setN] = useState([]);
+  const [v, setV] = useState("");
+  const add = () => { if (!v.trim()) return; setN([...notes, { text: v.trim(), time: new Date().toLocaleTimeString() }]); setV(""); };
+  return <div>
+    {notes.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: "5px", marginBottom: "10px" }}>
+      {notes.map((n, i) => <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "6px", padding: "10px" }}>
+        <div style={{ color: "#d1d5db", fontSize: "12px", lineHeight: 1.5 }}>{n.text}</div>
+        <div style={{ color: "#4b5563", fontSize: "10px", fontFamily: mono, marginTop: "3px" }}>analyst · {n.time}</div>
+      </div>)}
+    </div>}
+    <div style={{ display: "flex", gap: "8px" }}>
+      <input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === "Enter" && add()} placeholder="Add investigation note…" style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", padding: "8px 12px", color: "#d1d5db", fontSize: "12px", fontFamily: sans, outline: "none" }} />
+      <button onClick={add} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#9ca3af", padding: "8px 14px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontFamily: mono }}>Add</button>
+    </div>
+  </div>;
+}
+
+// ═══ AI analysis metadata strip ═══
+function AiMeta() {
+  return <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 0", borderTop: "1px solid rgba(255,255,255,0.04)", marginTop: "8px" }}>
+    <Tag text="Hadron AI" color="#8b5cf6" />
+    <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono }}>{D.ai_model}</span>
+    <span style={{ color: "#4b5563" }}>│</span>
+    <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono }}>{D.tokens_used.toLocaleString()} tokens</span>
+    <span style={{ color: "#4b5563" }}>│</span>
+    <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono }}>${D.cost.toFixed(3)}</span>
+    <span style={{ color: "#4b5563" }}>│</span>
+    <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono }}>{(D.analysis_duration_ms / 1000).toFixed(1)}s</span>
+    <Tag text={D.analysis_mode} color="#6b7280" />
+  </div>;
+}
+
+// ═══ Tab views ═══
+function SupportView({ exp }) {
+  return <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+    <Sec title="QUICK SUMMARY">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "10px" }}>
+        <Crd label="SITE"      value={D.site}                accent="#8b5cf6" />
+        <Crd label="SEVERITY"  value="HIGH"                  accent="#f59e0b" />
+        <Crd label="COMPONENT" value={D.rootCause.affectedModule + " — " + D.component} accent="#3b82f6" sub={D.component} />
+        <Crd label="FIX ETA"   value="1-2 hours"             accent="#10b981" sub="P0 nil guard" />
+      </div>
+    </Sec>
+    <Sec title="VERDICT">
+      <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: "6px", padding: "14px" }}>
+        <div style={{ color: "#fca5a5", fontSize: "14px", fontWeight: 600, marginBottom: "6px" }}>Bug — Nil proxy crash on expired content</div>
+        <div style={{ color: "#d1d5db", fontSize: "13px", lineHeight: 1.6 }}>{D.rootCause.plainEnglish}</div>
+      </div>
+    </Sec>
+    <Sec title="USER EXPERIENCE"><Journey /></Sec>
+    <Sec title="WORKAROUND">
+      <div style={{ background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)", borderRadius: "6px", padding: "14px" }}>
+        <div style={{ color: "#6ee7b7", fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>Immediate Resolution</div>
+        <ol style={{ margin: 0, paddingLeft: "20px", color: "#d1d5db", fontSize: "13px", lineHeight: 1.8 }}>
+          <li>Avoid opening programme runs with expired licences in the Planning Board</li>
+          <li>To identify affected runs: <span style={{ fontFamily: mono, color: "#93c5fd" }}>SELECT OID FROM CM2RUN WHERE LICENSE_OID IN (SELECT OID FROM CM2LICENSE WHERE EXPIRY_DATE &lt; SYSDATE)</span></li>
+          <li>Use the Rights Summary Viewer (unaffected) to check licence status before planning</li>
+        </ol>
+      </div>
+    </Sec>
+    <Sec title="REPRODUCTION">
+      <div>{D.reproduction.steps.map((s, i) => <div key={i} style={{ display: "flex", gap: "8px", padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.03)" }}><span style={{ color: "#6b7280", fontSize: "12px", fontFamily: mono, width: "20px" }}>{i + 1}.</span><span style={{ color: "#d1d5db", fontSize: "13px" }}>{s}</span></div>)}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "12px" }}>
+        <div style={{ background: "rgba(16,185,129,0.06)", borderRadius: "6px", padding: "12px", borderLeft: "3px solid #10b981" }}><div style={{ color: "#10b981", fontSize: "10px", fontWeight: 700, letterSpacing: ".1em", marginBottom: "5px", fontFamily: mono }}>EXPECTED</div><div style={{ color: "#d1d5db", fontSize: "12px", lineHeight: 1.5 }}>{D.reproduction.expected}</div></div>
+        <div style={{ background: "rgba(239,68,68,0.06)", borderRadius: "6px", padding: "12px", borderLeft: "3px solid #ef4444" }}><div style={{ color: "#ef4444", fontSize: "10px", fontWeight: 700, letterSpacing: ".1em", marginBottom: "5px", fontFamily: mono }}>ACTUAL</div><div style={{ color: "#d1d5db", fontSize: "12px", lineHeight: 1.5 }}>{D.reproduction.actual}</div></div>
+      </div>
+    </Sec>
+    {exp && <Sec title="SIMILAR CRASHES"><SimilarCrashes /></Sec>}
+    {exp && <Sec title="ANALYSIS CONFIDENCE"><Confidence /></Sec>}
+    {exp && <Sec title="INVESTIGATION NOTES"><Notes /></Sec>}
+    <AiMeta />
+  </div>;
+}
+
+function DevView({ exp }) {
+  return <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+    <Sec title="CLASSIFICATION">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+        <Crd label="EXCEPTION"  value={D.error_type}          accent="#ef4444" />
+        <Crd label="MODULE"     value={D.rootCause.affectedModule} accent="#3b82f6" sub={D.component} />
+        <Crd label="TRIGGER"    value="Expired licence"        accent="#f59e0b" sub="licenseProxy = nil" />
+      </div>
+      <div style={{ marginTop: "10px", padding: "10px 14px", background: "rgba(255,255,255,0.02)", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ color: "#9ca3af", fontSize: "12px", marginBottom: "4px" }}><strong style={{ color: "#e5e7eb" }}>Affected method:</strong> <span style={{ fontFamily: mono, color: "#93c5fd" }}>{D.rootCause.affectedMethod}</span></div>
+        <div style={{ color: "#9ca3af", fontSize: "12px" }}><strong style={{ color: "#e5e7eb" }}>Trigger condition:</strong> {D.rootCause.triggerCondition}</div>
+      </div>
+    </Sec>
+    <Sec title="ROOT CAUSE (TECHNICAL)">
+      <div style={{ background: "rgba(59,130,246,0.05)", border: "1px solid rgba(59,130,246,0.12)", borderRadius: "6px", padding: "14px", borderLeft: "3px solid #3b82f6" }}>
+        <div style={{ color: "#d1d5db", fontSize: "13px", lineHeight: 1.7 }}>{D.rootCause.technical}</div>
+      </div>
+    </Sec>
+    <Sec title="STACK TRACE"><StackTrace exp={exp} /></Sec>
+    <Sec title="REMEDIATION"><Remed /></Sec>
+    {exp && <Sec title="BLAST RADIUS"><BlastRadius /></Sec>}
+    {exp && <Sec title="SIMILAR CRASHES"><SimilarCrashes /></Sec>}
+    {exp && <Sec title="ANALYSIS CONFIDENCE"><Confidence /></Sec>}
+    {exp && <Sec title="INVESTIGATION NOTES"><Notes /></Sec>}
+    <AiMeta />
+  </div>;
+}
+
+const custReply = `Dear ${D.username.split("@")[0].replace(".", " ").replace(/\b\w/g, c => c.toUpperCase())},
+
+Thank you for reporting this issue.
+
+SUMMARY
+The application crashed while opening a programme in the Planning Board. The programme's broadcast licence has expired, which caused an unexpected error in the licence status display.
+
+WORKAROUND
+Please avoid opening programme runs whose licences have expired in the Planning Board. You can identify affected programmes using the Rights Summary Viewer, which is not affected by this issue.
+
+To check a programme's licence status before planning, use:
+  Rights Summary Viewer → search by programme title → check Licence Status column
+
+RESOLUTION
+A fix has been identified and is scheduled for the next patch release.
+
+Kind regards,
+Mediagenix Support`;
+
+function CustomerView() {
+  return <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+    <Sec title="CUSTOMER-FACING REPLY" actions={<CopyBtn text={custReply} label="Copy reply" />}>
+      <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "20px" }}>
+        <pre style={{ fontFamily: sans, fontSize: "13px", color: "#d1d5db", lineHeight: 1.8, whiteSpace: "pre-wrap", margin: 0 }}>{custReply}</pre>
+      </div>
+    </Sec>
+    <Sec title="SUMMARY TABLE">
+      <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: "6px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
+        {[["Ticket", D.crash_id], ["Verdict", "Bug — crash instead of expired-licence notice"], ["Affects", "Planning Board — programme detail view"], ["Workaround", "Use Rights Summary Viewer to check licence status"], ["Fix scope", "Base product"], ["Severity", "HIGH"]].map(([k, v], i) => <div key={k} style={{ display: "flex", padding: "9px 14px", borderBottom: i < 5 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+          <span style={{ color: "#6b7280", fontSize: "12px", width: "120px", flexShrink: 0 }}>{k}</span>
+          <span style={{ color: "#d1d5db", fontSize: "12px" }}>{v}</span>
+        </div>)}
+      </div>
+    </Sec>
+  </div>;
+}
+
+function ExecView({ exp }) {
+  return <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+    <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: "10px", padding: "20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ color: "#e5e7eb", fontSize: "18px", fontWeight: 700, marginBottom: "5px" }}>Application Crash — Expired Licence Handling</div>
+          <div style={{ color: "#9ca3af", fontSize: "13px", lineHeight: 1.6, maxWidth: "520px" }}>Planning Board crashes when opening content with an expired broadcast licence. Licence enforcement works correctly; graceful error handling does not.</div>
+        </div>
+        <Bdg severity="high" />
+      </div>
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "10px" }}>
+      {[{ l: "USER IMPACT", v: "Planning staff", s: "Cannot open expired-licence content", c: "#f59e0b" }, { l: "DATA RISK", v: "None", s: "Crash before any data change", c: "#6ee7b7" }, { l: "FIX EFFORT", v: "1-2 Hours", s: "Nil guard, low risk", c: "#10b981" }].map(c => <div key={c.l} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "14px", textAlign: "center" }}>
+        <div style={{ color: "#6b7280", fontSize: "10px", letterSpacing: ".1em", fontFamily: mono, marginBottom: "6px" }}>{c.l}</div>
+        <div style={{ color: c.c || "#e5e7eb", fontSize: "14px", fontWeight: 600 }}>{c.v}</div>
+        <div style={{ color: "#9ca3af", fontSize: "11px", marginTop: "3px" }}>{c.s}</div>
+      </div>)}
+    </div>
+    <Sec title="RESOLUTION PATH">
+      <div style={{ display: "flex", gap: "10px" }}>
+        {[{ p: "Now", l: "Workaround", d: "Identify and avoid affected runs", c: "#10b981" }, { p: "This week", l: "P0 Fix", d: "Nil guard (1-2h)", c: "#f59e0b" }, { p: "Sprint", l: "Harden", d: "Null Object proxy + prefetch", c: "#3b82f6" }].map(it => <div key={it.p} style={{ flex: 1, background: "rgba(255,255,255,0.02)", border: `1px solid ${it.c}33`, borderTop: `3px solid ${it.c}`, borderRadius: "0 0 6px 6px", padding: "12px" }}>
+          <div style={{ color: it.c, fontSize: "10px", fontWeight: 700, fontFamily: mono }}>{it.p.toUpperCase()}</div>
+          <div style={{ color: "#e5e7eb", fontSize: "13px", fontWeight: 600, marginTop: "5px" }}>{it.l}</div>
+          <div style={{ color: "#9ca3af", fontSize: "12px", marginTop: "3px" }}>{it.d}</div>
+        </div>)}
+      </div>
+    </Sec>
+    {exp && <Sec title="BLAST RADIUS"><BlastRadius /></Sec>}
+    {exp && <Sec title="SIMILAR CRASHES"><SimilarCrashes /></Sec>}
+  </div>;
+}
+
+// ═══ Export drawer ═══
+function genDev() { return `# Developer Brief — ${D.crash_id}\nSite: ${D.site} | HIGH | ${D.component}\n\n## Root Cause\n${D.rootCause.technical}\n\n## Stack\n${D.stackFrames.map(f => `[${f.id}] [${f.color.toUpperCase()}] ${f.method}\n    → ${f.label}`).join("\n")}\n\n## P0 Fix\n${D.remediation.p0[0].location}\n\`\`\`\n${D.remediation.p0[0].code}\n\`\`\``; }
+function genSupp() { return `# Support Summary — ${D.crash_id}\nSite: ${D.site} | Severity: HIGH\nVerdict: Bug — nil proxy crash on expired content\nWorkaround: Avoid expired-licence runs in Planning Board\nFix: P0 nil guard (1-2h, low risk)`; }
+
+function ExportDrawer({ isOpen, onClose }) {
+  const [cp, setCp] = useState(null);
+  const [pv, setPv] = useState(null);
+  const clips = [
+    { id: "dev",  l: "Developer Brief",  f: "MD",  d: "Stack, root cause, P0 fix",     fn: genDev,  a: "#3b82f6" },
+    { id: "sup",  l: "Support Summary",  f: "MD",  d: "Verdict, workaround, handoff",  fn: genSupp, a: "#8b5cf6" },
+    { id: "cust", l: "Customer Reply",   f: "TXT", d: "Ready-to-send email",           fn: () => custReply, a: "#10b981" },
+    { id: "jira", l: "JIRA Ticket",      f: "MD",  d: "Pre-formatted bug report",      fn: () => `**${D.crash_id}** | ${D.site} | HIGH\n${D.error_message}\n\nRepro:\n${D.reproduction.steps.map((s,i)=>`${i+1}. ${s}`).join("\n")}\n\nP0 Fix: ${D.remediation.p0[0].location}\nWorkaround: avoid expired-licence runs`, a: "#f59e0b" },
+  ];
+  const pvItem = pv ? clips.find(x => x.id === pv) : null;
+  const copy = it => { clip(it.fn()); setCp(it.id); setTimeout(() => setCp(null), 2200); };
+  if (!isOpen) return null;
+  return <>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, backdropFilter: "blur(2px)" }} />
+    <div style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: pvItem ? "700px" : "370px", background: "#111114", borderLeft: "1px solid rgba(255,255,255,0.08)", zIndex: 201, display: "flex", flexDirection: "column", transition: "width .25s ease", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" }}>
+      <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div><div style={{ color: "#e5e7eb", fontSize: "14px", fontWeight: 600 }}>Export Analysis</div><div style={{ color: "#6b7280", fontSize: "11px", fontFamily: mono }}>{D.crash_id}</div></div>
+        <button onClick={onClose} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#9ca3af", width: "26px", height: "26px", borderRadius: "5px", cursor: "pointer", fontSize: "13px" }}>×</button>
+      </div>
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        <div style={{ flex: pvItem ? "0 0 370px" : 1, overflowY: "auto", padding: "14px 18px", display: "flex", flexDirection: "column", gap: "4px" }}>
+          <div style={{ color: "#6b7280", fontSize: "10px", fontWeight: 700, letterSpacing: ".1em", fontFamily: mono, marginBottom: "8px" }}>⎘ COPY TO CLIPBOARD</div>
+          {clips.map(it => { const ok = cp === it.id; const isPv = pv === it.id; return <div key={it.id} style={{ background: ok ? "rgba(16,185,129,0.08)" : isPv ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)", border: `1px solid ${ok ? "rgba(16,185,129,0.2)" : isPv ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)"}`, borderRadius: "7px", padding: "10px", marginBottom: "4px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}><span style={{ color: "#e5e7eb", fontSize: "12px", fontWeight: 600 }}>{it.l}</span><Tag text={it.f} color={it.a} /></div>
+            <div style={{ color: "#6b7280", fontSize: "11px", marginTop: "3px" }}>{it.d}</div>
+            <div style={{ display: "flex", gap: "5px", marginTop: "8px" }}>
+              <button onClick={() => copy(it)} style={{ background: ok ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.06)", border: `1px solid ${ok ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.08)"}`, color: ok ? "#6ee7b7" : "#d1d5db", padding: "4px 10px", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontFamily: mono }}>{ok ? "✓ Copied" : "Copy"}</button>
+              <button onClick={() => setPv(isPv ? null : it.id)} style={{ background: isPv ? "rgba(255,255,255,0.08)" : "transparent", border: `1px solid ${isPv ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)"}`, color: isPv ? "#d1d5db" : "#6b7280", padding: "4px 10px", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontFamily: mono }}>{isPv ? "Hide" : "Preview"}</button>
+            </div>
+          </div>; })}
+        </div>
+        {pvItem && <div style={{ flex: 1, borderLeft: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: "#e5e7eb", fontSize: "12px", fontWeight: 600 }}>{pvItem.l}</span>
+            <CopyBtn text={pvItem.fn()} />
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "14px" }}>
+            <pre style={{ fontFamily: mono, fontSize: "11px", color: "#9ca3af", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>{pvItem.fn()}</pre>
+          </div>
+        </div>}
+      </div>
+    </div>
+  </>;
+}
+
+// ═══ Quick Actions ═══
+function QActions({ onExport }) {
+  const [a, setA] = useState(null);
+  const items = [{ id: "jira", l: "Create JIRA", i: "⊞" }, { id: "reply", l: "Send Reply", i: "✉" }, { id: "gold", l: "Add to Gold Answers", i: "◎" }, { id: "pattern", l: "Save Pattern", i: "◈" }];
+  return <div style={{ position: "sticky", bottom: 0, background: "#0d0d10", borderTop: "1px solid rgba(255,255,255,0.08)", padding: "10px 24px", display: "flex", justifyContent: "space-between", zIndex: 50 }}>
+    <div style={{ display: "flex", gap: "6px" }}>
+      {items.map(x => <button key={x.id} onClick={() => { setA(x.id); setTimeout(() => setA(null), 2000); }} style={{ background: a === x.id ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${a === x.id ? "rgba(16,185,129,0.25)" : "rgba(255,255,255,0.08)"}`, color: a === x.id ? "#6ee7b7" : "#d1d5db", padding: "6px 12px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontFamily: mono, display: "flex", alignItems: "center", gap: "5px", transition: "all .15s" }}><span>{x.i}</span>{a === x.id ? "✓" : x.l}</button>)}
+    </div>
+    <button onClick={onExport} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#d1d5db", padding: "6px 14px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontFamily: mono }}>↗ Export…</button>
+  </div>;
+}
+
+// ═══ Main ═══
+const tabs = [{ id: "support", l: "Support Engineer", i: "◎" }, { id: "developer", l: "Developer", i: "⌘" }, { id: "customer", l: "Customer-Facing", i: "✉" }, { id: "executive", l: "Executive", i: "◈" }];
+
+export default function HadronWcrMockup() {
+  const [tab, setTab] = useState("support");
+  const [exp, setExp] = useState(false);
+  const [xport, setXport] = useState(false);
+  const sev = SEV[D.severity];
+
+  return <div style={{ background: "#0a0a0c", color: "#d1d5db", minHeight: "100vh", fontFamily: sans, display: "flex", flexDirection: "column" }}>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+    <ExportDrawer isOpen={xport} onClose={() => setXport(false)} />
+
+    {/* Back navigation */}
+    <div style={{ padding: "8px 24px", borderBottom: "1px solid rgba(255,255,255,0.04)", display: "flex", alignItems: "center", gap: "8px" }}>
+      <button style={{ background: "none", border: "none", color: "#6b7280", fontSize: "12px", cursor: "pointer", fontFamily: mono, padding: 0, display: "flex", alignItems: "center", gap: "4px" }}>◀ Back to History</button>
+      <span style={{ color: "#4b5563" }}>│</span>
+      <span style={{ color: "#4b5563", fontSize: "12px", fontFamily: mono }}>{D.filename}</span>
+    </div>
+
+    {/* Header */}
+    <div style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "11px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.01)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+          <div style={{ width: "8px", height: "8px", borderRadius: "2px", background: sev.color }} />
+          <span style={{ color: "#e5e7eb", fontSize: "14px", fontWeight: 700, fontFamily: mono }}>{D.crash_id}</span>
+        </div>
+        <Bdg severity={D.severity} />
+        <span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "12px" }}>{D.site}</span>
+        <span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "12px" }}>{D.component}</span>
+        <span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "12px" }}>{new Date(D.timestamp).toLocaleDateString()}</span>
+        <span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "12px", fontFamily: mono }}>{D.user}</span>
+      </div>
+      <div style={{ display: "flex", gap: "7px" }}>
+        <button onClick={() => setExp(!exp)} style={{ background: exp ? "rgba(139,92,246,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${exp ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.1)"}`, color: exp ? "#c4b5fd" : "#9ca3af", padding: "5px 12px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontFamily: mono, transition: "all .2s" }}>{exp ? "◉ Expanded" : "○ Standard"}</button>
+        <button onClick={() => setXport(true)} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "#d1d5db", padding: "5px 12px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontFamily: mono }}>↗ Export</button>
+      </div>
+    </div>
+
+    {/* Cause banner */}
+    <div style={{ padding: "9px 24px", background: "rgba(239,68,68,0.04)", borderBottom: "1px solid rgba(239,68,68,0.1)", display: "flex", alignItems: "center", gap: "10px" }}>
+      <span style={{ color: "#ef4444", fontSize: "12px", fontFamily: mono, fontWeight: 700 }}>{D.error_type}</span>
+      <span style={{ color: "#4b5563" }}>—</span>
+      <span style={{ color: "#fca5a5", fontSize: "12px" }}>{D.error_message}</span>
+    </div>
+
+    {/* Tabs */}
+    <div style={{ display: "flex", borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "0 24px", background: "rgba(255,255,255,0.01)" }}>
+      {tabs.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", padding: "10px 18px", color: tab === t.id ? "#e5e7eb" : "#6b7280", fontSize: "12px", cursor: "pointer", borderBottom: tab === t.id ? "2px solid #e5e7eb" : "2px solid transparent", fontFamily: sans, fontWeight: tab === t.id ? 600 : 400, display: "flex", alignItems: "center", gap: "5px", marginBottom: "-1px", transition: "color .15s" }}><span style={{ fontSize: "11px", opacity: tab === t.id ? 1 : 0.5 }}>{t.i}</span>{t.l}</button>)}
+    </div>
+
+    {/* Content */}
+    <div style={{ flex: 1, overflow: "auto", padding: "20px 24px", maxWidth: "1060px" }}>
+      {tab === "support"   && <SupportView exp={exp} />}
+      {tab === "developer" && <DevView exp={exp} />}
+      {tab === "customer"  && <CustomerView />}
+      {tab === "executive" && <ExecView exp={exp} />}
+    </div>
+
+    {exp && <QActions onExport={() => setXport(true)} />}
+  </div>;
+}

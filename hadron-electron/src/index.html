@@ -3,6 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content-Security-Policy: defense-in-depth against script injection from
+      AI output, JIRA descriptions, and other untrusted strings rendered into
+      the DOM. `unsafe-inline` is required for Tailwind's runtime styles and
+      React's inline event handlers; `connect-src https:` lets the renderer
+      reach AI/JIRA APIs. NO `script-src 'unsafe-eval'`, NO remote scripts,
+      NO `object-src` / iframes, NO `frame-ancestors` (window has no embeds).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'"
+    />
     <title>Hadron - AI Support Assistant</title>
 
     <!-- Favicons -->
@@ -16,10 +28,10 @@
     <!-- Apple Touch Icon -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 
-    <!-- Google Fonts: Poppins -->
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
     <!-- Theme Color -->
     <meta name="theme-color" content="#170262" />

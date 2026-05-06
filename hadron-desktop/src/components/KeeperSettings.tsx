@@ -469,32 +469,43 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
             const currentMapping = config.secretMappings[provider];
             const isMapped = !!currentMapping;
 
+            const mappedSecret = secrets.find(s => s.uid === currentMapping);
+            const warnNoKey = !!currentMapping && mappedSecret !== undefined && !mappedSecret.has_api_key;
+
             return (
-              <div key={provider} className="flex items-center gap-3">
-                <span className="w-24 text-sm text-gray-300 capitalize">
-                  {provider === "zai" ? "Z.ai" : provider}
-                </span>
-                <select
-                  value={currentMapping || ""}
-                  onChange={(e) =>
-                    handleMapSecret(provider, e.target.value)
-                  }
-                  className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
-                >
-                  <option value="">-- Select a secret --</option>
-                  {secrets.map((secret) => (
-                    <option key={secret.uid} value={secret.uid}>
-                      {secret.title}
-                    </option>
-                  ))}
-                </select>
-                <div className="w-6 flex justify-center" title={isMapped ? "Linked" : "Not linked"}>
-                  {isMapped ? (
-                    <Link className="w-4 h-4 text-green-400" aria-label="Linked" />
-                  ) : (
-                    <Unlink className="w-4 h-4 text-gray-500" aria-label="Not linked" />
-                  )}
+              <div key={provider}>
+                <div className="flex items-center gap-3">
+                  <span className="w-24 text-sm text-gray-300 capitalize">
+                    {provider === "zai" ? "Z.ai" : provider}
+                  </span>
+                  <select
+                    value={currentMapping || ""}
+                    onChange={(e) =>
+                      handleMapSecret(provider, e.target.value)
+                    }
+                    className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="">-- Select a secret --</option>
+                    {secrets.map((secret) => (
+                      <option key={secret.uid} value={secret.uid}>
+                        {secret.has_api_key ? "✓ " : "⚠ "}{secret.title}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="w-6 flex justify-center" title={isMapped ? "Linked" : "Not linked"}>
+                    {isMapped ? (
+                      <Link className="w-4 h-4 text-green-400" aria-label="Linked" />
+                    ) : (
+                      <Unlink className="w-4 h-4 text-gray-500" aria-label="Not linked" />
+                    )}
+                  </div>
                 </div>
+                {warnNoKey && (
+                  <div className="ml-28 mt-1 flex items-center gap-1.5 text-xs text-yellow-400">
+                    <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                    No API key found in this record. Ensure it has a password, secret, or custom field containing the key.
+                  </div>
+                )}
               </div>
             );
           })}

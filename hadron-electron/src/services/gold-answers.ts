@@ -4,7 +4,7 @@
  * Tauri invoke wrappers for curated gold-standard Q&A management.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 
 // ============================================================================
 // Types

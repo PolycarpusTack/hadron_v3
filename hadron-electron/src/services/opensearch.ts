@@ -3,7 +3,7 @@
  * Handles KB configuration management and Tauri command wrappers
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { getSetting, storeSetting, getApiKey, storeApiKey } from "./secure-storage";
 import logger from "./logger";
 

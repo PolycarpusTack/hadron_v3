@@ -3,7 +3,7 @@
  * Handles JIRA ticket creation from crash analysis results
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { getSetting, storeSetting, getApiKey } from "./secure-storage";
 import logger from "./logger";
 

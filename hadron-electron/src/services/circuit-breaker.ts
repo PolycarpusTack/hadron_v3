@@ -166,7 +166,7 @@ function recordFailure(provider: string): void {
 }
 
 /**
- * Call AI provider through Rust backend with timeout
+ * Call AI provider through the Electron IPC backend with timeout.
  */
 async function callAIProvider(request: AnalysisRequest): Promise<AnalysisResponse> {
   const timeoutPromise = new Promise<never>((_, reject) => {

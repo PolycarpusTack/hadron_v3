@@ -61,44 +61,50 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
   // NOTE: React 18 StrictMode double-mounts components in dev, which causes
   // two concurrent Keeper SDK calls that race on the config file. The
   // `cancelled` flag ensures stale mounts don't update state or show errors.
+  //
+  // IMPORTANT: local config (enabled flag + secret mappings) is loaded from
+  // localStorage first and applied unconditionally. The backend status check
+  // runs separately so a network failure or SDK error cannot wipe the UI state.
+  // Previously both were in a Promise.all — if getKeeperStatus() rejected, the
+  // entire load failed and the saved config was never applied to React state.
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setIsLoading(true);
+
+      // Step 1: local config — just localStorage, always fast and reliable
       try {
-        const [keeperStatus, keeperConfig] = await Promise.all([
-          getKeeperStatus(),
-          getKeeperConfig(),
-        ]);
+        const keeperConfig = await getKeeperConfig();
+        if (!cancelled) setConfig(keeperConfig);
+      } catch (error) {
+        logger.warn("Failed to read local Keeper config", { error });
+      }
 
+      // Step 2: backend status + secrets list — may fail if Keeper is unreachable
+      try {
+        const keeperStatus = await getKeeperStatus();
         if (cancelled) return;
-
         setStatus(keeperStatus);
-        setConfig(keeperConfig);
 
         if (keeperStatus.connected) {
           try {
             const secretsResult = await listKeeperSecrets();
-            if (!cancelled) {
-              setSecrets(secretsResult.secrets);
-            }
+            if (!cancelled) setSecrets(secretsResult.secrets);
           } catch (error) {
-            // Non-fatal: status/config loaded OK, just secrets list failed
+            // Non-fatal: status loaded OK, just secrets list failed
             logger.warn("Failed to list Keeper secrets", { error });
           }
         }
       } catch (error) {
         if (cancelled) return;
-        logger.error("Failed to load Keeper state", { error });
+        logger.error("Failed to get Keeper status", { error });
         setMessage({
           type: "error",
-          text: "Failed to load Keeper configuration",
+          text: "Failed to connect to Keeper — your settings are preserved",
         });
       } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        if (!cancelled) setIsLoading(false);
       }
     }
 
@@ -335,13 +341,9 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
               onClick={() => {
                 setIsLoading(true);
                 setMessage(null);
-                // Retry — inline the load logic
                 (async () => {
                   try {
-                    const [keeperStatus] = await Promise.all([
-                      getKeeperStatus(),
-                      getKeeperConfig().then(c => setConfig(c)),
-                    ]);
+                    const keeperStatus = await getKeeperStatus();
                     setStatus(keeperStatus);
                     if (keeperStatus.connected) {
                       try {
@@ -486,6 +488,11 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
                     className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
                   >
                     <option value="">-- Select a secret --</option>
+                    {/* When secrets haven't loaded yet but a mapping is saved, show a
+                        placeholder so the selection looks correct while the list loads */}
+                    {currentMapping && secrets.length === 0 && (
+                      <option value={currentMapping}>(saved — loading secrets…)</option>
+                    )}
                     {secrets.map((secret) => (
                       <option key={secret.uid} value={secret.uid}>
                         {secret.has_api_key ? "✓ " : "⚠ "}{secret.title}

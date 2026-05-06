@@ -8,6 +8,8 @@ export async function open(options?: {
   const result = await window.hadron.openFile({
     multiple: options?.multiple,
     filters: options?.filters,
+    directory: options?.directory,
+    defaultPath: options?.defaultPath,
   })
   if (!result || result.length === 0) return null
   return options?.multiple ? result : result[0]

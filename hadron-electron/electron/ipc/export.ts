@@ -1,8 +1,8 @@
 import { IpcMain } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
-import os from 'os'
 import crypto from 'crypto'
+import { isWriteAllowed } from './dialogAllowlist'
 import * as XLSX from 'xlsx'
 
 // ============================================================================
@@ -313,27 +313,15 @@ function formatReport(
 // IPC handler registration
 // ============================================================================
 
-function isSafePath(filePath: string): boolean {
-  const normalized = path.resolve(filePath)
-  const dangerous = [
-    '/etc', '/sys', '/proc', '/root',
-    'C:\\Windows', 'C:\\System32',
-    process.env.USERPROFILE ? path.join(process.env.USERPROFILE as string, '.ssh') : '',
-    path.join(os.homedir(), '.ssh'),
-    path.join(os.homedir(), '.gnupg'),
-  ].filter(Boolean)
-  return !dangerous.some(d => normalized.startsWith(d))
-}
-
 export function registerExportHandlers(ipc: IpcMain): void {
-  // File write aliases used by ExportDialog / ExportMenu
+  // File write: only permitted to paths/directories authorised by a dialog this session.
   ipc.handle('write_export_text', async (_e, args: { path: string; content: string }) => {
-    if (!isSafePath(args.path)) throw new Error('Access denied: file path is not allowed')
+    if (!isWriteAllowed(args.path)) throw new Error('Access denied: path was not authorised by a save dialog')
     await fs.writeFile(args.path, args.content, 'utf-8')
   })
 
   ipc.handle('write_export_bytes', async (_e, args: { path: string; data: number[] }) => {
-    if (!isSafePath(args.path)) throw new Error('Access denied: file path is not allowed')
+    if (!isWriteAllowed(args.path)) throw new Error('Access denied: path was not authorised by a save dialog')
     await fs.writeFile(args.path, Buffer.from(args.data))
   })
 

@@ -3,8 +3,9 @@
  * Handles Tauri command invocations and config management for release notes.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { getSetting, getApiKey } from "./secure-storage";
+import { getKeeperSecretForProvider } from "./keeper";
 import { getStoredProvider, getStoredModel } from "./api";
 import logger from "./logger";
 import type {
@@ -43,16 +44,18 @@ async function getJiraCredentials(): Promise<JiraCredentials> {
   return { baseUrl, email, apiToken, projectKey };
 }
 
-async function getAiCredentials(): Promise<{ apiKey: string; model: string; provider: string }> {
+async function getAiCredentials(): Promise<{ apiKey: string; model: string; provider: string; keeperSecretUid: string | null }> {
   const provider = getStoredProvider();
   const model = getStoredModel();
-  const apiKey = await getApiKey(provider);
-
-  if (!apiKey) {
-    throw new Error("AI provider is not configured. Please set an API key in Settings.");
+  const keeperSecretUid = await getKeeperSecretForProvider(provider);
+  let apiKey = "";
+  if (!keeperSecretUid) {
+    apiKey = (await getApiKey(provider)) || "";
+    if (!apiKey) {
+      throw new Error("AI provider is not configured. Please set an API key in Settings.");
+    }
   }
-
-  return { apiKey, model, provider };
+  return { apiKey, model, provider, keeperSecretUid };
 }
 
 // ============================================================================
@@ -110,11 +113,13 @@ export async function previewTickets(
       },
     };
 
+    // SECURITY: JIRA credentials are read by the main process from secure
+    // storage — see preview_release_notes_tickets in
+    // electron/ipc/release-notes.ts. Passing baseUrl/email/apiToken from the
+    // renderer would let a compromised UI redirect the request or smuggle
+    // out a different account's apiToken.
     const tickets = await invoke<ReleaseNoteTicketPreview[]>("preview_release_notes_tickets", {
       config,
-      baseUrl: jira.baseUrl,
-      email: jira.email,
-      apiToken: jira.apiToken,
     });
 
     logger.info("Previewed tickets", { count: tickets.length, fixVersion });
@@ -167,6 +172,7 @@ export async function generateReleaseNotes(options: GenerateOptions) {
       apiKey: ai.apiKey,
       model: ai.model,
       provider: ai.provider,
+      keeperSecretUid: ai.keeperSecretUid ?? null,
     });
 
     logger.info("Generated release notes", { fixVersion: options.fixVersion });
@@ -282,6 +288,7 @@ export async function appendToReleaseNotes(
       apiKey: ai.apiKey,
       model: ai.model,
       provider: ai.provider,
+      keeperSecretUid: ai.keeperSecretUid ?? null,
     });
 
     logger.info("Appended to release notes", { id });
@@ -336,6 +343,7 @@ export async function checkCompliance(content: string): Promise<ComplianceReport
       apiKey: ai.apiKey,
       model: ai.model,
       provider: ai.provider,
+      keeperSecretUid: ai.keeperSecretUid ?? null,
     });
   } catch (error) {
     logger.error("Compliance check failed", { error });

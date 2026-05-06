@@ -15,7 +15,6 @@ import Splashscreen from "./components/Splashscreen";
 import { ViewErrorBoundary, AppErrorBoundary } from "./components/ErrorBoundary";
 import Navigation from "./components/Navigation";
 import ErrorDisplay from "./components/ErrorDisplay";
-import ApiKeyWarning from "./components/ApiKeyWarning";
 import BatchProgressDisplay from "./components/BatchProgressDisplay";
 import AppHeader from "./components/AppHeader";
 import AppFooter from "./components/AppFooter";
@@ -653,9 +652,6 @@ function App() {
           showPerformanceAnalyzer={showPerformanceAnalyzer}
           showAskHadron={showAskHadron}
         />
-
-        {/* API Key Warning */}
-        <ApiKeyWarning hasApiKey={!!apiKey} />
 
         {/* Error Display */}
         <ErrorDisplay error={error} />

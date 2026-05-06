@@ -3,7 +3,7 @@
  * Handles Sentry API communication and configuration management
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { getSetting, storeSetting, getApiKey } from "./secure-storage";
 import logger from "./logger";
 import type {
@@ -16,6 +16,7 @@ import type {
 } from "../types";
 import type { AnalysisResponse } from "./api";
 import { getStoredProvider, getStoredModel, getStoredApiKey } from "./api";
+import { getKeeperSecretForProvider } from "./keeper";
 
 // Default configuration
 const DEFAULT_SENTRY_CONFIG: SentryConfig = {
@@ -286,10 +287,14 @@ export async function analyzeSentryIssue(issueId: string): Promise<AnalysisRespo
 
   const provider = getStoredProvider();
   const model = getStoredModel();
-  const apiKey = await getStoredApiKey(provider);
 
-  if (!apiKey) {
-    throw new Error(`No API key configured for ${provider}. Please set one in Settings.`);
+  const keeperSecretUid = await getKeeperSecretForProvider(provider);
+  let apiKey = "";
+  if (!keeperSecretUid) {
+    apiKey = (await getStoredApiKey(provider)) || "";
+    if (!apiKey && provider !== "llamacpp") {
+      throw new Error(`No API key configured for ${provider}. Please set one in Settings.`);
+    }
   }
 
   return invoke<AnalysisResponse>("analyze_sentry_issue", {
@@ -299,6 +304,7 @@ export async function analyzeSentryIssue(issueId: string): Promise<AnalysisRespo
     apiKey,
     model,
     provider,
+    keeperSecretUid: keeperSecretUid ?? null,
   });
 }
 

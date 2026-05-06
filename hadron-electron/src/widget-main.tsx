@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { AppErrorBoundary } from "./components/ErrorBoundary";
 import WidgetApp from "./components/widget/WidgetApp";
-import { error as logError, info as logInfo, attachConsole } from "@tauri-apps/plugin-log";
+import { error as logError, info as logInfo, attachConsole } from "./lib/tauri-log-shim";
 import "./styles.css";
 
 // Forward uncaught JS errors to persistent Rust log file

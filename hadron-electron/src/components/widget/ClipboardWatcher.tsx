@@ -20,7 +20,7 @@ export default function ClipboardWatcher({ onAnalyze, enabled }: ClipboardWatche
   const checkClipboard = useCallback(async () => {
     if (!enabled) return;
     try {
-      const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+      const { readText } = await import("../../lib/tauri-clipboard-shim");
       const text = await readText();
       if (!text || text === lastClipRef.current) return;
       lastClipRef.current = text;

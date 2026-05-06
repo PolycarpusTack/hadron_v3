@@ -32,9 +32,16 @@ interface TicketBriefPanelProps {
   postedAt: string | null;
   engineerRating: number | null;
   engineerNotes: string | null;
-  jiraBaseUrl: string;
-  jiraEmail: string;
-  jiraApiToken: string;
+  /**
+   * @deprecated JIRA credentials are no longer accepted from the renderer.
+   * The main process reads them from secure storage. These props are kept
+   * for backwards compatibility with existing callers and are ignored.
+   */
+  jiraBaseUrl?: string;
+  /** @deprecated see jiraBaseUrl */
+  jiraEmail?: string;
+  /** @deprecated see jiraBaseUrl */
+  jiraApiToken?: string;
   onBriefUpdated?: () => void;
 }
 
@@ -43,7 +50,7 @@ type BriefTab = "brief" | "analysis";
 export default function TicketBriefPanel({
   jiraKey, title, description, result, fromCache,
   briefJson, postedToJira, postedAt, engineerRating, engineerNotes,
-  jiraBaseUrl, jiraEmail, jiraApiToken, onBriefUpdated,
+  onBriefUpdated,
 }: TicketBriefPanelProps) {
   const [tab, setTab] = useState<BriefTab>("brief");
   const [checkedActions, setCheckedActions] = useState<Set<number>>(new Set());
@@ -101,12 +108,13 @@ export default function TicketBriefPanel({
     setPosting(true);
     setPostError(null);
     try {
+      // JIRA credentials are read by the main process from secure storage —
+      // see post_brief_to_jira in electron/ipc/jira-assist.ts. Passing them
+      // from the renderer would let a compromised UI redirect the comment
+      // to an attacker-controlled URL.
       await postBriefToJira({
         jiraKey,
         briefJson,
-        baseUrl: jiraBaseUrl,
-        email: jiraEmail,
-        apiToken: jiraApiToken,
       });
       setPosted(true);
       setPostDate(new Date().toISOString());

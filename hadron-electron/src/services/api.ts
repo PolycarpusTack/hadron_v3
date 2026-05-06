@@ -1,9 +1,9 @@
 /**
  * API Service Layer
- * Handles all communication with Tauri backend
+ * Handles all communication with the Electron backend through the invoke shim.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { analyzeWithResilience } from "./circuit-breaker";
 import { getApiKey, storeApiKey as storeApiKeySecure } from "./secure-storage";
 import { getBooleanSetting, STORAGE_KEYS } from "../utils/config";
@@ -224,8 +224,8 @@ export async function analyzeJiraTicketDeep(
   comments: string[],
   model?: string,
   provider?: string,
+  keeperSecretUid?: string | null,
 ): Promise<JiraDeepAnalysisResponse> {
-  // api_key is NOT included — the Rust command reads it from the encrypted store.
   return invoke<JiraDeepAnalysisResponse>("analyze_jira_ticket_deep", {
     request: {
       jira_key: jiraKey,
@@ -239,6 +239,7 @@ export async function analyzeJiraTicketDeep(
       comments,
       model: model ?? getStoredModel(),
       provider: provider ?? getStoredProvider(),
+      keeper_secret_uid: keeperSecretUid ?? null,
     },
   });
 }
@@ -252,9 +253,10 @@ export async function callAi(
   apiKey: string,
   model: string,
   provider: string,
+  keeperSecretUid?: string | null,
 ): Promise<string> {
   const redactPii = getBooleanSetting("pii_redaction_enabled");
-  return invoke<string>("call_ai", { content, apiKey, model, provider, redactPii });
+  return invoke<string>("call_ai", { content, apiKey, model, provider, redactPii, keeperSecretUid: keeperSecretUid ?? null });
 }
 
 // translateTechnicalContent — removed: replaced by callAi() for all AI calls
@@ -556,6 +558,12 @@ export interface ProviderModel {
   label: string;
   context?: number;
   category?: string;
+  maxOutputTokens?: number;
+  preferredEndpoint?: "responses" | "chat_completions";
+  suitableForHadron?: boolean;
+  supportsStreaming?: boolean;
+  supportsReasoningEffort?: boolean;
+  supportsStructuredOutput?: boolean;
 }
 
 export interface ConnectionTestResult {

@@ -23,7 +23,7 @@ export function parseWhatsOnAnalysis(
       const parsed = JSON.parse(fullData);
       const validation = validateWhatsOnAnalysis(parsed);
       if (validation.valid) {
-        return parsed as WhatsOnEnhancedAnalysis;
+        return normalizeWhatsOnAnalysis(parsed, rootCause);
       }
       logger.debug('WhatsOn validation failed, will synthesize', { missingFields: validation.missingFields });
     } catch (e) {
@@ -36,7 +36,7 @@ export function parseWhatsOnAnalysis(
     try {
       const parsed = JSON.parse(rootCause);
       if (validateWhatsOnAnalysis(parsed).valid) {
-        return parsed as WhatsOnEnhancedAnalysis;
+        return normalizeWhatsOnAnalysis(parsed, rootCause);
       }
     } catch {
       // expected for plain-text root_cause
@@ -49,6 +49,167 @@ export function parseWhatsOnAnalysis(
     try { return JSON.parse(fullData) as Record<string, unknown>; } catch { return null; }
   })();
   return synthesizeFromFlat(flat, rootCause);
+}
+
+// ---------------------------------------------------------------------------
+// Normalization: keep partially compliant model JSON from breaking the screen
+// ---------------------------------------------------------------------------
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function asArray<T>(value: unknown, mapper: (item: unknown, index: number) => T): T[] {
+  return Array.isArray(value) ? value.map(mapper) : [];
+}
+
+function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+    ? value as T
+    : fallback;
+}
+
+function normalizeWhatsOnAnalysis(value: unknown, rootCauseFallback?: string): WhatsOnEnhancedAnalysis {
+  const data = isRecord(value) ? value : {};
+  const summary = isRecord(data.summary) ? data.summary : {};
+  const rootCause = isRecord(data.rootCause) ? data.rootCause : {};
+  const scenario = isRecord(data.userScenario) ? data.userScenario : {};
+  const fix = isRecord(data.suggestedFix) ? data.suggestedFix : {};
+  const impact = isRecord(data.impactAnalysis) ? data.impactAnalysis : {};
+  const stackTrace = isRecord(data.stackTrace) ? data.stackTrace : null;
+
+  const technical = asString(rootCause.technical, rootCauseFallback ?? "No technical root cause provided.");
+  const plainEnglish = asString(rootCause.plainEnglish, technical);
+  const affectedModule = asString(rootCause.affectedModule, asString(data.component, "Unknown module"));
+
+  const normalizedFixes: WhatsOnEnhancedAnalysis["suggestedFix"]["codeChanges"] = asArray(fix.codeChanges, (item, index) => {
+    const row = isRecord(item) ? item : {};
+    return {
+      file: asString(row.file, affectedModule || "Unknown"),
+      description: asString(row.description, asString(fix.summary, "Review the identified failure point.")),
+      before: asString(row.before) || undefined,
+      after: asString(row.after) || undefined,
+      priority: pickEnum(row.priority, ["P0", "P1", "P2"] as const, index === 0 ? "P0" : index === 1 ? "P1" : "P2"),
+    };
+  });
+
+  const suggestedFixes = parseSuggestedFixes(data.suggested_fixes);
+  if (!normalizedFixes.length && suggestedFixes.length) {
+    normalizedFixes.push(...suggestedFixes.map((description, index) => ({
+      file: affectedModule || "Unknown",
+      description,
+      priority: (index === 0 ? "P0" : index === 1 ? "P1" : "P2") as "P0" | "P1" | "P2",
+    })));
+  }
+
+  const scenarioSteps = asArray(scenario.steps, (item, index) => {
+    const row = isRecord(item) ? item : {};
+    return {
+      step: typeof row.step === "number" ? row.step : index + 1,
+      action: asString(row.action, "User action not identified"),
+      details: asString(row.details) || undefined,
+      isCrashPoint: Boolean(row.isCrashPoint),
+    };
+  });
+
+  const normalizedStackTrace = stackTrace
+    ? {
+        frames: asArray(stackTrace.frames, (item, index) => {
+          const row = isRecord(item) ? item : {};
+          return {
+            index: typeof row.index === "number" ? row.index : index,
+            method: asString(row.method, "Unknown method"),
+            type: pickEnum(row.type, ["error", "application", "framework", "library"] as const, "library"),
+            isErrorOrigin: Boolean(row.isErrorOrigin),
+            context: asString(row.context) || undefined,
+          };
+        }),
+        totalFrames: typeof stackTrace.totalFrames === "number"
+          ? stackTrace.totalFrames
+          : Array.isArray(stackTrace.frames) ? stackTrace.frames.length : 0,
+        errorFrame: asString(stackTrace.errorFrame) || undefined,
+      }
+    : undefined;
+
+  return {
+    ...data,
+    summary: {
+      title: asString(summary.title, asString(data.error_type, "WHATS'ON crash analysis")),
+      severity: pickEnum(summary.severity, ["critical", "high", "medium", "low"] as const, parseSeverity(data.severity)),
+      category: pickEnum(summary.category, ["scheduling", "playout", "database", "memory", "integration", "ui", "rights", "timing", "other"] as const, "other"),
+      confidence: pickEnum(summary.confidence, ["high", "medium", "low"] as const, parseConfidence(data.confidence)),
+      affectedWorkflow: asString(summary.affectedWorkflow) || undefined,
+    },
+    rootCause: {
+      technical,
+      plainEnglish,
+      affectedMethod: asString(rootCause.affectedMethod, asString(data.component, "Unknown method")),
+      affectedModule,
+      triggerCondition: asString(rootCause.triggerCondition) || undefined,
+    },
+    userScenario: {
+      description: asString(scenario.description, "User triggered an action that caused the crash"),
+      workflow: asString(scenario.workflow) || undefined,
+      steps: scenarioSteps.length ? scenarioSteps : [{ step: 1, action: "User triggered an action that caused the crash", isCrashPoint: true }],
+      expectedResult: asString(scenario.expectedResult, "Application continues normally"),
+      actualResult: asString(scenario.actualResult, asString(data.error_message, "Application crashed")),
+      reproductionLikelihood: pickEnum(scenario.reproductionLikelihood, ["always", "often", "sometimes", "rarely", "unknown"] as const, "unknown"),
+    },
+    suggestedFix: {
+      summary: asString(fix.summary, normalizedFixes[0]?.description ?? "Review and fix the identified issue"),
+      reasoning: asString(fix.reasoning, technical),
+      explanation: asString(fix.explanation) || undefined,
+      codeChanges: normalizedFixes,
+      complexity: pickEnum(fix.complexity, ["simple", "moderate", "complex"] as const, "moderate"),
+      estimatedEffort: pickEnum(fix.estimatedEffort, ["hours", "days", "weeks"] as const, "hours"),
+      riskLevel: pickEnum(fix.riskLevel, ["low", "medium", "high"] as const, "medium"),
+    },
+    systemWarnings: asArray(data.systemWarnings, (item) => {
+      const row = isRecord(item) ? item : {};
+      return {
+        source: pickEnum(row.source, ["memory", "database", "process", "network", "configuration", "other"] as const, "other"),
+        severity: pickEnum(row.severity, ["critical", "warning", "info"] as const, "info"),
+        title: asString(row.title, "System warning"),
+        description: asString(row.description, "No warning details provided."),
+        recommendation: asString(row.recommendation) || undefined,
+        contributedToCrash: Boolean(row.contributedToCrash),
+      };
+    }),
+    impactAnalysis: {
+      dataAtRisk: pickEnum(impact.dataAtRisk, ["none", "low", "moderate", "high", "critical"] as const, "none"),
+      dataRiskDescription: asString(impact.dataRiskDescription) || undefined,
+      directlyAffected: asArray(impact.directlyAffected, (item) => normalizeAffectedFeature(item, affectedModule)),
+      potentiallyAffected: asArray(impact.potentiallyAffected, (item) => normalizeAffectedFeature(item, affectedModule)),
+    },
+    testScenarios: asArray(data.testScenarios, (item, index) => {
+      const row = isRecord(item) ? item : {};
+      return {
+        id: asString(row.id, `TC${String(index + 1).padStart(3, "0")}`),
+        name: asString(row.name, "Regression test"),
+        priority: pickEnum(row.priority, ["P0", "P1", "P2"] as const, "P1"),
+        type: pickEnum(row.type, ["regression", "smoke", "integration", "unit"] as const, "regression"),
+        description: asString(row.description, "Validate the crash no longer occurs."),
+        steps: asString(row.steps, "Reproduce the original workflow and verify the expected result."),
+        expectedResult: asString(row.expectedResult, "No crash occurs."),
+        dataRequirements: asString(row.dataRequirements) || undefined,
+      };
+    }),
+    stackTrace: normalizedStackTrace,
+  } as WhatsOnEnhancedAnalysis;
+}
+
+function normalizeAffectedFeature(item: unknown, fallbackModule: string): WhatsOnEnhancedAnalysis["impactAnalysis"]["directlyAffected"][number] {
+  const row = isRecord(item) ? item : {};
+  return {
+    feature: asString(row.feature, "Unknown feature"),
+    module: asString(row.module, fallbackModule || "Unknown module"),
+    description: asString(row.description, "Impact not specified."),
+    severity: pickEnum(row.severity, ["critical", "high", "medium", "low"] as const, "medium"),
+  };
 }
 
 // ---------------------------------------------------------------------------

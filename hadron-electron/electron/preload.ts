@@ -4,7 +4,6 @@ import { contextBridge, ipcRenderer } from 'electron'
 const INVOKE_BLOCKLIST = new Set([
   'app:exit',
   'keytar:get', 'keytar:set', 'keytar:delete',
-  'fs:writeFile', 'fs:writeFileBytes',
 ])
 
 contextBridge.exposeInMainWorld('hadron', {
@@ -20,12 +19,6 @@ contextBridge.exposeInMainWorld('hadron', {
 
   saveFile: (options?: Electron.SaveDialogOptions): Promise<string | null> =>
     ipcRenderer.invoke('dialog:saveFile', options),
-
-  writeFile: (filePath: string, content: string): Promise<void> =>
-    ipcRenderer.invoke('fs:writeFile', { filePath, content }),
-
-  writeFileBytes: (filePath: string, bytes: Uint8Array): Promise<void> =>
-    ipcRenderer.invoke('fs:writeFileBytes', { filePath, bytes: Array.from(bytes) }),
 
   onStreamChunk: (callback: (chunk: string) => void): (() => void) => {
     const handler = (_: Electron.IpcRendererEvent, chunk: string): void => callback(chunk)

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
-import { currentMonitor } from "@tauri-apps/api/window";
+import { invoke } from "../../lib/tauri-core-shim";
+import { emit, listen } from "../../lib/tauri-event-shim";
+import { currentMonitor } from "../../lib/tauri-window-shim";
 import WidgetFAB from "./WidgetFAB";
 import WidgetPanel from "./WidgetPanel";
 import WidgetChat from "./WidgetChat";

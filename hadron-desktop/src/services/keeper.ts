@@ -20,6 +20,7 @@ export interface KeeperSecretInfo {
   uid: string;
   title: string;
   record_type: string;
+  has_api_key: boolean;
 }
 
 export interface KeeperStatus {

@@ -9,7 +9,7 @@
  * - Refactored god functions into smaller, focused functions
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { getJiraConfig, type JiraConfig } from "./jira";
 import { getApiKey } from "./secure-storage";
 import logger from "./logger";

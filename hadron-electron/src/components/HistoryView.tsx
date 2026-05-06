@@ -807,20 +807,32 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
   // Rendering
   // =========================================================================
 
+  const MONO = "'JetBrains Mono','Fira Code',monospace";
+  const SEV_COL: Record<string, string> = {
+    critical: "#ef4444", high: "#f59e0b", medium: "#3b82f6", low: "#10b981",
+  };
+  const getTypeInfo = (kind: string, analysisType?: string): { icon: string; color: string } => {
+    if (kind === "jira") return { icon: "◉", color: "#8b5cf6" };
+    if (analysisType === "comprehensive" || analysisType === "whatson") return { icon: "◈", color: "#10b981" };
+    if (analysisType === "quick") return { icon: "◎", color: "#22d3ee" };
+    if (analysisType === "sentry") return { icon: "⊕", color: "#f59e0b" };
+    return { icon: "▣", color: "#9ca3af" };
+  };
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <div style={{ color: "var(--hd-text-dim)" }}>Loading history...</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 48, color: "rgba(255,255,255,0.3)", fontFamily: MONO, fontSize: "13px" }}>
+        Loading history…
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-lg">
-        <div className="flex items-center gap-2 text-red-400">
-          <AlertCircle className="w-5 h-5" />
-          <span>{error}</span>
+      <div style={{ padding: 20, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, margin: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#ef4444", fontSize: "13px" }}>
+          <AlertCircle style={{ width: 16, height: 16 }} />
+          {error}
         </div>
       </div>
     );
@@ -828,547 +840,266 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
 
   // Flat list of all items after quick filter for total count
   const displayedItems = Object.values(groupedUnifiedItems).flat();
+  const analysisTotalCount = analyses.filter(a => a.analysis_type !== "jira_deep").length;
+  const compTotal = analyses.filter(a => a.analysis_type === "comprehensive" || a.analysis_type === "whatson").length;
+  const quickTotal = analyses.filter(a => a.analysis_type === "quick").length;
+  const jiraTotal = jiraBriefs.length;
 
   return (
-    <div className="space-y-2.5">
-      {/* Toolbar Panel */}
-      <div className="hd-panel" style={{ padding: 14 }}>
-        {/* Header row: title + stat badges */}
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div>
-            <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--hd-text)" }}>
-              History: Triage Workspace
-            </h2>
-            <p className="text-xs mt-1" style={{ color: "var(--hd-text-dim)" }}>
-              Sortable columns, grouping, bulk actions, and side preview
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className="px-2 py-0.5 rounded text-xs font-medium"
-              style={{
-                background: "var(--hd-bg-surface)",
-                border: "1px solid var(--hd-border-subtle)",
-                color: "var(--hd-text-muted)",
-              }}
-            >
-              {displayedItems.length} shown
-            </span>
-            {severityStats.critical > 0 && (
-              <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
-                {severityStats.critical} critical
-              </span>
-            )}
-            {severityStats.high > 0 && (
-              <span className="px-2 py-0.5 rounded text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30">
-                {severityStats.high} high
-              </span>
-            )}
-            {severityStats.medium > 0 && (
-              <span className="px-2 py-0.5 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-                {severityStats.medium} medium
-              </span>
-            )}
-            {severityStats.low > 0 && (
-              <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                {severityStats.low} low
-              </span>
-            )}
-          </div>
+    <div style={{ background: "#090a0d", color: "#d1d5db", display: "flex", flexDirection: "column", fontFamily: "'IBM Plex Sans',-apple-system,sans-serif", borderRadius: 8, overflow: "hidden" }}>
+
+      {/* \u2500\u2500 Header: title + stats + search \u2500\u2500 */}
+      <div style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.01)", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ color: "#22d3ee", fontSize: "13px", fontWeight: 700, fontFamily: MONO }}>HISTORY</span>
+          <span style={{ color: "#374151" }}>\u2502</span>
+          <span style={{ fontSize: "12px", color: "#6b7280" }}>
+            <strong style={{ color: "#e5e7eb" }}>{displayedItems.length}</strong> items
+            {analysisTotalCount > 0 && <> &nbsp;\u00b7&nbsp; <span style={{ color: "#ef4444" }}>{analysisTotalCount} analyses</span></>}
+            {jiraTotal > 0 && <> &nbsp;\u00b7&nbsp; <span style={{ color: "#8b5cf6" }}>{jiraTotal} JIRA</span></>}
+            {compTotal > 0 && <> &nbsp;\u00b7&nbsp; <span style={{ color: "#10b981" }}>{compTotal} comprehensive</span></>}
+            {quickTotal > 0 && <> &nbsp;\u00b7&nbsp; <span style={{ color: "#22d3ee" }}>{quickTotal} quick</span></>}
+          </span>
         </div>
-
-        {/* Toolbar Row 1: Search + Sort + Group */}
-        <div className="flex gap-2 flex-wrap" style={{ marginBottom: 8 }}>
-          <div className="flex-1 relative" style={{ minWidth: 200 }}>
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-              style={{ color: "var(--hd-text-dim)" }}
-            />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search by file, signature, component..."
-              value={filters.search}
-              onChange={(e) => updateFilters({ search: e.target.value })}
-              className="hd-input w-full"
-              style={{ paddingLeft: 34, paddingRight: 32, fontSize: "0.82rem" }}
-            />
-            <span
-              style={{
-                position: "absolute",
-                right: 10,
-                top: "50%",
-                transform: "translateY(-50%)",
-                fontSize: "0.68rem",
-                color: "var(--hd-text-dim)",
-                background: "var(--hd-bg-surface)",
-                border: "1px solid var(--hd-border-subtle)",
-                borderRadius: 4,
-                padding: "1px 5px",
-                pointerEvents: "none",
-              }}
-            >
-              /
-            </span>
-          </div>
-
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            className="hd-input"
-            style={{ fontSize: "0.78rem", padding: "6px 10px", minWidth: 140 }}
-          >
-            <option value="recent">Sort: Most recent</option>
-            <option value="severity">Sort: Severity</option>
-            <option value="cost">Sort: Highest cost</option>
-          </select>
-
-          <select
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value as typeof groupBy)}
-            className="hd-input"
-            style={{ fontSize: "0.78rem", padding: "6px 10px", minWidth: 130 }}
-          >
-            <option value="none">Group: None</option>
-            <option value="component">Group: Component</option>
-            <option value="status">Group: Status</option>
-            <option value="severity">Group: Severity</option>
-          </select>
+        <div style={{ position: "relative" }}>
+          <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, color: "#4b5563" }} />
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search analyses\u2026"
+            value={filters.search}
+            onChange={e => updateFilters({ search: e.target.value })}
+            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "6px 30px 6px 30px", color: "#d1d5db", fontSize: "12px", outline: "none", width: 240 }}
+          />
+          {!filters.search && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "#4b5563", fontSize: "9px", fontFamily: MONO, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>/</span>}
+          {filters.search && <button onClick={() => updateFilters({ search: "" })} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#6b7280", fontSize: "12px", cursor: "pointer", padding: 2 }}>\u00d7</button>}
         </div>
+      </div>
 
-        {/* Toolbar Row 2: Action buttons */}
-        <div className="flex gap-2 flex-wrap items-center" style={{ marginBottom: 8 }}>
-          <Button
-            onClick={toggleSelectionMode}
-            variant={selectionMode ? "primary" : "secondary"}
-            size="sm"
-            icon={<CheckSquare />}
-          >
-            {selectionMode ? "Cancel" : "Select"}
-          </Button>
-
-          <Button
-            onClick={() => setAdvancedFiltersOpen(!advancedFiltersOpen)}
-            variant={advancedFiltersOpen || activeFilterCount > 0 ? "accent" : "secondary"}
-            size="sm"
-            icon={<SlidersHorizontal />}
-          >
-            Filters
-            {activeFilterCount > 0 && (
-              <span
-                className="px-1.5 py-0.5 rounded-full text-xs"
-                style={{
-                  background: "var(--hd-accent)",
-                  color: "#052e24",
-                  fontWeight: 700,
-                  marginLeft: 2,
-                }}
-              >
-                {activeFilterCount}
-              </span>
-            )}
-          </Button>
-
-          <Button
-            onClick={() => setColumnsOpen(!columnsOpen)}
-            variant={columnsOpen ? "accent" : "secondary"}
-            size="sm"
-            icon={<Columns />}
-          >
-            Columns
-          </Button>
-
-          {selectedCount > 0 && (
-            <Button
-              onClick={handleBulkExport}
-              variant="secondary"
-              size="sm"
-              icon={<Download />}
-            >
-              Export CSV
-            </Button>
-          )}
-
-          <div className="flex-1" />
-
-          {autoTagCount !== null && autoTagCount > 0 && (
-            <Button
-              onClick={handleAutoTag}
-              loading={autoTagging}
-              variant="secondary"
-              size="sm"
-              icon={<Tag />}
-            >
-              {autoTagging ? "Tagging..." : `Auto-tag (${autoTagCount})`}
-            </Button>
-          )}
-        </div>
-
-        {/* Quick Filter Chips */}
-        <div className="flex flex-wrap gap-1.5 items-center" style={{ marginBottom: 8 }}>
-          {(["all", "analyses", "jira", "today", "7days", "gold", "noTags"] as const).map((chip) => {
-            const labels: Record<string, string> = {
-              all: "All",
-              analyses: "Analyses",
-              jira: "JIRA",
-              today: "Today",
-              "7days": "Last 7 days",
-              gold: "Gold only",
-              noTags: "No tags",
-            };
+      {/* \u2500\u2500 Toolbar: filters + controls \u2500\u2500 */}
+      <div style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "8px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        {/* Left: severity + quick filter pills */}
+        <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+          {(["critical", "high", "medium", "low"] as const).map(sev => {
+            const active = filters.severities.includes(sev);
             return (
-              <button
-                key={chip}
-                onClick={() => setQuickFilter(chip)}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 9999,
-                  fontSize: "0.72rem",
-                  fontWeight: 500,
-                  border: "1px solid var(--hd-border-subtle)",
-                  background: quickFilter === chip ? "var(--hd-accent)" : "transparent",
-                  color: quickFilter === chip ? "#052e24" : "var(--hd-text-dim)",
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
+              <button key={sev} onClick={() => toggleSeverity(sev)} style={{ background: active ? `${SEV_COL[sev]}18` : "rgba(255,255,255,0.04)", border: `1px solid ${active ? `${SEV_COL[sev]}40` : "rgba(255,255,255,0.08)"}`, color: active ? SEV_COL[sev] : "#9ca3af", padding: "5px 10px", borderRadius: 5, fontSize: "11px", cursor: "pointer", fontFamily: MONO }}>
+                {sev.charAt(0).toUpperCase() + sev.slice(1)}
+              </button>
+            );
+          })}
+          <span style={{ color: "#374151", margin: "0 3px" }}>\u2502</span>
+          {(["analyses", "jira", "today", "7days", "gold", "noTags"] as const).map(chip => {
+            const labels: Record<string, string> = { analyses: "Analyses", jira: "JIRA", today: "Today", "7days": "7 days", gold: "Gold", noTags: "No tags" };
+            const active = quickFilter === chip;
+            return (
+              <button key={chip} onClick={() => setQuickFilter(active ? "all" : chip)} style={{ background: active ? "rgba(6,182,212,0.1)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(6,182,212,0.25)" : "rgba(255,255,255,0.08)"}`, color: active ? "#67e8f9" : "#9ca3af", padding: "5px 10px", borderRadius: 5, fontSize: "11px", cursor: "pointer", fontFamily: MONO }}>
                 {labels[chip]}
               </button>
             );
           })}
-
-          <span style={{ width: 1, height: 16, background: "var(--hd-border)", margin: "0 4px" }} />
-
-          <span style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)", marginRight: 2 }}>Severity:</span>
-          <button
-            onClick={() => updateFilters({ severities: [] })}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 9999,
-              fontSize: "0.72rem",
-              fontWeight: 500,
-              border: "1px solid var(--hd-border-subtle)",
-              background: filters.severities.length === 0 ? "var(--hd-accent)" : "transparent",
-              color: filters.severities.length === 0 ? "#052e24" : "var(--hd-text-dim)",
-              cursor: "pointer",
-              transition: "all 0.15s",
-            }}
-          >
-            All
-          </button>
-          {(["critical", "high", "medium", "low"] as const).map((sev) => (
-            <button
-              key={sev}
-              onClick={() => toggleSeverity(sev)}
-              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border transition ${
-                filters.severities.includes(sev)
-                  ? getSeverityBadgeClasses(sev)
-                  : ""
-              }`}
-              style={{
-                fontSize: "0.72rem",
-                cursor: "pointer",
-                ...(filters.severities.includes(sev) ? {} : {
-                  background: "transparent",
-                  border: "1px solid var(--hd-border-subtle)",
-                  color: "var(--hd-text-dim)",
-                }),
-              }}
-            >
-              {sev.charAt(0).toUpperCase() + sev.slice(1)}
-            </button>
-          ))}
-
-          {activeFilterCount > 0 && (
-            <>
-              <span style={{ width: 1, height: 16, background: "var(--hd-border)", margin: "0 4px" }} />
-              <button
-                onClick={resetFilters}
-                className="flex items-center gap-1"
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 9999,
-                  fontSize: "0.72rem",
-                  fontWeight: 500,
-                  border: "1px solid var(--hd-border-subtle)",
-                  background: "transparent",
-                  color: "var(--hd-text-dim)",
-                  cursor: "pointer",
-                }}
-              >
-                <X className="w-3 h-3" />
-                Clear Filters
-              </button>
-            </>
+          {(activeFilterCount > 0 || quickFilter !== "all" || filters.severities.length > 0 || filters.search) && (
+            <button onClick={() => { resetFilters(); setQuickFilter("all"); }} style={{ background: "none", border: "none", color: "#6b7280", fontSize: "11px", cursor: "pointer", fontFamily: MONO, textDecoration: "underline" }}>Clear all</button>
           )}
         </div>
 
-        {/* Advanced Filters Drawer (collapsible) */}
-        <div className={`hd-filter-drawer ${advancedFiltersOpen ? "hd-filter-drawer-open" : ""}`}>
-          <AdvancedFilterPanel
-            filters={filters}
-            availableTags={availableTags}
-            onChange={updateFilters}
-            onReset={resetFilters}
-            isOpen={advancedFiltersOpen}
-            onClose={() => setAdvancedFiltersOpen(false)}
-          />
-        </div>
-
-        {/* Column Customization Drawer (collapsible) */}
-        <div className={`hd-filter-drawer ${columnsOpen ? "hd-filter-drawer-open" : ""}`}>
-          <div style={{ fontSize: "0.78rem", fontWeight: 600, marginBottom: 8, color: "var(--hd-text)" }}>
-            Visible Columns
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {ALL_COLUMNS.map((col) => (
-              <label
-                key={col.key}
-                className="flex items-center gap-1.5 cursor-pointer"
-                style={{ fontSize: "0.78rem", color: "var(--hd-text-muted)" }}
-              >
-                <input
-                  type="checkbox"
-                  checked={visibleColumns.has(col.key)}
-                  onChange={() => toggleColumn(col.key)}
-                  style={{ accentColor: "var(--hd-accent)", width: 14, height: 14 }}
-                />
-                {col.label}
-              </label>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Two-Panel Layout: List + Preview */}
-      {displayedItems.length === 0 ? (
-        <div className="hd-panel" style={{ padding: 32, textAlign: "center" }}>
-          <p style={{ color: "var(--hd-text-dim)", fontSize: "0.88rem" }}>
-            {filters.search || activeFilterCount > 0 || quickFilter !== "all"
-              ? "No items match your filters"
-              : "No history yet. Start by analyzing a crash log!"}
-          </p>
-          {(activeFilterCount > 0 || quickFilter !== "all") && (
-            <Button
-              onClick={() => { resetFilters(); setQuickFilter("all"); }}
-              variant="ghost"
-              size="sm"
-              className="mt-4"
-            >
-              Clear all filters
+        {/* Right: sort + group + action buttons */}
+        <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 5, padding: "5px 8px", color: "#9ca3af", fontSize: "11px", fontFamily: MONO, cursor: "pointer", outline: "none" }}>
+            <option value="recent" style={{ background: "#151518" }}>Newest first</option>
+            <option value="severity" style={{ background: "#151518" }}>By severity</option>
+            <option value="cost" style={{ background: "#151518" }}>By cost</option>
+          </select>
+          <select value={groupBy} onChange={e => setGroupBy(e.target.value as typeof groupBy)} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 5, padding: "5px 8px", color: "#9ca3af", fontSize: "11px", fontFamily: MONO, cursor: "pointer", outline: "none" }}>
+            <option value="none" style={{ background: "#151518" }}>No grouping</option>
+            <option value="component" style={{ background: "#151518" }}>By component</option>
+            <option value="severity" style={{ background: "#151518" }}>By severity</option>
+            <option value="status" style={{ background: "#151518" }}>By status</option>
+          </select>
+          <span style={{ color: "#374151" }}>\u2502</span>
+          <Button onClick={toggleSelectionMode} variant={selectionMode ? "primary" : "secondary"} size="sm" icon={<CheckSquare />}>
+            {selectionMode ? "Cancel" : "Select"}
+          </Button>
+          <Button onClick={() => setAdvancedFiltersOpen(!advancedFiltersOpen)} variant={advancedFiltersOpen || activeFilterCount > 0 ? "accent" : "secondary"} size="sm" icon={<SlidersHorizontal />}>
+            Filters{activeFilterCount > 0 && ` (${activeFilterCount})`}
+          </Button>
+          <Button onClick={() => setColumnsOpen(!columnsOpen)} variant={columnsOpen ? "accent" : "secondary"} size="sm" icon={<Columns />}>
+            Columns
+          </Button>
+          {selectedCount > 0 && <Button onClick={handleBulkExport} variant="secondary" size="sm" icon={<Download />}>Export CSV</Button>}
+          {autoTagCount !== null && autoTagCount > 0 && (
+            <Button onClick={handleAutoTag} loading={autoTagging} variant="secondary" size="sm" icon={<Tag />}>
+              {autoTagging ? "Tagging\u2026" : `Auto-tag (${autoTagCount})`}
             </Button>
           )}
         </div>
+      </div>
+
+      {/* \u2500\u2500 Selection banner \u2500\u2500 */}
+      {selectionMode && selectedCount > 0 && (
+        <div style={{ padding: "6px 18px", background: "rgba(6,182,212,0.06)", borderBottom: "1px solid rgba(6,182,212,0.15)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ color: "#67e8f9", fontSize: "11px", fontFamily: MONO }}>{selectedCount} selected</span>
+          <button onClick={() => setSelectedAnalysisIds(new Set(analyses.map(a => a.id)))} style={{ background: "none", border: "none", color: "#67e8f9", fontSize: "11px", cursor: "pointer", fontFamily: MONO, textDecoration: "underline" }}>Select all ({sortedUnifiedItems.length})</button>
+          <button onClick={clearSelection} style={{ background: "none", border: "none", color: "#6b7280", fontSize: "11px", cursor: "pointer", fontFamily: MONO, textDecoration: "underline" }}>Clear</button>
+          <span style={{ color: "#374151" }}>\u2502</span>
+          <button onClick={() => handleBulkDelete()} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", padding: "3px 10px", borderRadius: 4, fontSize: "10px", cursor: "pointer", fontFamily: MONO }}>Delete</button>
+          <button onClick={() => handleBulkFavorite(true)} style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", color: "#fbbf24", padding: "3px 10px", borderRadius: 4, fontSize: "10px", cursor: "pointer", fontFamily: MONO }}>\u2605 Favorite</button>
+          <button onClick={handleBulkExport} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#d1d5db", padding: "3px 10px", borderRadius: 4, fontSize: "10px", cursor: "pointer", fontFamily: MONO }}>\u2197 Export CSV</button>
+        </div>
+      )}
+
+      {/* \u2500\u2500 Advanced Filters Drawer \u2500\u2500 */}
+      <div className={`hd-filter-drawer ${advancedFiltersOpen ? "hd-filter-drawer-open" : ""}`}>
+        <AdvancedFilterPanel filters={filters} availableTags={availableTags} onChange={updateFilters} onReset={resetFilters} isOpen={advancedFiltersOpen} onClose={() => setAdvancedFiltersOpen(false)} />
+      </div>
+
+      {/* \u2500\u2500 Column Customization Drawer \u2500\u2500 */}
+      <div className={`hd-filter-drawer ${columnsOpen ? "hd-filter-drawer-open" : ""}`} style={{ padding: columnsOpen ? "10px 18px" : undefined }}>
+        {columnsOpen && (
+          <>
+            <div style={{ fontSize: "11px", fontWeight: 600, marginBottom: 8, color: "#e5e7eb", fontFamily: MONO }}>Visible Columns</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+              {ALL_COLUMNS.map(col => (
+                <label key={col.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "11px", color: "#9ca3af", cursor: "pointer", fontFamily: MONO }}>
+                  <input type="checkbox" checked={visibleColumns.has(col.key)} onChange={() => toggleColumn(col.key)} style={{ accentColor: "#22d3ee", width: 13, height: 13 }} />
+                  {col.label}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* \u2500\u2500 Main content \u2500\u2500 */}
+      {displayedItems.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "60px 20px" }}>
+          <div style={{ color: "#4b5563", fontSize: "13px" }}>
+            {filters.search || activeFilterCount > 0 || quickFilter !== "all"
+              ? "No items match your filters"
+              : "No history yet. Start by analyzing a crash log!"}
+          </div>
+          {(activeFilterCount > 0 || quickFilter !== "all") && (
+            <button onClick={() => { resetFilters(); setQuickFilter("all"); }} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#9ca3af", padding: "6px 14px", borderRadius: 6, fontSize: "12px", cursor: "pointer", fontFamily: MONO, marginTop: 12 }}>
+              Clear filters
+            </button>
+          )}
+        </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 0.7fr", gap: 10, minHeight: 480 }}>
-          {/* Left: List Panel */}
-          <div className="hd-panel" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            {/* Column Headers */}
-            <div
-              className="hd-triage-row"
-              style={{
-                borderBottom: "1px solid var(--hd-border-subtle)",
-                fontSize: "0.72rem",
-                color: "var(--hd-text-dim)",
-                fontWeight: 600,
-                cursor: "default",
-              }}
-            >
-              {visibleColumns.has("file") && <span>File</span>}
-              {visibleColumns.has("rootCause") && <span>Root Cause</span>}
-              {visibleColumns.has("severity") && <span>Severity</span>}
-              {visibleColumns.has("status") && <span>Status</span>}
-              {visibleColumns.has("component") && <span>Component</span>}
-              {visibleColumns.has("cost") && <span>Cost</span>}
-              <span>Actions</span>
+        <div style={{ display: "flex", minHeight: 500 }}>
+          {/* \u2500\u2500 List panel \u2500\u2500 */}
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minWidth: 0 }}>
+            {/* Column headers */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: "10px", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", flexShrink: 0 }}>
+              {selectionMode && <span style={{ width: 16, flexShrink: 0 }} />}
+              <span style={{ width: 14, flexShrink: 0 }} />
+              {visibleColumns.has("file") && <span style={{ flex: 2 }}>File / ID</span>}
+              {visibleColumns.has("rootCause") && <span style={{ flex: 3 }}>Root Cause / Summary</span>}
+              {visibleColumns.has("severity") && <span style={{ width: 68, flexShrink: 0 }}>Severity</span>}
+              {visibleColumns.has("status") && <span style={{ width: 90, flexShrink: 0 }}>Type</span>}
+              {visibleColumns.has("component") && <span style={{ flex: 1 }}>Component</span>}
+              {visibleColumns.has("cost") && <span style={{ width: 52, flexShrink: 0, textAlign: "right" }}>Cost</span>}
+              <span style={{ width: 56, flexShrink: 0, textAlign: "right" }}>Actions</span>
             </div>
 
-            {/* Scrollable List */}
-            <div style={{ overflowY: "auto", flex: 1, padding: "6px 8px" }}>
+            {/* Scrollable list */}
+            <div style={{ overflowY: "auto", flex: 1 }}>
               {Object.entries(groupedUnifiedItems).map(([groupLabel, groupItems]) => (
                 <div key={groupLabel || "__default"}>
-                  {/* Group header when grouping is active */}
                   {groupBy !== "none" && groupLabel && (
-                    <div
-                      style={{
-                        padding: "6px 8px",
-                        fontSize: "0.72rem",
-                        fontWeight: 700,
-                        color: "var(--hd-accent)",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.04em",
-                        borderBottom: "1px solid var(--hd-border-subtle)",
-                        marginTop: 6,
-                        marginBottom: 2,
-                      }}
-                    >
-                      {groupLabel} ({groupItems.length})
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 14px", marginTop: 4 }}>
+                      <div style={{ width: 3, height: 13, borderRadius: 2, background: "#6b7280", flexShrink: 0 }} />
+                      <span style={{ color: "#e5e7eb", fontSize: "11px", fontWeight: 600, fontFamily: MONO }}>{groupLabel}</span>
+                      <span style={{ color: "#4b5563", fontSize: "10px", fontFamily: MONO }}>({groupItems.length})</span>
+                      <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
                     </div>
                   )}
-
-                  {groupItems.map((item) => {
+                  {groupItems.map(item => {
                     const isActive = item.kind === "analysis"
-                      ? previewAnalysis?.id === item.data.id
-                      : previewJiraBrief?.jira_key === item.data.jira_key;
+                      ? previewAnalysis?.id === (item.data as Analysis).id
+                      : previewJiraBrief?.jira_key === (item.data as TicketBrief).jira_key;
 
-                    const handleClick = () => {
-                      if (item.kind === "analysis") {
-                        setPreviewAnalysis(item.data);
-                        setPreviewJiraBrief(null);
-                      } else {
-                        setPreviewJiraBrief(item.data);
-                        setPreviewAnalysis(null);
+                    const handleRowClick = () => {
+                      if (selectionMode && item.kind === "analysis") {
+                        handleSelectAnalysis((item.data as Analysis).id, false);
+                        return;
                       }
+                      if (item.kind === "analysis") { setPreviewAnalysis(item.data as Analysis); setPreviewJiraBrief(null); }
+                      else { setPreviewJiraBrief(item.data as TicketBrief); setPreviewAnalysis(null); }
                     };
 
-                    const jiraStatus = item.kind === "jira"
-                      ? (item.data.posted_to_jira ? "posted" : item.data.brief_json ? "briefed" : "triaged")
-                      : null;
+                    const ti = getTypeInfo(item.kind, item.kind === "analysis" ? (item.data as Analysis).analysis_type : undefined);
+                    const sev = item.kind === "analysis" ? (item.data as Analysis).severity : ((item.data as TicketBrief).severity || "medium");
+                    const sc = SEV_COL[sev.toLowerCase()] || "#9ca3af";
 
                     return (
                       <div
-                        key={item.kind === "analysis" ? `a-${item.data.id}` : `j-${item.data.jira_key}`}
-                        className={`hd-triage-row ${isActive ? "hd-triage-row-active" : ""}`}
-                        onClick={handleClick}
+                        key={item.kind === "analysis" ? `a-${(item.data as Analysis).id}` : `j-${(item.data as TicketBrief).jira_key}`}
+                        onClick={handleRowClick}
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", background: isActive ? "rgba(6,182,212,0.06)" : "transparent", borderLeft: `2px solid ${isActive ? "rgba(6,182,212,0.4)" : "transparent"}`, borderBottom: "1px solid rgba(255,255,255,0.03)", transition: "background .1s" }}
+                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.025)"; }}
+                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
                       >
+                        {selectionMode && item.kind === "analysis" && (
+                          <input type="checkbox" checked={selectedAnalysisIds.has((item.data as Analysis).id)} onClick={e => { e.stopPropagation(); handleSelectAnalysis((item.data as Analysis).id, e.shiftKey); }} onChange={() => {}} style={{ accentColor: "#22d3ee", width: 13, height: 13, cursor: "pointer", flexShrink: 0 }} />
+                        )}
+                        <span style={{ color: ti.color, fontSize: "11px", flexShrink: 0, width: 14, textAlign: "center" }}>{ti.icon}</span>
+
                         {visibleColumns.has("file") && (
-                          <div
-                            style={{
-                              fontWeight: 600,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 6,
-                            }}
-                          >
-                            {item.kind === "analysis" && selectionMode && (
-                              <input
-                                type="checkbox"
-                                checked={selectedAnalysisIds.has(item.data.id)}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSelectAnalysis(item.data.id, e.shiftKey);
-                                }}
-                                onChange={() => {}}
-                                style={{
-                                  accentColor: "var(--hd-accent)",
-                                  width: 14,
-                                  height: 14,
-                                  cursor: "pointer",
-                                  marginRight: 4,
-                                }}
-                              />
-                            )}
-                            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {item.kind === "analysis" ? item.data.filename : item.data.jira_key}
-                            </span>
-                            {item.kind === "analysis" && item.data.is_favorite && (
-                              <span style={{ color: "#fbbf24" }}>&#9733;</span>
-                            )}
-                            {item.kind === "analysis" && goldStatusByAnalysisId[item.data.id] && (
-                              <span style={{ fontSize: "0.7rem", color: "#fbbf24" }}>&#11088;</span>
-                            )}
-                            {item.kind === "jira" && (
-                              <span style={{
-                                fontSize: "0.6rem",
-                                fontWeight: 700,
-                                padding: "1px 5px",
-                                borderRadius: 4,
-                                background: "rgba(99,102,241,0.15)",
-                                color: "rgb(129,140,248)",
-                              }}>
-                                JIRA
+                          <div style={{ flex: 2, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden" }}>
+                              <span style={{ color: "#e5e7eb", fontSize: "12px", fontFamily: MONO, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {item.kind === "analysis" ? (item.data as Analysis).filename : (item.data as TicketBrief).jira_key}
                               </span>
-                            )}
+                              {item.kind === "analysis" && (item.data as Analysis).is_favorite && <span style={{ color: "#fbbf24", fontSize: "10px", flexShrink: 0 }}>\u2605</span>}
+                              {item.kind === "analysis" && goldStatusByAnalysisId[(item.data as Analysis).id] && <span style={{ fontSize: "9px", color: "#fbbf24", flexShrink: 0 }}>\u2b50</span>}
+                              {item.kind === "jira" && <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "rgba(139,92,246,0.15)", color: "#a78bfa", flexShrink: 0 }}>JIRA</span>}
+                            </div>
+                            <div style={{ color: "#4b5563", fontSize: "10px", fontFamily: MONO, marginTop: 1 }}>
+                              {item.kind === "analysis" ? format(new Date((item.data as Analysis).analyzed_at), "MMM d, yyyy") : format(new Date((item.data as TicketBrief).updated_at), "MMM d, yyyy")}
+                            </div>
                           </div>
                         )}
 
                         {visibleColumns.has("rootCause") && (
-                          <div
-                            style={{
-                              color: "var(--hd-text-muted)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              fontSize: "0.78rem",
-                            }}
-                          >
-                            {item.kind === "analysis" ? item.data.root_cause : item.data.title}
+                          <div style={{ flex: 3, color: "#9ca3af", fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                            {item.kind === "analysis" ? (item.data as Analysis).root_cause : (item.data as TicketBrief).title}
                           </div>
                         )}
 
                         {visibleColumns.has("severity") && (
-                          <div>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${getSeverityBadgeClasses(
-                                item.kind === "analysis" ? item.data.severity : (item.data.severity || "medium")
-                              )}`}
-                            >
-                              {item.kind === "analysis" ? item.data.severity : (item.data.severity || "\u2014")}
-                            </span>
+                          <div style={{ width: 68, flexShrink: 0 }}>
+                            <span style={{ fontSize: "9px", fontWeight: 700, letterSpacing: ".05em", fontFamily: MONO, color: sc, background: `${sc}18`, padding: "2px 6px", borderRadius: 3, whiteSpace: "nowrap" }}>{sev.toUpperCase()}</span>
                           </div>
                         )}
 
                         {visibleColumns.has("status") && (
-                          <div style={{ fontSize: "0.72rem", color: "var(--hd-text-muted)" }}>
-                            {item.kind === "analysis" ? "analyzed" : jiraStatus}
+                          <div style={{ width: 90, flexShrink: 0 }}>
+                            <span style={{ fontSize: "9px", fontWeight: 700, letterSpacing: ".04em", fontFamily: MONO, color: ti.color, background: `${ti.color}15`, padding: "2px 6px", borderRadius: 3, whiteSpace: "nowrap" }}>
+                              {item.kind === "jira" ? "JIRA" : ((item.data as Analysis).analysis_type || "").toUpperCase().slice(0, 12)}
+                            </span>
                           </div>
                         )}
 
                         {visibleColumns.has("component") && (
-                          <div style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)" }}>
-                            {item.kind === "analysis" ? (item.data.component || "\u2014") : (item.data.category || "\u2014")}
+                          <div style={{ flex: 1, color: "#4b5563", fontSize: "10px", fontFamily: MONO, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                            {item.kind === "analysis" ? ((item.data as Analysis).component || "\u2014") : ((item.data as TicketBrief).category || "\u2014")}
                           </div>
                         )}
 
                         {visibleColumns.has("cost") && (
-                          <div style={{ fontSize: "0.72rem", color: "var(--hd-text-dim)", fontVariantNumeric: "tabular-nums" }}>
-                            {item.kind === "analysis" ? `$${item.data.cost.toFixed(3)}` : "\u2014"}
+                          <div style={{ width: 52, flexShrink: 0, textAlign: "right", color: "#4b5563", fontSize: "10px", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}>
+                            {item.kind === "analysis" ? `$${(item.data as Analysis).cost.toFixed(3)}` : "\u2014"}
                           </div>
                         )}
 
-                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        <div style={{ width: 56, flexShrink: 0, display: "flex", gap: 3, alignItems: "center", justifyContent: "flex-end" }}>
                           {item.kind === "analysis" && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleToggleFavorite(item.data.id);
-                              }}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                cursor: "pointer",
-                                color: item.data.is_favorite ? "#fbbf24" : "var(--hd-text-dim)",
-                                fontSize: "0.9rem",
-                                padding: 2,
-                              }}
-                            >
-                              &#9733;
-                            </button>
+                            <button onClick={e => { e.stopPropagation(); handleToggleFavorite((item.data as Analysis).id); }} style={{ background: "none", border: "none", cursor: "pointer", color: (item.data as Analysis).is_favorite ? "#fbbf24" : "#374151", fontSize: "13px", padding: 2, lineHeight: 1 }}>\u2605</button>
                           )}
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (item.kind === "analysis") {
-                                handleDelete(item.data.id, item.data.filename);
-                              } else {
-                                handleDeleteJiraBrief(item.data.jira_key, item.data.title);
-                              }
-                            }}
-                            style={{
-                              background: "var(--hd-danger-dim, rgba(239,68,68,0.12))",
-                              border: "none",
-                              color: "var(--hd-danger, #ef4444)",
-                              borderRadius: 4,
-                              padding: "3px 6px",
-                              fontSize: "0.68rem",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Del
-                          </button>
+                            onClick={e => { e.stopPropagation(); if (item.kind === "analysis") handleDelete((item.data as Analysis).id, (item.data as Analysis).filename); else handleDeleteJiraBrief((item.data as TicketBrief).jira_key, (item.data as TicketBrief).title); }}
+                            style={{ background: "rgba(239,68,68,0.1)", border: "none", color: "#ef4444", borderRadius: 3, padding: "2px 5px", fontSize: "9px", cursor: "pointer", fontFamily: MONO, fontWeight: 700 }}
+                          >DEL</button>
                         </div>
                       </div>
                     );
@@ -1376,241 +1107,91 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
                 </div>
               ))}
             </div>
-
-            {/* Selection summary footer */}
-            {selectionMode && selectedCount > 0 && (
-              <div
-                style={{
-                  padding: "8px 12px",
-                  borderTop: "1px solid var(--hd-border-subtle)",
-                  fontSize: "0.75rem",
-                  color: "var(--hd-text-muted)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <span>{selectedCount} selected</span>
-                <button
-                  onClick={clearSelection}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--hd-text-dim)",
-                    cursor: "pointer",
-                    fontSize: "0.72rem",
-                    textDecoration: "underline",
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-            )}
           </div>
 
-          {/* Right: Preview Panel */}
-          <div className="hd-panel" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div
-              style={{ padding: "10px 14px", borderBottom: "1px solid var(--hd-border-subtle)" }}
-              className="flex items-center justify-between"
-            >
-              <strong style={{ fontSize: "0.88rem", color: "var(--hd-text)" }}>Preview</strong>
-              <span className="text-xs" style={{ color: "var(--hd-text-dim)" }}>
-                {previewAnalysis ? `#${previewAnalysis.id}` : previewJiraBrief ? previewJiraBrief.jira_key : "\u2014"}
-              </span>
-            </div>
-            <div style={{ overflowY: "auto", flex: 1, padding: "10px 14px" }}>
-              {previewAnalysis ? (
-                <>
-                  {/* Root Cause section */}
-                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
-                      Root Cause
-                    </div>
-                    <div style={{ fontSize: "0.82rem", color: "var(--hd-text-muted)" }}>
-                      {previewAnalysis.root_cause}
-                    </div>
-                  </div>
-
-                  {/* Suggested Fix */}
-                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
-                      Suggested Fix
-                    </div>
-                    <div style={{ fontSize: "0.82rem", color: "var(--hd-text-muted)", whiteSpace: "pre-wrap" }}>
-                      {previewAnalysis.suggested_fixes}
-                    </div>
-                  </div>
-
-                  {/* Timeline / Details section */}
-                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
-                      Details
-                    </div>
-                    <div
-                      style={{
-                        borderLeft: "2px solid rgba(16,185,129,0.3)",
-                        paddingLeft: 10,
-                        fontSize: "0.78rem",
-                        color: "var(--hd-text-muted)",
-                      }}
-                    >
-                      <div style={{ marginBottom: 4 }}>
-                        Analyzed: {format(new Date(previewAnalysis.analyzed_at), "MMM d, yyyy 'at' h:mm a")}
-                      </div>
-                      <div style={{ marginBottom: 4 }}>Error: {previewAnalysis.error_type}</div>
-                      <div style={{ marginBottom: 4 }}>
-                        Component: {previewAnalysis.component || "\u2014"}
-                      </div>
-                      <div>Cost: ${previewAnalysis.cost.toFixed(4)}</div>
-                    </div>
-                  </div>
-
-                  {/* Action buttons */}
-                  <div className="flex gap-2 flex-wrap" style={{ marginTop: 12 }}>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => handleView(previewAnalysis.id)}
-                    >
-                      Open Full Detail
-                    </Button>
-                    <Button
-                      variant="ghost-danger"
-                      size="sm"
-                      onClick={() => handleDelete(previewAnalysis.id, previewAnalysis.filename)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </>
-              ) : previewJiraBrief ? (
-                <>
-                  {/* JIRA Ticket Header */}
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--hd-text)", marginBottom: 4 }}>
-                      {previewJiraBrief.jira_key}
-                    </div>
-                    <div style={{ fontSize: "0.82rem", color: "var(--hd-text-muted)" }}>
-                      {previewJiraBrief.title}
-                    </div>
-                  </div>
-
-                  {/* Triage Info */}
-                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 6, color: "var(--hd-text)" }}>
-                      Triage
-                    </div>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                      {previewJiraBrief.severity && (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${getSeverityBadgeClasses(previewJiraBrief.severity)}`}>
-                          {previewJiraBrief.severity}
-                        </span>
-                      )}
-                      {previewJiraBrief.category && (
-                        <span style={{
-                          fontSize: "0.72rem",
-                          padding: "2px 8px",
-                          borderRadius: 9999,
-                          background: "rgba(99,102,241,0.12)",
-                          color: "rgb(129,140,248)",
-                          fontWeight: 600,
-                        }}>
-                          {previewJiraBrief.category}
-                        </span>
-                      )}
-                    </div>
-                    {previewJiraBrief.customer && (
-                      <div style={{ fontSize: "0.78rem", color: "var(--hd-text-dim)" }}>
-                        Customer: {previewJiraBrief.customer}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Brief Summary (if available) */}
-                  {previewJiraBrief.brief_json && (() => {
-                    try {
-                      const brief = JSON.parse(previewJiraBrief.brief_json);
-                      const summary = brief?.analysis?.executive_summary || brief?.analysis?.plain_summary;
-                      if (!summary) return null;
-                      return (
-                        <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
-                            Brief Summary
-                          </div>
-                          <div style={{ fontSize: "0.78rem", color: "var(--hd-text-muted)" }}>
-                            {summary}
-                          </div>
-                        </div>
-                      );
-                    } catch { return null; }
-                  })()}
-
-                  {/* Details */}
-                  <div className="hd-analysis-section" style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: "0.82rem", fontWeight: 600, marginBottom: 4, color: "var(--hd-text)" }}>
-                      Details
-                    </div>
-                    <div
-                      style={{
-                        borderLeft: "2px solid rgba(99,102,241,0.3)",
-                        paddingLeft: 10,
-                        fontSize: "0.78rem",
-                        color: "var(--hd-text-muted)",
-                      }}
-                    >
-                      <div style={{ marginBottom: 4 }}>
-                        Updated: {format(new Date(previewJiraBrief.updated_at), "MMM d, yyyy 'at' h:mm a")}
-                      </div>
-                      <div style={{ marginBottom: 4 }}>
-                        Status: {previewJiraBrief.posted_to_jira ? "Posted to JIRA" : previewJiraBrief.brief_json ? "Brief generated" : "Triaged"}
-                      </div>
-                      {previewJiraBrief.engineer_rating && (
-                        <div style={{ marginBottom: 4 }}>
-                          Rating: {"\u2605".repeat(previewJiraBrief.engineer_rating)}{"\u2606".repeat(5 - previewJiraBrief.engineer_rating)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Action buttons */}
-                  <div className="flex gap-2 flex-wrap" style={{ marginTop: 12 }}>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => onViewJiraTicket(previewJiraBrief.jira_key)}
-                    >
-                      Open in JIRA Analyzer
-                    </Button>
-                    <Button
-                      variant="ghost-danger"
-                      size="sm"
-                      onClick={() => handleDeleteJiraBrief(previewJiraBrief.jira_key, previewJiraBrief.title)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    color: "var(--hd-text-dim)",
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  Select an item to preview
+          {/* \u2500\u2500 Preview panel \u2500\u2500 */}
+          {(previewAnalysis || previewJiraBrief) && (
+            <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden", borderLeft: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.01)" }}>
+              <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                <span style={{ fontSize: "10px", fontWeight: 700, color: "#e5e7eb", fontFamily: MONO, letterSpacing: ".1em" }}>PREVIEW</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: "10px", color: "#4b5563", fontFamily: MONO }}>{previewAnalysis ? `#${previewAnalysis.id}` : previewJiraBrief?.jira_key}</span>
+                  <button onClick={() => { setPreviewAnalysis(null); setPreviewJiraBrief(null); }} style={{ background: "none", border: "none", color: "#4b5563", cursor: "pointer", fontSize: "13px", padding: 2 }}>\u00d7</button>
                 </div>
-              )}
+              </div>
+              <div style={{ overflowY: "auto", flex: 1, padding: "12px 14px" }}>
+                {previewAnalysis ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: SEV_COL[previewAnalysis.severity.toLowerCase()] || "#9ca3af", background: `${SEV_COL[previewAnalysis.severity.toLowerCase()] || "#9ca3af"}18`, padding: "2px 7px", borderRadius: 3 }}>{previewAnalysis.severity.toUpperCase()}</span>
+                      <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: "#22d3ee", background: "rgba(34,211,238,0.1)", padding: "2px 7px", borderRadius: 3 }}>{previewAnalysis.analysis_type.toUpperCase()}</span>
+                      {previewAnalysis.is_favorite && <span style={{ color: "#fbbf24", fontSize: "12px" }}>\u2605</span>}
+                      {goldStatusByAnalysisId[previewAnalysis.id] && <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: "#fbbf24", background: "rgba(251,191,36,0.1)", padding: "2px 7px", borderRadius: 3 }}>GOLD</span>}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "9px", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Error</div>
+                      <div style={{ fontSize: "11px", color: "#e5e7eb", fontFamily: MONO }}>{previewAnalysis.error_type}</div>
+                      {previewAnalysis.component && <div style={{ fontSize: "10px", color: "#6b7280", fontFamily: MONO, marginTop: 2 }}>in {previewAnalysis.component}</div>}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "9px", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Root Cause</div>
+                      <div style={{ fontSize: "11px", color: "#9ca3af", lineHeight: 1.6 }}>{previewAnalysis.root_cause}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "9px", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Suggested Fix</div>
+                      <div style={{ fontSize: "11px", color: "#9ca3af", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{String(previewAnalysis.suggested_fixes)}</div>
+                    </div>
+                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10, fontSize: "10px", color: "#4b5563", fontFamily: MONO, display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div>{format(new Date(previewAnalysis.analyzed_at), "MMM d, yyyy 'at' h:mm a")}</div>
+                      <div>{previewAnalysis.file_size_kb.toFixed(1)} KB &nbsp;\u00b7&nbsp; ${previewAnalysis.cost.toFixed(4)}</div>
+                      {previewAnalysis.was_truncated && <div style={{ color: "#f59e0b" }}>\u26a0 Truncated</div>}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <Button variant="primary" size="sm" onClick={() => handleView(previewAnalysis.id)}>Open Full Detail</Button>
+                      <Button variant="ghost-danger" size="sm" onClick={() => handleDelete(previewAnalysis.id, previewAnalysis.filename)}>Delete</Button>
+                    </div>
+                  </div>
+                ) : previewJiraBrief ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#e5e7eb", fontFamily: MONO }}>{previewJiraBrief.jira_key}</div>
+                      <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: 4, lineHeight: 1.5 }}>{previewJiraBrief.title}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                      {previewJiraBrief.severity && <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: SEV_COL[previewJiraBrief.severity.toLowerCase()] || "#9ca3af", background: `${SEV_COL[previewJiraBrief.severity.toLowerCase()] || "#9ca3af"}18`, padding: "2px 7px", borderRadius: 3 }}>{previewJiraBrief.severity.toUpperCase()}</span>}
+                      {previewJiraBrief.category && <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: "#8b5cf6", background: "rgba(139,92,246,0.12)", padding: "2px 7px", borderRadius: 3 }}>{previewJiraBrief.category}</span>}
+                    </div>
+                    {previewJiraBrief.brief_json && (() => {
+                      try {
+                        const brief = JSON.parse(previewJiraBrief.brief_json);
+                        const summary = brief?.analysis?.executive_summary || brief?.analysis?.plain_summary;
+                        if (!summary) return null;
+                        return (
+                          <div>
+                            <div style={{ fontSize: "9px", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Brief Summary</div>
+                            <div style={{ fontSize: "11px", color: "#9ca3af", lineHeight: 1.6 }}>{summary}</div>
+                          </div>
+                        );
+                      } catch { return null; }
+                    })()}
+                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10, fontSize: "10px", color: "#4b5563", fontFamily: MONO, display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div>Updated: {format(new Date(previewJiraBrief.updated_at), "MMM d, yyyy")}</div>
+                      <div>Status: {previewJiraBrief.posted_to_jira ? "Posted to JIRA" : previewJiraBrief.brief_json ? "Brief generated" : "Triaged"}</div>
+                      {previewJiraBrief.engineer_rating && <div>Rating: {"\u2605".repeat(previewJiraBrief.engineer_rating)}{"\u2606".repeat(5 - previewJiraBrief.engineer_rating)}</div>}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <Button variant="primary" size="sm" onClick={() => onViewJiraTicket(previewJiraBrief.jira_key)}>Open in JIRA Analyzer</Button>
+                      <Button variant="ghost-danger" size="sm" onClick={() => handleDeleteJiraBrief(previewJiraBrief.jira_key, previewJiraBrief.title)}>Delete</Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* Bulk Action Bar */}
+      {/* \u2500\u2500 Bulk Action Bar \u2500\u2500 */}
       <BulkActionBar
         selectedCount={selectedCount}
         selectionType={selectionType}

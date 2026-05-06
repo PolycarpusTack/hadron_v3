@@ -1,4 +1,5 @@
 import { IpcMain, dialog, BrowserWindow } from 'electron'
+import { allowDirectory, allowExactPath } from './dialogAllowlist' // allowExactPath used by saveFile
 
 export function registerDialogHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('dialog:openFile', async (_e, options?: {
@@ -18,7 +19,12 @@ export function registerDialogHandlers(ipcMain: IpcMain): void {
       filters: options?.filters,
       defaultPath: options?.defaultPath,
     })
-    return result.canceled ? null : result.filePaths
+    if (result.canceled) return null
+    // Only directory picks authorise writes; opening a file for reading does not.
+    if (options?.directory) {
+      for (const p of result.filePaths) allowDirectory(p)
+    }
+    return result.filePaths
   })
 
   ipcMain.handle('dialog:saveFile', async (_e, options?: {
@@ -27,6 +33,8 @@ export function registerDialogHandlers(ipcMain: IpcMain): void {
   }) => {
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
     const result = await dialog.showSaveDialog(win!, options ?? {})
-    return result.canceled ? null : result.filePath
+    if (result.canceled || !result.filePath) return null
+    allowExactPath(result.filePath)
+    return result.filePath
   })
 }

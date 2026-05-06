@@ -3,7 +3,7 @@
  * Provides semantic search and context building for crash analysis
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { getApiKey } from "./secure-storage";
 import logger from "./logger";
 import type { AnalysisResult } from "../types";

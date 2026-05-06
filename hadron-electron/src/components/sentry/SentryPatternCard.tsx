@@ -3,7 +3,7 @@
  * Rich display for detected patterns with evidence and remediation guidance
  */
 
-import { AlertTriangle, Zap, Database, MemoryStick, AlertCircle, Brain, Shield } from "lucide-react";
+import { AlertTriangle, Zap, Database, HardDrive, AlertCircle, Brain, Shield } from "lucide-react";
 
 interface DetectedPattern {
   patternType: string;
@@ -63,7 +63,7 @@ const PATTERN_CONFIG: Record<
   },
   memory_leak: {
     label: "Memory Leak",
-    icon: <MemoryStick className="w-5 h-5" />,
+    icon: <HardDrive className="w-5 h-5" />,
     color: "text-purple-400",
     bgColor: "bg-purple-500/10",
     borderColor: "border-purple-500/20",

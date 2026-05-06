@@ -9,8 +9,8 @@
  * - Respects rate limits via the rate limiter
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "../lib/tauri-core-shim";
+import { emit, listen, type UnlistenFn } from "../lib/tauri-event-shim";
 import logger from "./logger";
 import { getJiraConfig, isJiraEnabled } from "./jira";
 import { getApiKey } from "./secure-storage";

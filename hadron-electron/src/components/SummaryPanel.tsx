@@ -28,10 +28,11 @@ import {
 } from "../services/summaries";
 import { postJiraComment } from "../services/chat";
 import { getStoredProvider, getStoredModel } from "../services/api";
+import { getKeeperSecretForProvider } from "../services/keeper";
 import { getApiKey } from "../services/secure-storage";
 import { getJiraConfig } from "../services/jira";
-import { save } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { save } from "../lib/tauri-dialog-shim";
+import { invoke } from "../lib/tauri-core-shim";
 import Button from "./ui/Button";
 
 // ============================================================================
@@ -118,12 +119,17 @@ export default function SummaryPanel({
     try {
       const provider = getStoredProvider();
       const model = getStoredModel();
-      const apiKey = (await getApiKey(provider)) || "";
+      const keeperSecretUid = await getKeeperSecretForProvider(provider);
+      let apiKey = "";
+      if (!keeperSecretUid) {
+        apiKey = (await getApiKey(provider)) || "";
+      }
       const result = await generateSessionSummary({
         sessionId,
         provider,
         model,
         apiKey,
+        keeperSecretUid,
       });
       setMarkdown(result);
       // Try to extract topic from first heading

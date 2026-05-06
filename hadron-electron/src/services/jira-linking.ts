@@ -9,7 +9,7 @@
  * - Updating ticket metadata when status changes
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import logger from "./logger";
 
 // ============================================================================

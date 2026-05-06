@@ -560,13 +560,13 @@
 }
 
 :root {
-  font-family: 'Poppins', 'Century Gothic', Arial, system-ui, sans-serif;
+  font-family: 'IBM Plex Sans', 'Poppins', 'Century Gothic', Arial, system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  background-color: #0a0a0c;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -574,36 +574,38 @@
   -moz-osx-font-smoothing: grayscale;
 
   /* Feedback component CSS variables */
-  --border-color: #374151;
+  --border-color: #2a2a2e;
   --accent-color: #3805E3;
-  --input-bg: #1f2937;
+  --input-bg: #18181b;
   --text-color: #f3f4f6;
   --text-muted: #9ca3af;
 
-  /* Hadron v4 Design Tokens */
-  --hd-bg-base: #0c1222;
-  --hd-bg-raised: #111a2d;
-  --hd-bg-surface: #16213a;
-  --hd-bg-surface-2: #1b2847;
-  --hd-bg-hover: #1e2f50;
-  --hd-border: #2a3f65;
-  --hd-border-subtle: #1f3058;
-  --hd-text: #e8edf6;
-  --hd-text-muted: #8da0c2;
-  --hd-text-dim: #5a7099;
+  /* Hadron Design Tokens */
+  --hd-font-sans: 'IBM Plex Sans', 'Poppins', system-ui, sans-serif;
+  --hd-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --hd-bg-base: #0a0a0c;
+  --hd-bg-raised: #111114;
+  --hd-bg-surface: #18181b;
+  --hd-bg-surface-2: #1e1e21;
+  --hd-bg-hover: #252528;
+  --hd-border: #2a2a2e;
+  --hd-border-subtle: #1c1c1f;
+  --hd-text: #e5e7eb;
+  --hd-text-muted: #9ca3af;
+  --hd-text-dim: #6b7280;
   --hd-accent: #10b981;
   --hd-accent-dim: rgba(16, 185, 129, 0.15);
   --hd-accent-glow: rgba(16, 185, 129, 0.25);
-  --hd-radius: 12px;
-  --hd-radius-sm: 8px;
-  --hd-radius-xs: 6px;
-  --hd-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  --hd-shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
+  --hd-radius: 8px;
+  --hd-radius-sm: 6px;
+  --hd-radius-xs: 4px;
+  --hd-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  --hd-shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
   --hd-transition: 0.2s ease;
   --hd-critical: #ef4444;
-  --hd-high: #f97316;
-  --hd-medium: #eab308;
-  --hd-low: #3b82f6;
+  --hd-high: #f59e0b;
+  --hd-medium: #3b82f6;
+  --hd-low: #10b981;
   --hd-danger: #ef4444;
   --hd-danger-dim: rgba(239, 68, 68, 0.12);
   --hd-warn: #f59e0b;

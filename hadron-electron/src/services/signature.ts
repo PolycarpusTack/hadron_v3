@@ -4,7 +4,7 @@
  * Handles crash signature operations for deduplication and tracking
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import type {
   CrashSignature,
   SignatureRegistrationResult,

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../lib/tauri-core-shim';
 import logger from '../services/logger';
 
 interface StarRatingProps {

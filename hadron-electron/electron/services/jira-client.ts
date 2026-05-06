@@ -39,6 +39,16 @@ export function readConfluenceCreds(): { baseUrl: string; email: string; apiToke
   if (!baseUrl || !email || !apiToken) {
     throw new Error('Confluence not configured. Set Confluence credentials in JIRA Settings.')
   }
+  // Mirror the https:// requirement from readJiraCreds(): never send an
+  // API token over plain http or to a non-URL value. This protects against
+  // a malicious settings store entry leaking the apiToken to an attacker.
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.protocol !== 'https:') throw new Error('Confluence base URL must use https://')
+  } catch (e) {
+    if ((e as Error).message.includes('Invalid URL')) throw new Error('Confluence base URL is not a valid URL')
+    throw e
+  }
   return { baseUrl, email, apiToken }
 }
 

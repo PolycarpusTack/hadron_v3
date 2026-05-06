@@ -39,6 +39,7 @@ import JiraAnalysisReport from "./JiraAnalysisReport";
 import { triageJiraTicket, getTicketBrief, generateTicketBrief, type JiraTriageResult, type JiraBriefResult, type TicketBrief } from "../../services/jira-assist";
 import { getJiraConfig } from "../../services/jira";
 import { getApiKey } from "../../services/secure-storage";
+import { getKeeperSecretForProvider } from "../../services/keeper";
 import TriageBadgePanel from "./TriageBadgePanel";
 import TicketBriefPanel from "./TicketBriefPanel";
 import { getStatusColor, getPriorityColor, formatRelativeTime } from "./jiraHelpers";
@@ -219,6 +220,8 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
 
     try {
       const commentTexts = issue.comments.map((c) => c.body);
+      const provider = getStoredProvider();
+      const keeperSecretUid = await getKeeperSecretForProvider(provider);
       const response = await analyzeJiraTicketDeep(
         issue.key,
         issue.summary,
@@ -230,7 +233,8 @@ export default function JiraTicketAnalyzer({ onAnalysisComplete }: JiraTicketAna
         issue.labels,
         commentTexts,
         getStoredModel(),
-        getStoredProvider(),
+        provider,
+        keeperSecretUid,
       );
       setDeepResult({ id: response.id, result: response.result });
     } catch (err) {

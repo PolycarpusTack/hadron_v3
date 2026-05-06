@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../lib/tauri-core-shim';
 import { ArrowRight, Check, X } from 'lucide-react';
 import Button from './ui/Button';
 import { GoldAnalysis } from '../types';

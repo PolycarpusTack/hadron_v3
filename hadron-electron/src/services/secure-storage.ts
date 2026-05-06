@@ -44,6 +44,17 @@ export async function getSetting<T = string>(key: string, defaultValue?: T): Pro
       return raw as unknown as T
     }
   }
+
+  try {
+    const stored = await window.hadron.invoke('store:get', { store: 'settings', key }) as T | null
+    if (stored !== null && stored !== undefined) {
+      localStorage.setItem(`hadron:${key}`, JSON.stringify(stored))
+      return stored
+    }
+  } catch {
+    // Keep local settings reads resilient during early startup or test contexts.
+  }
+
   return defaultValue !== undefined ? defaultValue : null
 }
 
@@ -58,6 +69,8 @@ export async function syncSettingsToElectronStore(): Promise<void> {
       const raw = localStorage.getItem(k)
       if (raw !== null) {
         try {
+          const exists = await window.hadron.invoke('store:has', { store: 'settings', key })
+          if (exists) continue
           const value = JSON.parse(raw)
           await window.hadron.invoke('store:set', { store: 'settings', key, value })
         } catch { /* skip malformed entries */ }

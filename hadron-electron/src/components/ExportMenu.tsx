@@ -19,8 +19,8 @@ import {
   Check,
   ChevronDown,
 } from "lucide-react";
-import { save } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { save } from "../lib/tauri-dialog-shim";
+import { invoke } from "../lib/tauri-core-shim";
 import type { ChatMessage } from "../services/chat";
 
 // ============================================================================

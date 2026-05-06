@@ -5,7 +5,8 @@
  * Sprint 4: duplicate detection. Sprint 5: JIRA round-trip + engineer feedback.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
+import { getKeeperSecretForProvider } from "./keeper";
 
 export interface TicketBrief {
   jira_key: string;
@@ -81,10 +82,10 @@ export async function triageJiraTicket(params: {
   components: string[];
   labels: string[];
   comments: string[];
-  // apiKey intentionally omitted — Rust command reads it from the encrypted store.
   model: string;
   provider: string;
 }): Promise<JiraTriageResult> {
+  const keeperSecretUid = await getKeeperSecretForProvider(params.provider);
   return invoke<JiraTriageResult>("triage_jira_ticket", {
     request: {
       jira_key: params.jiraKey,
@@ -98,6 +99,7 @@ export async function triageJiraTicket(params: {
       comments: params.comments,
       model: params.model,
       provider: params.provider,
+      keeperSecretUid: keeperSecretUid ?? null,
     },
   });
 }
@@ -113,23 +115,24 @@ export async function generateTicketBrief(params: {
   components: string[];
   labels: string[];
   comments: string[];
-  // apiKey intentionally omitted — Rust command reads it from the encrypted store.
   model: string;
   provider: string;
 }): Promise<JiraBriefResult> {
+  const keeperSecretUid = await getKeeperSecretForProvider(params.provider);
   return invoke<JiraBriefResult>("generate_ticket_brief", {
     request: {
-      jira_key:    params.jiraKey,
-      title:       params.title,
-      description: params.description,
-      issue_type:  params.issueType,
-      priority:    params.priority,
-      status:      params.status,
-      components:  params.components,
-      labels:      params.labels,
-      comments:    params.comments,
-      model:       params.model,
-      provider:    params.provider,
+      jira_key:          params.jiraKey,
+      title:             params.title,
+      description:       params.description,
+      issue_type:        params.issueType,
+      priority:          params.priority,
+      status:            params.status,
+      components:        params.components,
+      labels:            params.labels,
+      comments:          params.comments,
+      model:             params.model,
+      provider:          params.provider,
+      keeperSecretUid:   keeperSecretUid ?? null,
     },
   });
 }
@@ -165,20 +168,21 @@ export async function findSimilarTickets(params: {
 
 // ─── JIRA Round-Trip (Sprint 5) ─────────────────────────────────────────────
 
-/** Post a condensed investigation brief to JIRA as a wiki-markup comment. */
+/**
+ * Post a condensed investigation brief to JIRA as a comment.
+ *
+ * SECURITY: JIRA credentials are read by the main process from secure
+ * storage (keytar via safe-storage). The renderer does not pass them in,
+ * so a compromised renderer cannot redirect this POST to an attacker URL
+ * or smuggle out a different account's apiToken.
+ */
 export async function postBriefToJira(params: {
   jiraKey: string;
   briefJson: string;
-  baseUrl: string;
-  email: string;
-  apiToken: string;
 }): Promise<void> {
   return invoke<void>("post_brief_to_jira", {
     jiraKey: params.jiraKey,
     briefJson: params.briefJson,
-    baseUrl: params.baseUrl,
-    email: params.email,
-    apiToken: params.apiToken,
   });
 }
 

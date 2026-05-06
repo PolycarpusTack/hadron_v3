@@ -3,6 +3,7 @@ import log from 'electron-log'
 import { getDb } from '../database'
 import { callAi } from '../services/ai-service'
 import { readJiraCreds, jiraFetch } from '../services/jira-client'
+import { getApiKeyFromKeeper } from './keeper'
 
 const RELEASE_NOTES_SYSTEM_PROMPT = `You are a technical writer creating release notes for WHATS'ON broadcast management software.
 Format as structured markdown with these sections:
@@ -76,6 +77,7 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
     provider: string
     model: string
     apiKey: string
+    keeperSecretUid?: string | null
   }) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const requestId = args.requestId ?? null
@@ -102,10 +104,14 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
 
       const userPrompt = `Fix Version: ${args.config.fixVersion}\n\nTickets:\n${ticketPrompt}`
 
+      let rnApiKey = args.apiKey
+      if (!rnApiKey && args.keeperSecretUid) rnApiKey = await getApiKeyFromKeeper(args.keeperSecretUid)
+      if (!rnApiKey) throw new Error(`No API key configured for provider: ${args.provider}`)
+
       const aiResult = await callAi({
         provider: args.provider,
         model: args.model,
-        apiKey: args.apiKey,
+        apiKey: rnApiKey,
         systemPrompt: RELEASE_NOTES_SYSTEM_PROMPT,
         userPrompt,
         maxTokens: 4096,
@@ -352,6 +358,7 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
     provider: string
     model: string
     apiKey: string
+    keeperSecretUid?: string | null
   }) => {
     try {
       const db = getDb()
@@ -373,10 +380,14 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
 
       const ticketPrompt = buildTicketPrompt(newIssues.filter(i => newKeys.includes(i.key)))
 
+      let appendApiKey = args.apiKey
+      if (!appendApiKey && args.keeperSecretUid) appendApiKey = await getApiKeyFromKeeper(args.keeperSecretUid)
+      if (!appendApiKey) throw new Error(`No API key configured for provider: ${args.provider}`)
+
       const aiResult = await callAi({
         provider: args.provider,
         model: args.model,
-        apiKey: args.apiKey,
+        apiKey: appendApiKey,
         systemPrompt: RELEASE_NOTES_SYSTEM_PROMPT,
         userPrompt: `Additional tickets to append to existing release notes:\n\n${ticketPrompt}`,
         maxTokens: 2048,
@@ -454,7 +465,7 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
   // screenshotSuggestions, score, tokensUsed, cost.
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('check_release_notes_compliance', async (_e, args: {
-    content: string; apiKey: string; model: string; provider: string
+    content: string; apiKey: string; model: string; provider: string; keeperSecretUid?: string | null
   }) => {
     const systemPrompt = `You are a WHATS'ON release notes style auditor. You enforce the company's release notes style guide with precision.
 
@@ -470,10 +481,14 @@ Given a draft, analyze it and return a JSON object with exactly these fields:
 
 Return ONLY valid JSON. No markdown fences.`
 
+    let compApiKey = args.apiKey
+    if (!compApiKey && args.keeperSecretUid) compApiKey = await getApiKeyFromKeeper(args.keeperSecretUid)
+    if (!compApiKey) throw new Error(`No API key configured for provider: ${args.provider}`)
+
     const result = await callAi({
       provider: args.provider,
       model: args.model,
-      apiKey: args.apiKey,
+      apiKey: compApiKey,
       systemPrompt,
       userPrompt: `Review this release notes draft for style compliance:\n\n${args.content}`,
       maxTokens: 4096,

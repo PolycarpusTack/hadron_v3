@@ -21,9 +21,9 @@ import Modal from "./ui/Modal";
 import { useToast } from "./Toast";
 import type { ExportSource, ExportResponse, ReportAudience } from "../types";
 import { previewReport, exportGenericReport, previewGenericReport } from "../services/api";
-import { invoke } from "@tauri-apps/api/core";
-import { save as tauriSave } from "@tauri-apps/plugin-dialog";
-import { join } from "@tauri-apps/api/path";
+import { invoke } from "../lib/tauri-core-shim";
+import { save as tauriSave } from "../lib/tauri-dialog-shim";
+import { join } from "../lib/tauri-path-shim";
 import logger from "../services/logger";
 import { STORAGE_KEYS } from "../utils/config";
 

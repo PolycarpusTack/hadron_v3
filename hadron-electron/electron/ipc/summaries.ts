@@ -4,6 +4,7 @@ import { callAi } from '../services/ai-service'
 import { getSecret } from '../services/safe-storage'
 import { SERVICE_NAME } from '../services/jira-client'
 import { wrapField } from '../services/prompt-helpers'
+import { getApiKeyFromKeeper } from './keeper'
 
 const SUMMARY_SYSTEM_PROMPT = `You are a technical writer. Summarize the following support conversation into a structured document. Use this exact format:
 
@@ -28,10 +29,10 @@ Be concise. Only include sections that have content.`
 export function registerSummaryHandlers(ipcMain: IpcMain): void {
   // Frontend wraps all write calls in { request: params } — unwrap before accessing fields.
   ipcMain.handle('generate_session_summary', async (_e, args: {
-    request?: { sessionId: string; provider: string; model: string; apiKey?: string }
-    sessionId?: string; provider?: string; model?: string; apiKey?: string
+    request?: { sessionId: string; provider: string; model: string; apiKey?: string; keeperSecretUid?: string | null }
+    sessionId?: string; provider?: string; model?: string; apiKey?: string; keeperSecretUid?: string | null
   }) => {
-    const p = args.request ?? (args as { sessionId: string; provider: string; model: string; apiKey?: string })
+    const p = args.request ?? (args as { sessionId: string; provider: string; model: string; apiKey?: string; keeperSecretUid?: string | null })
     const db = getDb()
     const messages = db.prepare(
       'SELECT role, content FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC'
@@ -46,6 +47,7 @@ export function registerSummaryHandlers(ipcMain: IpcMain): void {
 
     let apiKey = p.apiKey ?? ''
     if (!apiKey) apiKey = getSecret(SERVICE_NAME, p.provider ?? '') ?? ''
+    if (!apiKey && p.keeperSecretUid) apiKey = await getApiKeyFromKeeper(p.keeperSecretUid)
     if (!apiKey) throw new Error(`No API key for provider: ${p.provider}`)
 
     const result = await callAi({

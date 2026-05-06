@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "../../lib/tauri-core-shim";
+import { currentMonitor, getCurrentWindow } from "../../lib/tauri-window-shim";
 import { Search, FileText, Wrench, Copy } from "lucide-react";
 import { looksLikeError } from "../../utils/errorDetection";
 import { withWidgetLock } from "./widgetLock";
@@ -19,9 +19,9 @@ const TEMPLATES = [
   { icon: Copy, label: "Find similar issues", prefix: "Find similar issues to: " },
 ];
 
-// Menu needs ~230x250 to render; FAB is 44x44.
+// Menu needs ~230x250 to render; FAB is 68x68.
 const MENU_SIZE = { width: 230, height: 250 };
-const FAB_SIZE = { width: 44, height: 44 };
+const FAB_SIZE = { width: 68, height: 68 };
 const DRAG_THRESHOLD = 5; // px before a click becomes a drag
 const SCREEN_MARGIN = 8;
 
@@ -96,7 +96,7 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
     await closeMenu();
     let clipContent = "";
     try {
-      const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+      const { readText } = await import("../../lib/tauri-clipboard-shim");
       const text = await readText();
       if (text && looksLikeError(text)) {
         clipContent = text;
@@ -155,7 +155,7 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
         ref={fabRef}
         onPointerDown={handlePointerDown}
         onContextMenu={handleContextMenu}
-        className="elena-fab-badge w-[40px] h-[40px] rounded-full
+        className="elena-fab-badge w-[64px] h-[64px] rounded-full
                    flex items-center justify-center
                    cursor-grab active:cursor-grabbing select-none"
         style={{ WebkitAppRegion: "no-drag", background: "transparent" } as React.CSSProperties}
@@ -164,7 +164,7 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
         <img
           src="/elena-button.png"
           alt="Hadron"
-          className="w-9 h-9 rounded-full pointer-events-none"
+          className="w-[60px] h-[60px] rounded-full pointer-events-none"
           draggable={false}
         />
         <span className="elena-signal-dot" />

@@ -4,7 +4,7 @@
  * Tauri invoke wrappers, event listeners, and session management for the chat feature.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/tauri-core-shim";
 import { getApiKey } from "./secure-storage";
 import { getOpenSearchConfig, getOpenSearchPassword } from "./opensearch";
 import { getStoredModel, getStoredProvider, getStoredAuxiliaryModel } from "./api";
@@ -328,7 +328,7 @@ export async function sendChatMessage(
 // ============================================================================
 
 export async function cancelChat(requestId: string): Promise<void> {
-  const { emit } = await import("@tauri-apps/api/event");
+  const { emit } = await import("../lib/tauri-event-shim");
   await emit("chat-cancel", { request_id: requestId });
 }
 
@@ -340,7 +340,7 @@ export async function subscribeToChatStream(
   callback: (event: ChatStreamEvent) => void,
   requestId?: string
 ): Promise<() => void> {
-  const { listen } = await import("@tauri-apps/api/event");
+  const { listen } = await import("../lib/tauri-event-shim");
   return listen<ChatStreamEvent>("chat-stream", (event) => {
     if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
     callback(event.payload);
@@ -351,7 +351,7 @@ export async function subscribeToChatContext(
   callback: (sources: ChatSources) => void,
   requestId?: string
 ): Promise<() => void> {
-  const { listen } = await import("@tauri-apps/api/event");
+  const { listen } = await import("../lib/tauri-event-shim");
   return listen<ChatSources & { request_id?: string }>("chat-context", (event) => {
     if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
     callback(event.payload);
@@ -362,7 +362,7 @@ export async function subscribeToChatToolUse(
   callback: (event: ChatToolUseEvent) => void,
   requestId?: string
 ): Promise<() => void> {
-  const { listen } = await import("@tauri-apps/api/event");
+  const { listen } = await import("../lib/tauri-event-shim");
   return listen<ChatToolUseEvent>("chat-tool-use", (event) => {
     if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
     callback(event.payload);
@@ -373,7 +373,7 @@ export async function subscribeToChatDiagnostics(
   callback: (event: ChatDiagnosticsEvent) => void,
   requestId?: string
 ): Promise<() => void> {
-  const { listen } = await import("@tauri-apps/api/event");
+  const { listen } = await import("../lib/tauri-event-shim");
   return listen<ChatDiagnosticsEvent & { request_id?: string }>(
     "chat-diagnostics",
     (event) => {
@@ -392,7 +392,7 @@ export async function subscribeToChatFinalContent(
   callback: (event: ChatFinalContentEvent) => void,
   requestId?: string
 ): Promise<() => void> {
-  const { listen } = await import("@tauri-apps/api/event");
+  const { listen } = await import("../lib/tauri-event-shim");
   return listen<ChatFinalContentEvent>("chat-final-content", (event) => {
     if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
     callback(event.payload);
