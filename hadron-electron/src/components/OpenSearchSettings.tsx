@@ -27,10 +27,10 @@ import type { OpenSearchConfig, KBStatsResponse } from "../services/opensearch";
 import logger from "../services/logger";
 
 interface OpenSearchSettingsProps {
-  onConfigChange?: () => void;
+  onSettingsChange?: () => void;
 }
 
-export default function OpenSearchSettings({ onConfigChange }: OpenSearchSettingsProps) {
+export default function OpenSearchSettings({ onSettingsChange }: OpenSearchSettingsProps) {
   const [config, setConfig] = useState<OpenSearchConfig>({
     enabled: false,
     mode: "remote",
@@ -101,7 +101,7 @@ export default function OpenSearchSettings({ onConfigChange }: OpenSearchSetting
       }
       setSaveMessage("Settings saved");
       safeTimeout(() => setSaveMessage(null), 3000);
-      onConfigChange?.();
+      onSettingsChange?.();
     } catch (error) {
       setSaveMessage("Failed to save settings");
       logger.error("Failed to save OpenSearch config", { error });

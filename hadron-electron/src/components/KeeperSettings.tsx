@@ -36,10 +36,10 @@ import {
 import logger from "../services/logger";
 
 interface KeeperSettingsProps {
-  onConfigChange?: () => void;
+  onSettingsChange?: () => void;
 }
 
-export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) {
+export default function KeeperSettings({ onSettingsChange }: KeeperSettingsProps) {
   // State
   const [status, setStatus] = useState<KeeperStatus | null>(null);
   const [secrets, setSecrets] = useState<KeeperSecretInfo[]>([]);
@@ -155,7 +155,7 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
         setConfig(newConfig);
         await saveKeeperConfig(newConfig);
 
-        onConfigChange?.();
+        onSettingsChange?.();
       } else {
         setMessage({ type: "error", text: result.message });
       }
@@ -190,7 +190,7 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
       setSecrets([]);
       setConfig({ enabled: false, secretMappings: {} });
       setMessage({ type: "success", text: "Disconnected from Keeper" });
-      onConfigChange?.();
+      onSettingsChange?.();
     } catch (error: unknown) {
       setMessage({
         type: "error",
@@ -204,7 +204,7 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
     try {
       await saveKeeperConfig(newConfig);
       setConfig(newConfig);
-      onConfigChange?.();
+      onSettingsChange?.();
     } catch (error: unknown) {
       logger.error("Failed to toggle Keeper", { error });
       setMessage({
@@ -234,7 +234,7 @@ export default function KeeperSettings({ onConfigChange }: KeeperSettingsProps) 
     try {
       await saveKeeperConfig(newConfig);
       setConfig(newConfig);
-      onConfigChange?.();
+      onSettingsChange?.();
     } catch (error: unknown) {
       logger.error("Failed to map secret", { error, provider });
       setMessage({

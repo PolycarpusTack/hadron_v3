@@ -32,12 +32,12 @@ import { startPoller, stopPoller, getPollerStatus, type PollerStatus } from "../
 import logger from "../services/logger";
 
 interface JiraSettingsProps {
-  onConfigChange?: () => void;
+  onSettingsChange?: () => void;
 }
 
 const ISSUE_TYPES = ["Bug", "Task", "Story", "Epic", "Incident", "Problem"];
 
-export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
+export default function JiraSettings({ onSettingsChange }: JiraSettingsProps) {
   const [config, setConfig] = useState<JiraConfig>({
     enabled: false,
     baseUrl: "",
@@ -196,8 +196,8 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
       setSaveMessage("JIRA settings saved successfully!");
       safeTimeout(() => setSaveMessage(null), 3000);
 
-      if (onConfigChange) {
-        onConfigChange();
+      if (onSettingsChange) {
+        onSettingsChange();
       }
     } catch (error) {
       setSaveMessage(`Failed to save: ${error}`);
@@ -290,8 +290,8 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
               if (!enabled) {
                 await saveJiraConfig(updated);
                 clearJiraConfigCache();
-                if (onConfigChange) {
-                  onConfigChange();
+                if (onSettingsChange) {
+                  onSettingsChange();
                 }
               }
             }}

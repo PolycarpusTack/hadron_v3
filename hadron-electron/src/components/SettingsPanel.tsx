@@ -3,12 +3,9 @@ import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCi
 import { getCircuitState } from "../services/circuit-breaker";
 import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage";
 import { checkForUpdates } from "../services/updater";
-import { isJiraEnabled } from "../services/jira";
-import { isSentryEnabled } from "../services/sentry";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI, autoTagAnalyses } from "../services/api";
 import { invoke } from "../lib/tauri-core-shim";
 import { getKeeperConfig, getKeeperSecretForProvider, type KeeperConfig } from "../services/keeper";
-import { getCodexMgXConfig, saveCodexMgXConfig } from "../services/codexmgx";
 import { open as tauriOpen } from "../lib/tauri-dialog-shim";
 import logger from '../services/logger';
 import { AI_PROVIDERS, getDefaultModelForProvider, getCuratedModelsForProvider, MODEL_CACHE_TTL_MS } from '../constants/providers';
@@ -17,6 +14,7 @@ import type { SettingsSection } from './settings/types';
 import { isIntegrationSection } from './settings/types';
 import SettingsSidebar from './settings/SettingsSidebar';
 import SettingsDashboard from './settings/SettingsDashboard';
+import CodexMgXSettings from './settings/CodexMgXSettings';
 
 type ApiKeyProvider = 'openai' | 'anthropic' | 'zai';
 import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey } from '../utils/config';
@@ -118,9 +116,6 @@ export default function SettingsPanel({
   const [keeperConfig, setKeeperConfig] = useState<KeeperConfig | null>(null);
   const [showManualKeys, setShowManualKeys] = useState(true);
 
-  // Integration status
-  const [jiraConnected, setJiraConnected] = useState(false);
-  const [sentryConnected, setSentryConnected] = useState(false);
 
   // Crash log directory
   const [crashLogDir, setCrashLogDir] = useState<string>("");
@@ -134,12 +129,6 @@ export default function SettingsPanel({
   // (parallel=1 instead of 2), and widens progress debounce 150ms → 1s.
   const [stabilityMode, setStabilityMode] = useState<boolean>(false);
   const [stabilityMsg, setStabilityMsg] = useState<string | null>(null);
-  const [codexMgxConfig, setCodexMgxConfig] = useState<{ scriptPath: string; enabled: boolean }>({
-    scriptPath: '',
-    enabled: false,
-  });
-  const [codexMgxAdvanced, setCodexMgxAdvanced] = useState(false);
-  const codexMgxLoadedRef = useRef(false);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
@@ -258,14 +247,6 @@ export default function SettingsPanel({
     return () => { cancelled = true; };
   }, [isOpen]);
 
-  // Check integration connection status
-  useEffect(() => {
-    if (isOpen) {
-      isJiraEnabled().then(setJiraConnected).catch(() => setJiraConnected(false));
-      isSentryEnabled().then(setSentryConnected).catch(() => setSentryConnected(false));
-      getCodexMgXConfig().then(cfg => { setCodexMgxConfig(cfg); codexMgxLoadedRef.current = true }).catch(() => {});
-    }
-  }, [isOpen]);
 
   // Load crash log directory for advanced settings
   useEffect(() => {
@@ -455,8 +436,6 @@ export default function SettingsPanel({
           await deleteApiKey(provider);
         }
       }
-
-      if (codexMgxLoadedRef.current) await saveCodexMgXConfig(codexMgxConfig);
 
       setSaveMessage("Settings saved successfully!");
       safeTimeout(() => {
@@ -721,8 +700,26 @@ export default function SettingsPanel({
 
           {/* Right pane */}
           <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
-          {activeSection !== 'dashboard' && (
-            <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+          {activeSection === 'jira' && (
+            <Suspense fallback={<div className="p-4 text-gray-400 text-sm">Loading JIRA settings…</div>}>
+              <JiraSettings onSettingsChange={onSettingsChange} />
+            </Suspense>
+          )}
+          {activeSection === 'sentry' && (
+            <Suspense fallback={<div className="p-4 text-gray-400 text-sm">Loading Sentry settings…</div>}>
+              <SentrySettings onSettingsChange={onSettingsChange} />
+            </Suspense>
+          )}
+          {activeSection === 'knowledge-base' && (
+            <div className="space-y-4">
+              <Suspense fallback={<div className="p-4 text-gray-400 text-sm">Loading Knowledge Base settings…</div>}>
+                <OpenSearchSettings onSettingsChange={onSettingsChange} />
+              </Suspense>
+              <CodexMgXSettings />
+            </div>
+          )}
+          {(activeSection === 'preferences' || activeSection === 'maintenance' || activeSection === 'ai-provider') && (
+            <div className="flex items-center justify-center h-32 text-gray-500 text-sm">
               Coming soon — this section is being extracted
             </div>
           )}
@@ -792,7 +789,7 @@ export default function SettingsPanel({
                       </div>
                     </div>
                   }>
-                    <KeeperSettings onConfigChange={() => {
+                    <KeeperSettings onSettingsChange={() => {
                       onSettingsChange?.();
                       getKeeperConfig().then((config) => {
                         setKeeperConfig(config);

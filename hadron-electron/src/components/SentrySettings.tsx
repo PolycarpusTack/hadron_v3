@@ -27,10 +27,10 @@ import logger from "../services/logger";
 import type { SentryConfig, SentryProjectInfo } from "../types";
 
 interface SentrySettingsProps {
-  onConfigChange?: () => void;
+  onSettingsChange?: () => void;
 }
 
-export default function SentrySettings({ onConfigChange }: SentrySettingsProps) {
+export default function SentrySettings({ onSettingsChange }: SentrySettingsProps) {
   const [config, setConfig] = useState<SentryConfig>({
     enabled: false,
     baseUrl: "https://sentry.io",
@@ -143,8 +143,8 @@ export default function SentrySettings({ onConfigChange }: SentrySettingsProps) 
       setSaveMessage("Sentry settings saved successfully!");
       safeTimeout(() => setSaveMessage(null), 3000);
 
-      if (onConfigChange) {
-        onConfigChange();
+      if (onSettingsChange) {
+        onSettingsChange();
       }
     } catch (error) {
       setSaveMessage(`Failed to save: ${error}`);
@@ -220,8 +220,8 @@ export default function SentrySettings({ onConfigChange }: SentrySettingsProps) 
               if (!enabled) {
                 await saveSentryConfig(updated);
                 clearSentryConfigCache();
-                if (onConfigChange) {
-                  onConfigChange();
+                if (onSettingsChange) {
+                  onSettingsChange();
                 }
               }
             }}
