@@ -229,9 +229,9 @@ export default function SettingsPanel({
 
   // Load settings on mount
   useEffect(() => {
-    if (isOpen) {
-      loadSettings();
-    }
+    let cancelled = false;
+    if (isOpen) loadSettings(() => cancelled);
+    return () => { cancelled = true; };
   }, [isOpen]);
 
   // Check integration connection status
@@ -267,13 +267,15 @@ export default function SettingsPanel({
     }
   }, [isOpen, settings.provider]);
 
-  async function loadSettings() {
+  async function loadSettings(isCancelled: () => boolean) {
     const provider = localStorage.getItem(STORAGE_KEYS.AI_PROVIDER) || "openai";
 
     // Load ALL API keys
     const openaiKey = await getApiKey("openai") || "";
     const anthropicKey = await getApiKey("anthropic") || "";
     const zaiKey = await getApiKey("zai") || "";
+
+    if (isCancelled()) return;
 
     const savedModel = localStorage.getItem(STORAGE_KEYS.AI_MODEL) || "";
     const model = provider === "openai" && OPENAI_LARGE_FILE_UNSUITABLE_DEFAULTS.has(savedModel)
@@ -295,7 +297,7 @@ export default function SettingsPanel({
     }
 
     setSettings({
-      provider,
+      provider: provider as ProviderKey,
       apiKeys: {
         openai: openaiKey,
         anthropic: anthropicKey,
@@ -317,7 +319,7 @@ export default function SettingsPanel({
         const cacheData = JSON.parse(cached);
         const age = Date.now() - cacheData.timestamp;
         // Always load cached models (even if stale -- better than empty dropdown)
-        if (cacheData.models?.length > 0) {
+        if (cacheData.models?.length > 0 && !isCancelled()) {
           setCachedModels(prev => ({
             ...prev,
             [provider]: cacheData.models
@@ -341,6 +343,7 @@ export default function SettingsPanel({
           : null;
         if (provider === "llamacpp" || apiKey || keeperUid) {
           const models = await listModelsAPI(provider, apiKey || "", keeperUid);
+          if (isCancelled()) return;
           const newCacheData = { models, timestamp: Date.now() };
           localStorage.setItem(providerModelsCacheKey(provider), JSON.stringify(newCacheData));
           setCachedModels(prev => ({ ...prev, [provider]: models as ModelOption[] }));
