@@ -606,6 +606,14 @@ function App() {
     }
   }, [actions]);
 
+  const handleOpenSettings = useCallback((section?: SettingsSection | string) => {
+    if (section) {
+      setPendingSettingsSection(section as SettingsSection);
+      setSettingsNavKey(k => k + 1);
+    }
+    actions.setView("configure");
+  }, [actions]);
+
   // Splashscreen on app start - only show for minimum time, don't block on initialization
   if (showSplash) {
     return (
@@ -629,13 +637,7 @@ function App() {
         {/* Header */}
         <AppHeader
           readinessStatus={readinessStatus}
-          onOpenSettings={(section) => {
-            if (section) {
-              setPendingSettingsSection(section as SettingsSection);
-              setSettingsNavKey(k => k + 1);
-            }
-            actions.setView("configure");
-          }}
+          onOpenSettings={handleOpenSettings}
           onOpenAskHadronDrawer={() => setDrawerOpen(true)}
           onOpenDashboard={() => setShowDashboard(true)}
           isSettingsActive={currentView === "configure"}
@@ -645,6 +647,7 @@ function App() {
         <Navigation
           currentView={currentView}
           onViewChange={actions.setView}
+          onOpenSettings={handleOpenSettings}
           showJiraAnalyzer={jiraEnabled}
           showSentryAnalyzer={sentryEnabled}
           showReleaseNotes={jiraEnabled}

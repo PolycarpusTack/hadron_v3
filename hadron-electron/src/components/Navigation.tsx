@@ -1,6 +1,7 @@
 import { useRef } from "react";
-import { FileUp, Code, History, Cpu, Ticket, MessageCircle, FileText, AlertTriangle } from "lucide-react";
+import { FileUp, Code, History, Cpu, Ticket, MessageCircle, FileText, AlertTriangle, Lock } from "lucide-react";
 import type { View } from "../hooks/useAppState";
+import type { SettingsSection } from "./settings/types";
 
 interface NavigationProps {
   currentView: View;
@@ -11,12 +12,15 @@ interface NavigationProps {
   showCodeAnalyzer?: boolean;
   showPerformanceAnalyzer?: boolean;
   showAskHadron?: boolean;
+  onOpenSettings?: (section: SettingsSection) => void;
 }
 
 interface TabConfig {
   id: View;
   label: string;
   icon: typeof FileUp;
+  enabled?: boolean;
+  settingsSection?: SettingsSection;
 }
 
 export default function Navigation({
@@ -28,21 +32,60 @@ export default function Navigation({
   showCodeAnalyzer = true,
   showPerformanceAnalyzer = true,
   showAskHadron = true,
+  onOpenSettings,
 }: NavigationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Build tabs list (excluding Ask Hadron - it's a separate button)
-  const tabs: TabConfig[] = [
+  const coreTabs: TabConfig[] = [
     { id: "analyze", label: "Crash Analyzer", icon: FileUp },
     ...(showCodeAnalyzer !== false ? [{ id: "translate" as View, label: "Code Analyzer", icon: Code }] : []),
     ...(showPerformanceAnalyzer !== false ? [{ id: "performance" as View, label: "Performance Analyzer", icon: Cpu }] : []),
-    ...(showJiraAnalyzer ? [{ id: "jira" as View, label: "JIRA Analyzer", icon: Ticket }] : []),
-    ...(showSentryAnalyzer ? [{ id: "sentry" as View, label: "Sentry Analyzer", icon: AlertTriangle }] : []),
-    ...(showReleaseNotes ? [{ id: "release_notes" as View, label: "Release Notes", icon: FileText }] : []),
-    { id: "history", label: "History", icon: History },
+  ];
+
+  const integrationTabs: TabConfig[] = [
+    { id: "jira",          label: "JIRA Analyzer",   icon: Ticket,        enabled: showJiraAnalyzer,   settingsSection: "jira"  },
+    { id: "sentry",        label: "Sentry Analyzer",  icon: AlertTriangle, enabled: showSentryAnalyzer, settingsSection: "sentry" },
+    { id: "release_notes", label: "Release Notes",    icon: FileText,      enabled: showReleaseNotes,   settingsSection: "jira"  },
+    { id: "history",       label: "History",          icon: History },
   ];
 
   const isAskHadronActive = currentView === "chat";
+
+  function renderTab(tab: TabConfig) {
+    const Icon = tab.icon;
+    const isEnabled = tab.enabled !== false;
+    const isActive = tab.id === currentView || (tab.id === "history" && currentView === "detail");
+
+    if (!isEnabled) {
+      return (
+        <button
+          key={tab.id}
+          onClick={() => tab.settingsSection && onOpenSettings?.(tab.settingsSection)}
+          role="tab"
+          aria-selected={false}
+          title={`${tab.label} — click to configure`}
+          className="hd-nav-btn opacity-40 hover:opacity-60 transition-opacity"
+        >
+          <Lock className="w-[15px] h-[15px]" />
+          <span>{tab.label}</span>
+        </button>
+      );
+    }
+
+    return (
+      <button
+        key={tab.id}
+        onClick={() => onViewChange(tab.id)}
+        role="tab"
+        aria-selected={isActive}
+        aria-controls={`${tab.id}-panel`}
+        className={`hd-nav-btn ${isActive ? "hd-nav-btn-active" : ""}`}
+      >
+        <Icon className="w-[15px] h-[15px]" />
+        <span>{tab.label}</span>
+      </button>
+    );
+  }
 
   return (
     <nav
@@ -52,28 +95,16 @@ export default function Navigation({
       aria-label="Main navigation"
       style={{ background: 'rgba(12, 18, 34, 0.7)', borderColor: 'var(--hd-border-subtle)' }}
     >
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = tab.id === currentView || (tab.id === "history" && currentView === "detail");
-        return (
-          <button
-            key={tab.id}
-            onClick={() => onViewChange(tab.id)}
-            role="tab"
-            aria-selected={isActive}
-            aria-controls={`${tab.id}-panel`}
-            className={`hd-nav-btn ${isActive ? "hd-nav-btn-active" : ""}`}
-          >
-            <Icon className="w-[15px] h-[15px]" />
-            <span>{tab.label}</span>
-          </button>
-        );
-      })}
+      {coreTabs.map(renderTab)}
+
+      {/* Visual separator between core tools and integrations */}
+      <div className="w-px h-5 self-center mx-1 bg-gray-600/30 shrink-0" aria-hidden="true" />
+
+      {integrationTabs.map(renderTab)}
 
       {/* Spacer pushes Ask Hadron to right */}
       <div className="flex-1" />
 
-      {/* Ask Hadron accent button — opens full view */}
       {showAskHadron !== false && (
         <button
           onClick={() => onViewChange("chat")}
