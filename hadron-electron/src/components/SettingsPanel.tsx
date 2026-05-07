@@ -481,39 +481,40 @@ export default function SettingsPanel({
   };
 
   const handleRefreshModels = async () => {
+    const provider = settings.provider;
     setIsRefreshingModels(true);
     setConnectionTestResult(null);
     setModelsMessage(null);
 
     try {
-      const apiKey = settings.provider === "llamacpp"
+      const apiKey = provider === "llamacpp"
         ? ""
-        : settings.apiKeys[settings.provider as ApiKeyProvider];
-      const keeperUid = settings.provider !== "llamacpp"
-        ? await getKeeperSecretForProvider(settings.provider)
+        : settings.apiKeys[provider as ApiKeyProvider];
+      const keeperUid = provider !== "llamacpp"
+        ? await getKeeperSecretForProvider(provider)
         : null;
 
-      if (settings.provider !== "llamacpp" && !apiKey && !keeperUid) {
+      if (provider !== "llamacpp" && !apiKey && !keeperUid) {
         setConnectionTestResult("Please enter an API key first");
         setIsRefreshingModels(false);
         return;
       }
 
-      const models = await listModelsAPI(settings.provider, apiKey || "", keeperUid);
+      const models = await listModelsAPI(provider, apiKey || "", keeperUid);
 
       const cacheData = {
         models: models,
         timestamp: Date.now()
       };
-      localStorage.setItem(providerModelsCacheKey(settings.provider), JSON.stringify(cacheData));
+      localStorage.setItem(providerModelsCacheKey(provider), JSON.stringify(cacheData));
 
       setCachedModels(prev => ({
         ...prev,
-        [settings.provider]: models as ModelOption[]
+        [provider]: models as ModelOption[]
       }));
 
       setModelsMessage(
-        settings.provider === "openai"
+        provider === "openai"
           ? `Loaded ${models.length} Hadron-suitable models`
           : `Loaded ${models.length} models`
       );
@@ -550,7 +551,7 @@ export default function SettingsPanel({
       setConnectionTestResult(result.message);
 
       if (result.success && (result.models_count || 0) > 0) {
-        handleRefreshModels();
+        await handleRefreshModels();
       }
     } catch (error) {
       setConnectionTestResult(`Connection failed: ${error}`);
