@@ -13,6 +13,9 @@ import { open as tauriOpen } from "../lib/tauri-dialog-shim";
 import logger from '../services/logger';
 import { AI_PROVIDERS, getDefaultModelForProvider, getCuratedModelsForProvider, MODEL_CACHE_TTL_MS } from '../constants/providers';
 import type { ProviderKey } from '../constants/providers';
+import type { SettingsSection } from './settings/types';
+import { isIntegrationSection } from './settings/types';
+import SettingsSidebar from './settings/SettingsSidebar';
 
 type ApiKeyProvider = 'openai' | 'anthropic' | 'zai';
 import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey } from '../utils/config';
@@ -36,6 +39,7 @@ interface SettingsPanelProps {
   onThemeChange: (dark: boolean) => void;
   onSettingsChange?: () => void;
   isInline?: boolean;
+  initialSection?: SettingsSection;
 }
 
 interface Settings {
@@ -73,7 +77,26 @@ export default function SettingsPanel({
   onThemeChange,
   onSettingsChange,
   isInline = false,
+  initialSection,
 }: SettingsPanelProps) {
+  const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection ?? 'dashboard');
+  const [localIntegrationsOpen, setLocalIntegrationsOpen] = useState(false);
+  const integrationsOpen = localIntegrationsOpen || isIntegrationSection(activeSection);
+
+  const handleSelectSection = (s: SettingsSection) => {
+    setActiveSection(s);
+    if (isIntegrationSection(s) && !localIntegrationsOpen) {
+      setLocalIntegrationsOpen(true);
+    }
+  };
+
+  const handleToggleIntegrations = () => {
+    if (!isIntegrationSection(activeSection)) {
+      setLocalIntegrationsOpen(prev => !prev);
+    }
+    // Silently ignore collapse attempts when a child section is active
+  };
+
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [integrationsExpanded, setIntegrationsExpanded] = useState(false);
   const [defaultAnalysisMode, setDefaultAnalysisMode] = useState(
@@ -686,8 +709,23 @@ export default function SettingsPanel({
           </div>
         </div>
 
-        {/* Content */}
-        <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* Body: sidebar + right pane */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          <SettingsSidebar
+            activeSection={activeSection}
+            onSelect={handleSelectSection}
+            integrationsOpen={integrationsOpen}
+            onToggleIntegrations={handleToggleIntegrations}
+          />
+
+          {/* Right pane */}
+          <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
+          {activeSection !== 'dashboard' && (
+            <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+              Coming soon — this section is being extracted
+            </div>
+          )}
+          {activeSection === 'dashboard' && (<>
           {/* Network Status Banner */}
           {!isOnline && (
             <div className="mb-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 flex items-center gap-3">
@@ -1442,6 +1480,7 @@ export default function SettingsPanel({
                 </div>
               </div>
             )}
+          </>)}
           </div>
         </div>
 
