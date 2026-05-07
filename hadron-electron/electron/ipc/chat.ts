@@ -31,12 +31,13 @@ interface StreamState {
   done: boolean
   error: string | null
   events: Array<{ kind: string; [k: string]: unknown }>
+  controller: AbortController
 }
 
 const streams = new Map<string, StreamState>()
 
 function streamCreate(requestId: string): StreamState {
-  const s: StreamState = { pendingText: '', done: false, error: null, events: [] }
+  const s: StreamState = { pendingText: '', done: false, error: null, events: [], controller: new AbortController() }
   streams.set(requestId, s)
   return s
 }
@@ -265,6 +266,8 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
   })
 
   // Cancel an in-flight streaming request.
+  // Sets done:true and aborts the underlying AI HTTP request so no more tokens
+  // are fetched after the user cancels.
   ipcMain.handle('cancel_chat_stream', (_e, args?: { request_id?: string }) => {
     const requestId = args?.request_id
     if (!requestId) return
@@ -272,6 +275,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     if (s && !s.done) {
       s.done = true
       s.error = 'Request cancelled'
+      s.controller.abort()
     }
   })
 
@@ -454,6 +458,9 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     const contextSummary = { rag_results: 0, kb_results: 0, gold_matches: 0, fts_results: 0, kind: 'context' as const }
 
     for (let iteration = 0; iteration < MAX_AGENT_ITERATIONS; iteration++) {
+      // Exit early if the request was cancelled while we were executing tools.
+      if (ss.done) return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
+
       let llmResult
       try {
         llmResult = await callAiWithTools({
@@ -464,10 +471,14 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
           messages: agentMessages,
           tools,
           maxTokens: 4000,
+          signal: ss.controller.signal,
         })
       } catch (e) {
-        ss.error = e instanceof Error ? e.message : String(e)
-        ss.done = true
+        // If already cancelled, the AbortError is expected — don't overwrite cancellation state.
+        if (!ss.done) {
+          ss.error = e instanceof Error ? e.message : String(e)
+          ss.done = true
+        }
         return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
       }
 
@@ -504,16 +515,20 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
             systemPrompt: synthSystemPrompt,
             messages: synthesisMessages,
             maxTokens: 4096,
+            signal: ss.controller.signal,
             onChunk: (text) => {
+              if (ss.done) return
               ss.pendingText += text
               finalContent += text
             },
           })
-          ss.done = true
+          if (!ss.done) ss.done = true
           return { content: finalContent, inputTokens: 0, outputTokens: 0, cost: 0 }
         } catch (e) {
-          ss.error = e instanceof Error ? e.message : String(e)
-          ss.done = true
+          if (!ss.done) {
+            ss.error = e instanceof Error ? e.message : String(e)
+            ss.done = true
+          }
           return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
         }
       }
@@ -532,6 +547,9 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       const results = await Promise.all(
         toolCalls.map(tc => executeTool(tc.name, tc.arguments, toolCtx, mcpCallTool))
       )
+
+      // If cancelled while tools were running, stop before the next LLM call.
+      if (ss.done) return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
 
       // Tag each result with the correct toolUseId from the LLM call
       const taggedResults = results.map((r, i) => ({ ...r, toolUseId: toolCalls[i].id }))
@@ -571,20 +589,29 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
         systemPrompt: synthSystemPrompt,
         messages: synthesisMessages,
         maxTokens: 4096,
-        onChunk: (text) => { ss.pendingText += text; finalContent += text },
+        signal: ss.controller.signal,
+        onChunk: (text) => {
+          if (ss.done) return
+          ss.pendingText += text
+          finalContent += text
+        },
       })
-      ss.done = true
+      if (!ss.done) ss.done = true
       return { content: finalContent, inputTokens: 0, outputTokens: 0, cost: 0 }
     } catch (e) {
-      ss.error = e instanceof Error ? e.message : String(e)
-      ss.done = true
+      if (!ss.done) {
+        ss.error = e instanceof Error ? e.message : String(e)
+        ss.done = true
+      }
       return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
     }
 
     } finally {
-      // Ensure done is set on unexpected exit so the poll loop can drain and
-      // clean up the map entry (poll_chat_stream deletes the entry when done:true is returned).
+      // Ensure done is set on unexpected exit so the poll loop can drain and clean up.
       if (!ss.done) ss.done = true
+      // Safety-net: if the renderer stops polling before draining done:true
+      // (window close, early cancel), remove the stale entry after 30 s.
+      setTimeout(() => streams.delete(requestId), 30_000)
     }
   })
 }

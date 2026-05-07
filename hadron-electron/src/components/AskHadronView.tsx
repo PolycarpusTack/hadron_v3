@@ -385,6 +385,7 @@ export default function AskHadronView({
       let sources: ChatSources | undefined;
       // Hoisted so the finally block can use chatResponse.content as a fallback.
       let chatResponse: ChatResponse | undefined;
+      let sendFailed = false;
 
       try {
         // Send the message with channel callbacks — all events flow directly
@@ -479,6 +480,7 @@ export default function AskHadronView({
           return updated;
         });
       } catch (err) {
+        sendFailed = true;
         const errorMsg =
           err instanceof Error ? err.message : String(err);
         logger.error("Chat send failed", { error: errorMsg });
@@ -506,6 +508,15 @@ export default function AskHadronView({
         // Use the same fallback logic as the success path: streaming content first,
         // then chatResponse.content (available because chatResponse is hoisted above try).
         const savedContent = streamingContentRef.current || chatResponse?.content || "";
+
+        // If the send failed outright and we have no content, skip persisting —
+        // the alternative is saving a blank assistant message that diverges from
+        // the visible error text shown in the UI.
+        if (sendFailed && !savedContent) {
+          getChatSessions().then(setSessions).catch(() => {});
+          return;
+        }
+
         const finalMessages: ChatMessage[] = newMessages.map((msg, i) =>
           i === newMessages.length - 1 && msg.role === "assistant"
             ? { ...msg, content: savedContent, isStreaming: false, sources, timestamp: Date.now() }

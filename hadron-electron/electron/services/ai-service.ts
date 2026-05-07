@@ -11,6 +11,7 @@ export interface AiCallOptions {
   stream?: boolean
   onChunk?: (text: string) => void
   messages?: Array<{ role: string; content: string }>
+  signal?: AbortSignal
 }
 
 export interface AiCallResult {
@@ -197,7 +198,7 @@ async function callAnthropic(opts: AiCallOptions): Promise<AiCallResult> {
       max_tokens: opts.maxTokens ?? 8192,
       system: opts.systemPrompt,
       messages: anthropicMessages,
-    })
+    }, { signal: opts.signal })
     for await (const event of stream) {
       if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
         content += event.delta.text
@@ -213,7 +214,7 @@ async function callAnthropic(opts: AiCallOptions): Promise<AiCallResult> {
       max_tokens: opts.maxTokens ?? 8192,
       system: opts.systemPrompt,
       messages: anthropicMessages,
-    })
+    }, { signal: opts.signal })
     content = msg.content.map(b => b.type === 'text' ? b.text : '').join('')
     inputTokens = msg.usage.input_tokens
     outputTokens = msg.usage.output_tokens
@@ -237,6 +238,7 @@ async function callOpenAiResponsesApi(opts: AiCallOptions): Promise<AiCallResult
       input: inputMessages,
       max_output_tokens: opts.maxTokens ?? 8192,
     }),
+    signal: opts.signal ?? null,
   })
   if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`)
   const data = await res.json() as {
@@ -283,6 +285,7 @@ async function callOpenAi(opts: AiCallOptions): Promise<AiCallResult> {
       stream: useStream,
       ...(useStream ? { stream_options: { include_usage: true } } : {}),
     }),
+    signal: opts.signal ?? null,
   })
   if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`)
 
@@ -468,6 +471,7 @@ async function callAiWithToolsAnthropic(opts: {
   model: string
   apiKey: string
   maxTokens?: number
+  signal?: AbortSignal
 }): Promise<AiToolCallResult> {
   const client = new Anthropic({ apiKey: opts.apiKey })
   const anthropicTools = opts.tools.map(t => ({
@@ -484,7 +488,7 @@ async function callAiWithToolsAnthropic(opts: {
     system: opts.systemPrompt,
     messages: msgs as Parameters<typeof client.messages.create>[0]['messages'],
     tools: anthropicTools as Parameters<typeof client.messages.create>[0]['tools'],
-  })
+  }, { signal: opts.signal })
 
   const wantsTools = resp.stop_reason === 'tool_use'
   const toolCalls: ToolCall[] = wantsTools
@@ -514,6 +518,7 @@ async function callAiWithToolsOpenAi(opts: {
   model: string
   apiKey: string
   maxTokens?: number
+  signal?: AbortSignal
 }): Promise<AiToolCallResult> {
   const { default: fetch } = await import('node-fetch')
   const openAiMessages = [
@@ -535,6 +540,7 @@ async function callAiWithToolsOpenAi(opts: {
       tools: openAiTools,
       tool_choice: 'auto',
     }),
+    signal: opts.signal ?? null,
   })
   if (!res.ok) throw new Error(`OpenAI tool-call error ${res.status}: ${await res.text()}`)
   const data = await res.json() as {
@@ -573,6 +579,7 @@ export async function callAiWithTools(opts: {
   messages: unknown[]
   tools: ToolDefinition[]
   maxTokens?: number
+  signal?: AbortSignal
 }): Promise<AiToolCallResult> {
   if (opts.provider === 'anthropic') return callAiWithToolsAnthropic(opts)
   return callAiWithToolsOpenAi(opts)
@@ -586,6 +593,7 @@ export async function callAiStreaming(opts: {
   messages: unknown[]
   maxTokens?: number
   onChunk: (text: string) => void
+  signal?: AbortSignal
 }): Promise<{ content: string; inputTokens: number; outputTokens: number; cost: number }> {
   const result = await callAi({
     provider: opts.provider,
@@ -597,6 +605,7 @@ export async function callAiStreaming(opts: {
     stream: true,
     messages: opts.messages as Array<{ role: string; content: string }>,
     onChunk: opts.onChunk,
+    signal: opts.signal,
   })
   return { content: result.content, inputTokens: result.inputTokens, outputTokens: result.outputTokens, cost: result.cost }
 }
