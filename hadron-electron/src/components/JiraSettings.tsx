@@ -87,16 +87,20 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
 
   // Load config on mount
   useEffect(() => {
-    loadConfig();
+    let cancelled = false;
+    loadConfig(() => cancelled);
+    return () => { cancelled = true; };
   }, []);
 
-  async function loadConfig() {
+  async function loadConfig(isCancelled: () => boolean) {
     try {
       const savedConfig = await getJiraConfig();
+      if (isCancelled()) return;
       setConfig(savedConfig);
 
       // Check if API token exists
       const token = await getApiKey("jira");
+      if (isCancelled()) return;
       setHasToken(!!token);
       if (token) {
         setApiToken(token);
@@ -112,6 +116,7 @@ export default function JiraSettings({ onConfigChange }: JiraSettingsProps) {
       const savedModDocsId = await getSetting<string>("investigation.modDocsHomepageId");
       const savedModDocsPath = await getSetting<string>("investigation.modDocsSpacePath");
 
+      if (isCancelled()) return;
       if (savedConfluenceUrl) {
         setConfluenceUrl(savedConfluenceUrl);
         setConfluenceEmail(savedConfluenceEmail ?? "");
