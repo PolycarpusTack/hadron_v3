@@ -496,9 +496,15 @@ export default function AskHadronView({
         setIsLoading(false);
         setToolActivity(null);
 
-        // Save session to SQLite — use messagesRef to avoid impure setMessages updater
-        const currentMessages = messagesRef.current;
-        const isNewSession = currentMessages.filter((m) => m.role === "user").length === 1;
+        // Save session to SQLite.
+        // newMessages (closure) + streamingContentRef give us the correct final state
+        // without relying on React state which may not have flushed yet.
+        const finalMessages: ChatMessage[] = newMessages.map((msg, i) =>
+          i === newMessages.length - 1 && msg.role === "assistant"
+            ? { ...msg, content: streamingContentRef.current, isStreaming: false, sources, timestamp: Date.now() }
+            : msg
+        );
+        const isNewSession = finalMessages.filter((m) => m.role === "user").length === 1;
         const existingSession = sessionsRef.current.find((s) => s.id === sessionId);
         const title = isNewSession
           ? generateSessionTitle(text)
@@ -506,7 +512,7 @@ export default function AskHadronView({
         const session: ChatSession = {
           id: sessionId!,
           title,
-          messages: currentMessages,
+          messages: finalMessages,
           createdAt: existingSession?.createdAt || Date.now(),
           updatedAt: Date.now(),
         };
