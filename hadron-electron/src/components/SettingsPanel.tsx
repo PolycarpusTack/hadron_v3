@@ -1,6 +1,5 @@
 import { useState, useEffect, Suspense, lazy, useRef, useCallback } from "react";
-import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, RefreshCw, Check, AlertCircle, Info, Cpu, Shield, Code, MessageCircle, Zap, ChevronDown } from "lucide-react";
-import { getCircuitState } from "../services/circuit-breaker";
+import { X, Settings, Save, Eye, EyeOff, Moon, Sun, Activity, AlertTriangle, XCircle, RefreshCw, Check, AlertCircle, Info, Shield, ChevronDown } from "lucide-react";
 import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage";
 import { listModels as listModelsAPI, testConnection as testConnectionAPI } from "../services/api";
 import { getKeeperConfig, getKeeperSecretForProvider, type KeeperConfig } from "../services/keeper";
@@ -13,12 +12,12 @@ import SettingsSidebar from './settings/SettingsSidebar';
 import SettingsDashboard from './settings/SettingsDashboard';
 import CodexMgXSettings from './settings/CodexMgXSettings';
 import MaintenanceSection from './settings/MaintenanceSection';
+import PreferencesSection from './settings/PreferencesSection';
 
 type ApiKeyProvider = 'openai' | 'anthropic' | 'zai';
 import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey } from '../utils/config';
 import Button from "./ui/Button";
 import Modal from "./ui/Modal";
-import FeatureToggleRow from "./FeatureToggleRow";
 import ModelPicker from "./ui/ModelPicker";
 
 // Lazy load heavy components since most users won't use them
@@ -648,9 +647,22 @@ export default function SettingsPanel({
               <CodexMgXSettings />
             </div>
           )}
-          {(activeSection === 'preferences' || activeSection === 'ai-provider') && (
+          {activeSection === 'preferences' && (
+            <PreferencesSection
+              darkMode={darkMode}
+              onThemeChange={onThemeChange}
+              piiRedactionEnabled={settings.piiRedactionEnabled}
+              onPiiToggle={() => setSettings(prev => ({ ...prev, piiRedactionEnabled: !prev.piiRedactionEnabled }))}
+              defaultAnalysisMode={defaultAnalysisMode}
+              onAnalysisModeChange={handleAnalysisModeChange}
+              activeProviders={settings.activeProviders}
+              onToggleProvider={handleToggleProvider}
+              onSettingsChange={onSettingsChange}
+            />
+          )}
+          {activeSection === 'ai-provider' && (
             <div className="flex items-center justify-center h-32 text-gray-500 text-sm">
-              Coming soon — this section is being extracted
+              Coming soon — AI provider section being extracted
             </div>
           )}
           {activeSection === 'dashboard' && (<>
@@ -840,94 +852,6 @@ export default function SettingsPanel({
                   </div>
                 </div>
 
-                {/* 3-column sub-grid */}
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Column 1: Visible Menu Items */}
-                  <div>
-                    <p className="text-sm font-semibold mb-1" style={{ color: 'var(--hd-text)' }}>Visible Menu Items</p>
-                    <p className="text-xs mb-3" style={{ color: 'var(--hd-text-dim)' }}>Toggle optional navigation tabs</p>
-                    <div className="space-y-2">
-                      <FeatureToggleRow
-                        storageKey={STORAGE_KEYS.FEATURE_CODE_ANALYZER}
-                        label="Code Analyzer"
-                        description="AI-powered code review and security scanning"
-                        icon={<Code className="w-4 h-4 text-violet-400" />}
-                        accent="violet"
-                        onToggle={() => onSettingsChange?.()}
-                      />
-                      <FeatureToggleRow
-                        storageKey={STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER}
-                        label="Performance Analyzer"
-                        description="Analyze performance traces and bottlenecks"
-                        icon={<Cpu className="w-4 h-4 text-cyan-400" />}
-                        accent="cyan"
-                        onToggle={() => onSettingsChange?.()}
-                      />
-                      <FeatureToggleRow
-                        storageKey={STORAGE_KEYS.FEATURE_ASK_HADRON}
-                        label="Ask Hadron"
-                        description="AI chat assistant with knowledge retrieval"
-                        icon={<MessageCircle className="w-4 h-4 text-emerald-400" />}
-                        accent="emerald"
-                        onToggle={() => onSettingsChange?.()}
-                      />
-                      <FeatureToggleRow
-                        storageKey={STORAGE_KEYS.FEATURE_HOVER_BUTTON}
-                        label="Hover Button (Elena)"
-                        description="Floating widget for quick analysis (Ctrl+Shift+H)"
-                        icon={<Zap className="w-4 h-4 text-blue-400" />}
-                        accent="blue"
-                        onToggle={() => onSettingsChange?.()}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Column 2: Active Providers */}
-                  <div>
-                    <p className="text-sm font-semibold mb-1" style={{ color: 'var(--hd-text)' }}>Active Providers</p>
-                    <p className="text-xs mb-3" style={{ color: 'var(--hd-text-dim)' }}>
-                      Enable/disable AI backends ({Object.values(settings.activeProviders).filter(Boolean).length} enabled)
-                    </p>
-                    <div className="flex flex-col gap-2">
-                      {AI_PROVIDERS.map((provider) => {
-                        const circuitState = getCircuitState(provider.value);
-                        const stateColor =
-                          circuitState === "healthy" ? "text-green-400" :
-                          circuitState === "degraded" ? "text-yellow-400" :
-                          "text-red-400";
-                        const stateIcon =
-                          circuitState === "healthy" ? <Check className="w-3 h-3" /> :
-                          circuitState === "degraded" ? <AlertTriangle className="w-3 h-3" /> :
-                          <XCircle className="w-3 h-3" />;
-
-                        return (
-                          <label
-                            key={provider.value}
-                            className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition text-sm ${
-                              settings.activeProviders[provider.value]
-                                ? "bg-blue-500/10 border-blue-500/30"
-                                : "bg-gray-900/50 border-gray-700 opacity-60"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={settings.activeProviders[provider.value]}
-                                onChange={() => handleToggleProvider(provider.value)}
-                                className="w-4 h-4 rounded accent-blue-500"
-                              />
-                              <span className="text-sm font-medium">{provider.label}</span>
-                            </div>
-                            <div className={`flex items-center gap-1 text-xs ${stateColor}`}>
-                              {stateIcon}
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  </div>
                 </div>
               </div>
             )}
