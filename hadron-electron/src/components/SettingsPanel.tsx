@@ -358,12 +358,12 @@ export default function SettingsPanel({
 
     const savedModel = localStorage.getItem(providerModelKey(newProvider));
 
-    setSettings({
-      ...settings,
-      provider: newProvider,
+    setSettings(prev => ({
+      ...prev,
+      provider: newProvider as ProviderKey,
       model: savedModel || defaultModel,
-      auxiliaryModel: "", // Reset when switching providers
-    });
+      auxiliaryModel: "",
+    }));
   };
 
   const handleToggleProvider = (providerValue: string) => {
@@ -379,10 +379,7 @@ export default function SettingsPanel({
       return;
     }
 
-    setSettings({
-      ...settings,
-      activeProviders: newActiveProviders
-    });
+    setSettings(prev => ({ ...prev, activeProviders: newActiveProviders }));
   };
 
   const handleSaveSettings = async () => {
@@ -448,13 +445,10 @@ export default function SettingsPanel({
 
   const handleClearApiKey = async (provider: string) => {
     if (confirm(`Are you sure you want to clear your ${provider.toUpperCase()} API key?`)) {
-      setSettings({
-        ...settings,
-        apiKeys: {
-          ...settings.apiKeys,
-          [provider]: ""
-        }
-      });
+      setSettings(prev => ({
+        ...prev,
+        apiKeys: { ...prev.apiKeys, [provider]: "" }
+      }));
       await deleteApiKey(provider);
       setSaveMessage(`${provider.toUpperCase()} API key cleared`);
       safeTimeout(() => setSaveMessage(null), 2000);
@@ -624,10 +618,10 @@ export default function SettingsPanel({
             <input
               type={showApiKeys[provider] ? "text" : "password"}
               value={settings.apiKeys[provider]}
-              onChange={(e) => setSettings({
-                ...settings,
-                apiKeys: { ...settings.apiKeys, [provider]: e.target.value }
-              })}
+              onChange={(e) => setSettings(prev => ({
+                ...prev,
+                apiKeys: { ...prev.apiKeys, [provider]: e.target.value }
+              }))}
               placeholder={placeholder}
               className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-blue-500 text-sm"
             />
@@ -807,7 +801,7 @@ export default function SettingsPanel({
                     <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>Auto-strip PII</p>
                   </div>
                   <button
-                    onClick={() => setSettings({ ...settings, piiRedactionEnabled: !settings.piiRedactionEnabled })}
+                    onClick={() => setSettings(prev => ({ ...prev, piiRedactionEnabled: !prev.piiRedactionEnabled }))}
                     className={`hd-toggle ${settings.piiRedactionEnabled ? "bg-blue-600" : "bg-gray-600"}`}
                   >
                     <div className={`hd-toggle-knob hd-toggle-knob-icon ${settings.piiRedactionEnabled ? "translate-x-7" : "translate-x-1"}`}>
@@ -1069,7 +1063,7 @@ export default function SettingsPanel({
                       <input
                         type="text"
                         value={settings.customModel}
-                        onChange={(e) => setSettings({ ...settings, customModel: e.target.value })}
+                        onChange={(e) => setSettings(prev => ({ ...prev, customModel: e.target.value }))}
                         placeholder="Enter custom model name"
                         className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 text-sm"
                       />
@@ -1088,7 +1082,7 @@ export default function SettingsPanel({
                     </p>
                     <select
                       value={settings.auxiliaryModel}
-                      onChange={(e) => setSettings({ ...settings, auxiliaryModel: e.target.value })}
+                      onChange={(e) => setSettings(prev => ({ ...prev, auxiliaryModel: e.target.value }))}
                       className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 text-sm"
                     >
                       <option value="">Same as main model (no savings)</option>
