@@ -7,11 +7,24 @@ export interface TabItem<T extends string> {
   icon?: React.ReactNode;
 }
 
+export type TabAccentColor = "amber" | "sky" | "orange" | "emerald" | "violet" | "blue" | "rose";
+
+// Static map — Tailwind's scanner cannot detect classes built from template literals.
+const ACCENT_CLASSES: Record<TabAccentColor, string> = {
+  amber:   "border-amber-500 text-amber-400",
+  sky:     "border-sky-500 text-sky-400",
+  orange:  "border-orange-500 text-orange-400",
+  emerald: "border-emerald-500 text-emerald-400",
+  violet:  "border-violet-500 text-violet-400",
+  blue:    "border-blue-500 text-blue-400",
+  rose:    "border-rose-500 text-rose-400",
+};
+
 interface TabBarProps<T extends string> {
   tabs: TabItem<T>[];
   activeTab: T;
   onTabChange: (tab: T) => void;
-  accentColor?: string;
+  accentColor?: TabAccentColor;
 }
 
 export default function TabBar<T extends string>({
@@ -20,7 +33,7 @@ export default function TabBar<T extends string>({
   onTabChange,
   accentColor = "amber",
 }: TabBarProps<T>) {
-  const activeClasses = `border-${accentColor}-500 text-${accentColor}-400`;
+  const activeClasses = ACCENT_CLASSES[accentColor] ?? ACCENT_CLASSES.amber;
 
   return (
     <div className="border-b" style={{ borderColor: "var(--hd-border)" }}>

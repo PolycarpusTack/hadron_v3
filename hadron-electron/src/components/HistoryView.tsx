@@ -812,6 +812,13 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     });
   }, []);
 
+  // These must stay above the early returns to satisfy Rules of Hooks
+  const displayedItems = useMemo(() => Object.values(groupedUnifiedItems).flat(), [groupedUnifiedItems]);
+  const analysisTotalCount = useMemo(() => analyses.filter(a => a.analysis_type !== "jira_deep").length, [analyses]);
+  const compTotal = useMemo(() => analyses.filter(a => a.analysis_type === "comprehensive" || a.analysis_type === "whatson").length, [analyses]);
+  const quickTotal = useMemo(() => analyses.filter(a => a.analysis_type === "quick").length, [analyses]);
+  const jiraTotal = jiraBriefs.length;
+
   // =========================================================================
   // Rendering
   // =========================================================================
@@ -834,12 +841,6 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
       </div>
     );
   }
-
-  const displayedItems = useMemo(() => Object.values(groupedUnifiedItems).flat(), [groupedUnifiedItems]);
-  const analysisTotalCount = useMemo(() => analyses.filter(a => a.analysis_type !== "jira_deep").length, [analyses]);
-  const compTotal = useMemo(() => analyses.filter(a => a.analysis_type === "comprehensive" || a.analysis_type === "whatson").length, [analyses]);
-  const quickTotal = useMemo(() => analyses.filter(a => a.analysis_type === "quick").length, [analyses]);
-  const jiraTotal = jiraBriefs.length;
 
   return (
     <div style={{ background: "var(--hd-bg-base)", color: "var(--hd-text)", display: "flex", flexDirection: "column", fontFamily: "var(--hd-font-sans)", borderRadius: 8, overflow: "hidden" }}>
