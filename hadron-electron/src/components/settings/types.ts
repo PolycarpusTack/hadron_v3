@@ -15,6 +15,8 @@ export interface SettingsData {
 export type SettingsSection =
   | 'dashboard'
   | 'ai-provider'
+  | 'keeper'
+  | 'mcp'
   | 'jira'
   | 'sentry'
   | 'knowledge-base'

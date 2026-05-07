@@ -5,6 +5,7 @@ import { listModels as listModelsAPI, testConnection as testConnectionAPI } from
 import { getKeeperConfig, getKeeperSecretForProvider, type KeeperConfig } from '../../services/keeper';
 import { AI_PROVIDERS, getDefaultModelForProvider, getCuratedModelsForProvider, MODEL_CACHE_TTL_MS, type ModelOption } from '../../constants/providers';
 import type { ProviderKey } from '../../constants/providers';
+import type { SettingsData } from './types';
 import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey } from '../../utils/config';
 import Button from '../ui/Button';
 import ModelPicker from '../ui/ModelPicker';
@@ -16,21 +17,10 @@ const OPENAI_LARGE_FILE_UNSUITABLE_DEFAULTS = new Set([
   'o1', 'o1-mini', 'o1-preview', 'o3', 'o3-mini', 'o4-mini',
 ]);
 
-type ApiKeyProvider = 'openai' | 'anthropic' | 'zai';
-
-interface Settings {
-  provider: ProviderKey;
-  apiKeys: Record<ApiKeyProvider, string>;
-  model: string;
-  customModel: string;
-  auxiliaryModel: string;
-  activeProviders: Record<string, boolean>;
-}
-
 interface Props {
-  settings: Settings;
+  settings: SettingsData;
   isOpen: boolean;
-  onUpdateSettings: (partial: Partial<Settings>) => void;
+  onUpdateSettings: (partial: Partial<SettingsData>) => void;
   onSettingsChange?: () => void;
 }
 

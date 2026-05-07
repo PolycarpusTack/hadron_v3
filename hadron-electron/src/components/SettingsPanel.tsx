@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, Suspense, lazy } from "react";
+import { useAutoTimeout } from '../hooks/useAutoTimeout';
 import { X, Settings, Save } from "lucide-react";
 import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage";
 import logger from '../services/logger';
 import { AI_PROVIDERS, getDefaultModelForProvider } from '../constants/providers';
 import type { ProviderKey } from '../constants/providers';
-import type { SettingsSection } from './settings/types';
+import type { SettingsSection, ApiKeyProvider, SettingsData } from './settings/types';
 import { isIntegrationSection } from './settings/types';
 import { STORAGE_KEYS, providerModelKey } from '../utils/config';
 import Button from "./ui/Button";
@@ -15,8 +16,6 @@ import CodexMgXSettings from './settings/CodexMgXSettings';
 import MaintenanceSection from './settings/MaintenanceSection';
 import PreferencesSection from './settings/PreferencesSection';
 import AiProviderSection from './settings/AiProviderSection';
-
-type ApiKeyProvider = 'openai' | 'anthropic' | 'zai';
 
 // Lazy load heavy integration components
 const JiraSettings = lazy(() => import("./JiraSettings"));
@@ -31,16 +30,6 @@ interface SettingsPanelProps {
   onSettingsChange?: () => void;
   isInline?: boolean;
   initialSection?: SettingsSection;
-}
-
-interface Settings {
-  provider: ProviderKey;
-  apiKeys: Record<ApiKeyProvider, string>;
-  model: string;
-  customModel: string;
-  auxiliaryModel: string;
-  piiRedactionEnabled: boolean;
-  activeProviders: Record<string, boolean>;
 }
 
 export default function SettingsPanel({
@@ -79,7 +68,9 @@ export default function SettingsPanel({
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
-  const [settings, setSettings] = useState<Settings>({
+  const safeTimeout = useAutoTimeout();
+
+  const [settings, setSettings] = useState<SettingsData>({
     provider: "openai",
     apiKeys: {
       openai: "",
@@ -198,7 +189,7 @@ export default function SettingsPanel({
       if (settings.auxiliaryModel) {
         localStorage.setItem(STORAGE_KEYS.AI_AUXILIARY_MODEL, settings.auxiliaryModel);
       } else {
-        localStorage.removeItem("ai_auxiliary_model");
+        localStorage.removeItem(STORAGE_KEYS.AI_AUXILIARY_MODEL);
       }
 
       // Save PII redaction setting
@@ -220,7 +211,7 @@ export default function SettingsPanel({
       }
 
       setSaveMessage("Settings saved successfully!");
-      setTimeout(() => {
+      safeTimeout(() => {
         setIsSaving(false);
         setSaveMessage(null);
         if (onSettingsChange) onSettingsChange();

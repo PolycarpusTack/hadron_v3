@@ -3,7 +3,8 @@
  * Allows users to configure JIRA integration for ticket creation
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useAutoTimeout } from "../hooks/useAutoTimeout";
 import { openExternal as open } from "../utils/openExternal";
 import Button from "./ui/Button";
 import {
@@ -66,24 +67,7 @@ export default function JiraSettings({ onSettingsChange }: JiraSettingsProps) {
   const [modDocsSpacePath, setModDocsSpacePath] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  // Track timeouts for cleanup
-  const timeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
-
-  const safeTimeout = useCallback((callback: () => void, delay: number) => {
-    const id = setTimeout(() => {
-      timeoutsRef.current.delete(id);
-      callback();
-    }, delay);
-    timeoutsRef.current.add(id);
-    return id;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      timeoutsRef.current.forEach(clearTimeout);
-      timeoutsRef.current.clear();
-    };
-  }, []);
+  const safeTimeout = useAutoTimeout();
 
   // Load config on mount
   useEffect(() => {

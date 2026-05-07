@@ -3,7 +3,8 @@
  * Allows users to configure Sentry integration for issue analysis
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useAutoTimeout } from "../hooks/useAutoTimeout";
 import {
   Shield,
   Check,
@@ -48,24 +49,7 @@ export default function SentrySettings({ onSettingsChange }: SentrySettingsProps
   const [projectsUpdatedAt, setProjectsUpdatedAt] = useState<string | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
 
-  // Track timeouts for cleanup
-  const timeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
-
-  const safeTimeout = useCallback((callback: () => void, delay: number) => {
-    const id = setTimeout(() => {
-      timeoutsRef.current.delete(id);
-      callback();
-    }, delay);
-    timeoutsRef.current.add(id);
-    return id;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      timeoutsRef.current.forEach(clearTimeout);
-      timeoutsRef.current.clear();
-    };
-  }, []);
+  const safeTimeout = useAutoTimeout();
 
   // Load config on mount
   useEffect(() => {

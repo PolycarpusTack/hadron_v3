@@ -255,6 +255,14 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     return { text, done, error, events }
   })
 
+  // Cancel an in-flight streaming request.
+  ipcMain.handle('cancel_chat_stream', () => {
+    if (activeStream && !activeStream.done) {
+      activeStream.done = true
+      activeStream.error = 'Request cancelled'
+    }
+  })
+
   // Send a chat message to the AI provider with the full agentic tool-use loop.
   ipcMain.handle('chat_send', async (_e, rawArgs: {
     request?: {

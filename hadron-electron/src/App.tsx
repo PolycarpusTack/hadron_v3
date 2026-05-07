@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, lazy, Suspense, useRef } from "react";
+import type { SettingsSection } from "./components/settings/types";
 import { Loader2 } from "lucide-react";
 import FileDropZone from "./components/FileDropZone";
 import AnalysisResults from "./components/AnalysisResults";
@@ -21,8 +22,6 @@ import AppFooter from "./components/AppFooter";
 import AskHadronDrawer from "./components/AskHadronDrawer";
 import { analyzeCrashLog, getStoredModel, getStoredProvider, getAnalysisById, type AnalysisMode } from "./services/api";
 import { analyzeCode } from "./services/code-analysis";
-import { isJiraEnabled } from "./services/jira";
-import { isSentryEnabled } from "./services/sentry";
 import { checkAndUpdate } from "./services/updater";
 import { invoke } from "./lib/tauri-core-shim";
 import { emit } from "./lib/tauri-event-shim";
@@ -62,8 +61,8 @@ function App() {
   const [showDocs, setShowDocs] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
-  const [jiraEnabled, setJiraEnabled] = useState(false);
-  const [sentryEnabled, setSentryEnabled] = useState(false);
+  const [pendingSettingsSection, setPendingSettingsSection] = useState<SettingsSection | undefined>(undefined);
+  const [settingsNavKey, setSettingsNavKey] = useState(0);
   const [showCodeAnalyzer, setShowCodeAnalyzer] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_CODE_ANALYZER, true));
   const [showPerformanceAnalyzer, setShowPerformanceAnalyzer] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_PERFORMANCE_ANALYZER, true));
   const [showAskHadron, setShowAskHadron] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true));
@@ -322,10 +321,9 @@ function App() {
     initializeApp();
   }, [actions]);
 
-  useEffect(() => {
-    isJiraEnabled().then(setJiraEnabled).catch(() => {});
-    isSentryEnabled().then(setSentryEnabled).catch(() => {});
-  }, []);
+  // jiraEnabled / sentryEnabled are derived from readinessStatus (no separate state needed)
+  const jiraEnabled = readinessStatus.jira.state !== 'disabled';
+  const sentryEnabled = readinessStatus.sentry.state !== 'disabled';
 
   // Update theme when it changes
   useEffect(() => {
@@ -573,17 +571,13 @@ function App() {
     } else if (keeperActive) {
       actions.setApiKey('keeper-managed');
     }
-    const jiraStatus = await isJiraEnabled();
-    setJiraEnabled(jiraStatus);
-    if (!jiraStatus && currentView === "jira") {
+    if (!jiraEnabled && currentView === "jira") {
       actions.setView("analyze");
     }
-    const sentryStatus = await isSentryEnabled();
-    setSentryEnabled(sentryStatus);
-    if (!sentryStatus && currentView === "sentry") {
+    if (!sentryEnabled && currentView === "sentry") {
       actions.setView("analyze");
     }
-    if (!jiraStatus && currentView === "release_notes") {
+    if (!jiraEnabled && currentView === "release_notes") {
       actions.setView("analyze");
     }
     // Re-read feature flags
@@ -600,7 +594,7 @@ function App() {
     if (!codeFlag && currentView === "translate") actions.setView("analyze");
     if (!perfFlag && currentView === "performance") actions.setView("analyze");
     if (!chatFlag && currentView === "chat") actions.setView("analyze");
-  }, [currentView, actions, scheduleWidgetAutoVisibilitySync, syncHoverButtonEnabled]);
+  }, [currentView, jiraEnabled, sentryEnabled, actions, scheduleWidgetAutoVisibilitySync, syncHoverButtonEnabled]);
 
   // Handle navigation to analysis from chat
   const handleNavigateToAnalysis = useCallback(async (id: number) => {
@@ -635,7 +629,13 @@ function App() {
         {/* Header */}
         <AppHeader
           readinessStatus={readinessStatus}
-          onOpenSettings={() => actions.setView("configure")}
+          onOpenSettings={(section) => {
+            if (section) {
+              setPendingSettingsSection(section as SettingsSection);
+              setSettingsNavKey(k => k + 1);
+            }
+            actions.setView("configure");
+          }}
           onOpenAskHadronDrawer={() => setDrawerOpen(true)}
           onOpenDashboard={() => setShowDashboard(true)}
           isSettingsActive={currentView === "configure"}
@@ -780,12 +780,14 @@ function App() {
           {currentView === "configure" && (
             <ViewErrorBoundary name="Settings">
               <SettingsPanel
+                key={settingsNavKey}
                 isOpen={true}
                 onClose={() => actions.setView("analyze")}
                 darkMode={darkMode}
                 onThemeChange={actions.setDarkMode}
                 onSettingsChange={handleSettingsChange}
                 isInline={true}
+                initialSection={pendingSettingsSection}
               />
             </ViewErrorBoundary>
           )}

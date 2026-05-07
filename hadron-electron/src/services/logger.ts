@@ -67,7 +67,7 @@ const SENSITIVE_VALUE_PATTERNS = [
  * Deep recursive sanitization of sensitive data in log metadata
  * Handles nested objects and arrays to prevent API key leakage
  */
-function sanitize(data: any, depth: number = 0): any {
+function sanitize(data: unknown, depth: number = 0): unknown {
   // Prevent infinite recursion on deeply nested or circular structures
   const MAX_DEPTH = 10;
   if (depth > MAX_DEPTH) {
@@ -96,7 +96,7 @@ function sanitize(data: any, depth: number = 0): any {
 
   // Handle objects - recursively sanitize
   if (typeof data === 'object') {
-    const sanitized: Record<string, any> = {};
+    const sanitized: Record<string, unknown> = {};
 
     for (const key of Object.keys(data)) {
       const lowerKey = key.toLowerCase();
@@ -173,7 +173,7 @@ function getStackTrace(): string | undefined {
 }
 
 // Format log entry with timestamp and metadata (for console output)
-function formatLog(level: string, message: string, meta?: any): string {
+function formatLog(level: string, message: string, meta?: unknown): string {
   const timestamp = new Date().toISOString();
   const logEntry = {
     timestamp,

@@ -58,7 +58,7 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
   const [dropRejectedMsg, setDropRejectedMsg] = useState<string | null>(null);
   const dropRejectTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [analysisType, setAnalysisType] = useState<"comprehensive" | "quick">(() => {
-    const stored = localStorage.getItem("analysis_default_type");
+    const stored = localStorage.getItem(STORAGE_KEYS.ANALYSIS_DEFAULT_TYPE);
     // Migrate old values to new types
     if (stored === "whatson" || stored === "complete" || stored === "specialized" || stored === "comprehensive") {
       return "comprehensive";
@@ -359,13 +359,13 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
                   <div className="hd-segmented">
                     <button
                       className={`hd-segmented-btn ${analysisType === "quick" ? "hd-segmented-btn-active" : ""}`}
-                      onClick={() => { setAnalysisType("quick"); localStorage.setItem("analysis_default_type", "quick"); }}
+                      onClick={() => { setAnalysisType("quick"); localStorage.setItem(STORAGE_KEYS.ANALYSIS_DEFAULT_TYPE, "quick"); }}
                     >
                       Quick ~10s
                     </button>
                     <button
                       className={`hd-segmented-btn ${analysisType === "comprehensive" ? "hd-segmented-btn-active" : ""}`}
-                      onClick={() => { setAnalysisType("comprehensive"); localStorage.setItem("analysis_default_type", "comprehensive"); }}
+                      onClick={() => { setAnalysisType("comprehensive"); localStorage.setItem(STORAGE_KEYS.ANALYSIS_DEFAULT_TYPE, "comprehensive"); }}
                     >
                       Comprehensive ~45s
                     </button>

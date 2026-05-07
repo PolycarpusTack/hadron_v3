@@ -3,7 +3,8 @@
  * Allows users to configure the WHATS'ON KB integration
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useAutoTimeout } from "../hooks/useAutoTimeout";
 import {
   BookOpen,
   Check,
@@ -56,16 +57,7 @@ export default function OpenSearchSettings({ onSettingsChange }: OpenSearchSetti
   const [kbStats, setKbStats] = useState<KBStatsResponse | null>(null);
   const [importVersion, setImportVersion] = useState("");
 
-  const timeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
-
-  const safeTimeout = useCallback((callback: () => void, delay: number) => {
-    const id = setTimeout(() => {
-      timeoutsRef.current.delete(id);
-      callback();
-    }, delay);
-    timeoutsRef.current.add(id);
-    return id;
-  }, []);
+  const safeTimeout = useAutoTimeout();
 
   // Load config on mount
   useEffect(() => {
@@ -83,9 +75,7 @@ export default function OpenSearchSettings({ onSettingsChange }: OpenSearchSetti
       }
     })();
 
-    return () => {
-      timeoutsRef.current.forEach(clearTimeout);
-    };
+    return () => {};
   }, []);
 
   async function handleSave() {

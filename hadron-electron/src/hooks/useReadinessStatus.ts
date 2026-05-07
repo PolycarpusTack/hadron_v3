@@ -72,7 +72,7 @@ export function computeReadinessStatus(input: ReadinessInput): ReadinessStatus {
     state: aiState,
     label: hasKey ? `${provider} · ${model}` : "No API key",
     detail: aiDetail,
-    settingsSection: "ai",
+    settingsSection: "ai-provider",
   };
 
   // Keeper dimension

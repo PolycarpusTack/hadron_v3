@@ -510,7 +510,7 @@ export function saveAuxiliaryModel(model: string): void {
  * Save AI provider to local storage
  */
 export function saveProvider(provider: string): void {
-  localStorage.setItem("ai_provider", provider);
+  localStorage.setItem(STORAGE_KEYS.AI_PROVIDER, provider);
 }
 
 /**

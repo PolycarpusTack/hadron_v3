@@ -327,9 +327,9 @@ export async function sendChatMessage(
 // Chat Cancellation
 // ============================================================================
 
-export async function cancelChat(requestId: string): Promise<void> {
-  const { emit } = await import("../lib/tauri-event-shim");
-  await emit("chat-cancel", { request_id: requestId });
+export async function cancelChat(_requestId: string): Promise<void> {
+  const { invoke } = await import("../lib/tauri-core-shim");
+  await invoke("cancel_chat_stream").catch(() => {});
 }
 
 // ============================================================================
