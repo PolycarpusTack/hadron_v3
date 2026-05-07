@@ -12,6 +12,9 @@ import { getCodexMgXConfig, saveCodexMgXConfig } from "../services/codexmgx";
 import { open as tauriOpen } from "../lib/tauri-dialog-shim";
 import logger from '../services/logger';
 import { AI_PROVIDERS, getDefaultModelForProvider, getCuratedModelsForProvider, MODEL_CACHE_TTL_MS } from '../constants/providers';
+import type { ProviderKey } from '../constants/providers';
+
+type ApiKeyProvider = 'openai' | 'anthropic' | 'zai';
 import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey } from '../utils/config';
 import Button from "./ui/Button";
 import Modal from "./ui/Modal";
@@ -36,12 +39,8 @@ interface SettingsPanelProps {
 }
 
 interface Settings {
-  provider: string;
-  apiKeys: {
-    openai: string;
-    anthropic: string;
-    zai: string;
-  };
+  provider: ProviderKey;
+  apiKeys: Record<ApiKeyProvider, string>;
   model: string;
   customModel: string;
   auxiliaryModel: string;
@@ -492,7 +491,7 @@ export default function SettingsPanel({
     try {
       const apiKey = settings.provider === "llamacpp"
         ? ""
-        : settings.apiKeys[settings.provider as keyof typeof settings.apiKeys];
+        : settings.apiKeys[settings.provider as ApiKeyProvider];
       const keeperUid = settings.provider !== "llamacpp"
         ? await getKeeperSecretForProvider(settings.provider)
         : null;
@@ -539,7 +538,7 @@ export default function SettingsPanel({
     try {
       const apiKey = settings.provider === "llamacpp"
         ? ""
-        : settings.apiKeys[settings.provider as keyof typeof settings.apiKeys];
+        : settings.apiKeys[settings.provider as ApiKeyProvider];
       const keeperUid = settings.provider !== "llamacpp"
         ? await getKeeperSecretForProvider(settings.provider)
         : null;
@@ -1041,7 +1040,7 @@ export default function SettingsPanel({
                         variant="secondary"
                         size="sm"
                         onClick={handleRefreshModels}
-                        disabled={isRefreshingModels || (settings.provider !== 'llamacpp' && !isKeeperActiveForProvider && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys])}
+                        disabled={isRefreshingModels || (settings.provider !== 'llamacpp' && !isKeeperActiveForProvider && !settings.apiKeys[settings.provider as ApiKeyProvider])}
                         loading={isRefreshingModels}
                         icon={<RefreshCw />}
                       >
