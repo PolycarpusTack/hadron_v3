@@ -3,7 +3,7 @@
  * Shell component with config check, emerald tab bar, and analysis orchestration
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Shield,
   Search,
@@ -28,18 +28,13 @@ import type { SentryConfig, SentryIssue, SentryProjectInfo } from "../types";
 import SentryIssueBrowser from "./sentry/SentryIssueBrowser";
 import SentryQuickImport from "./sentry/SentryQuickImport";
 import SentryAnalysisHistory from "./sentry/SentryAnalysisHistory";
+import TabBar from "./ui/TabBar";
 
 interface SentryAnalyzerViewProps {
   onAnalysisComplete?: (analysis: Analysis) => void;
 }
 
 type TabId = "browse" | "import" | "history";
-
-const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: "browse", label: "Browse Issues", icon: <Search className="w-4 h-4" /> },
-  { id: "import", label: "Quick Import", icon: <Import className="w-4 h-4" /> },
-  { id: "history", label: "Analysis History", icon: <History className="w-4 h-4" /> },
-];
 
 export default function SentryAnalyzerView({ onAnalysisComplete }: SentryAnalyzerViewProps) {
   // Config state
@@ -56,6 +51,12 @@ export default function SentryAnalyzerView({ onAnalysisComplete }: SentryAnalyze
 
   // Issue count for browse tab badge
   const [browseIssueCount, setBrowseIssueCount] = useState(0);
+
+  const tabs = useMemo(() => [
+    { id: "browse" as TabId, label: "Browse Issues", icon: <Search className="w-4 h-4" />, count: browseIssueCount || undefined },
+    { id: "import" as TabId, label: "Quick Import", icon: <Import className="w-4 h-4" /> },
+    { id: "history" as TabId, label: "Analysis History", icon: <History className="w-4 h-4" /> },
+  ], [browseIssueCount]);
 
   // Check configuration on mount
   useEffect(() => {
@@ -162,32 +163,7 @@ export default function SentryAnalyzerView({ onAnalysisComplete }: SentryAnalyze
         </div>
       )}
 
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-700">
-        <nav className="flex gap-1 overflow-x-auto pb-px" role="tablist">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-                activeTab === tab.id
-                  ? "border-orange-500 text-orange-400"
-                  : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-              {tab.id === "browse" && browseIssueCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold bg-gray-700 text-gray-300 rounded-full">
-                  {browseIssueCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <TabBar tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} accentColor="orange" />
 
       {/* Tab Content */}
       {activeTab === "browse" && config && (

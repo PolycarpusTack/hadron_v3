@@ -18,6 +18,7 @@ import ReleaseNotesInsights from "./release-notes/ReleaseNotesInsights";
 import ReleaseNotesStyleGuide from "./release-notes/ReleaseNotesStyleGuide";
 import ReleaseNotesHistory from "./release-notes/ReleaseNotesHistory";
 import ReleaseNotesCompliance from "./release-notes/ReleaseNotesCompliance";
+import TabBar from "./ui/TabBar";
 
 type TabId = "generate" | "review" | "style_guide" | "history";
 type ReviewSubTab = "editor" | "checklist" | "insights" | "compliance";
@@ -148,25 +149,7 @@ export default function ReleaseNotesView() {
         </div>
       )}
 
-      {/* Tab Bar */}
-      <div className="border-b border-gray-700">
-        <nav className="flex gap-1 overflow-x-auto pb-px">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-                activeTab === tab.id
-                  ? "border-amber-400 text-amber-400"
-                  : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <TabBar tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} accentColor="amber" />
 
       {/* Tab Content */}
       <div className="mt-4">

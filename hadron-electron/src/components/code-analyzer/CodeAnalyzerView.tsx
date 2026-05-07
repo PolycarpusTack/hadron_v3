@@ -19,6 +19,7 @@ import logger from "../../services/logger";
 import AnalyzerEntryPanel from "../AnalyzerEntryPanel";
 import ExportDialog from "../ExportDialog";
 import Button from "../ui/Button";
+import TabBar from "../ui/TabBar";
 
 import { SOFT_TOKEN_WARN_BYTES, getLargeFileWarning } from "./constants";
 import { useConfirm } from "../ui/ConfirmDialog";
@@ -239,13 +240,13 @@ export default function CodeAnalyzerView({
     onTabChange("issues");
   };
 
-  const tabs: { id: CodeAnalyzerTab; label: string }[] = [
-    { id: "overview", label: "Overview" },
-    { id: "walkthrough", label: "Walkthrough" },
-    { id: "issues", label: `Issues${analysisResult ? ` (${analysisResult.issues.length})` : ""}` },
-    { id: "optimized", label: "Optimized" },
-    { id: "quality", label: "Quality" },
-    { id: "learn", label: "Learn" },
+  const tabs = [
+    { id: "overview" as CodeAnalyzerTab, label: "Overview" },
+    { id: "walkthrough" as CodeAnalyzerTab, label: "Walkthrough" },
+    { id: "issues" as CodeAnalyzerTab, label: "Issues", count: analysisResult?.issues.length },
+    { id: "optimized" as CodeAnalyzerTab, label: "Optimized" },
+    { id: "quality" as CodeAnalyzerTab, label: "Quality" },
+    { id: "learn" as CodeAnalyzerTab, label: "Learn" },
   ];
 
   return (
@@ -428,22 +429,8 @@ export default function CodeAnalyzerView({
           </div>
 
           {/* Tabs */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => onTabChange(tab.id)}
-                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-                    activeTab === tab.id
-                      ? "border-violet-600 text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20"
-                      : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 hover:border-gray-400 dark:hover:border-gray-600"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+          <div className="hd-panel overflow-hidden">
+            <TabBar tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} accentColor="violet" />
 
             {/* All tab panels stay mounted to preserve filter/expand state — toggled via CSS only */}
             <div className="p-6 max-h-[calc(100vh-280px)] overflow-y-auto">

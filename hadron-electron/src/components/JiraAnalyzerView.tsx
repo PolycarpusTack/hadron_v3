@@ -13,6 +13,7 @@ import {
   Loader2,
 } from "lucide-react";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
+import TabBar from "./ui/TabBar";
 import JiraTicketAnalyzer from "./jira/JiraTicketAnalyzer";
 import JiraProjectFeed from "./jira/JiraProjectFeed";
 import JiraAnalysisHistory from "./JiraAnalysisHistory";
@@ -100,27 +101,7 @@ export default function JiraAnalyzerView({ onAnalysisComplete }: JiraAnalyzerVie
         </div>
       </AnalyzerEntryPanel>
 
-      {/* Tab Bar */}
-      <div className="border-b border-gray-700">
-        <nav className="flex gap-1 overflow-x-auto pb-px" role="tablist">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-                activeTab === tab.id
-                  ? "border-sky-500 text-sky-400"
-                  : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600"
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <TabBar tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} accentColor="sky" />
 
       {/* Tab Content — kept mounted to preserve local state across tab switches */}
       <div className={activeTab !== "analyze" ? "hidden" : ""}>
