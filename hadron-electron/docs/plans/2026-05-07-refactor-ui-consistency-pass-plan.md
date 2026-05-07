@@ -70,11 +70,11 @@ TabBar currently uses hard-coded `border-gray-700`. Make it use `--hd-border` so
 the token-based screens and legacy ones without a colour mismatch. Then replace every
 hand-rolled tab nav with `<TabBar>`.
 
-- [ ] `TabBar.tsx`: replace `border-gray-700` with `style={{ borderColor: 'var(--hd-border)' }}`; replace `text-gray-400 hover:text-gray-300 hover:border-gray-600` with CSS-var equivalents
-- [ ] `JiraAnalyzerView.tsx:103–124`: remove hand-rolled nav, import and use `<TabBar tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} accentColor="sky" />`
-- [ ] `SentryAnalyzerView.tsx:165–191`: same pattern, `accentColor="emerald"`
-- [ ] `ReleaseNotesView.tsx:151`: identify and replace hand-rolled tabs
-- [ ] `CodeAnalyzerView.tsx`: replace violet tab bar with `<TabBar accentColor="violet" />`
+- [x] `TabBar.tsx`: replace `border-gray-700` with `style={{ borderColor: 'var(--hd-border)' }}`; replace `text-gray-400 hover:text-gray-300 hover:border-gray-600` with CSS-var equivalents
+- [x] `JiraAnalyzerView.tsx:103–124`: remove hand-rolled nav, import and use `<TabBar tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} accentColor="sky" />`
+- [x] `SentryAnalyzerView.tsx:165–191`: same pattern, `accentColor="emerald"`
+- [x] `ReleaseNotesView.tsx:151`: identify and replace hand-rolled tabs
+- [x] `CodeAnalyzerView.tsx`: replace violet tab bar with `<TabBar accentColor="violet" />`
 
 ### Phase 2 — CodeAnalyzerView and QuickAnalysisDetailView: token swap
 **Files:** `CodeAnalyzerView.tsx`, `QuickAnalysisDetailView.tsx`
@@ -84,15 +84,15 @@ with `hd-panel`, `hd-card`, and `--hd-*` CSS variables on inline styles that req
 values.
 
 #### `CodeAnalyzerView.tsx`
-- [ ] Outer wrapper: `bg-white dark:bg-gray-800` → `hd-panel-soft` or just background: `var(--hd-bg-base)`
-- [ ] Inner cards: `bg-gray-700/50 border-gray-600` → `hd-card`
-- [ ] Text: `text-gray-*` → `style={{ color: 'var(--hd-text)' }}` / `var(--hd-text-muted)` / `var(--hd-text-faint)`
-- [ ] Borders: `border-gray-700` → `style={{ borderColor: 'var(--hd-border)' }}`
+- [x] Outer wrapper: `bg-white dark:bg-gray-800` → `hd-panel-soft` or just background: `var(--hd-bg-base)`
+- [x] Inner cards: `bg-gray-700/50 border-gray-600` → `hd-card`
+- [x] Text: `text-gray-*` → `style={{ color: 'var(--hd-text)' }}` / `var(--hd-text-muted)` / `var(--hd-text-faint)`
+- [x] Borders: `border-gray-700` → `style={{ borderColor: 'var(--hd-border)' }}`
 
 #### `QuickAnalysisDetailView.tsx`
-- [ ] Cards: `bg-gray-800 border-gray-700` → `hd-panel` or `hd-card`
-- [ ] Section headers: raw inline `background: rgba(...)` → `hd-card` or `hd-setting-card`
-- [ ] Severity/status chips: raw colour spans → `hd-chip hd-chip-{colour}`
+- [x] Cards: `bg-gray-800 border-gray-700` → `hd-panel` or `hd-card`
+- [x] Section headers: raw inline `background: rgba(...)` → `hd-card` or `hd-setting-card`
+- [x] Severity/status chips: raw colour spans → `hd-chip hd-chip-{colour}`
 
 ### Phase 3 — AnalysisDetailView: remove inner shell
 **File:** `AnalysisDetailView.tsx`
@@ -101,9 +101,9 @@ values.
 container. These are rendered inside the app's already-scrolling content area, causing a
 page-within-page layout. The fix is to remove the outer shell and rely on the parent's layout.
 
-- [ ] Locate the outermost `<div style={{ minHeight: "100vh" ... }}>` in both `FlatView` (line ~864) and `WcrView` — remove `minHeight: "100vh"` and the full-page background
-- [ ] Replace `background: "#090a0d"` / `background: var(--something)` shell styling with nothing (inherit from app background) or a simple `hd-panel-soft` wrapper for the content
-- [ ] Audit for any `position: fixed` or `overflow: hidden` that assumes it is the root scroll container
+- [x] Locate the outermost `<div style={{ minHeight: "100vh" ... }}>` in both `FlatView` (line ~864) and `WcrView` — remove `minHeight: "100vh"` and the full-page background
+- [x] Replace `background: "#090a0d"` / `background: var(--something)` shell styling with nothing (inherit from app background) or a simple `hd-panel-soft` wrapper for the content
+- [x] Audit for any `position: fixed` or `overflow: hidden` that assumes it is the root scroll container
 
 ### Phase 4 — HistoryView: inline style to token migration
 **File:** `HistoryView.tsx` (1,209 lines, largest task)
@@ -113,32 +113,32 @@ visual language (monospace font, density, cyan accent) but route its colours thr
 `--hd-*` tokens so it inherits dark/light mode and remains consistent with the rest of the
 app. Structural layout (custom table, sort controls, row actions) stays unchanged.
 
-- [ ] Header section (`background: "#090a0d"`, `color: "#d1d5db"`): use `var(--hd-bg-base)` / `var(--hd-text)`
-- [ ] Search input (inline styled): replace with `hd-search-wrap` / `hd-search-input` classes
-- [ ] Filter pills (severity, type, quick-filter buttons): map to `hd-pill-btn` / `hd-pill-btn-active`
-- [ ] Row background: `background: "rgba(255,255,255,0.02)"` → `var(--hd-bg-surface)` on hover
-- [ ] Row borders: `borderColor: "rgba(255,255,255,0.06)"` → `var(--hd-border-subtle)`
-- [ ] Cyan accent (`#22d3ee`) can stay — it's a deliberate brand colour for History header; route through `--hd-accent-history: #22d3ee` or just leave as literal (it's not a palette conflict)
-- [ ] Severity colour literals (`#ef4444`, `#f59e0b`, `#3b82f6`, `#10b981`) are already in `SEV_COL` module constant — leave as literals, they are semantic status colours not surface colours
-- [ ] Column header (`background: "rgba(255,255,255,0.03)"`) → `var(--hd-bg-raised)` or `hd-card`
-- [ ] Context menu inline styles → `hd-panel` + token text/border
+- [x] Header section (`background: "#090a0d"`, `color: "#d1d5db"`): use `var(--hd-bg-base)` / `var(--hd-text)`
+- [x] Search input (inline styled): replace with `hd-search-wrap` / `hd-search-input` classes
+- [x] Filter pills (severity, type, quick-filter buttons): map to `hd-pill-btn` / `hd-pill-btn-active`
+- [x] Row background: `background: "rgba(255,255,255,0.02)"` → `var(--hd-bg-surface)` on hover
+- [x] Row borders: `borderColor: "rgba(255,255,255,0.06)"` → `var(--hd-border-subtle)`
+- [x] Cyan accent (`#22d3ee`) can stay — it's a deliberate brand colour for History header; route through `--hd-accent-history: #22d3ee` or just leave as literal (it's not a palette conflict)
+- [x] Severity colour literals (`#ef4444`, `#f59e0b`, `#3b82f6`, `#10b981`) are already in `SEV_COL` module constant — leave as literals, they are semantic status colours not surface colours
+- [x] Column header (`background: "rgba(255,255,255,0.03)"`) → `var(--hd-bg-raised)` or `hd-card`
+- [x] Context menu inline styles → `hd-panel` + token text/border
 
 ### Phase 5 — ReleaseNotesView: audit and normalise
 **File:** `ReleaseNotesView.tsx`
 
-- [ ] Tab bar (Phase 1 covers this)
-- [ ] Any raw `bg-gray-*` cards → `hd-panel` or `hd-card`
-- [ ] Any raw `text-gray-*` → CSS variable
+- [x] Tab bar (Phase 1 covers this)
+- [x] Any raw `bg-gray-*` cards → `hd-panel` or `hd-card`
+- [x] Any raw `text-gray-*` → CSS variable
 
 ## Acceptance Criteria
 
-- [ ] `npx tsc --noEmit` passes with zero errors after each phase
-- [ ] `TabBar` component is used in JiraAnalyzerView, SentryAnalyzerView, ReleaseNotesView, CodeAnalyzerView — no remaining hand-rolled tab navs in those files
-- [ ] AnalysisDetailView no longer contains `minHeight: "100vh"` or a full-page background
-- [ ] CodeAnalyzerView and QuickAnalysisDetailView contain no `bg-gray-800`, `bg-white dark:bg-gray-800`, or `border-gray-700` Tailwind classes on structural containers
-- [ ] HistoryView surface/border colours reference `--hd-*` variables; `MONO` font and `SEV_COL` semantic colours may remain as literals
-- [ ] No functional regressions: all tabs still switch, all data still displays, JIRA/Sentry/history actions still work
-- [ ] Each phase committed separately for easy bisect
+- [x] `npx tsc --noEmit` passes with zero errors after each phase
+- [x] `TabBar` component is used in JiraAnalyzerView, SentryAnalyzerView, ReleaseNotesView, CodeAnalyzerView — no remaining hand-rolled tab navs in those files
+- [x] AnalysisDetailView no longer contains `minHeight: "100vh"` or a full-page background
+- [x] CodeAnalyzerView and QuickAnalysisDetailView contain no `bg-gray-800`, `bg-white dark:bg-gray-800`, or `border-gray-700` Tailwind classes on structural containers
+- [x] HistoryView surface/border colours reference `--hd-*` variables; `MONO` font and `SEV_COL` semantic colours may remain as literals
+- [x] No functional regressions: all tabs still switch, all data still displays, JIRA/Sentry/history actions still work
+- [x] Each phase committed separately for easy bisect
 
 ## Implementation order rationale
 
