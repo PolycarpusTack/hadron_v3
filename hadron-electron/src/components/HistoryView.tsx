@@ -90,7 +90,7 @@ function getTypeInfo(kind: string, analysisType?: string): { icon: string; color
   if (analysisType === "comprehensive" || analysisType === "whatson") return { icon: "◈", color: "#10b981" };
   if (analysisType === "quick") return { icon: "◎", color: "#22d3ee" };
   if (analysisType === "sentry") return { icon: "⊕", color: "#f59e0b" };
-  return { icon: "▣", color: "#9ca3af" };
+  return { icon: "▣", color: "var(--hd-text-muted)" };
 }
 
 export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: HistoryViewProps) {
@@ -842,16 +842,16 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
   const jiraTotal = jiraBriefs.length;
 
   return (
-    <div style={{ background: "#090a0d", color: "#d1d5db", display: "flex", flexDirection: "column", fontFamily: "'IBM Plex Sans',-apple-system,sans-serif", borderRadius: 8, overflow: "hidden" }}>
+    <div style={{ background: "var(--hd-bg-base)", color: "var(--hd-text)", display: "flex", flexDirection: "column", fontFamily: "var(--hd-font-sans)", borderRadius: 8, overflow: "hidden" }}>
       {confirmDialogEl}
 
       {/* \u2500\u2500 Header: title + stats + search \u2500\u2500 */}
-      <div style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.01)", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ borderBottom: "1px solid var(--hd-border-subtle)", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--hd-bg-base)", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ color: "#22d3ee", fontSize: "var(--hd-font-sm)", fontWeight: 700, fontFamily: MONO }}>HISTORY</span>
-          <span style={{ color: "#374151" }}>\u2502</span>
-          <span style={{ fontSize: "var(--hd-font-xs)", color: "#6b7280" }}>
-            <strong style={{ color: "#e5e7eb" }}>{displayedItems.length}</strong> items
+          <span style={{ color: "var(--hd-text-dim)" }}>\u2502</span>
+          <span style={{ fontSize: "var(--hd-font-xs)", color: "var(--hd-text-dim)" }}>
+            <strong style={{ color: "var(--hd-text)" }}>{displayedItems.length}</strong> items
             {totalAnalysesCount > 0 && analyses.length < totalAnalysesCount && (
               <> &nbsp;\u00b7&nbsp; <span style={{ color: "#f59e0b" }}>showing {analyses.length} of {totalAnalysesCount}</span></>
             )}
@@ -861,61 +861,61 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
           </span>
         </div>
         <div style={{ position: "relative" }}>
-          <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, color: "#4b5563" }} />
+          <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, color: "var(--hd-text-dim)" }} />
           <input
             ref={searchInputRef}
             type="text"
             placeholder="Search analyses\u2026"
             value={filters.search}
             onChange={e => updateFilters({ search: e.target.value })}
-            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: "6px 30px 6px 30px", color: "#d1d5db", fontSize: "var(--hd-font-xs)", outline: "none", width: 240 }}
+            style={{ background: "var(--hd-bg-surface)", border: "1px solid var(--hd-border)", borderRadius: 6, padding: "6px 30px 6px 30px", color: "var(--hd-text)", fontSize: "var(--hd-font-xs)", outline: "none", width: 240 }}
           />
-          {!filters.search && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "#4b5563", fontSize: "9px", fontFamily: MONO, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>/</span>}
-          {filters.search && <button aria-label="Clear search" onClick={() => updateFilters({ search: "" })} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#6b7280", fontSize: "var(--hd-font-xs)", cursor: "pointer", padding: 2 }}>\u00d7</button>}
+          {!filters.search && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "var(--hd-text-dim)", fontSize: "9px", fontFamily: MONO, background: "var(--hd-bg-surface)", padding: "1px 4px", borderRadius: 3 }}>/</span>}
+          {filters.search && <button aria-label="Clear search" onClick={() => updateFilters({ search: "" })} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--hd-text-dim)", fontSize: "var(--hd-font-xs)", cursor: "pointer", padding: 2 }}>\u00d7</button>}
         </div>
       </div>
 
       {/* \u2500\u2500 Toolbar: filters + controls \u2500\u2500 */}
-      <div style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "8px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ borderBottom: "1px solid var(--hd-border-subtle)", padding: "8px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         {/* Left: severity + quick filter pills */}
         <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
           {(["critical", "high", "medium", "low"] as const).map(sev => {
             const active = filters.severities.includes(sev);
             return (
-              <button key={sev} onClick={() => toggleSeverity(sev)} style={{ background: active ? `${SEV_COL[sev]}18` : "rgba(255,255,255,0.04)", border: `1px solid ${active ? `${SEV_COL[sev]}40` : "rgba(255,255,255,0.08)"}`, color: active ? SEV_COL[sev] : "#9ca3af", padding: "5px 10px", borderRadius: 5, fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: MONO }}>
+              <button key={sev} onClick={() => toggleSeverity(sev)} style={{ background: active ? `${SEV_COL[sev]}18` : "var(--hd-bg-surface)", border: `1px solid ${active ? `${SEV_COL[sev]}40` : "var(--hd-border)"}`, color: active ? SEV_COL[sev] : "var(--hd-text-muted)", padding: "5px 10px", borderRadius: 5, fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: MONO }}>
                 {sev.charAt(0).toUpperCase() + sev.slice(1)}
               </button>
             );
           })}
-          <span style={{ color: "#374151", margin: "0 3px" }}>\u2502</span>
+          <span style={{ color: "var(--hd-text-dim)", margin: "0 3px" }}>\u2502</span>
           {(["analyses", "jira", "today", "7days", "gold"] as const).map(chip => {
             const labels: Record<string, string> = { analyses: "Analyses", jira: "JIRA", today: "Today", "7days": "7 days", gold: "Gold" };
             const active = quickFilter === chip;
             return (
-              <button key={chip} onClick={() => setQuickFilter(active ? "all" : chip)} style={{ background: active ? "rgba(6,182,212,0.1)" : "rgba(255,255,255,0.04)", border: `1px solid ${active ? "rgba(6,182,212,0.25)" : "rgba(255,255,255,0.08)"}`, color: active ? "#67e8f9" : "#9ca3af", padding: "5px 10px", borderRadius: 5, fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: MONO }}>
+              <button key={chip} onClick={() => setQuickFilter(active ? "all" : chip)} style={{ background: active ? "rgba(6,182,212,0.1)" : "var(--hd-bg-surface)", border: `1px solid ${active ? "rgba(6,182,212,0.25)" : "var(--hd-border)"}`, color: active ? "#67e8f9" : "var(--hd-text-muted)", padding: "5px 10px", borderRadius: 5, fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: MONO }}>
                 {labels[chip]}
               </button>
             );
           })}
           {(activeFilterCount > 0 || quickFilter !== "all" || filters.severities.length > 0 || filters.search) && (
-            <button onClick={() => { resetFilters(); setQuickFilter("all"); }} style={{ background: "none", border: "none", color: "#6b7280", fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: MONO, textDecoration: "underline" }}>Clear all</button>
+            <button onClick={() => { resetFilters(); setQuickFilter("all"); }} style={{ background: "none", border: "none", color: "var(--hd-text-dim)", fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: MONO, textDecoration: "underline" }}>Clear all</button>
           )}
         </div>
 
         {/* Right: sort + group + action buttons */}
         <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-          <select value={filters.sortBy} onChange={e => updateFilters({ sortBy: e.target.value as HistoryFilters["sortBy"] })} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 5, padding: "5px 8px", color: "#9ca3af", fontSize: "var(--hd-font-2xs)", fontFamily: MONO, cursor: "pointer", outline: "none" }}>
-            <option value="date" style={{ background: "#151518" }}>Newest first</option>
-            <option value="severity" style={{ background: "#151518" }}>By severity</option>
-            <option value="cost" style={{ background: "#151518" }}>By cost</option>
+          <select value={filters.sortBy} onChange={e => updateFilters({ sortBy: e.target.value as HistoryFilters["sortBy"] })} style={{ background: "var(--hd-bg-surface)", border: "1px solid var(--hd-border)", borderRadius: 5, padding: "5px 8px", color: "var(--hd-text-muted)", fontSize: "var(--hd-font-2xs)", fontFamily: MONO, cursor: "pointer", outline: "none" }}>
+            <option value="date" style={{ background: "var(--hd-bg-raised)" }}>Newest first</option>
+            <option value="severity" style={{ background: "var(--hd-bg-raised)" }}>By severity</option>
+            <option value="cost" style={{ background: "var(--hd-bg-raised)" }}>By cost</option>
           </select>
-          <select value={groupBy} onChange={e => setGroupBy(e.target.value as typeof groupBy)} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 5, padding: "5px 8px", color: "#9ca3af", fontSize: "var(--hd-font-2xs)", fontFamily: MONO, cursor: "pointer", outline: "none" }}>
-            <option value="none" style={{ background: "#151518" }}>No grouping</option>
-            <option value="component" style={{ background: "#151518" }}>By component</option>
-            <option value="severity" style={{ background: "#151518" }}>By severity</option>
-            <option value="status" style={{ background: "#151518" }}>By status</option>
+          <select value={groupBy} onChange={e => setGroupBy(e.target.value as typeof groupBy)} style={{ background: "var(--hd-bg-surface)", border: "1px solid var(--hd-border)", borderRadius: 5, padding: "5px 8px", color: "var(--hd-text-muted)", fontSize: "var(--hd-font-2xs)", fontFamily: MONO, cursor: "pointer", outline: "none" }}>
+            <option value="none" style={{ background: "var(--hd-bg-raised)" }}>No grouping</option>
+            <option value="component" style={{ background: "var(--hd-bg-raised)" }}>By component</option>
+            <option value="severity" style={{ background: "var(--hd-bg-raised)" }}>By severity</option>
+            <option value="status" style={{ background: "var(--hd-bg-raised)" }}>By status</option>
           </select>
-          <span style={{ color: "#374151" }}>\u2502</span>
+          <span style={{ color: "var(--hd-text-dim)" }}>\u2502</span>
           <Button onClick={toggleSelectionMode} variant={selectionMode ? "primary" : "secondary"} size="sm" icon={<CheckSquare />}>
             {selectionMode ? "Cancel" : "Select"}
           </Button>
@@ -939,11 +939,11 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
         <div style={{ padding: "6px 18px", background: "rgba(6,182,212,0.06)", borderBottom: "1px solid rgba(6,182,212,0.15)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ color: "#67e8f9", fontSize: "var(--hd-font-2xs)", fontFamily: MONO }}>{selectedCount} selected</span>
           <button onClick={() => setSelectedAnalysisIds(new Set(analyses.map(a => a.id)))} style={{ background: "none", border: "none", color: "#67e8f9", fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: MONO, textDecoration: "underline" }}>Select all ({unifiedItems.length})</button>
-          <button onClick={clearSelection} style={{ background: "none", border: "none", color: "#6b7280", fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: MONO, textDecoration: "underline" }}>Clear</button>
-          <span style={{ color: "#374151" }}>\u2502</span>
+          <button onClick={clearSelection} style={{ background: "none", border: "none", color: "var(--hd-text-dim)", fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: MONO, textDecoration: "underline" }}>Clear</button>
+          <span style={{ color: "var(--hd-text-dim)" }}>\u2502</span>
           <button onClick={() => handleBulkDelete()} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", padding: "3px 10px", borderRadius: 4, fontSize: "var(--hd-font-3xs)", cursor: "pointer", fontFamily: MONO }}>Delete</button>
           <button onClick={() => handleBulkFavorite(true)} style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", color: "#fbbf24", padding: "3px 10px", borderRadius: 4, fontSize: "var(--hd-font-3xs)", cursor: "pointer", fontFamily: MONO }}>\u2605 Favorite</button>
-          <button onClick={handleBulkExport} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#d1d5db", padding: "3px 10px", borderRadius: 4, fontSize: "var(--hd-font-3xs)", cursor: "pointer", fontFamily: MONO }}>\u2197 Export CSV</button>
+          <button onClick={handleBulkExport} style={{ background: "var(--hd-bg-surface)", border: "1px solid var(--hd-border)", color: "var(--hd-text)", padding: "3px 10px", borderRadius: 4, fontSize: "var(--hd-font-3xs)", cursor: "pointer", fontFamily: MONO }}>\u2197 Export CSV</button>
         </div>
       )}
 
@@ -956,10 +956,10 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
       <div className={`hd-filter-drawer ${columnsOpen ? "hd-filter-drawer-open" : ""}`} style={{ padding: columnsOpen ? "10px 18px" : undefined }}>
         {columnsOpen && (
           <>
-            <div style={{ fontSize: "var(--hd-font-2xs)", fontWeight: 600, marginBottom: 8, color: "#e5e7eb", fontFamily: MONO }}>Visible Columns</div>
+            <div style={{ fontSize: "var(--hd-font-2xs)", fontWeight: 600, marginBottom: 8, color: "var(--hd-text)", fontFamily: MONO }}>Visible Columns</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
               {ALL_COLUMNS.map(col => (
-                <label key={col.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--hd-font-2xs)", color: "#9ca3af", cursor: "pointer", fontFamily: MONO }}>
+                <label key={col.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--hd-font-2xs)", color: "var(--hd-text-muted)", cursor: "pointer", fontFamily: MONO }}>
                   <input type="checkbox" checked={visibleColumns.has(col.key)} onChange={() => toggleColumn(col.key)} style={{ accentColor: "#22d3ee", width: 13, height: 13 }} />
                   {col.label}
                 </label>
@@ -972,13 +972,13 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
       {/* \u2500\u2500 Main content \u2500\u2500 */}
       {displayedItems.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 20px" }}>
-          <div style={{ color: "#4b5563", fontSize: "var(--hd-font-sm)" }}>
+          <div style={{ color: "var(--hd-text-dim)", fontSize: "var(--hd-font-sm)" }}>
             {filters.search || activeFilterCount > 0 || quickFilter !== "all"
               ? "No items match your filters"
               : "No history yet. Start by analyzing a crash log!"}
           </div>
           {(activeFilterCount > 0 || quickFilter !== "all") && (
-            <button onClick={() => { resetFilters(); setQuickFilter("all"); }} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#9ca3af", padding: "6px 14px", borderRadius: 6, fontSize: "var(--hd-font-xs)", cursor: "pointer", fontFamily: MONO, marginTop: 12 }}>
+            <button onClick={() => { resetFilters(); setQuickFilter("all"); }} style={{ background: "var(--hd-bg-surface)", border: "1px solid var(--hd-border)", color: "var(--hd-text-muted)", padding: "6px 14px", borderRadius: 6, fontSize: "var(--hd-font-xs)", cursor: "pointer", fontFamily: MONO, marginTop: 12 }}>
               Clear filters
             </button>
           )}
@@ -988,7 +988,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
           {/* \u2500\u2500 List panel \u2500\u2500 */}
           <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minWidth: 0 }}>
             {/* Column headers */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: "var(--hd-font-3xs)", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px", borderBottom: "1px solid var(--hd-border-subtle)", fontSize: "var(--hd-font-3xs)", color: "var(--hd-text-dim)", fontFamily: MONO, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", flexShrink: 0 }}>
               {selectionMode && <span style={{ width: 16, flexShrink: 0 }} />}
               <span style={{ width: 14, flexShrink: 0 }} />
               {visibleColumns.has("file") && <span style={{ flex: 2 }}>File / ID</span>}
@@ -1006,10 +1006,10 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
                 <div key={groupLabel || "__default"}>
                   {groupBy !== "none" && groupLabel && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 14px", marginTop: 4 }}>
-                      <div style={{ width: 3, height: 13, borderRadius: 2, background: "#6b7280", flexShrink: 0 }} />
-                      <span style={{ color: "#e5e7eb", fontSize: "var(--hd-font-2xs)", fontWeight: 600, fontFamily: MONO }}>{groupLabel}</span>
-                      <span style={{ color: "#4b5563", fontSize: "var(--hd-font-3xs)", fontFamily: MONO }}>({groupItems.length})</span>
-                      <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
+                      <div style={{ width: 3, height: 13, borderRadius: 2, background: "var(--hd-text-dim)", flexShrink: 0 }} />
+                      <span style={{ color: "var(--hd-text)", fontSize: "var(--hd-font-2xs)", fontWeight: 600, fontFamily: MONO }}>{groupLabel}</span>
+                      <span style={{ color: "var(--hd-text-dim)", fontSize: "var(--hd-font-3xs)", fontFamily: MONO }}>({groupItems.length})</span>
+                      <div style={{ flex: 1, height: 1, background: "var(--hd-border-subtle)" }} />
                     </div>
                   )}
                   {groupItems.map(item => {
@@ -1028,14 +1028,14 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
 
                     const ti = getTypeInfo(item.kind, item.kind === "analysis" ? (item.data as Analysis).analysis_type : undefined);
                     const sev = item.kind === "analysis" ? (item.data as Analysis).severity : ((item.data as TicketBrief).severity || "medium");
-                    const sc = SEV_COL[sev.toLowerCase()] || "#9ca3af";
+                    const sc = SEV_COL[sev.toLowerCase()] || "var(--hd-text-muted)";
 
                     return (
                       <div
                         key={item.kind === "analysis" ? `a-${(item.data as Analysis).id}` : `j-${(item.data as TicketBrief).jira_key}`}
                         onClick={handleRowClick}
-                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", background: isActive ? "rgba(6,182,212,0.06)" : "transparent", borderLeft: `2px solid ${isActive ? "rgba(6,182,212,0.4)" : "transparent"}`, borderBottom: "1px solid rgba(255,255,255,0.03)", transition: "background .1s" }}
-                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.025)"; }}
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", background: isActive ? "rgba(6,182,212,0.06)" : "transparent", borderLeft: `2px solid ${isActive ? "rgba(6,182,212,0.4)" : "transparent"}`, borderBottom: "1px solid var(--hd-bg-raised)", transition: "background .1s" }}
+                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "var(--hd-bg-surface)"; }}
                         onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
                       >
                         {selectionMode && item.kind === "analysis" && (
@@ -1046,21 +1046,21 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
                         {visibleColumns.has("file") && (
                           <div style={{ flex: 2, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden" }}>
-                              <span style={{ color: "#e5e7eb", fontSize: "var(--hd-font-xs)", fontFamily: MONO, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              <span style={{ color: "var(--hd-text)", fontSize: "var(--hd-font-xs)", fontFamily: MONO, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {item.kind === "analysis" ? (item.data as Analysis).filename : (item.data as TicketBrief).jira_key}
                               </span>
                               {item.kind === "analysis" && (item.data as Analysis).is_favorite && <span style={{ color: "#fbbf24", fontSize: "var(--hd-font-3xs)", flexShrink: 0 }}>\u2605</span>}
                               {item.kind === "analysis" && goldStatusByAnalysisId[(item.data as Analysis).id] && <span style={{ fontSize: "9px", color: "#fbbf24", flexShrink: 0 }}>\u2b50</span>}
                               {item.kind === "jira" && <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "rgba(139,92,246,0.15)", color: "#a78bfa", flexShrink: 0 }}>JIRA</span>}
                             </div>
-                            <div style={{ color: "#4b5563", fontSize: "var(--hd-font-3xs)", fontFamily: MONO, marginTop: 1 }}>
+                            <div style={{ color: "var(--hd-text-dim)", fontSize: "var(--hd-font-3xs)", fontFamily: MONO, marginTop: 1 }}>
                               {item.kind === "analysis" ? format(new Date((item.data as Analysis).analyzed_at), "MMM d, yyyy") : format(new Date((item.data as TicketBrief).updated_at), "MMM d, yyyy")}
                             </div>
                           </div>
                         )}
 
                         {visibleColumns.has("rootCause") && (
-                          <div style={{ flex: 3, color: "#9ca3af", fontSize: "var(--hd-font-2xs)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                          <div style={{ flex: 3, color: "var(--hd-text-muted)", fontSize: "var(--hd-font-2xs)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                             {item.kind === "analysis" ? (item.data as Analysis).root_cause : (item.data as TicketBrief).title}
                           </div>
                         )}
@@ -1080,20 +1080,20 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
                         )}
 
                         {visibleColumns.has("component") && (
-                          <div style={{ flex: 1, color: "#4b5563", fontSize: "var(--hd-font-3xs)", fontFamily: MONO, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                          <div style={{ flex: 1, color: "var(--hd-text-dim)", fontSize: "var(--hd-font-3xs)", fontFamily: MONO, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                             {item.kind === "analysis" ? ((item.data as Analysis).component || "\u2014") : ((item.data as TicketBrief).category || "\u2014")}
                           </div>
                         )}
 
                         {visibleColumns.has("cost") && (
-                          <div style={{ width: 52, flexShrink: 0, textAlign: "right", color: "#4b5563", fontSize: "var(--hd-font-3xs)", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}>
+                          <div style={{ width: 52, flexShrink: 0, textAlign: "right", color: "var(--hd-text-dim)", fontSize: "var(--hd-font-3xs)", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}>
                             {item.kind === "analysis" ? `$${(item.data as Analysis).cost.toFixed(3)}` : "\u2014"}
                           </div>
                         )}
 
                         <div style={{ width: 56, flexShrink: 0, display: "flex", gap: 3, alignItems: "center", justifyContent: "flex-end" }}>
                           {item.kind === "analysis" && (
-                            <button aria-label={(item.data as Analysis).is_favorite ? "Remove from favorites" : "Add to favorites"} title={(item.data as Analysis).is_favorite ? "Remove from favorites" : "Add to favorites"} onClick={e => { e.stopPropagation(); handleToggleFavorite((item.data as Analysis).id); }} style={{ background: "none", border: "none", cursor: "pointer", color: (item.data as Analysis).is_favorite ? "#fbbf24" : "#374151", fontSize: "var(--hd-font-sm)", padding: 2, lineHeight: 1 }}>\u2605</button>
+                            <button aria-label={(item.data as Analysis).is_favorite ? "Remove from favorites" : "Add to favorites"} title={(item.data as Analysis).is_favorite ? "Remove from favorites" : "Add to favorites"} onClick={e => { e.stopPropagation(); handleToggleFavorite((item.data as Analysis).id); }} style={{ background: "none", border: "none", cursor: "pointer", color: (item.data as Analysis).is_favorite ? "#fbbf24" : "var(--hd-text-dim)", fontSize: "var(--hd-font-sm)", padding: 2, lineHeight: 1 }}>\u2605</button>
                           )}
                           <button
                             aria-label="Delete"
@@ -1111,37 +1111,37 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
 
           {/* \u2500\u2500 Preview panel \u2500\u2500 */}
           {(previewAnalysis || previewJiraBrief) && (
-            <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden", borderLeft: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.01)" }}>
-              <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-                <span style={{ fontSize: "var(--hd-font-3xs)", fontWeight: 700, color: "#e5e7eb", fontFamily: MONO, letterSpacing: ".1em" }}>PREVIEW</span>
+            <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden", borderLeft: "1px solid var(--hd-border-subtle)", background: "var(--hd-bg-base)" }}>
+              <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--hd-border-subtle)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                <span style={{ fontSize: "var(--hd-font-3xs)", fontWeight: 700, color: "var(--hd-text)", fontFamily: MONO, letterSpacing: ".1em" }}>PREVIEW</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: "var(--hd-font-3xs)", color: "#4b5563", fontFamily: MONO }}>{previewAnalysis ? `#${previewAnalysis.id}` : previewJiraBrief?.jira_key}</span>
-                  <button aria-label="Close preview" onClick={() => { setPreviewAnalysis(null); setPreviewJiraBrief(null); }} style={{ background: "none", border: "none", color: "#4b5563", cursor: "pointer", fontSize: "var(--hd-font-sm)", padding: 2 }}>\u00d7</button>
+                  <span style={{ fontSize: "var(--hd-font-3xs)", color: "var(--hd-text-dim)", fontFamily: MONO }}>{previewAnalysis ? `#${previewAnalysis.id}` : previewJiraBrief?.jira_key}</span>
+                  <button aria-label="Close preview" onClick={() => { setPreviewAnalysis(null); setPreviewJiraBrief(null); }} style={{ background: "none", border: "none", color: "var(--hd-text-dim)", cursor: "pointer", fontSize: "var(--hd-font-sm)", padding: 2 }}>\u00d7</button>
                 </div>
               </div>
               <div style={{ overflowY: "auto", flex: 1, padding: "12px 14px" }}>
                 {previewAnalysis ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: SEV_COL[previewAnalysis.severity.toLowerCase()] || "#9ca3af", background: `${SEV_COL[previewAnalysis.severity.toLowerCase()] || "#9ca3af"}18`, padding: "2px 7px", borderRadius: 3 }}>{previewAnalysis.severity.toUpperCase()}</span>
+                      <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: SEV_COL[previewAnalysis.severity.toLowerCase()] || "var(--hd-text-muted)", background: `${SEV_COL[previewAnalysis.severity.toLowerCase()] || "var(--hd-text-muted)"}18`, padding: "2px 7px", borderRadius: 3 }}>{previewAnalysis.severity.toUpperCase()}</span>
                       <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: "#22d3ee", background: "rgba(34,211,238,0.1)", padding: "2px 7px", borderRadius: 3 }}>{previewAnalysis.analysis_type.toUpperCase()}</span>
                       {previewAnalysis.is_favorite && <span style={{ color: "#fbbf24", fontSize: "var(--hd-font-xs)" }}>\u2605</span>}
                       {goldStatusByAnalysisId[previewAnalysis.id] && <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: "#fbbf24", background: "rgba(251,191,36,0.1)", padding: "2px 7px", borderRadius: 3 }}>GOLD</span>}
                     </div>
                     <div>
-                      <div style={{ fontSize: "9px", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Error</div>
-                      <div style={{ fontSize: "var(--hd-font-2xs)", color: "#e5e7eb", fontFamily: MONO }}>{previewAnalysis.error_type}</div>
-                      {previewAnalysis.component && <div style={{ fontSize: "var(--hd-font-3xs)", color: "#6b7280", fontFamily: MONO, marginTop: 2 }}>in {previewAnalysis.component}</div>}
+                      <div style={{ fontSize: "9px", color: "var(--hd-text-dim)", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Error</div>
+                      <div style={{ fontSize: "var(--hd-font-2xs)", color: "var(--hd-text)", fontFamily: MONO }}>{previewAnalysis.error_type}</div>
+                      {previewAnalysis.component && <div style={{ fontSize: "var(--hd-font-3xs)", color: "var(--hd-text-dim)", fontFamily: MONO, marginTop: 2 }}>in {previewAnalysis.component}</div>}
                     </div>
                     <div>
-                      <div style={{ fontSize: "9px", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Root Cause</div>
-                      <div style={{ fontSize: "var(--hd-font-2xs)", color: "#9ca3af", lineHeight: 1.6 }}>{previewAnalysis.root_cause}</div>
+                      <div style={{ fontSize: "9px", color: "var(--hd-text-dim)", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Root Cause</div>
+                      <div style={{ fontSize: "var(--hd-font-2xs)", color: "var(--hd-text-muted)", lineHeight: 1.6 }}>{previewAnalysis.root_cause}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: "9px", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Suggested Fix</div>
-                      <div style={{ fontSize: "var(--hd-font-2xs)", color: "#9ca3af", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{String(previewAnalysis.suggested_fixes)}</div>
+                      <div style={{ fontSize: "9px", color: "var(--hd-text-dim)", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Suggested Fix</div>
+                      <div style={{ fontSize: "var(--hd-font-2xs)", color: "var(--hd-text-muted)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{String(previewAnalysis.suggested_fixes)}</div>
                     </div>
-                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10, fontSize: "var(--hd-font-3xs)", color: "#4b5563", fontFamily: MONO, display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ borderTop: "1px solid var(--hd-border-subtle)", paddingTop: 10, fontSize: "var(--hd-font-3xs)", color: "var(--hd-text-dim)", fontFamily: MONO, display: "flex", flexDirection: "column", gap: 3 }}>
                       <div>{format(new Date(previewAnalysis.analyzed_at), "MMM d, yyyy 'at' h:mm a")}</div>
                       <div>{previewAnalysis.file_size_kb.toFixed(1)} KB &nbsp;\u00b7&nbsp; ${previewAnalysis.cost.toFixed(4)}</div>
                       {previewAnalysis.was_truncated && <div style={{ color: "#f59e0b" }}>\u26a0 Truncated</div>}
@@ -1154,11 +1154,11 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
                 ) : previewJiraBrief ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     <div>
-                      <div style={{ fontSize: "var(--hd-font-base)", fontWeight: 700, color: "#e5e7eb", fontFamily: MONO }}>{previewJiraBrief.jira_key}</div>
-                      <div style={{ fontSize: "var(--hd-font-2xs)", color: "#9ca3af", marginTop: 4, lineHeight: 1.5 }}>{previewJiraBrief.title}</div>
+                      <div style={{ fontSize: "var(--hd-font-base)", fontWeight: 700, color: "var(--hd-text)", fontFamily: MONO }}>{previewJiraBrief.jira_key}</div>
+                      <div style={{ fontSize: "var(--hd-font-2xs)", color: "var(--hd-text-muted)", marginTop: 4, lineHeight: 1.5 }}>{previewJiraBrief.title}</div>
                     </div>
                     <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                      {previewJiraBrief.severity && <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: SEV_COL[previewJiraBrief.severity.toLowerCase()] || "#9ca3af", background: `${SEV_COL[previewJiraBrief.severity.toLowerCase()] || "#9ca3af"}18`, padding: "2px 7px", borderRadius: 3 }}>{previewJiraBrief.severity.toUpperCase()}</span>}
+                      {previewJiraBrief.severity && <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: SEV_COL[previewJiraBrief.severity.toLowerCase()] || "var(--hd-text-muted)", background: `${SEV_COL[previewJiraBrief.severity.toLowerCase()] || "var(--hd-text-muted)"}18`, padding: "2px 7px", borderRadius: 3 }}>{previewJiraBrief.severity.toUpperCase()}</span>}
                       {previewJiraBrief.category && <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: MONO, color: "#8b5cf6", background: "rgba(139,92,246,0.12)", padding: "2px 7px", borderRadius: 3 }}>{previewJiraBrief.category}</span>}
                     </div>
                     {previewJiraBrief.brief_json && (() => {
@@ -1168,13 +1168,13 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
                         if (!summary) return null;
                         return (
                           <div>
-                            <div style={{ fontSize: "9px", color: "#4b5563", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Brief Summary</div>
-                            <div style={{ fontSize: "var(--hd-font-2xs)", color: "#9ca3af", lineHeight: 1.6 }}>{summary}</div>
+                            <div style={{ fontSize: "9px", color: "var(--hd-text-dim)", fontFamily: MONO, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>Brief Summary</div>
+                            <div style={{ fontSize: "var(--hd-font-2xs)", color: "var(--hd-text-muted)", lineHeight: 1.6 }}>{summary}</div>
                           </div>
                         );
                       } catch { return null; }
                     })()}
-                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10, fontSize: "var(--hd-font-3xs)", color: "#4b5563", fontFamily: MONO, display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ borderTop: "1px solid var(--hd-border-subtle)", paddingTop: 10, fontSize: "var(--hd-font-3xs)", color: "var(--hd-text-dim)", fontFamily: MONO, display: "flex", flexDirection: "column", gap: 3 }}>
                       <div>Updated: {format(new Date(previewJiraBrief.updated_at), "MMM d, yyyy")}</div>
                       <div>Status: {previewJiraBrief.posted_to_jira ? "Posted to JIRA" : previewJiraBrief.brief_json ? "Brief generated" : "Triaged"}</div>
                       {previewJiraBrief.engineer_rating && <div>Rating: {"\u2605".repeat(previewJiraBrief.engineer_rating)}{"\u2606".repeat(5 - previewJiraBrief.engineer_rating)}</div>}

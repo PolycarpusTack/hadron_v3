@@ -135,12 +135,12 @@ export default function ReleaseNotesView() {
 
       {/* Progress Bar */}
       {progress && (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+        <div className="hd-card p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-amber-400">{progress.message}</span>
-            <span className="text-xs text-gray-500">{Math.round(progress.progress)}%</span>
+            <span className="text-xs" style={{ color: "var(--hd-text-dim)" }}>{Math.round(progress.progress)}%</span>
           </div>
-          <div className="w-full bg-gray-700 rounded-full h-2">
+          <div className="w-full rounded-full h-2" style={{ background: "var(--hd-border)" }}>
             <div
               className="bg-amber-400 h-2 rounded-full transition-all duration-500"
               style={{ width: `${progress.progress}%` }}
@@ -164,7 +164,7 @@ export default function ReleaseNotesView() {
           activeDraftId ? (
             <div className="space-y-4">
               {/* Review Sub-tabs */}
-              <div className="flex items-center gap-1 bg-gray-800/50 rounded-lg p-1">
+              <div className="flex items-center gap-1 rounded-lg p-1" style={{ background: "var(--hd-bg-surface)" }}>
                 {([
                   { id: "editor" as const, label: "Editor" },
                   { id: "checklist" as const, label: "Checklist" },
@@ -176,9 +176,12 @@ export default function ReleaseNotesView() {
                     onClick={() => setReviewSubTab(sub.id)}
                     className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                       reviewSubTab === sub.id
-                        ? "bg-gray-700 text-amber-400"
-                        : "text-gray-400 hover:text-gray-200"
+                        ? "text-amber-400"
+                        : "hover:text-gray-200"
                     }`}
+                    style={reviewSubTab === sub.id
+                      ? { background: "var(--hd-bg-raised)" }
+                      : { color: "var(--hd-text-muted)" }}
                   >
                     {sub.label}
                   </button>

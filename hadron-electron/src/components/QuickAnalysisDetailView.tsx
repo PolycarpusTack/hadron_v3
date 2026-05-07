@@ -308,7 +308,7 @@ ${analysis.root_cause}
       </div>
 
       {/* File Info Card */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+      <div className="hd-panel p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
@@ -337,7 +337,7 @@ ${analysis.root_cause}
       {/* Main Content - 4 Sections */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Root Cause */}
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <div className="hd-panel p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-red-500/20 rounded-lg">
               <AlertCircle className="w-5 h-5 text-red-400" />
@@ -366,7 +366,7 @@ ${analysis.root_cause}
         </div>
 
         {/* Workaround */}
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <div className="hd-panel p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-yellow-500/20 rounded-lg">
               <Lightbulb className="w-5 h-5 text-yellow-400" />
@@ -404,7 +404,7 @@ ${analysis.root_cause}
         </div>
 
         {/* Solution */}
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <div className="hd-panel p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-green-500/20 rounded-lg">
               <Wrench className="w-5 h-5 text-green-400" />
@@ -448,7 +448,7 @@ ${analysis.root_cause}
         </div>
 
         {/* Why This Fix Works */}
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <div className="hd-panel p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-purple-500/20 rounded-lg">
               <HelpCircle className="w-5 h-5 text-purple-400" />

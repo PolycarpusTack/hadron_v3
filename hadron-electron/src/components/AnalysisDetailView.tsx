@@ -861,7 +861,7 @@ function WcrView({
   const sev = SEV[analysis.severity?.toLowerCase() ?? "medium"] ?? SEV.medium
 
   return (
-    <div style={{ background: "#0a0a0c", color: "#d1d5db", minHeight: "100vh", fontFamily: sans, display: "flex", flexDirection: "column" }}>
+    <div style={{ color: "var(--hd-text)", fontFamily: sans, display: "flex", flexDirection: "column" }}>
 
       {/* Back / breadcrumb */}
       <div style={{ padding: "8px 24px", borderBottom: "1px solid rgba(255,255,255,0.04)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
