@@ -243,8 +243,10 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
   })
 
   // Poll the current streaming response chunk buffer.
+  // Returns done:false when no stream is active (not-yet-started, not complete) so the
+  // poll loop waits rather than exiting before chat_send has called streamReset().
   ipcMain.handle('poll_chat_stream', () => {
-    if (!activeStream) return { text: '', done: true, error: null, events: [] }
+    if (!activeStream) return { text: '', done: false, error: null, events: [] }
     const s = activeStream
     const text = s.pendingText
     const done = s.done
@@ -303,6 +305,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     }
 
     const ss = streamReset()
+    try {
 
     // ── Resolve API key ────────────────────────────────────────────────────
     let apiKey = args.api_key ?? ''
@@ -565,6 +568,11 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       ss.error = e instanceof Error ? e.message : String(e)
       ss.done = true
       return { content: '', inputTokens: 0, outputTokens: 0, cost: 0 }
+    }
+
+    } finally {
+      // Reset so the next chat's poll loop does not see a stale done:true state.
+      if (activeStream === ss) activeStream = null
     }
   })
 }

@@ -35,6 +35,7 @@ import {
   createRequestId,
   starChatSession,
   type ChatMessage,
+  type ChatResponse,
   type ChatSession,
   type ChatSources,
   type ChatStreamEvent,
@@ -382,12 +383,14 @@ export default function AskHadronView({
       const requestId = createRequestId();
       activeRequestIdRef.current = requestId;
       let sources: ChatSources | undefined;
+      // Hoisted so the finally block can use chatResponse.content as a fallback.
+      let chatResponse: ChatResponse | undefined;
 
       try {
         // Send the message with channel callbacks — all events flow directly
         // from the Rust command through the channel, not the global event bus.
         const messagesForBackend = [...messages, userMsg];
-        await sendChatMessage(messagesForBackend, {
+        chatResponse = await sendChatMessage(messagesForBackend, {
           useRag,
           useKb: useKb && kbAvailable,
           analysisId: selectedAnalysisId,
@@ -457,14 +460,17 @@ export default function AskHadronView({
           },
         });
 
-        // Finalize the assistant message
+        // Finalize the assistant message.
+        // Prefer streaming content (accumulated via poll loop); fall back to
+        // chatResponse.content for when the poll loop exited before tokens arrived.
+        const finalStreamContent = streamingContentRef.current || chatResponse?.content || "";
         setMessages((prev) => {
           const updated = [...prev];
           const lastIdx = updated.length - 1;
           if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
             updated[lastIdx] = {
               ...updated[lastIdx],
-              content: streamingContentRef.current,
+              content: finalStreamContent,
               isStreaming: false,
               sources,
               timestamp: Date.now(),
@@ -497,11 +503,12 @@ export default function AskHadronView({
         setToolActivity(null);
 
         // Save session to SQLite.
-        // newMessages (closure) + streamingContentRef give us the correct final state
-        // without relying on React state which may not have flushed yet.
+        // Use the same fallback logic as the success path: streaming content first,
+        // then chatResponse.content (available because chatResponse is hoisted above try).
+        const savedContent = streamingContentRef.current || chatResponse?.content || "";
         const finalMessages: ChatMessage[] = newMessages.map((msg, i) =>
           i === newMessages.length - 1 && msg.role === "assistant"
-            ? { ...msg, content: streamingContentRef.current, isStreaming: false, sources, timestamp: Date.now() }
+            ? { ...msg, content: savedContent, isStreaming: false, sources, timestamp: Date.now() }
             : msg
         );
         const isNewSession = finalMessages.filter((m) => m.role === "user").length === 1;
