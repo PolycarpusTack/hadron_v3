@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { useAutoTimeout } from "../hooks/useAutoTimeout";
+import { useConfirm } from "./ui/ConfirmDialog";
 import {
   Shield,
   Check,
@@ -50,6 +51,7 @@ export default function SentrySettings({ onSettingsChange }: SentrySettingsProps
   const [projectsLoading, setProjectsLoading] = useState(false);
 
   const safeTimeout = useAutoTimeout();
+  const { confirm: confirmDialog, dialog } = useConfirm();
 
   // Load config on mount
   useEffect(() => {
@@ -171,17 +173,17 @@ export default function SentrySettings({ onSettingsChange }: SentrySettingsProps
   };
 
   const handleClearToken = async () => {
-    if (confirm("Are you sure you want to clear your Sentry auth token?")) {
-      await deleteApiKey("sentry");
-      setAuthToken("");
-      setHasToken(false);
-      setSaveMessage("Auth token cleared");
-      safeTimeout(() => setSaveMessage(null), 2000);
-    }
+    if (!await confirmDialog("Are you sure you want to clear your Sentry auth token?", { confirmLabel: 'Clear', destructive: true })) return;
+    await deleteApiKey("sentry");
+    setAuthToken("");
+    setHasToken(false);
+    setSaveMessage("Auth token cleared");
+    safeTimeout(() => setSaveMessage(null), 2000);
   };
 
   return (
     <div className="space-y-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
+      {dialog}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

@@ -5,6 +5,7 @@
  */
 
 import { useState, type ReactNode } from "react";
+import { useConfirm } from "../ui/ConfirmDialog";
 import {
   FileText, ShieldAlert, AlertCircle, HelpCircle,
   List, Shield, CheckCircle2, AlertTriangle, ChevronDown,
@@ -69,6 +70,7 @@ export default function TicketBriefPanel({
   const [notes, setNotes] = useState(engineerNotes ?? "");
   const [showNotes, setShowNotes] = useState(false);
   const [savingFeedback, setSavingFeedback] = useState(false);
+  const { confirm: confirmDialog, dialog: confirmDialogEl } = useConfirm();
 
   function toggleAction(i: number) {
     setCheckedActions((prev) => {
@@ -103,7 +105,7 @@ export default function TicketBriefPanel({
 
   async function handlePostToJira() {
     if (!briefJson || posted) return;
-    if (!confirm(`Post investigation brief for ${jiraKey} to JIRA as a comment?`)) return;
+    if (!await confirmDialog(`Post investigation brief for ${jiraKey} to JIRA as a comment?`, { confirmLabel: 'Post' })) return;
 
     setPosting(true);
     setPostError(null);
@@ -151,7 +153,7 @@ export default function TicketBriefPanel({
   }
 
   async function handleDeleteBrief() {
-    if (!confirm(`Delete the stored brief for ${jiraKey}? This removes triage, analysis, and embeddings.`)) return;
+    if (!await confirmDialog(`Delete the stored brief for ${jiraKey}? This removes triage, analysis, and embeddings.`, { confirmLabel: 'Delete', destructive: true })) return;
     try {
       await deleteTicketBrief(jiraKey);
       onBriefUpdated?.();
@@ -172,6 +174,7 @@ export default function TicketBriefPanel({
 
   return (
     <div className="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
+      {confirmDialogEl}
       {/* Panel header */}
       <div className="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
         <div className="flex items-center gap-2">

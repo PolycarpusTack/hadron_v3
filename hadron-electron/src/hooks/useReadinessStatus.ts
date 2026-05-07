@@ -145,6 +145,7 @@ export function useReadinessStatus(): ReadinessStatus {
 
   useEffect(() => {
     async function refresh() {
+      if (document.visibilityState === "hidden") return;
       const provider = getStoredProvider();
       const model = getStoredModel();
       const [apiKey, keeperCfg, keeperSt, mcpCfg, jiraOn, sentryOn] = await Promise.all([
@@ -180,7 +181,12 @@ export function useReadinessStatus(): ReadinessStatus {
 
     refresh();
     const id = setInterval(refresh, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    // Re-run immediately when the window regains focus so the bar is current.
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, []);
 
   return status;

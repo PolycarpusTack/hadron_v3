@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { useAutoTimeout } from "../hooks/useAutoTimeout";
+import { useConfirm } from "./ui/ConfirmDialog";
 import { openExternal as open } from "../utils/openExternal";
 import Button from "./ui/Button";
 import {
@@ -68,6 +69,7 @@ export default function JiraSettings({ onSettingsChange }: JiraSettingsProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const safeTimeout = useAutoTimeout();
+  const { confirm: confirmDialog, dialog } = useConfirm();
 
   // Load config on mount
   useEffect(() => {
@@ -224,13 +226,12 @@ export default function JiraSettings({ onSettingsChange }: JiraSettingsProps) {
   };
 
   const handleClearToken = async () => {
-    if (confirm("Are you sure you want to clear your JIRA API token?")) {
-      await deleteApiKey("jira");
-      setApiToken("");
-      setHasToken(false);
-      setSaveMessage("API token cleared");
-      safeTimeout(() => setSaveMessage(null), 2000);
-    }
+    if (!await confirmDialog("Are you sure you want to clear your JIRA API token?", { confirmLabel: 'Clear', destructive: true })) return;
+    await deleteApiKey("jira");
+    setApiToken("");
+    setHasToken(false);
+    setSaveMessage("API token cleared");
+    safeTimeout(() => setSaveMessage(null), 2000);
   };
 
   const handleAddLabel = () => {
@@ -252,6 +253,7 @@ export default function JiraSettings({ onSettingsChange }: JiraSettingsProps) {
 
   return (
     <div className="space-y-4 p-4 bg-blue-500/10 rounded-lg border border-blue-500/30">
+      {dialog}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

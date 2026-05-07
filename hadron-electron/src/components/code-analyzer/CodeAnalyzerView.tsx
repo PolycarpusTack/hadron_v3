@@ -20,7 +20,8 @@ import AnalyzerEntryPanel from "../AnalyzerEntryPanel";
 import ExportDialog from "../ExportDialog";
 import Button from "../ui/Button";
 
-import { SOFT_TOKEN_WARN_BYTES, warnIfLargeFile } from "./constants";
+import { SOFT_TOKEN_WARN_BYTES, getLargeFileWarning } from "./constants";
+import { useConfirm } from "../ui/ConfirmDialog";
 import { detectLanguage } from "./detectLanguage";
 import OverviewTab from "./tabs/OverviewTab";
 import WalkthroughTab from "./tabs/WalkthroughTab";
@@ -148,6 +149,7 @@ export default function CodeAnalyzerView({
   const [issuesSeverityFilter, setIssuesSeverityFilter] = useState<string | null>(null);
   const [showExport, setShowExport] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { confirm: confirmDialog, dialog: confirmDialogEl } = useConfirm();
 
   // Restore input if we have it in state
   useEffect(() => {
@@ -162,7 +164,7 @@ export default function CodeAnalyzerView({
     if (!input.trim()) return;
 
     if (input.length > SOFT_TOKEN_WARN_BYTES) {
-      const proceed = window.confirm(
+      const proceed = await confirmDialog(
         `This code is ${(input.length / 1024).toFixed(0)} KB (~${Math.round(input.length / 4).toLocaleString()} tokens). ` +
         `It may exceed your AI model's context limit. Proceed anyway?`
       );
@@ -188,11 +190,12 @@ export default function CodeAnalyzerView({
     onClear();
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) {
-      if (!warnIfLargeFile(file)) return;
+      const warning = getLargeFileWarning(file);
+      if (warning && !await confirmDialog(warning)) return;
       const reader = new FileReader();
       reader.onload = (event) => {
         const content = event.target?.result as string;
@@ -204,10 +207,11 @@ export default function CodeAnalyzerView({
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!warnIfLargeFile(file)) return;
+      const warning = getLargeFileWarning(file);
+      if (warning && !await confirmDialog(warning)) return;
       // Reset so the browser fires onChange again if the same file is selected next time
       e.target.value = "";
       const reader = new FileReader();
@@ -246,6 +250,7 @@ export default function CodeAnalyzerView({
 
   return (
     <div className="space-y-6">
+      {confirmDialogEl}
       {/* Input + Placeholder when no result */}
       {!analysisResult && (
         <>

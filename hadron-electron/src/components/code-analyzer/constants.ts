@@ -22,13 +22,13 @@ export const LANGUAGE_EXTENSIONS: Record<string, string> = {
   rb: "Ruby",
 };
 
-export function warnIfLargeFile(file: File): boolean {
+export function getLargeFileWarning(file: File): string | null {
   if (file.size > MAX_FILE_SIZE_BYTES) {
-    return window.confirm(
+    return (
       `"${file.name}" is ${(file.size / 1024).toFixed(0)} KB. ` +
       `Large files may exceed AI context limits and produce incomplete results. ` +
       `Continue anyway?`
     );
   }
-  return true;
+  return null;
 }

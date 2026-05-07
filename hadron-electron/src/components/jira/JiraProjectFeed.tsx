@@ -62,6 +62,15 @@ function sanitizeProjectKey(key: string): string {
   return key.replace(/[^A-Z0-9_]/gi, "").toUpperCase().slice(0, 20);
 }
 
+/** Build the feed JQL from a watched project list (pure — no component state). */
+function buildFeedJql(watchedProjects: WatchedProject[]): string {
+  const projectConditions = watchedProjects.map((wp) => {
+    const statusList = wp.statuses.map((s) => `"${s}"`).join(", ");
+    return `(project = ${wp.key}${statusList ? ` AND status IN (${statusList})` : ""})`;
+  });
+  return `(${projectConditions.join(" OR ")}) ORDER BY updated DESC`;
+}
+
 const FEED_PAGE_SIZE = 50;
 
 export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedProps) {
@@ -120,14 +129,6 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
     if (watched.length === 0) setShowConfig(true);
   }, [watched.length]);
 
-  /** Build the feed JQL from the current watched list */
-  function buildFeedJql(watchedProjects: WatchedProject[]): string {
-    const projectConditions = watchedProjects.map((wp) => {
-      const statusList = wp.statuses.map((s) => `"${s}"`).join(", ");
-      return `(project = ${wp.key}${statusList ? ` AND status IN (${statusList})` : ""})`;
-    });
-    return `(${projectConditions.join(" OR ")}) ORDER BY updated DESC`;
-  }
 
   // Fix #3: loadIssues only re-created when reloadTrigger changes, not on status edits
   const loadIssues = useCallback(async () => {
@@ -170,7 +171,6 @@ export default function JiraProjectFeed({ onAnalysisComplete }: JiraProjectFeedP
     } finally {
       setLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadTrigger]);
 
   // Load triage briefs for a set of issues (for badge display)

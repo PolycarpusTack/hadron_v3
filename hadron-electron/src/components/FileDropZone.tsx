@@ -222,7 +222,9 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
       }
     } catch (error) {
       logger.error('File selection failed', { error: error instanceof Error ? error.message : String(error) });
-      alert("Failed to select file. Please try again.");
+      clearTimeout(dropRejectTimerRef.current);
+      setDropRejectedMsg("Failed to select file. Please try again.");
+      dropRejectTimerRef.current = setTimeout(() => setDropRejectedMsg(null), 4000);
     }
   }, [onFileSelect, onBatchSelect, isAnalyzing, analysisType]);
 
@@ -242,7 +244,9 @@ export default function FileDropZone({ onFileSelect, onBatchSelect, onOpenAnalys
       onFileSelect(tempFilePath, analysisType, enforcedMode);
     } catch (error) {
       logger.error('Failed to save pasted log', { error: error instanceof Error ? error.message : String(error) });
-      alert("Failed to process pasted content. Please try again.");
+      clearTimeout(dropRejectTimerRef.current);
+      setDropRejectedMsg("Failed to process pasted content. Please try again.");
+      dropRejectTimerRef.current = setTimeout(() => setDropRejectedMsg(null), 4000);
     }
   }, [pastedContent, onFileSelect, isAnalyzing, analysisType]);
 

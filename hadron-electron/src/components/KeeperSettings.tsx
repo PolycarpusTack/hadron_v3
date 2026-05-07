@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { useConfirm } from "./ui/ConfirmDialog";
 import {
   Shield,
   Key,
@@ -56,6 +57,7 @@ export default function KeeperSettings({ onSettingsChange }: KeeperSettingsProps
     type: "success" | "error" | "info";
     text: string;
   } | null>(null);
+  const { confirm: confirmDialog, dialog } = useConfirm();
 
   // Load initial state
   // NOTE: React 18 StrictMode double-mounts components in dev, which causes
@@ -171,13 +173,10 @@ export default function KeeperSettings({ onSettingsChange }: KeeperSettingsProps
   }
 
   async function handleDisconnect() {
-    if (
-      !confirm(
-        "Are you sure you want to disconnect from Keeper? You will need a new one-time token to reconnect."
-      )
-    ) {
-      return;
-    }
+    if (!await confirmDialog(
+      "Are you sure you want to disconnect from Keeper? You will need a new one-time token to reconnect.",
+      { confirmLabel: 'Disconnect', destructive: true }
+    )) return;
 
     try {
       await disconnectKeeper();
@@ -261,6 +260,7 @@ export default function KeeperSettings({ onSettingsChange }: KeeperSettingsProps
 
   return (
     <div className="space-y-4 p-4 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-lg border border-purple-500/30">
+      {dialog}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

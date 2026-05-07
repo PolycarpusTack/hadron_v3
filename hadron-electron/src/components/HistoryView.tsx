@@ -32,6 +32,7 @@ import { AdvancedFilterPanel } from "./AdvancedFilterPanel";
 import { BulkActionBar, SelectionType } from "./BulkActionBar";
 import { useToast } from "./Toast";
 import Button from "./ui/Button";
+import { useConfirm } from "./ui/ConfirmDialog";
 import { getSeverityBadgeClasses } from "../utils/severity";
 
 // localStorage key for filter persistence
@@ -80,6 +81,7 @@ const DEFAULT_VISIBLE_COLUMNS: Set<ColumnKey> = new Set([
 ]);
 
 export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: HistoryViewProps) {
+  const { confirm: confirmDialog, dialog: confirmDialogEl } = useConfirm();
 
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [translations, setTranslations] = useState<Translation[]>([]);
@@ -164,11 +166,12 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     return count;
   }, [filters]);
 
-  // Load data based on current tab and filters
-  // Uses debounced filter key to prevent excessive API calls when rapidly changing filters
+  // loadData reads current filters/state via closure. Forwarding through a ref
+  // lets the effect trigger only on debounced inputs without a stale-closure loop.
+  const loadDataRef = useRef<() => Promise<void>>();
+  useEffect(() => { loadDataRef.current = loadData; });
   useEffect(() => {
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadDataRef.current?.();
   }, [debouncedSearchTerm, debouncedFilterKey]);
 
   const loadData = async () => {
@@ -301,7 +304,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
 
   // Memoized handlers to prevent unnecessary re-renders of list items
   const handleDelete = useCallback(async (id: number, filename: string) => {
-    if (!confirm(`Delete analysis for "${filename}"?`)) return;
+    if (!await confirmDialog(`Delete analysis for "${filename}"?`, { confirmLabel: 'Delete', destructive: true })) return;
 
     try {
       await deleteAnalysis(id);
@@ -342,7 +345,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
 
 
   const handleDeleteJiraBrief = useCallback(async (jiraKey: string, title: string) => {
-    if (!window.confirm(`Delete JIRA brief for ${jiraKey} "${title}"?`)) return;
+    if (!await confirmDialog(`Delete JIRA brief for ${jiraKey} "${title}"?`, { confirmLabel: 'Delete', destructive: true })) return;
     try {
       await deleteTicketBrief(jiraKey);
       setJiraBriefs((prev) => prev.filter((b) => b.jira_key !== jiraKey));
@@ -432,7 +435,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     const translationCount = selectedTranslationIds.size;
     const total = analysisCount + translationCount;
 
-    if (!confirm(`Delete ${total} selected item${total > 1 ? "s" : ""}?`)) return;
+    if (!await confirmDialog(`Delete ${total} selected item${total > 1 ? "s" : ""}?`, { confirmLabel: 'Delete', destructive: true })) return;
 
     setBulkProcessing(true);
     try {
@@ -847,6 +850,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
 
   return (
     <div style={{ background: "#090a0d", color: "#d1d5db", display: "flex", flexDirection: "column", fontFamily: "'IBM Plex Sans',-apple-system,sans-serif", borderRadius: 8, overflow: "hidden" }}>
+      {confirmDialogEl}
 
       {/* \u2500\u2500 Header: title + stats + search \u2500\u2500 */}
       <div style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.01)", gap: 12, flexWrap: "wrap" }}>

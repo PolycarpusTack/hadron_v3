@@ -1,4 +1,5 @@
 import { Moon, Sun, Shield, Code, Cpu, MessageCircle, Zap, Check, AlertTriangle, XCircle } from 'lucide-react';
+import HdToggle from '../ui/HdToggle';
 import { getCircuitState } from '../../services/circuit-breaker';
 import { AI_PROVIDERS } from '../../constants/providers';
 import { STORAGE_KEYS } from '../../utils/config';
@@ -41,14 +42,12 @@ export default function PreferencesSection({
             <p className="text-sm" style={{ color: 'var(--hd-text)' }}>Theme</p>
             <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>{darkMode ? 'Dark mode' : 'Light mode'}</p>
           </div>
-          <button
-            onClick={() => onThemeChange(!darkMode)}
-            className={`hd-toggle ${darkMode ? 'bg-blue-600' : 'bg-gray-600'}`}
-          >
-            <div className={`hd-toggle-knob hd-toggle-knob-icon ${darkMode ? 'translate-x-7' : 'translate-x-1'}`}>
-              {darkMode ? <Moon className="w-4 h-4 text-blue-600" /> : <Sun className="w-4 h-4 text-yellow-500" />}
-            </div>
-          </button>
+          <HdToggle
+            checked={darkMode}
+            onChange={() => onThemeChange(!darkMode)}
+            icon={darkMode ? <Moon className="w-4 h-4 text-blue-600" /> : <Sun className="w-4 h-4 text-yellow-500" />}
+            aria-label="Toggle theme"
+          />
         </div>
 
         <div className="flex items-center justify-between">
@@ -56,14 +55,12 @@ export default function PreferencesSection({
             <p className="text-sm" style={{ color: 'var(--hd-text)' }}>PII Redaction</p>
             <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>Auto-strip names, emails, IPs before sending to AI</p>
           </div>
-          <button
-            onClick={onPiiToggle}
-            className={`hd-toggle ${piiRedactionEnabled ? 'bg-blue-600' : 'bg-gray-600'}`}
-          >
-            <div className={`hd-toggle-knob hd-toggle-knob-icon ${piiRedactionEnabled ? 'translate-x-7' : 'translate-x-1'}`}>
-              <Shield className={`w-4 h-4 ${piiRedactionEnabled ? 'text-blue-600' : 'text-gray-400'}`} />
-            </div>
-          </button>
+          <HdToggle
+            checked={piiRedactionEnabled}
+            onChange={onPiiToggle}
+            icon={<Shield className={`w-4 h-4 ${piiRedactionEnabled ? 'text-blue-600' : 'text-gray-400'}`} />}
+            aria-label="Toggle PII redaction"
+          />
         </div>
 
         <div>
