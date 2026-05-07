@@ -16,6 +16,7 @@ import type { ProviderKey } from '../constants/providers';
 import type { SettingsSection } from './settings/types';
 import { isIntegrationSection } from './settings/types';
 import SettingsSidebar from './settings/SettingsSidebar';
+import SettingsDashboard from './settings/SettingsDashboard';
 
 type ApiKeyProvider = 'openai' | 'anthropic' | 'zai';
 import { STORAGE_KEYS, providerModelKey, providerModelsCacheKey } from '../utils/config';
@@ -726,254 +727,19 @@ export default function SettingsPanel({
             </div>
           )}
           {activeSection === 'dashboard' && (<>
-          {/* Network Status Banner */}
-          {!isOnline && (
-            <div className="mb-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-              <div>
-                <p className="font-semibold text-yellow-300">Offline Mode</p>
-                <p className="text-sm text-gray-400">
-                  Cloud AI providers unavailable. llama.cpp will work if running locally.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Row 1: 3-column card grid */}
-          <div className="grid grid-cols-3 gap-4">
-            {/* AI Provider Card */}
-            <div className="hd-config-grid-card">
-              <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--hd-text)' }}>AI Provider</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <strong className="text-sm" style={{ color: 'var(--hd-text)' }}>
-                    {AI_PROVIDERS.find(p => p.value === settings.provider)?.label || settings.provider}
-                  </strong>
-                  <span className="px-2 py-0.5 rounded text-xs font-medium" style={{
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    color: 'var(--hd-accent)',
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
-                  }}>Configured</span>
-                </div>
-                <p className="text-xs" style={{ color: 'var(--hd-text-muted)' }}>
-                  Model: {settings.model === 'custom' ? settings.customModel : settings.model}
-                </p>
-                {settings.auxiliaryModel && (
-                  <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>
-                    Auxiliary: {settings.auxiliaryModel}
-                  </p>
-                )}
-                <div className="flex flex-col gap-2 mt-2">
-                  <button className="hd-btn-ghost text-xs w-full py-1.5" onClick={() => setAdvancedOpen(true)}>
-                    Change Provider
-                  </button>
-                  <button
-                    className="hd-btn-ghost text-xs w-full py-1.5 flex items-center justify-center gap-1.5"
-                    onClick={handleTestConnection}
-                    disabled={isTestingConnection || (settings.provider !== 'llamacpp' && !isKeeperActiveForProvider && !settings.apiKeys[settings.provider as keyof typeof settings.apiKeys]) || (settings.provider !== 'llamacpp' && !isOnline)}
-                  >
-                    <Activity className="w-3.5 h-3.5" />
-                    {isTestingConnection ? "Testing..." : "Test Connection"}
-                  </button>
-                  {connectionTestResult && (
-                    <div className={`text-xs px-2 py-1 rounded ${
-                      connectionTestResult.toLowerCase().includes("success") || connectionTestResult.toLowerCase().includes("found")
-                        ? "text-green-400" : "text-red-400"
-                    }`}>
-                      {connectionTestResult}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Integrations Card */}
-            <div className="hd-config-grid-card">
-              <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--hd-text)' }}>Integrations</h3>
-              <div className="space-y-1">
-                {/* JIRA row */}
-                <div className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid var(--hd-border-subtle)' }}>
-                  <span className="text-sm" style={{ color: 'var(--hd-text)' }}>JIRA</span>
-                  <span className={`px-2 py-0.5 rounded text-xs ${jiraConnected ? 'text-green-400 border-green-600/30' : ''}`} style={jiraConnected ? { background: 'var(--hd-bg-surface)', border: '1px solid' } : { background: 'var(--hd-bg-surface)', color: 'var(--hd-text-dim)', border: '1px solid var(--hd-border-subtle)' }}>
-                    {jiraConnected ? 'Connected' : 'Not Connected'}
-                  </span>
-                </div>
-                {/* Sentry row */}
-                <div className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid var(--hd-border-subtle)' }}>
-                  <span className="text-sm" style={{ color: 'var(--hd-text)' }}>Sentry</span>
-                  <span className={`px-2 py-0.5 rounded text-xs ${sentryConnected ? 'text-green-400 border-green-600/30' : ''}`} style={sentryConnected ? { background: 'var(--hd-bg-surface)', border: '1px solid' } : { background: 'var(--hd-bg-surface)', color: 'var(--hd-text-dim)', border: '1px solid var(--hd-border-subtle)' }}>
-                    {sentryConnected ? 'Connected' : 'Not Connected'}
-                  </span>
-                </div>
-                {/* Knowledge Base row */}
-                <div className="flex items-center justify-between py-2">
-                  <span className="text-sm" style={{ color: 'var(--hd-text)' }}>Knowledge Base</span>
-                  <span className="px-2 py-0.5 rounded text-xs" style={{ background: 'var(--hd-bg-surface)', color: 'var(--hd-text-dim)', border: '1px solid var(--hd-border-subtle)' }}>Not Indexed</span>
-                </div>
-              </div>
-              <button className="hd-btn-ghost text-xs w-full py-1.5 mt-3" onClick={() => setIntegrationsExpanded(!integrationsExpanded)}>
-                {integrationsExpanded ? 'Hide Details' : 'Manage Integrations'}
-              </button>
-            </div>
-
-            {/* Preferences Card */}
-            <div className="hd-config-grid-card">
-              <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--hd-text)' }}>Preferences</h3>
-              <div className="space-y-3">
-                {/* Theme toggle */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm" style={{ color: 'var(--hd-text)' }}>Theme</p>
-                    <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>Light / Dark</p>
-                  </div>
-                  <button
-                    onClick={() => onThemeChange(!darkMode)}
-                    className={`hd-toggle ${darkMode ? "bg-blue-600" : "bg-gray-600"}`}
-                  >
-                    <div className={`hd-toggle-knob hd-toggle-knob-icon ${darkMode ? "translate-x-7" : "translate-x-1"}`}>
-                      {darkMode ? <Moon className="w-4 h-4 text-blue-600" /> : <Sun className="w-4 h-4 text-yellow-500" />}
-                    </div>
-                  </button>
-                </div>
-
-                {/* PII Redaction toggle */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm" style={{ color: 'var(--hd-text)' }}>PII Redaction</p>
-                    <p className="text-xs" style={{ color: 'var(--hd-text-dim)' }}>Auto-strip PII</p>
-                  </div>
-                  <button
-                    onClick={() => setSettings(prev => ({ ...prev, piiRedactionEnabled: !prev.piiRedactionEnabled }))}
-                    className={`hd-toggle ${settings.piiRedactionEnabled ? "bg-blue-600" : "bg-gray-600"}`}
-                  >
-                    <div className={`hd-toggle-knob hd-toggle-knob-icon ${settings.piiRedactionEnabled ? "translate-x-7" : "translate-x-1"}`}>
-                      <Shield className={`w-4 h-4 ${settings.piiRedactionEnabled ? "text-blue-600" : "text-gray-400"}`} />
-                    </div>
-                  </button>
-                </div>
-
-                {/* Default Analysis mode segmented control */}
-                <div>
-                  <p className="text-sm mb-1.5" style={{ color: 'var(--hd-text)' }}>Default Analysis</p>
-                  <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--hd-border-subtle)' }}>
-                    <button
-                      onClick={() => handleAnalysisModeChange("quick")}
-                      className="flex-1 px-3 py-1.5 text-xs font-medium transition-colors"
-                      style={{
-                        background: defaultAnalysisMode === "quick" ? 'var(--hd-accent)' : 'transparent',
-                        color: defaultAnalysisMode === "quick" ? '#052e24' : 'var(--hd-text-muted)',
-                      }}
-                    >
-                      Quick
-                    </button>
-                    <button
-                      onClick={() => handleAnalysisModeChange("comprehensive")}
-                      className="flex-1 px-3 py-1.5 text-xs font-medium transition-colors"
-                      style={{
-                        background: defaultAnalysisMode === "comprehensive" ? 'var(--hd-accent)' : 'transparent',
-                        color: defaultAnalysisMode === "comprehensive" ? '#052e24' : 'var(--hd-text-muted)',
-                        borderLeft: '1px solid var(--hd-border-subtle)',
-                      }}
-                    >
-                      Comprehensive
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Expanded Integrations */}
-          {integrationsExpanded && (
-            <div className="hd-panel p-4 space-y-4">
-              <Suspense fallback={
-                <div className="p-4 bg-blue-500/10 rounded-lg border border-blue-500/30">
-                  <div className="flex items-center gap-3">
-                    <RefreshCw className="w-5 h-5 text-blue-400 animate-spin" />
-                    <span className="text-gray-400">Loading JIRA settings...</span>
-                  </div>
-                </div>
-              }>
-                <JiraSettings onConfigChange={onSettingsChange} />
-              </Suspense>
-
-              <Suspense fallback={
-                <div className="p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
-                  <div className="flex items-center gap-3">
-                    <RefreshCw className="w-5 h-5 text-orange-400 animate-spin" />
-                    <span className="text-gray-400">Loading Sentry settings...</span>
-                  </div>
-                </div>
-              }>
-                <SentrySettings onConfigChange={onSettingsChange} />
-              </Suspense>
-
-              <Suspense fallback={
-                <div className="p-4 bg-teal-500/10 rounded-lg border border-teal-500/30">
-                  <div className="flex items-center gap-3">
-                    <RefreshCw className="w-5 h-5 text-teal-400 animate-spin" />
-                    <span className="text-gray-400">Loading Knowledge Base settings...</span>
-                  </div>
-                </div>
-              }>
-                <OpenSearchSettings onConfigChange={onSettingsChange} />
-              </Suspense>
-
-              {/* CodexMgX MCP Integration */}
-              <div className="hd-panel-soft p-4 rounded-lg">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h3 className="text-sm font-semibold" style={{ color: 'var(--hd-text)' }}>CodexMgX Integration</h3>
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--hd-text-dim)' }}>
-                      Deep JIRA investigation, Confluence, MOD docs, and KB via MCP server
-                    </p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={codexMgxConfig.enabled}
-                      onChange={(e) => setCodexMgxConfig(prev => ({ ...prev, enabled: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600" />
-                  </label>
-                </div>
-                {codexMgxConfig.enabled && (
-                  <div className="space-y-3">
-                    <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-xs" style={{ color: 'var(--hd-text-muted)' }}>
-                      <p className="font-medium text-blue-300 mb-1">Credentials required</p>
-                      <p>CodexMgX reads credentials from:</p>
-                      <code className="block mt-1 text-blue-200 break-all">%USERPROFILE%\.codex\plugins\codexmgx-plugin\codexmgx-env.ps1</code>
-                      <p className="mt-1">Copy <code>codexmgx-env.example.ps1</code> from the Hadron install folder to that location and fill in your credentials.</p>
-                    </div>
-                    <button
-                      onClick={() => setCodexMgxAdvanced(!codexMgxAdvanced)}
-                      className="flex items-center gap-1.5 text-xs"
-                      style={{ color: 'var(--hd-text-dim)' }}
-                    >
-                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${codexMgxAdvanced ? 'rotate-180' : ''}`} />
-                      Advanced: override script path
-                    </button>
-                    {codexMgxAdvanced && (
-                      <div>
-                        <label className="block text-xs mb-1" style={{ color: 'var(--hd-text-dim)' }}>
-                          Custom script path <span style={{ color: 'var(--hd-text-muted)' }}>(leave blank to use bundled scripts)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={codexMgxConfig.scriptPath}
-                          onChange={(e) => setCodexMgxConfig(prev => ({ ...prev, scriptPath: e.target.value }))}
-                          placeholder="Leave blank to use bundled scripts"
-                          className="w-full text-xs rounded-md px-3 py-2 placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
-                          style={{ background: 'var(--hd-bg)', border: '1px solid var(--hd-border)', color: 'var(--hd-text)' }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          <SettingsDashboard
+            providerLabel={AI_PROVIDERS.find(p => p.value === settings.provider)?.label || settings.provider}
+            modelLabel={settings.model === 'custom' ? settings.customModel : settings.model}
+            auxiliaryModel={settings.auxiliaryModel || undefined}
+            darkMode={darkMode}
+            piiRedactionEnabled={settings.piiRedactionEnabled}
+            defaultAnalysisMode={defaultAnalysisMode}
+            isOnline={isOnline}
+            onNavigate={handleSelectSection}
+            onThemeChange={onThemeChange}
+            onPiiToggle={() => setSettings(prev => ({ ...prev, piiRedactionEnabled: !prev.piiRedactionEnabled }))}
+            onAnalysisModeChange={handleAnalysisModeChange}
+          />
 
           {/* Row 2: Collapsible Advanced Section */}
           <div className="hd-panel" style={{ overflow: 'hidden' }}>
