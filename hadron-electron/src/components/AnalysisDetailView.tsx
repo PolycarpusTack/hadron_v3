@@ -128,7 +128,7 @@ function CopyBtn({ text, label = "Copy" }: { text: string; label?: string }) {
         background: ok ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.04)",
         border: `1px solid ${ok ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.08)"}`,
         color: ok ? "#6ee7b7" : "#9ca3af",
-        padding: "4px 10px", borderRadius: "4px", fontSize: "11px",
+        padding: "4px 10px", borderRadius: "4px", fontSize: "var(--hd-font-2xs)",
         cursor: "pointer", fontFamily: mono, transition: "all .2s",
       }}
     >{ok ? "✓ Copied" : label}</button>
@@ -142,7 +142,7 @@ function SevBadge({ severity }: { severity: string }) {
       display: "inline-flex", alignItems: "center", gap: "5px",
       background: s.bg, color: s.color,
       padding: "3px 10px", borderRadius: "4px",
-      fontSize: "11px", fontWeight: 700, letterSpacing: ".08em", fontFamily: mono,
+      fontSize: "var(--hd-font-2xs)", fontWeight: 700, letterSpacing: ".08em", fontFamily: mono,
     }}>
       <span style={{ fontSize: "6px" }}>⬤</span>{s.label}
     </span>
@@ -158,7 +158,7 @@ function Card({ label, value, accent, sub }: { label: string; value: string; acc
       borderRadius: "0 0 6px 6px", padding: "12px",
     }}>
       <div style={{ color: "#6b7280", fontSize: "10px", letterSpacing: ".1em", fontFamily: mono }}>{label}</div>
-      <div style={{ color: "#e5e7eb", fontSize: "13px", fontWeight: 600, marginTop: "4px", fontFamily: mono }}>{value}</div>
+      <div style={{ color: "#e5e7eb", fontSize: "var(--hd-font-sm)", fontWeight: 600, marginTop: "4px", fontFamily: mono }}>{value}</div>
       {sub && <div style={{ color: "#6b7280", fontSize: "10px", marginTop: "3px" }}>{sub}</div>}
     </div>
   )
@@ -212,7 +212,7 @@ function StackTrace({ frames, expanded }: { frames: StackFrame[]; expanded: bool
         {Object.entries(FC).map(([k, v]) => (
           <div key={k} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
             <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: v.dot, display: "inline-block" }} />
-            <span style={{ color: "#9ca3af", fontSize: "11px" }}>{v.label}</span>
+            <span style={{ color: "#9ca3af", fontSize: "var(--hd-font-2xs)" }}>{v.label}</span>
           </div>
         ))}
       </div>
@@ -233,9 +233,9 @@ function StackTrace({ frames, expanded }: { frames: StackFrame[]; expanded: bool
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={() => toggle(f.id)}>
-                  <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono, width: "22px", textAlign: "right" }}>[{f.id}]</span>
+                  <span style={{ color: "#4b5563", fontSize: "var(--hd-font-2xs)", fontFamily: mono, width: "22px", textAlign: "right" }}>[{f.id}]</span>
                   <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: c.dot, flexShrink: 0, display: "inline-block" }} />
-                  <span style={{ color: c.text, fontSize: "12.5px", fontFamily: mono, flex: 1 }}>{f.method}</span>
+                  <span style={{ color: c.text, fontSize: "var(--hd-font-xs)", fontFamily: mono, flex: 1 }}>{f.method}</span>
                   {expanded && f.source && (
                     <button
                       onClick={e => { e.stopPropagation(); setInspector(isI ? null : f.id) }}
@@ -249,7 +249,7 @@ function StackTrace({ frames, expanded }: { frames: StackFrame[]; expanded: bool
                     >{isI ? "Hide" : "Source"}</button>
                   )}
                 </div>
-                {isE && <div style={{ marginTop: "4px", marginLeft: "38px", color: "#9ca3af", fontSize: "12px" }}>{f.label}</div>}
+                {isE && <div style={{ marginTop: "4px", marginLeft: "38px", color: "#9ca3af", fontSize: "var(--hd-font-xs)" }}>{f.label}</div>}
               </div>
             )
           })}
@@ -266,10 +266,10 @@ function StackTrace({ frames, expanded }: { frames: StackFrame[]; expanded: bool
               borderRadius: "8px", padding: "14px", alignSelf: "flex-start",
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                <span style={{ color: c.text, fontSize: "11px", fontFamily: mono, fontWeight: 700 }}>FRAME [{f.id}]</span>
+                <span style={{ color: c.text, fontSize: "var(--hd-font-2xs)", fontFamily: mono, fontWeight: 700 }}>FRAME [{f.id}]</span>
                 <CopyBtn text={f.source} />
               </div>
-              <pre style={{ fontFamily: mono, fontSize: "11px", color: "#d1d5db", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>{f.source}</pre>
+              <pre style={{ fontFamily: mono, fontSize: "var(--hd-font-2xs)", color: "#d1d5db", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>{f.source}</pre>
             </div>
           )
         })()}
@@ -291,8 +291,8 @@ function Journey({ scenario }: { scenario: NonNullable<WcrData["userScenario"]> 
             border: `2px solid ${s.isFailure ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.12)"}`,
             zIndex: 1,
           }} />
-          <span style={{ color: "#6b7280", fontSize: "11px", fontFamily: mono, marginRight: "8px" }}>{s.step}.</span>
-          <span style={{ color: s.isFailure ? "#fca5a5" : "#d1d5db", fontSize: "13px" }}>{s.action}</span>
+          <span style={{ color: "#6b7280", fontSize: "var(--hd-font-2xs)", fontFamily: mono, marginRight: "8px" }}>{s.step}.</span>
+          <span style={{ color: s.isFailure ? "#fca5a5" : "#d1d5db", fontSize: "var(--hd-font-sm)" }}>{s.action}</span>
         </div>
       ))}
       {(scenario.expectedResult || scenario.actualResult) && (
@@ -300,13 +300,13 @@ function Journey({ scenario }: { scenario: NonNullable<WcrData["userScenario"]> 
           {scenario.expectedResult && (
             <div style={{ background: "rgba(16,185,129,0.06)", borderRadius: "6px", padding: "10px", borderLeft: "3px solid #10b981" }}>
               <div style={{ color: "#10b981", fontSize: "10px", fontWeight: 700, letterSpacing: ".1em", marginBottom: "4px", fontFamily: mono }}>EXPECTED</div>
-              <div style={{ color: "#d1d5db", fontSize: "12px", lineHeight: 1.5 }}>{scenario.expectedResult}</div>
+              <div style={{ color: "#d1d5db", fontSize: "var(--hd-font-xs)", lineHeight: 1.5 }}>{scenario.expectedResult}</div>
             </div>
           )}
           {scenario.actualResult && (
             <div style={{ background: "rgba(239,68,68,0.06)", borderRadius: "6px", padding: "10px", borderLeft: "3px solid #ef4444" }}>
               <div style={{ color: "#ef4444", fontSize: "10px", fontWeight: 700, letterSpacing: ".1em", marginBottom: "4px", fontFamily: mono }}>ACTUAL</div>
-              <div style={{ color: "#d1d5db", fontSize: "12px", lineHeight: 1.5 }}>{scenario.actualResult}</div>
+              <div style={{ color: "#d1d5db", fontSize: "var(--hd-font-xs)", lineHeight: 1.5 }}>{scenario.actualResult}</div>
             </div>
           )}
         </div>
@@ -335,14 +335,14 @@ function Remediation({ remediation }: { remediation: NonNullable<WcrData["remedi
                 borderRadius: "6px", padding: "12px", marginBottom: "6px",
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-                  <span style={{ color: "#e5e7eb", fontSize: "13px", fontWeight: 600 }}>{it.title}</span>
+                  <span style={{ color: "#e5e7eb", fontSize: "var(--hd-font-sm)", fontWeight: 600 }}>{it.title}</span>
                   <div style={{ display: "flex", gap: "6px" }}>
                     {it.risk && <Tag text={`Risk: ${it.risk}`} color="#9ca3af" />}
                     {it.time && <Tag text={`⏱ ${it.time}`} color="#9ca3af" />}
                   </div>
                 </div>
-                {it.location && <div style={{ fontSize: "12px", color: "#93c5fd", fontFamily: mono, marginBottom: "6px" }}>📍 {it.location}</div>}
-                {it.description && <div style={{ fontSize: "12px", color: "#9ca3af", lineHeight: 1.5 }}>{it.description}</div>}
+                {it.location && <div style={{ fontSize: "var(--hd-font-xs)", color: "#93c5fd", fontFamily: mono, marginBottom: "6px" }}>📍 {it.location}</div>}
+                {it.description && <div style={{ fontSize: "var(--hd-font-xs)", color: "#9ca3af", lineHeight: 1.5 }}>{it.description}</div>}
                 {it.code && (
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", marginBottom: "4px" }}>
@@ -351,7 +351,7 @@ function Remediation({ remediation }: { remediation: NonNullable<WcrData["remedi
                     </div>
                     <pre style={{
                       background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.06)",
-                      borderRadius: "4px", padding: "10px", fontSize: "11.5px",
+                      borderRadius: "4px", padding: "10px", fontSize: "var(--hd-font-2xs)",
                       color: "#d1d5db", fontFamily: mono, lineHeight: 1.6,
                       margin: 0, whiteSpace: "pre-wrap",
                     }}>{it.code}</pre>
@@ -362,13 +362,13 @@ function Remediation({ remediation }: { remediation: NonNullable<WcrData["remedi
                     {it.before && (
                       <div style={{ background: "rgba(239,68,68,0.06)", borderRadius: "4px", padding: "8px" }}>
                         <div style={{ fontSize: "10px", color: "#ef4444", fontFamily: mono, marginBottom: "3px" }}>BEFORE</div>
-                        <div style={{ fontSize: "11px", color: "#fca5a5", fontFamily: mono }}>{it.before}</div>
+                        <div style={{ fontSize: "var(--hd-font-2xs)", color: "#fca5a5", fontFamily: mono }}>{it.before}</div>
                       </div>
                     )}
                     {it.after && (
                       <div style={{ background: "rgba(16,185,129,0.06)", borderRadius: "4px", padding: "8px" }}>
                         <div style={{ fontSize: "10px", color: "#10b981", fontFamily: mono, marginBottom: "3px" }}>AFTER</div>
-                        <div style={{ fontSize: "11px", color: "#6ee7b7", fontFamily: mono }}>{it.after}</div>
+                        <div style={{ fontSize: "var(--hd-font-2xs)", color: "#6ee7b7", fontFamily: mono }}>{it.after}</div>
                       </div>
                     )}
                   </div>
@@ -404,12 +404,12 @@ function SimilarCrashes({ crashes }: { crashes: NonNullable<WcrData["similarCras
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ color: "#e5e7eb", fontSize: "12px", fontFamily: mono, fontWeight: 600 }}>{c.id}</span>
+              <span style={{ color: "#e5e7eb", fontSize: "var(--hd-font-xs)", fontFamily: mono, fontWeight: 600 }}>{c.id}</span>
               {c.site && <Tag text={c.site} color="#8b5cf6" />}
               <Tag text={c.status.toUpperCase()} color={sc[c.status] ?? "#6b7280"} />
               {c.fixVersion && <Tag text={`Fixed ${c.fixVersion}`} color="#10b981" />}
             </div>
-            <div style={{ color: "#6b7280", fontSize: "11px", marginTop: "3px" }}>
+            <div style={{ color: "#6b7280", fontSize: "var(--hd-font-2xs)", marginTop: "3px" }}>
               {[c.component, c.date].filter(Boolean).join(" · ")}
             </div>
           </div>
@@ -438,12 +438,12 @@ function BlastRadius({ components }: { components: NonNullable<WcrData["blastRad
         return (
           <div key={k} style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${s.c}22`, borderRadius: "8px", padding: "12px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "8px" }}>
-              <span style={{ color: s.c, fontWeight: 700, fontSize: "12px" }}>{s.i}</span>
+              <span style={{ color: s.c, fontWeight: 700, fontSize: "var(--hd-font-xs)" }}>{s.i}</span>
               <span style={{ color: s.c, fontSize: "10px", fontWeight: 700, letterSpacing: ".08em", fontFamily: mono, textTransform: "uppercase" }}>{k}</span>
               <span style={{ color: "#4b5563", fontSize: "10px", fontFamily: mono }}>({items.length})</span>
             </div>
             {items.map(x => (
-              <div key={x.c} style={{ padding: "3px 0", borderBottom: "1px solid rgba(255,255,255,0.03)", color: "#d1d5db", fontSize: "12px", fontFamily: mono }}>{x.c}</div>
+              <div key={x.c} style={{ padding: "3px 0", borderBottom: "1px solid rgba(255,255,255,0.03)", color: "#d1d5db", fontSize: "var(--hd-font-xs)", fontFamily: mono }}>{x.c}</div>
             ))}
           </div>
         )
@@ -471,7 +471,7 @@ function ConfidenceAssessment({ conf }: { conf: NonNullable<WcrData["confidenceA
               <span style={{ color: "#4b5563", fontSize: "10px" }}>— {t.desc}</span>
             </div>
             {items.map((text, i) => (
-              <div key={i} style={{ padding: "3px 0 3px 22px", color: "#d1d5db", fontSize: "12px", lineHeight: 1.5, borderBottom: i < items.length - 1 ? "1px solid rgba(255,255,255,0.03)" : "none" }}>{text}</div>
+              <div key={i} style={{ padding: "3px 0 3px 22px", color: "#d1d5db", fontSize: "var(--hd-font-xs)", lineHeight: 1.5, borderBottom: i < items.length - 1 ? "1px solid rgba(255,255,255,0.03)" : "none" }}>{text}</div>
             ))}
           </div>
         )
@@ -494,7 +494,7 @@ function Notes() {
         <div style={{ display: "flex", flexDirection: "column", gap: "5px", marginBottom: "10px" }}>
           {notes.map((n, i) => (
             <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "6px", padding: "10px" }}>
-              <div style={{ color: "#d1d5db", fontSize: "12px", lineHeight: 1.5 }}>{n.text}</div>
+              <div style={{ color: "#d1d5db", fontSize: "var(--hd-font-xs)", lineHeight: 1.5 }}>{n.text}</div>
               <div style={{ color: "#4b5563", fontSize: "10px", fontFamily: mono, marginTop: "3px" }}>analyst · {n.time}</div>
             </div>
           ))}
@@ -510,10 +510,10 @@ function Notes() {
             flex: 1, background: "rgba(255,255,255,0.03)",
             border: "1px solid rgba(255,255,255,0.08)",
             borderRadius: "6px", padding: "8px 12px",
-            color: "#d1d5db", fontSize: "12px", fontFamily: sans, outline: "none",
+            color: "#d1d5db", fontSize: "var(--hd-font-xs)", fontFamily: sans, outline: "none",
           }}
         />
-        <button onClick={add} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#9ca3af", padding: "8px 14px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontFamily: mono }}>Add</button>
+        <button onClick={add} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#9ca3af", padding: "8px 14px", borderRadius: "6px", fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: mono }}>Add</button>
       </div>
     </div>
   )
@@ -523,15 +523,15 @@ function AiMeta({ analysis }: { analysis: Analysis }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 0", borderTop: "1px solid rgba(255,255,255,0.04)", marginTop: "8px", flexWrap: "wrap" }}>
       <Tag text="Hadron AI" color="#8b5cf6" />
-      {analysis.ai_model && <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono }}>{analysis.ai_model}</span>}
+      {analysis.ai_model && <span style={{ color: "#4b5563", fontSize: "var(--hd-font-2xs)", fontFamily: mono }}>{analysis.ai_model}</span>}
       <span style={{ color: "#4b5563" }}>│</span>
-      <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono }}>{analysis.tokens_used?.toLocaleString() ?? 0} tokens</span>
+      <span style={{ color: "#4b5563", fontSize: "var(--hd-font-2xs)", fontFamily: mono }}>{analysis.tokens_used?.toLocaleString() ?? 0} tokens</span>
       <span style={{ color: "#4b5563" }}>│</span>
-      <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono }}>${(analysis.cost ?? 0).toFixed(3)}</span>
+      <span style={{ color: "#4b5563", fontSize: "var(--hd-font-2xs)", fontFamily: mono }}>${(analysis.cost ?? 0).toFixed(3)}</span>
       {analysis.analysis_duration_ms && (
         <>
           <span style={{ color: "#4b5563" }}>│</span>
-          <span style={{ color: "#4b5563", fontSize: "11px", fontFamily: mono }}>{(analysis.analysis_duration_ms / 1000).toFixed(1)}s</span>
+          <span style={{ color: "#4b5563", fontSize: "var(--hd-font-2xs)", fontFamily: mono }}>{(analysis.analysis_duration_ms / 1000).toFixed(1)}s</span>
         </>
       )}
       {analysis.analysis_mode && <Tag text={analysis.analysis_mode} color="#6b7280" />}
@@ -563,10 +563,10 @@ function SupportView({ data, analysis, expanded }: { data: WcrData; analysis: An
       {rc?.plainEnglish && (
         <Sec title="VERDICT">
           <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: "6px", padding: "14px" }}>
-            <div style={{ color: "#fca5a5", fontSize: "14px", fontWeight: 600, marginBottom: "6px" }}>
+            <div style={{ color: "#fca5a5", fontSize: "var(--hd-font-base)", fontWeight: 600, marginBottom: "6px" }}>
               {analysis.error_type ?? "Crash"} — {rc.affectedModule ?? analysis.component}
             </div>
-            <div style={{ color: "#d1d5db", fontSize: "13px", lineHeight: 1.6 }}>{rc.plainEnglish}</div>
+            <div style={{ color: "#d1d5db", fontSize: "var(--hd-font-sm)", lineHeight: 1.6 }}>{rc.plainEnglish}</div>
           </div>
         </Sec>
       )}
@@ -581,8 +581,8 @@ function SupportView({ data, analysis, expanded }: { data: WcrData; analysis: An
             <div style={{ marginBottom: "12px" }}>
               {data.reproduction.steps.map((s, i) => (
                 <div key={i} style={{ display: "flex", gap: "8px", padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                  <span style={{ color: "#6b7280", fontSize: "12px", fontFamily: mono, width: "20px" }}>{i + 1}.</span>
-                  <span style={{ color: "#d1d5db", fontSize: "13px" }}>{s}</span>
+                  <span style={{ color: "#6b7280", fontSize: "var(--hd-font-xs)", fontFamily: mono, width: "20px" }}>{i + 1}.</span>
+                  <span style={{ color: "#d1d5db", fontSize: "var(--hd-font-sm)" }}>{s}</span>
                 </div>
               ))}
             </div>
@@ -592,13 +592,13 @@ function SupportView({ data, analysis, expanded }: { data: WcrData; analysis: An
               {data.reproduction.expected && (
                 <div style={{ background: "rgba(16,185,129,0.06)", borderRadius: "6px", padding: "12px", borderLeft: "3px solid #10b981" }}>
                   <div style={{ color: "#10b981", fontSize: "10px", fontWeight: 700, letterSpacing: ".1em", marginBottom: "5px", fontFamily: mono }}>EXPECTED</div>
-                  <div style={{ color: "#d1d5db", fontSize: "12px", lineHeight: 1.5 }}>{data.reproduction.expected}</div>
+                  <div style={{ color: "#d1d5db", fontSize: "var(--hd-font-xs)", lineHeight: 1.5 }}>{data.reproduction.expected}</div>
                 </div>
               )}
               {data.reproduction.actual && (
                 <div style={{ background: "rgba(239,68,68,0.06)", borderRadius: "6px", padding: "12px", borderLeft: "3px solid #ef4444" }}>
                   <div style={{ color: "#ef4444", fontSize: "10px", fontWeight: 700, letterSpacing: ".1em", marginBottom: "5px", fontFamily: mono }}>ACTUAL</div>
-                  <div style={{ color: "#d1d5db", fontSize: "12px", lineHeight: 1.5 }}>{data.reproduction.actual}</div>
+                  <div style={{ color: "#d1d5db", fontSize: "var(--hd-font-xs)", lineHeight: 1.5 }}>{data.reproduction.actual}</div>
                 </div>
               )}
             </div>
@@ -632,13 +632,13 @@ function DevView({ data, analysis, expanded }: { data: WcrData; analysis: Analys
         {(rc?.affectedMethod || rc?.triggerCondition) && (
           <div style={{ marginTop: "10px", padding: "10px 14px", background: "rgba(255,255,255,0.02)", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.06)" }}>
             {rc?.affectedMethod && (
-              <div style={{ color: "#9ca3af", fontSize: "12px", marginBottom: "4px" }}>
+              <div style={{ color: "#9ca3af", fontSize: "var(--hd-font-xs)", marginBottom: "4px" }}>
                 <strong style={{ color: "#e5e7eb" }}>Affected method:</strong>{" "}
                 <span style={{ fontFamily: mono, color: "#93c5fd" }}>{rc.affectedMethod}</span>
               </div>
             )}
             {rc?.triggerCondition && (
-              <div style={{ color: "#9ca3af", fontSize: "12px" }}>
+              <div style={{ color: "#9ca3af", fontSize: "var(--hd-font-xs)" }}>
                 <strong style={{ color: "#e5e7eb" }}>Trigger condition:</strong> {rc.triggerCondition}
               </div>
             )}
@@ -649,7 +649,7 @@ function DevView({ data, analysis, expanded }: { data: WcrData; analysis: Analys
       {rc?.technical && (
         <Sec title="ROOT CAUSE (TECHNICAL)">
           <div style={{ background: "rgba(59,130,246,0.05)", border: "1px solid rgba(59,130,246,0.12)", borderRadius: "6px", padding: "14px", borderLeft: "3px solid #3b82f6" }}>
-            <div style={{ color: "#d1d5db", fontSize: "13px", lineHeight: 1.7 }}>{rc.technical}</div>
+            <div style={{ color: "#d1d5db", fontSize: "var(--hd-font-sm)", lineHeight: 1.7 }}>{rc.technical}</div>
           </div>
         </Sec>
       )}
@@ -712,15 +712,15 @@ Hadron Support`
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <Sec title="CUSTOMER-FACING REPLY" actions={<CopyBtn text={reply} label="Copy reply" />}>
         <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "20px" }}>
-          <pre style={{ fontFamily: sans, fontSize: "13px", color: "#d1d5db", lineHeight: 1.8, whiteSpace: "pre-wrap", margin: 0 }}>{reply}</pre>
+          <pre style={{ fontFamily: sans, fontSize: "var(--hd-font-sm)", color: "#d1d5db", lineHeight: 1.8, whiteSpace: "pre-wrap", margin: 0 }}>{reply}</pre>
         </div>
       </Sec>
       <Sec title="SUMMARY TABLE">
         <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: "6px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
           {tableRows.map(([k, v], i) => (
             <div key={k} style={{ display: "flex", padding: "9px 14px", borderBottom: i < tableRows.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
-              <span style={{ color: "#6b7280", fontSize: "12px", width: "140px", flexShrink: 0 }}>{k}</span>
-              <span style={{ color: "#d1d5db", fontSize: "12px" }}>{v}</span>
+              <span style={{ color: "#6b7280", fontSize: "var(--hd-font-xs)", width: "140px", flexShrink: 0 }}>{k}</span>
+              <span style={{ color: "#d1d5db", fontSize: "var(--hd-font-xs)" }}>{v}</span>
             </div>
           ))}
         </div>
@@ -742,7 +742,7 @@ function ExecView({ data, analysis, expanded }: { data: WcrData; analysis: Analy
             <div style={{ color: "#e5e7eb", fontSize: "18px", fontWeight: 700, marginBottom: "5px" }}>
               {analysis.error_type ?? "Application Crash"}
             </div>
-            <div style={{ color: "#9ca3af", fontSize: "13px", lineHeight: 1.6, maxWidth: "520px" }}>
+            <div style={{ color: "#9ca3af", fontSize: "var(--hd-font-sm)", lineHeight: 1.6, maxWidth: "520px" }}>
               {rc?.plainEnglish ?? analysis.root_cause ?? ""}
             </div>
           </div>
@@ -758,8 +758,8 @@ function ExecView({ data, analysis, expanded }: { data: WcrData; analysis: Analy
         ].map(c => (
           <div key={c.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "14px", textAlign: "center" }}>
             <div style={{ color: "#6b7280", fontSize: "10px", letterSpacing: ".1em", fontFamily: mono, marginBottom: "6px" }}>{c.label}</div>
-            <div style={{ color: c.color, fontSize: "14px", fontWeight: 600 }}>{c.value}</div>
-            {c.sub && <div style={{ color: "#9ca3af", fontSize: "11px", marginTop: "3px" }}>{c.sub}</div>}
+            <div style={{ color: c.color, fontSize: "var(--hd-font-base)", fontWeight: 600 }}>{c.value}</div>
+            {c.sub && <div style={{ color: "#9ca3af", fontSize: "var(--hd-font-2xs)", marginTop: "3px" }}>{c.sub}</div>}
           </div>
         ))}
       </div>
@@ -774,8 +774,8 @@ function ExecView({ data, analysis, expanded }: { data: WcrData; analysis: Analy
             ].map(it => (
               <div key={it.p} style={{ flex: 1, background: "rgba(255,255,255,0.02)", border: `1px solid ${it.c}33`, borderTop: `3px solid ${it.c}`, borderRadius: "0 0 6px 6px", padding: "12px" }}>
                 <div style={{ color: it.c, fontSize: "10px", fontWeight: 700, fontFamily: mono }}>{it.p.toUpperCase()}</div>
-                <div style={{ color: "#e5e7eb", fontSize: "13px", fontWeight: 600, marginTop: "5px" }}>{it.l}</div>
-                <div style={{ color: "#9ca3af", fontSize: "12px", marginTop: "3px" }}>{it.d}</div>
+                <div style={{ color: "#e5e7eb", fontSize: "var(--hd-font-sm)", fontWeight: 600, marginTop: "5px" }}>{it.l}</div>
+                <div style={{ color: "#9ca3af", fontSize: "var(--hd-font-xs)", marginTop: "3px" }}>{it.d}</div>
               </div>
             ))}
           </div>
@@ -790,11 +790,11 @@ function ExecView({ data, analysis, expanded }: { data: WcrData; analysis: Analy
               {impact.directlyAffected.map((x, i) => (
                 <div key={i} style={{ background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.1)", borderRadius: "6px", padding: "10px", marginBottom: "4px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
-                    <span style={{ color: "#e5e7eb", fontSize: "12px", fontWeight: 600 }}>{x.feature}</span>
+                    <span style={{ color: "#e5e7eb", fontSize: "var(--hd-font-xs)", fontWeight: 600 }}>{x.feature}</span>
                     {x.module && <Tag text={x.module} color="#8b5cf6" />}
                     {x.severity && <Tag text={x.severity.toUpperCase()} color={SEV[x.severity]?.color ?? "#9ca3af"} />}
                   </div>
-                  {x.description && <div style={{ color: "#9ca3af", fontSize: "11px" }}>{x.description}</div>}
+                  {x.description && <div style={{ color: "#9ca3af", fontSize: "var(--hd-font-2xs)" }}>{x.description}</div>}
                 </div>
               ))}
             </div>
@@ -805,11 +805,11 @@ function ExecView({ data, analysis, expanded }: { data: WcrData; analysis: Analy
               {impact.potentiallyAffected.map((x, i) => (
                 <div key={i} style={{ background: "rgba(245,158,11,0.04)", border: "1px solid rgba(245,158,11,0.1)", borderRadius: "6px", padding: "10px", marginBottom: "4px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
-                    <span style={{ color: "#e5e7eb", fontSize: "12px", fontWeight: 600 }}>{x.feature}</span>
+                    <span style={{ color: "#e5e7eb", fontSize: "var(--hd-font-xs)", fontWeight: 600 }}>{x.feature}</span>
                     {x.module && <Tag text={x.module} color="#8b5cf6" />}
                     {x.severity && <Tag text={x.severity.toUpperCase()} color={SEV[x.severity]?.color ?? "#9ca3af"} />}
                   </div>
-                  {x.description && <div style={{ color: "#9ca3af", fontSize: "11px" }}>{x.description}</div>}
+                  {x.description && <div style={{ color: "#9ca3af", fontSize: "var(--hd-font-2xs)" }}>{x.description}</div>}
                 </div>
               ))}
             </div>
@@ -868,16 +868,16 @@ function WcrView({
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <button
             onClick={onBack}
-            style={{ background: "none", border: "none", color: "#6b7280", fontSize: "12px", cursor: "pointer", fontFamily: mono, padding: 0, display: "inline-flex", alignItems: "center", gap: "4px" }}
+            style={{ background: "none", border: "none", color: "#6b7280", fontSize: "var(--hd-font-xs)", cursor: "pointer", fontFamily: mono, padding: 0, display: "inline-flex", alignItems: "center", gap: "4px" }}
           >◀ Back to History</button>
           <span style={{ color: "#4b5563" }}>│</span>
-          <span style={{ color: "#4b5563", fontSize: "12px", fontFamily: mono }}>{analysis.filename}</span>
+          <span style={{ color: "#4b5563", fontSize: "var(--hd-font-xs)", fontFamily: mono }}>{analysis.filename}</span>
         </div>
         <div style={{ display: "flex", gap: "6px" }}>
           {jiraEnabled && (
-            <button onClick={() => setShowJiraModal(true)} style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", color: "#6ee7b7", padding: "4px 10px", borderRadius: "5px", fontSize: "11px", cursor: "pointer", fontFamily: mono }}>⊞ JIRA</button>
+            <button onClick={() => setShowJiraModal(true)} style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", color: "#6ee7b7", padding: "4px 10px", borderRadius: "5px", fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: mono }}>⊞ JIRA</button>
           )}
-          <button onClick={() => setShowExportDialog(true)} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "#d1d5db", padding: "4px 10px", borderRadius: "5px", fontSize: "11px", cursor: "pointer", fontFamily: mono }}>↗ Export…</button>
+          <button onClick={() => setShowExportDialog(true)} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "#d1d5db", padding: "4px 10px", borderRadius: "5px", fontSize: "var(--hd-font-2xs)", cursor: "pointer", fontFamily: mono }}>↗ Export…</button>
         </div>
       </div>
 
@@ -886,15 +886,15 @@ function WcrView({
         <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
             <div style={{ width: "8px", height: "8px", borderRadius: "2px", background: sev.color }} />
-            <span style={{ color: "#e5e7eb", fontSize: "14px", fontWeight: 700, fontFamily: mono }}>
+            <span style={{ color: "#e5e7eb", fontSize: "var(--hd-font-base)", fontWeight: 700, fontFamily: mono }}>
               {data.crash_id ?? `HAD-${analysis.id}`}
             </span>
           </div>
           <SevBadge severity={analysis.severity ?? "medium"} />
-          {data.site && <><span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "12px" }}>{data.site}</span></>}
-          {analysis.component && <><span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "12px" }}>{analysis.component}</span></>}
-          {analysis.analyzed_at && <><span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "12px" }}>{new Date(analysis.analyzed_at).toLocaleDateString()}</span></>}
-          {data.user && <><span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "12px", fontFamily: mono }}>{data.user}</span></>}
+          {data.site && <><span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "var(--hd-font-xs)" }}>{data.site}</span></>}
+          {analysis.component && <><span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "var(--hd-font-xs)" }}>{analysis.component}</span></>}
+          {analysis.analyzed_at && <><span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "var(--hd-font-xs)" }}>{new Date(analysis.analyzed_at).toLocaleDateString()}</span></>}
+          {data.user && <><span style={{ color: "#4b5563" }}>│</span><span style={{ color: "#6b7280", fontSize: "var(--hd-font-xs)", fontFamily: mono }}>{data.user}</span></>}
         </div>
         <button
           onClick={() => setExpanded(!expanded)}
@@ -902,7 +902,7 @@ function WcrView({
             background: expanded ? "rgba(139,92,246,0.12)" : "rgba(255,255,255,0.04)",
             border: `1px solid ${expanded ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.1)"}`,
             color: expanded ? "#c4b5fd" : "#9ca3af",
-            padding: "5px 12px", borderRadius: "6px", fontSize: "11px",
+            padding: "5px 12px", borderRadius: "6px", fontSize: "var(--hd-font-2xs)",
             cursor: "pointer", fontFamily: mono, transition: "all .2s",
           }}
         >{expanded ? "◉ Expanded" : "○ Standard"}</button>
@@ -911,8 +911,8 @@ function WcrView({
       {/* Error banner */}
       {(analysis.error_type || analysis.error_message) && (
         <div style={{ padding: "9px 24px", background: "rgba(239,68,68,0.04)", borderBottom: "1px solid rgba(239,68,68,0.1)", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-          {analysis.error_type && <span style={{ color: "#ef4444", fontSize: "12px", fontFamily: mono, fontWeight: 700 }}>{analysis.error_type}</span>}
-          {analysis.error_message && <><span style={{ color: "#4b5563" }}>—</span><span style={{ color: "#fca5a5", fontSize: "12px" }}>{analysis.error_message}</span></>}
+          {analysis.error_type && <span style={{ color: "#ef4444", fontSize: "var(--hd-font-xs)", fontFamily: mono, fontWeight: 700 }}>{analysis.error_type}</span>}
+          {analysis.error_message && <><span style={{ color: "#4b5563" }}>—</span><span style={{ color: "#fca5a5", fontSize: "var(--hd-font-xs)" }}>{analysis.error_message}</span></>}
         </div>
       )}
 
@@ -926,14 +926,14 @@ function WcrView({
               background: "none", border: "none",
               padding: "10px 18px",
               color: tab === t.id ? "#e5e7eb" : "#6b7280",
-              fontSize: "12px", cursor: "pointer",
+              fontSize: "var(--hd-font-xs)", cursor: "pointer",
               borderBottom: tab === t.id ? "2px solid #e5e7eb" : "2px solid transparent",
               fontFamily: sans, fontWeight: tab === t.id ? 600 : 400,
               display: "inline-flex", alignItems: "center", gap: "5px",
               marginBottom: "-1px", transition: "color .15s", whiteSpace: "nowrap",
             }}
           >
-            <span style={{ fontSize: "11px", opacity: tab === t.id ? 1 : 0.5 }}>{t.icon}</span>
+            <span style={{ fontSize: "var(--hd-font-2xs)", opacity: tab === t.id ? 1 : 0.5 }}>{t.icon}</span>
             {t.label}
           </button>
         ))}

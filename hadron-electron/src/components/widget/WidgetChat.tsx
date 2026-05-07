@@ -1,13 +1,18 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
-import { Send, Loader2, Square } from "lucide-react";
+import { Send, Loader2, Square, Plus } from "lucide-react";
 import {
   sendChatMessage,
   cancelChat,
   createRequestId,
   createMessageId,
+  createSessionId,
+  getChatSessionMessages,
+  saveChatSession,
+  generateSessionTitle,
   type ChatMessage,
   type ChatStreamEvent,
+  type ChatToolUseEvent,
 } from "../../services/chat";
 import WidgetDropZone from "./WidgetDropZone";
 
@@ -19,21 +24,34 @@ interface WidgetChatProps {
   onMessagesChange?: (messages: ChatMessage[]) => void;
 }
 
+const WIDGET_SESSION_KEY = "hadron-widget-session-id";
+
 export default function WidgetChat({ initialMessage, onInitialMessageConsumed, initialInput, onInitialInputConsumed, onMessagesChange }: WidgetChatProps) {
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [toolActivity, setToolActivity] = useState<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const isLoadingRef = useRef(false);
   const streamingRef = useRef("");
   const [displayContent, setDisplayContent] = useState("");
   const rafRef = useRef<number | null>(null);
   const requestIdRef = useRef<string | null>(null);
-  // Channel API: no unsub refs needed — channel is cleaned up when invoke returns.
   const scanningRef = useRef(false);
   const initialMessageHandledRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load last session on mount
+  useEffect(() => {
+    const storedId = localStorage.getItem(WIDGET_SESSION_KEY);
+    if (storedId) {
+      getChatSessionMessages(storedId)
+        .then((msgs) => { setSessionId(storedId); setMessages(msgs); })
+        .catch(() => localStorage.removeItem(WIDGET_SESSION_KEY));
+    }
+  }, []);
 
   // Keep messagesRef in sync with state and notify parent
   useEffect(() => {
@@ -61,6 +79,12 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
     };
   }, []);
 
+  const handleNewChat = useCallback(() => {
+    setMessages([]);
+    setSessionId(null);
+    localStorage.removeItem(WIDGET_SESSION_KEY);
+  }, []);
+
   const sendText = useCallback(async (text: string) => {
     if (!text || isLoadingRef.current) return;
 
@@ -74,20 +98,29 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
       timestamp: Date.now(),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const newMessages = [...messagesRef.current, userMsg];
+    setMessages(newMessages);
     setInput("");
     streamingRef.current = "";
     setDisplayContent("");
 
+    // Create session on first message
+    let sid = sessionId;
+    if (!sid) {
+      sid = createSessionId();
+      setSessionId(sid);
+      localStorage.setItem(WIDGET_SESSION_KEY, sid);
+    }
+    const currentSid = sid;
+
     const reqId = createRequestId();
     requestIdRef.current = reqId;
 
-    // Stream via Channel API (P2.1 — bypasses global event bus / COM boundary)
     let accumulated = "";
     let finalContent: string | null = null;
 
     try {
-      await sendChatMessage([...messagesRef.current, userMsg], {
+      await sendChatMessage(newMessages, {
         useRag: true,
         useKb: false,
         requestId: reqId,
@@ -111,6 +144,9 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
           onFinalContent: (event) => {
             finalContent = event.content;
           },
+          onToolUse: (event: ChatToolUseEvent) => {
+            setToolActivity(event.tool_name.replace(/_/g, " "));
+          },
         },
       });
 
@@ -120,7 +156,17 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
         content: finalContent || accumulated,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, assistantMsg]);
+      const allMessages = [...newMessages, assistantMsg];
+      setMessages(allMessages);
+
+      // Persist session to SQLite — title is derived from the first user message
+      await saveChatSession({
+        id: currentSid,
+        title: generateSessionTitle(newMessages[0]?.content ?? text),
+        messages: allMessages,
+        createdAt: newMessages[0]?.timestamp ?? Date.now(),
+        updatedAt: Date.now(),
+      });
     } catch (e) {
       const errorMsg: ChatMessage = {
         id: createMessageId(),
@@ -132,6 +178,7 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
     } finally {
       isLoadingRef.current = false;
       setIsLoading(false);
+      setToolActivity(null);
       streamingRef.current = "";
       setDisplayContent("");
       if (rafRef.current) {
@@ -140,7 +187,7 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
       }
       requestIdRef.current = null;
     }
-  }, []);
+  }, [sessionId]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -181,6 +228,7 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
     };
     setMessages((prev) => [...prev, scanMsg]);
     scanningRef.current = true;
+    isLoadingRef.current = true;
     setIsLoading(true);
 
     try {
@@ -218,6 +266,7 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       scanningRef.current = false;
+      isLoadingRef.current = false;
       setIsLoading(false);
     }
   }, []);
@@ -237,6 +286,19 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
           <div className="text-gray-500 text-center mt-8">
             <p className="text-emerald-400/70 font-medium mb-1">Ask anything</p>
             <p className="text-xs text-gray-600">Quick questions get quick answers</p>
+          </div>
+        )}
+        {messages.length > 0 && (
+          <div className="flex justify-end mb-1">
+            <button
+              onClick={handleNewChat}
+              title="New chat"
+              aria-label="New chat"
+              className="flex items-center gap-1 text-xs text-gray-600 hover:text-emerald-400 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              New chat
+            </button>
           </div>
         )}
         {messages.map((msg) => (
@@ -265,7 +327,7 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
         {isLoading && !displayContent && (
           <div className="flex items-center gap-2 text-gray-500">
             <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-            <span>Thinking...</span>
+            <span>{toolActivity ? `${toolActivity}…` : "Thinking..."}</span>
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -275,6 +337,12 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
 
       {/* Input */}
       <div className="px-4 py-3 border-t border-white/[0.08]">
+        {toolActivity && isLoading && displayContent && (
+          <div className="flex items-center gap-1.5 text-xs text-gray-600 pb-2">
+            <Loader2 className="w-3 h-3 animate-spin text-emerald-500/50" />
+            {toolActivity}…
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <textarea
             ref={inputRef}

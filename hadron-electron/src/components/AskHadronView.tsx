@@ -43,6 +43,7 @@ import {
 } from "../services/chat";
 import { isKBEnabled, getOpenSearchConfig } from "../services/opensearch";
 import ChatMessageBubble from "./ChatMessageBubble";
+import type { ToolTrace } from "./DiagnosticsPanel";
 import GoldAnswerDialog from "./GoldAnswerDialog";
 import SummaryPanel from "./SummaryPanel";
 import SessionFilters, { filterSessions, DEFAULT_FILTERS, type FilterState } from "./SessionFilters";
@@ -108,6 +109,8 @@ interface AskHadronViewProps {
   onNavigateToAnalysis?: (id: number) => void;
   initialMessages?: ChatMessage[];
   onInitialMessagesConsumed?: () => void;
+  initialSessionId?: string;
+  onInitialSessionConsumed?: () => void;
 }
 
 export default function AskHadronView({
@@ -115,6 +118,8 @@ export default function AskHadronView({
   onNavigateToAnalysis,
   initialMessages,
   onInitialMessagesConsumed,
+  initialSessionId,
+  onInitialSessionConsumed,
 }: AskHadronViewProps) {
   // Session state
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -133,6 +138,10 @@ export default function AskHadronView({
 
   // Diagnostics state (PR8): maps message ID -> diagnostics event
   const [messageDiagnostics, setMessageDiagnostics] = useState<Record<string, ChatDiagnosticsEvent>>({});
+
+  // Tool trace accumulation: per-response ref + per-message state map
+  const streamingToolsRef = useRef<ToolTrace[]>([]);
+  const [messageToolTraces, setMessageToolTraces] = useState<Record<string, ToolTrace[]>>({});
 
   // Verbosity toggle (Task 20)
   const [verbosity, setVerbosity] = useState<"concise" | "detailed" | null>(null);
@@ -171,6 +180,7 @@ export default function AskHadronView({
   const sessionsRef = useRef<ChatSession[]>([]);
   const activeRequestIdRef = useRef<string | null>(null);
   const importedBatchRef = useRef<string | null>(null);
+  const activatedInitialSessionRef = useRef<string | null>(null);
 
   // Keep sessionsRef in sync
   useEffect(() => {
@@ -186,6 +196,28 @@ export default function AskHadronView({
       setCustomer(cfg.defaultCustomer);
     }).catch((e) => logger.warn("Failed to load OpenSearch config", { error: e }));
   }, []);
+
+  // Activate a specific session (from drawer carry-over)
+  useEffect(() => {
+    if (!initialSessionId || activatedInitialSessionRef.current === initialSessionId) return;
+    if (isLoading) return;
+    activatedInitialSessionRef.current = initialSessionId;
+    (async () => {
+      try {
+        const [msgs, loadedSessions] = await Promise.all([
+          getChatSessionMessages(initialSessionId),
+          getChatSessions(),
+        ]);
+        setSessions(loadedSessions);
+        setActiveSessionId(initialSessionId);
+        setMessages(msgs);
+        setInput("");
+        onInitialSessionConsumed?.();
+      } catch {
+        onInitialSessionConsumed?.();
+      }
+    })();
+  }, [initialSessionId, isLoading, onInitialSessionConsumed]);
 
   useEffect(() => {
     if (!initialMessages || initialMessages.length === 0) {
@@ -344,6 +376,7 @@ export default function AskHadronView({
       setInput("");
       setIsLoading(true);
       streamingContentRef.current = "";
+      streamingToolsRef.current = [];
 
       // Set up streaming via Tauri Channel API (P2.1 — bypasses global event bus / COM boundary)
       const requestId = createRequestId();
@@ -389,6 +422,14 @@ export default function AskHadronView({
             onToolUse: (event: ChatToolUseEvent) => {
               const label = TOOL_LABELS[event.tool_name] || `Using ${event.tool_name}`;
               setToolActivity(label);
+              streamingToolsRef.current = [
+                ...streamingToolsRef.current,
+                {
+                  name: event.tool_name,
+                  args: event.tool_args as Record<string, unknown>,
+                  summary: label,
+                },
+              ];
             },
             onDiagnostics: (diag) => {
               setMessageDiagnostics((prev) => ({
@@ -406,6 +447,12 @@ export default function AskHadronView({
                 }
                 return updated;
               });
+              if (streamingToolsRef.current.length > 0) {
+                setMessageToolTraces((prev) => ({
+                  ...prev,
+                  [assistantMsg.id]: [...streamingToolsRef.current],
+                }));
+              }
             },
           },
         });
@@ -940,6 +987,7 @@ export default function AskHadronView({
               copyFailed={copyFailed}
               onCopy={handleCopy}
               diagnostics={messageDiagnostics[msg.id]}
+              toolTraces={messageToolTraces[msg.id]}
               onNavigateToAnalysis={onNavigateToAnalysis}
               isLastAssistant={msg.id === lastAssistantId}
               onRegenerate={handleRegenerate}

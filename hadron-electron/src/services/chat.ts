@@ -526,13 +526,41 @@ interface ChatMessageRecord {
 export async function getChatSessions(): Promise<ChatSession[]> {
   try {
     const records = await invoke<ChatSessionRecord[]>("chat_list_sessions");
-    // Return sessions without messages (loaded on demand via selectSession)
+
+    // Derive hasGoldAnswers from localStorage feedback (positive ratings)
+    const feedbackSessionIds = new Set<string>();
+    try {
+      const stored = localStorage.getItem(FEEDBACK_KEY);
+      if (stored) {
+        const feedback: ChatFeedback[] = JSON.parse(stored);
+        for (const f of feedback) {
+          if (f.rating === "positive") feedbackSessionIds.add(f.sessionId);
+        }
+      }
+    } catch {
+      // Ignore parse errors — badges are non-critical
+    }
+
+    // Derive hasSummary from localStorage (written by SummaryPanel on save)
+    const summarySessionIds = new Set<string>();
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.CHAT_SUMMARIES);
+      if (stored) {
+        const ids: string[] = JSON.parse(stored);
+        for (const id of ids) summarySessionIds.add(id);
+      }
+    } catch {
+      // Ignore parse errors — badges are non-critical
+    }
+
     return records.map((r) => ({
       id: r.id,
       title: r.title,
       messages: [],
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
+      hasGoldAnswers: feedbackSessionIds.has(r.id),
+      hasSummary: summarySessionIds.has(r.id),
     }));
   } catch (e) {
     logger.warn("Failed to load chat sessions from DB", { error: String(e) });

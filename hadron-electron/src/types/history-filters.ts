@@ -88,7 +88,7 @@ export const DEFAULT_HISTORY_FILTERS: HistoryFilters = {
   sortOrder: 'desc',
 };
 
-export function filtersToApiOptions(filters: HistoryFilters, limit = 50, offset = 0): AdvancedFilterOptions {
+export function filtersToApiOptions(filters: HistoryFilters, limit = 200, offset = 0): AdvancedFilterOptions {
   const options: AdvancedFilterOptions = {
     limit,
     offset,

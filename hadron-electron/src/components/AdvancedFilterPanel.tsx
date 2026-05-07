@@ -163,6 +163,7 @@ export const AdvancedFilterPanel = memo(function AdvancedFilterPanel({
           )}
         </h3>
         <button
+          aria-label="Close filters"
           onClick={onClose}
           className="text-gray-400 hover:text-gray-200 transition-colors"
         >

@@ -68,6 +68,7 @@ function App() {
   const [showAskHadron, setShowAskHadron] = useState(() => getBooleanSetting(STORAGE_KEYS.FEATURE_ASK_HADRON, true));
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pendingWidgetMessages, setPendingWidgetMessages] = useState<ChatMessage[] | null>(null);
+  const [pendingDrawerSessionId, setPendingDrawerSessionId] = useState<string | undefined>(undefined);
   const widgetVisibilitySyncTimeoutRef = useRef<number | null>(null);
   const widgetVisibilitySyncInFlightRef = useRef(false);
   const queuedWidgetVisibilitySyncReasonRef = useRef<string | null>(null);
@@ -773,6 +774,8 @@ function App() {
                     onNavigateToAnalysis={handleNavigateToAnalysis}
                     initialMessages={pendingWidgetMessages ?? undefined}
                     onInitialMessagesConsumed={() => setPendingWidgetMessages(null)}
+                    initialSessionId={pendingDrawerSessionId}
+                    onInitialSessionConsumed={() => setPendingDrawerSessionId(undefined)}
                   />
                 </div>
               </Suspense>
@@ -852,7 +855,8 @@ function App() {
       <AskHadronDrawer
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        onOpenFullView={() => {
+        onOpenFullView={(sid) => {
+          setPendingDrawerSessionId(sid);
           setDrawerOpen(false);
           actions.setView("chat");
         }}

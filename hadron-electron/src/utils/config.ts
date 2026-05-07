@@ -50,6 +50,7 @@ export const STORAGE_KEYS = {
 
   // Chat
   CHAT_FEEDBACK: "hadron_chat_feedback",
+  CHAT_SUMMARIES: "hadron_chat_summaries",
 
   // Legacy (migrated to secure storage, kept for migration)
   LEGACY_API_KEY: "ai_api_key",

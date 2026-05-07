@@ -63,8 +63,10 @@ export default function Navigation({
           onClick={() => tab.settingsSection && onOpenSettings?.(tab.settingsSection)}
           role="tab"
           aria-selected={false}
+          aria-disabled="true"
+          aria-label={`${tab.label} — click to configure`}
           title={`${tab.label} — click to configure`}
-          className="hd-nav-btn opacity-40 hover:opacity-60 transition-opacity"
+          className="hd-nav-btn opacity-40 hover:opacity-60 transition-opacity cursor-pointer"
         >
           <Lock className="w-[15px] h-[15px]" />
           <span>{tab.label}</span>

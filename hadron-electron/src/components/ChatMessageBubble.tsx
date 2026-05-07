@@ -32,6 +32,7 @@ import {
 } from "../services/chat";
 import { openExternal as open } from "../utils/openExternal";
 import DiagnosticsPanel from "./DiagnosticsPanel";
+import type { ToolTrace } from "./DiagnosticsPanel";
 import ExportMenu from "./ExportMenu";
 import type { SourceItem } from "./SourcePanel";
 import logger from "../services/logger";
@@ -125,6 +126,7 @@ export interface ChatMessageBubbleProps {
   copyFailed: boolean;
   onCopy: (id: string, content: string) => void;
   diagnostics?: ChatDiagnosticsEvent;
+  toolTraces?: ToolTrace[];
   onNavigateToAnalysis?: (id: number) => void;
   isLastAssistant?: boolean;
   onRegenerate?: () => void;
@@ -145,6 +147,7 @@ function ChatMessageBubble({
   copyFailed,
   onCopy,
   diagnostics,
+  toolTraces,
   onNavigateToAnalysis,
   isLastAssistant,
   onRegenerate,
@@ -431,7 +434,7 @@ function ChatMessageBubble({
 
         {/* Diagnostics panel (collapsed by default) */}
         {!isUser && !message.isStreaming && diagnostics && (
-          <DiagnosticsPanel diagnostics={diagnostics} />
+          <DiagnosticsPanel diagnostics={diagnostics} toolTraces={toolTraces} />
         )}
       </div>
 

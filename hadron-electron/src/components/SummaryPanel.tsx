@@ -33,6 +33,7 @@ import { getApiKey } from "../services/secure-storage";
 import { getJiraConfig } from "../services/jira";
 import { save } from "../lib/tauri-dialog-shim";
 import { invoke } from "../lib/tauri-core-shim";
+import { STORAGE_KEYS } from "../utils/config";
 import Button from "./ui/Button";
 
 // ============================================================================
@@ -154,6 +155,15 @@ export default function SummaryPanel({
         summaryMarkdown: markdown,
         topic: topic || "Untitled Summary",
       });
+      // Track in localStorage so getChatSessions() can populate hasSummary
+      try {
+        const stored = localStorage.getItem(STORAGE_KEYS.CHAT_SUMMARIES);
+        const ids: string[] = stored ? JSON.parse(stored) : [];
+        if (!ids.includes(sessionId)) {
+          ids.push(sessionId);
+          localStorage.setItem(STORAGE_KEYS.CHAT_SUMMARIES, JSON.stringify(ids));
+        }
+      } catch { /* non-critical */ }
       setIsLoaded(true);
       setSuccessMsg("Summary saved");
     } catch (e) {

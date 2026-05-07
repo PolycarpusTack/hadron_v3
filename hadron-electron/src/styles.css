@@ -612,6 +612,19 @@
   --hd-warn-dim: rgba(245, 158, 11, 0.12);
   --hd-info: #3b82f6;
   --hd-info-dim: rgba(59, 130, 246, 0.12);
+
+  /* Typography scale */
+  --hd-font-3xs:  0.625rem;  /* 10px */
+  --hd-font-2xs:  0.6875rem; /* 11px */
+  --hd-font-xs:   0.75rem;   /* 12px */
+  --hd-font-sm:   0.8125rem; /* 13px */
+  --hd-font-base: 0.875rem;  /* 14px */
+  --hd-font-lg:   1rem;      /* 16px */
+
+  /* Line heights */
+  --hd-lh-tight:   1.35;
+  --hd-lh-normal:  1.5;
+  --hd-lh-relaxed: 1.65;
 }
 
 body {
@@ -993,4 +1006,29 @@ body {
 
 .elena-fab-badge:hover .elena-ping-ring {
   animation: elena-ping 0.8s ease-out forwards;
+}
+
+/* =========================================================================
+   Typography utilities — normalise scattered inline font-size values
+   ========================================================================= */
+
+.hd-text-3xs  { font-size: var(--hd-font-3xs);  line-height: var(--hd-lh-normal); }
+.hd-text-2xs  { font-size: var(--hd-font-2xs);  line-height: var(--hd-lh-normal); }
+.hd-text-xs   { font-size: var(--hd-font-xs);   line-height: var(--hd-lh-normal); }
+.hd-text-sm   { font-size: var(--hd-font-sm);   line-height: var(--hd-lh-normal); }
+.hd-text-base { font-size: var(--hd-font-base);  line-height: var(--hd-lh-normal); }
+
+.hd-mono-3xs  { font-size: var(--hd-font-3xs);  font-family: var(--hd-font-mono); line-height: var(--hd-lh-tight); }
+.hd-mono-2xs  { font-size: var(--hd-font-2xs);  font-family: var(--hd-font-mono); line-height: var(--hd-lh-tight); }
+.hd-mono-xs   { font-size: var(--hd-font-xs);   font-family: var(--hd-font-mono); line-height: var(--hd-lh-tight); }
+.hd-mono-sm   { font-size: var(--hd-font-sm);   font-family: var(--hd-font-mono); line-height: var(--hd-lh-tight); }
+
+/* Section / field label: 10px, bold, uppercase, dimmed */
+.hd-label {
+  font-size: var(--hd-font-3xs);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--hd-text-dim);
+  line-height: var(--hd-lh-tight);
 }
