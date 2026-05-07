@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 interface ShortcutHandlers {
   onNewAnalysis?: () => void;
@@ -21,55 +21,44 @@ interface ShortcutHandlers {
  * - Ctrl+F: Focus search (in history view)
  */
 export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
+  // Keep a ref so the listener never needs to be re-registered when handlers change
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Check for modifier keys
-      const isCtrl = event.ctrlKey || event.metaKey; // Support both Ctrl and Cmd (Mac)
+      const h = handlersRef.current;
+      const isCtrl = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
 
-      // Ctrl+N - New Analysis
       if (isCtrl && (key === "n" || event.code === "KeyN")) {
         event.preventDefault();
-        handlers.onNewAnalysis?.();
+        h.onNewAnalysis?.();
       }
-
-      // Ctrl+H - View History
       if (isCtrl && (key === "h" || event.code === "KeyH")) {
         event.preventDefault();
-        handlers.onViewHistory?.();
+        h.onViewHistory?.();
       }
-
-      // Ctrl+, - Open Settings
       if (isCtrl && (event.key === "," || event.code === "Comma")) {
         event.preventDefault();
-        handlers.onOpenSettings?.();
+        h.onOpenSettings?.();
       }
-
-      // Escape - Close modals
       if (event.key === "Escape") {
-        handlers.onCloseModal?.();
+        h.onCloseModal?.();
       }
-
-      // Ctrl+F - Focus search
       if (isCtrl && (key === "f" || event.code === "KeyF")) {
-        // Only prevent default if we have a search handler
-        if (handlers.onFocusSearch) {
+        if (h.onFocusSearch) {
           event.preventDefault();
-          handlers.onFocusSearch();
+          h.onFocusSearch();
         }
       }
-
-      // Ctrl+Y - Toggle console/log viewer
       if (isCtrl && (key === "y" || event.code === "KeyY")) {
         event.preventDefault();
-        handlers.onToggleConsole?.();
+        h.onToggleConsole?.();
       }
     };
 
     document.addEventListener("keydown", handleKeyDown, true);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [handlers]);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, []); // stable — listener registered once for the component lifetime
 }

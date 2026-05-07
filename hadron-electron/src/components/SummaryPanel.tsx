@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useAutoTimeout } from "../hooks/useAutoTimeout";
 import {
   X,
   Sparkles,
@@ -63,6 +64,7 @@ export default function SummaryPanel({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const scheduleTimeout = useAutoTimeout();
 
   // JIRA state
   const [showJiraPrompt, setShowJiraPrompt] = useState(false);
@@ -178,7 +180,7 @@ export default function SummaryPanel({
       const plain = markdownToPlainText(markdown);
       await navigator.clipboard.writeText(plain);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      scheduleTimeout(() => setCopied(false), 2000);
     } catch {
       setError("Failed to copy to clipboard");
     }

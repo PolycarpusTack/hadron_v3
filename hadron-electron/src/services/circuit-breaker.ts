@@ -261,11 +261,7 @@ export async function analyzeWithResilience(
 
     // Check if circuit should reset
     if (shouldReset(breaker)) {
-      breaker.isOpen = false;
-      breaker.failures = 0;
-      breaker.successes = 0;
-      breaker.totalCalls = 0;
-      logger.info('Circuit breaker reset after timeout', { provider });
+      resetCircuit(provider);
     }
 
     // Skip if circuit is open (provider is known to be failing)

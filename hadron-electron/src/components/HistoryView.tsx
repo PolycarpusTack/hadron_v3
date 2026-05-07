@@ -80,6 +80,19 @@ const DEFAULT_VISIBLE_COLUMNS: Set<ColumnKey> = new Set([
   "file", "rootCause", "severity", "status", "component", "cost",
 ]);
 
+const MONO = "'JetBrains Mono','Fira Code',monospace";
+const SEV_COL: Record<string, string> = {
+  critical: "#ef4444", high: "#f59e0b", medium: "#3b82f6", low: "#10b981",
+};
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+function getTypeInfo(kind: string, analysisType?: string): { icon: string; color: string } {
+  if (kind === "jira") return { icon: "◉", color: "#8b5cf6" };
+  if (analysisType === "comprehensive" || analysisType === "whatson") return { icon: "◈", color: "#10b981" };
+  if (analysisType === "quick") return { icon: "◎", color: "#22d3ee" };
+  if (analysisType === "sentry") return { icon: "⊕", color: "#f59e0b" };
+  return { icon: "▣", color: "#9ca3af" };
+}
+
 export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: HistoryViewProps) {
   const { confirm: confirmDialog, dialog: confirmDialogEl } = useConfirm();
 
@@ -693,8 +706,6 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     | { kind: "analysis"; data: Analysis; date: string; sortSeverity: number; sortCost: number }
     | { kind: "jira"; data: TicketBrief; date: string; sortSeverity: number; sortCost: number };
 
-  const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-
   const unifiedItems = useMemo((): HistoryItem[] => {
     // Exclude jira_deep analyses — those tickets are already shown via ticket_briefs
     const items: HistoryItem[] = analyses
@@ -703,7 +714,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
         kind: "analysis" as const,
         data: a,
         date: a.analyzed_at,
-        sortSeverity: severityRank[a.severity.toLowerCase()] ?? 4,
+        sortSeverity: SEVERITY_RANK[a.severity.toLowerCase()] ?? 4,
         sortCost: a.cost,
       }));
 
@@ -712,7 +723,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
         kind: "jira" as const,
         data: b,
         date: b.updated_at,
-        sortSeverity: severityRank[(b.severity || "").toLowerCase()] ?? 4,
+        sortSeverity: SEVERITY_RANK[(b.severity || "").toLowerCase()] ?? 4,
         sortCost: 0,
       });
     }
@@ -805,18 +816,6 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
   // Rendering
   // =========================================================================
 
-  const MONO = "'JetBrains Mono','Fira Code',monospace";
-  const SEV_COL: Record<string, string> = {
-    critical: "#ef4444", high: "#f59e0b", medium: "#3b82f6", low: "#10b981",
-  };
-  const getTypeInfo = (kind: string, analysisType?: string): { icon: string; color: string } => {
-    if (kind === "jira") return { icon: "◉", color: "#8b5cf6" };
-    if (analysisType === "comprehensive" || analysisType === "whatson") return { icon: "◈", color: "#10b981" };
-    if (analysisType === "quick") return { icon: "◎", color: "#22d3ee" };
-    if (analysisType === "sentry") return { icon: "⊕", color: "#f59e0b" };
-    return { icon: "▣", color: "#9ca3af" };
-  };
-
   if (loading) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 48, color: "rgba(255,255,255,0.3)", fontFamily: MONO, fontSize: "var(--hd-font-sm)" }}>
@@ -836,11 +835,10 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
     );
   }
 
-  // Flat list of all items after quick filter for total count
-  const displayedItems = Object.values(groupedUnifiedItems).flat();
-  const analysisTotalCount = analyses.filter(a => a.analysis_type !== "jira_deep").length;
-  const compTotal = analyses.filter(a => a.analysis_type === "comprehensive" || a.analysis_type === "whatson").length;
-  const quickTotal = analyses.filter(a => a.analysis_type === "quick").length;
+  const displayedItems = useMemo(() => Object.values(groupedUnifiedItems).flat(), [groupedUnifiedItems]);
+  const analysisTotalCount = useMemo(() => analyses.filter(a => a.analysis_type !== "jira_deep").length, [analyses]);
+  const compTotal = useMemo(() => analyses.filter(a => a.analysis_type === "comprehensive" || a.analysis_type === "whatson").length, [analyses]);
+  const quickTotal = useMemo(() => analyses.filter(a => a.analysis_type === "quick").length, [analyses]);
   const jiraTotal = jiraBriefs.length;
 
   return (

@@ -294,7 +294,8 @@ function App() {
         && await isKeeperBackendConfigured();
 
       // Load theme (non-sensitive, keep in localStorage for now)
-      const storedTheme = localStorage.getItem(STORAGE_KEYS.THEME);
+      let storedTheme: string | null = null;
+      try { storedTheme = localStorage.getItem(STORAGE_KEYS.THEME); } catch { /* private browsing */ }
       const isDark = storedTheme === "dark" || storedTheme === null;
 
       // Initialize state — use a sentinel value when Keeper provides the key
@@ -330,10 +331,10 @@ function App() {
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add("dark");
-      localStorage.setItem(STORAGE_KEYS.THEME, "dark");
+      try { localStorage.setItem(STORAGE_KEYS.THEME, "dark"); } catch { /* quota/private */ }
     } else {
       document.documentElement.classList.remove("dark");
-      localStorage.setItem(STORAGE_KEYS.THEME, "light");
+      try { localStorage.setItem(STORAGE_KEYS.THEME, "light"); } catch { /* quota/private */ }
     }
   }, [darkMode]);
 
@@ -615,6 +616,12 @@ function App() {
     actions.setView("configure");
   }, [actions]);
 
+  const handleOpenFullView = useCallback((sid?: string) => {
+    setPendingDrawerSessionId(sid);
+    setDrawerOpen(false);
+    actions.setView("chat");
+  }, [actions]);
+
   // Splashscreen on app start - only show for minimum time, don't block on initialization
   if (showSplash) {
     return (
@@ -855,11 +862,7 @@ function App() {
       <AskHadronDrawer
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        onOpenFullView={(sid) => {
-          setPendingDrawerSessionId(sid);
-          setDrawerOpen(false);
-          actions.setView("chat");
-        }}
+        onOpenFullView={handleOpenFullView}
       />
     </div>
   );

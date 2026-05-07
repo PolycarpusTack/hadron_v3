@@ -91,7 +91,7 @@ export default function AiProviderSection({ settings, isOpen, onUpdateSettings, 
       };
       bgRefresh().catch(() => {});
     }
-  }, [isOpen, settings.provider]);
+  }, [isOpen, settings.provider, settings.apiKeys]);
 
   const isKeeperActiveForProvider = keeperConfig?.enabled &&
     !!keeperConfig.secretMappings[settings.provider as keyof typeof keeperConfig.secretMappings];

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { format } from "date-fns"
 import type { Analysis } from "../services/api"
 import type { ExportSource } from "../types"
@@ -1054,9 +1054,15 @@ function FlatView({
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
   }
 
-  const sentryData = analysis.analysis_type === "sentry" && analysis.full_data ? parseSentryMeta(analysis.full_data) : null
+  const sentryData = useMemo(
+    () => analysis.analysis_type === "sentry" && analysis.full_data ? parseSentryMeta(analysis.full_data) : null,
+    [analysis.analysis_type, analysis.full_data]
+  )
   const isJiraAnalysis = analysis.analysis_type === "jira" || analysis.analysis_type === "jira_ticket"
-  const jiraData = isJiraAnalysis && analysis.full_data ? parseJiraMeta(analysis.full_data) : null
+  const jiraData = useMemo(
+    () => isJiraAnalysis && analysis.full_data ? parseJiraMeta(analysis.full_data) : null,
+    [isJiraAnalysis, analysis.full_data]
+  )
 
   return (
     <div className="space-y-6">
@@ -1228,16 +1234,16 @@ export default function AnalysisDetailView({ analysis, onBack }: AnalysisDetailV
 
   useEffect(() => { isJiraEnabled().then(setJiraEnabled) }, [])
 
-  const suggestedFixes: string[] = (() => {
+  const suggestedFixes: string[] = useMemo(() => {
     const sf = analysis.suggested_fixes
     if (!sf) return []
     if (Array.isArray(sf)) return sf as string[]
     const trimmed = (sf as string).trim()
     if (trimmed.startsWith("[")) { try { return JSON.parse(trimmed) as string[] } catch {} }
     return trimmed.split("\n").filter((l: string) => l.trim())
-  })()
+  }, [analysis.suggested_fixes])
 
-  const wcrData = parseWcrData(analysis.full_data)
+  const wcrData = useMemo(() => parseWcrData(analysis.full_data), [analysis.full_data])
 
   if (wcrData) {
     return (

@@ -388,15 +388,14 @@ export async function executeWithResilience<T>(
       const error = normalizeError(e);
       lastError = error;
 
-      // Record failure for circuit breaker
-      circuitBreaker.recordFailure();
-
       // Check if we should retry
       const shouldRetry = attempt < opts.maxRetries &&
         error.retryable &&
         (error.statusCode === undefined || opts.retryableStatusCodes.includes(error.statusCode));
 
       if (!shouldRetry) {
+        // Only penalise the circuit breaker on terminal failure, not on each retry
+        circuitBreaker.recordFailure();
         throw error;
       }
 

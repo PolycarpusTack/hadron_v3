@@ -74,6 +74,7 @@ const LAST_SYNC_KEY = "jira_last_sync";
 // ============================================================================
 
 let syncInterval: ReturnType<typeof setInterval> | null = null;
+let initialSyncTimeout: ReturnType<typeof setTimeout> | null = null;
 let isSyncing = false;
 let lastSyncResult: SyncResult | null = null;
 
@@ -363,12 +364,15 @@ export function startAutoSync(): void {
     clearInterval(syncInterval);
   }
 
-  syncInterval = setInterval(async () => {
-    const enabled = await isJiraEnabled();
-    if (enabled && !isSyncing) {
-      logger.debug("Running scheduled JIRA sync");
-      await syncAllLinkedTickets();
-    }
+  syncInterval = setInterval(() => {
+    isJiraEnabled()
+      .then((enabled) => {
+        if (enabled && !isSyncing) {
+          logger.debug("Running scheduled JIRA sync");
+          return syncAllLinkedTickets();
+        }
+      })
+      .catch((e) => logger.error("Scheduled JIRA sync failed", { error: String(e) }));
   }, config.intervalMs);
 
   logger.info("JIRA auto-sync started", { intervalMs: config.intervalMs });
@@ -378,6 +382,10 @@ export function startAutoSync(): void {
  * Stop automatic background sync
  */
 export function stopAutoSync(): void {
+  if (initialSyncTimeout) {
+    clearTimeout(initialSyncTimeout);
+    initialSyncTimeout = null;
+  }
   if (syncInterval) {
     clearInterval(syncInterval);
     syncInterval = null;
@@ -397,9 +405,10 @@ export async function initSyncService(): Promise<void> {
       startAutoSync();
 
       // Run initial sync after a short delay
-      setTimeout(() => {
-        syncAllLinkedTickets().catch(e => {
-          logger.error("Initial sync failed", { error: e });
+      initialSyncTimeout = setTimeout(() => {
+        initialSyncTimeout = null;
+        syncAllLinkedTickets().catch((e) => {
+          logger.error("Initial sync failed", { error: String(e) });
         });
       }, 5000);
     }

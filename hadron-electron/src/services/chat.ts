@@ -93,7 +93,7 @@ export interface ChatResponse {
 export type ChatSidebandEvent =
   | { kind: "context"; rag_results: number; kb_results: number; gold_matches: number; fts_results: number }
   | { kind: "tool_use"; tool_name: string; tool_args: Record<string, unknown>; iteration: number }
-  | { kind: "diagnostics" } & Record<string, unknown>
+  | ({ kind: "diagnostics" } & ChatDiagnosticsEvent)
   | { kind: "final_content"; content: string; references: Array<{ index: number; url: string; title: string }> };
 
 /** Response from poll_chat_stream command. */
@@ -157,7 +157,7 @@ function startChatPollLoop(
               });
               break;
             case "diagnostics":
-              callbacks?.onDiagnostics?.(evt as unknown as ChatDiagnosticsEvent);
+              callbacks?.onDiagnostics?.(evt as ChatDiagnosticsEvent);
               break;
             case "final_content":
               callbacks?.onFinalContent?.({
@@ -328,75 +328,7 @@ export async function sendChatMessage(
 // ============================================================================
 
 export async function cancelChat(_requestId: string): Promise<void> {
-  const { invoke } = await import("../lib/tauri-core-shim");
   await invoke("cancel_chat_stream").catch(() => {});
-}
-
-// ============================================================================
-// Event Listeners
-// ============================================================================
-
-export async function subscribeToChatStream(
-  callback: (event: ChatStreamEvent) => void,
-  requestId?: string
-): Promise<() => void> {
-  const { listen } = await import("../lib/tauri-event-shim");
-  return listen<ChatStreamEvent>("chat-stream", (event) => {
-    if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
-    callback(event.payload);
-  });
-}
-
-export async function subscribeToChatContext(
-  callback: (sources: ChatSources) => void,
-  requestId?: string
-): Promise<() => void> {
-  const { listen } = await import("../lib/tauri-event-shim");
-  return listen<ChatSources & { request_id?: string }>("chat-context", (event) => {
-    if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
-    callback(event.payload);
-  });
-}
-
-export async function subscribeToChatToolUse(
-  callback: (event: ChatToolUseEvent) => void,
-  requestId?: string
-): Promise<() => void> {
-  const { listen } = await import("../lib/tauri-event-shim");
-  return listen<ChatToolUseEvent>("chat-tool-use", (event) => {
-    if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
-    callback(event.payload);
-  });
-}
-
-export async function subscribeToChatDiagnostics(
-  callback: (event: ChatDiagnosticsEvent) => void,
-  requestId?: string
-): Promise<() => void> {
-  const { listen } = await import("../lib/tauri-event-shim");
-  return listen<ChatDiagnosticsEvent & { request_id?: string }>(
-    "chat-diagnostics",
-    (event) => {
-      if (
-        requestId &&
-        event.payload.request_id &&
-        event.payload.request_id !== requestId
-      )
-        return;
-      callback(event.payload);
-    }
-  );
-}
-
-export async function subscribeToChatFinalContent(
-  callback: (event: ChatFinalContentEvent) => void,
-  requestId?: string
-): Promise<() => void> {
-  const { listen } = await import("../lib/tauri-event-shim");
-  return listen<ChatFinalContentEvent>("chat-final-content", (event) => {
-    if (requestId && event.payload.request_id && event.payload.request_id !== requestId) return;
-    callback(event.payload);
-  });
 }
 
 // ============================================================================
@@ -435,7 +367,8 @@ export function submitChatFeedback(
   try {
     // Store locally for immediate UI state
     const stored = localStorage.getItem(FEEDBACK_KEY);
-    const feedback: ChatFeedback[] = stored ? JSON.parse(stored) : [];
+    const parsed = stored ? JSON.parse(stored) : [];
+    const feedback: ChatFeedback[] = Array.isArray(parsed) ? parsed : [];
     const idx = feedback.findIndex((f) => f.messageId === messageId);
     const entry: ChatFeedback = { sessionId, messageId, rating, comment, reason, timestamp: Date.now() };
     if (idx >= 0) {
@@ -471,7 +404,8 @@ export function removeChatFeedback(sessionId: string, messageId: string): void {
     // Remove from localStorage
     const stored = localStorage.getItem(FEEDBACK_KEY);
     if (stored) {
-      const feedback: ChatFeedback[] = JSON.parse(stored);
+      const parsed = JSON.parse(stored);
+      const feedback: ChatFeedback[] = Array.isArray(parsed) ? parsed : [];
       const filtered = feedback.filter((f) => f.messageId !== messageId);
       localStorage.setItem(FEEDBACK_KEY, JSON.stringify(filtered));
     }
@@ -496,7 +430,8 @@ export function getChatFeedback(messageId: string): ChatFeedback | null {
   try {
     const stored = localStorage.getItem(FEEDBACK_KEY);
     if (!stored) return null;
-    const feedback: ChatFeedback[] = JSON.parse(stored);
+    const parsed = JSON.parse(stored);
+    const feedback: ChatFeedback[] = Array.isArray(parsed) ? parsed : [];
     return feedback.find((f) => f.messageId === messageId) ?? null;
   } catch {
     return null;
@@ -532,7 +467,8 @@ export async function getChatSessions(): Promise<ChatSession[]> {
     try {
       const stored = localStorage.getItem(FEEDBACK_KEY);
       if (stored) {
-        const feedback: ChatFeedback[] = JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        const feedback: ChatFeedback[] = Array.isArray(parsed) ? parsed : [];
         for (const f of feedback) {
           if (f.rating === "positive") feedbackSessionIds.add(f.sessionId);
         }
@@ -546,7 +482,8 @@ export async function getChatSessions(): Promise<ChatSession[]> {
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.CHAT_SUMMARIES);
       if (stored) {
-        const ids: string[] = JSON.parse(stored);
+        const parsed2 = JSON.parse(stored);
+        const ids: string[] = Array.isArray(parsed2) ? parsed2 : [];
         for (const id of ids) summarySessionIds.add(id);
       }
     } catch {

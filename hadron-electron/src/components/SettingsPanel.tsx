@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Suspense, lazy } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense, lazy } from "react";
 import { useAutoTimeout } from '../hooks/useAutoTimeout';
 import { X, Settings, Save } from "lucide-react";
 import { getApiKey, storeApiKey, deleteApiKey } from "../services/secure-storage";
@@ -227,6 +227,16 @@ export default function SettingsPanel({
     localStorage.setItem(STORAGE_KEYS.ANALYSIS_DEFAULT_TYPE, mode);
   };
 
+  const handlePiiToggle = useCallback(
+    () => setSettings(prev => ({ ...prev, piiRedactionEnabled: !prev.piiRedactionEnabled })),
+    []
+  );
+
+  const handleUpdateSettings = useCallback(
+    (partial: Partial<Settings>) => setSettings(prev => ({ ...prev, ...partial })),
+    []
+  );
+
   const settingsContent = (
       <div className={`${isInline ? "hd-panel" : "hd-modal-shell"} flex ${isInline ? "min-h-0 h-full" : "max-h-[85vh]"} w-full ${isInline ? "" : "max-w-4xl"} flex-col overflow-hidden`}>
         {/* Header */}
@@ -302,7 +312,7 @@ export default function SettingsPanel({
               darkMode={darkMode}
               onThemeChange={onThemeChange}
               piiRedactionEnabled={settings.piiRedactionEnabled}
-              onPiiToggle={() => setSettings(prev => ({ ...prev, piiRedactionEnabled: !prev.piiRedactionEnabled }))}
+              onPiiToggle={handlePiiToggle}
               defaultAnalysisMode={defaultAnalysisMode}
               onAnalysisModeChange={handleAnalysisModeChange}
               activeProviders={settings.activeProviders}
@@ -314,7 +324,7 @@ export default function SettingsPanel({
             <AiProviderSection
               settings={settings}
               isOpen={isOpen}
-              onUpdateSettings={(partial) => setSettings(prev => ({ ...prev, ...partial }))}
+              onUpdateSettings={handleUpdateSettings}
               onSettingsChange={onSettingsChange}
             />
           )}
@@ -329,7 +339,7 @@ export default function SettingsPanel({
             isOnline={isOnline}
             onNavigate={handleSelectSection}
             onThemeChange={onThemeChange}
-            onPiiToggle={() => setSettings(prev => ({ ...prev, piiRedactionEnabled: !prev.piiRedactionEnabled }))}
+            onPiiToggle={handlePiiToggle}
             onAnalysisModeChange={handleAnalysisModeChange}
           />
 

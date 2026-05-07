@@ -178,14 +178,14 @@ export default function AskHadronView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const streamingContentRef = useRef("");
   const sessionsRef = useRef<ChatSession[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
   const activeRequestIdRef = useRef<string | null>(null);
   const importedBatchRef = useRef<string | null>(null);
   const activatedInitialSessionRef = useRef<string | null>(null);
 
-  // Keep sessionsRef in sync
-  useEffect(() => {
-    sessionsRef.current = sessions;
-  }, [sessions]);
+  // Keep sessionsRef and messagesRef in sync
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   // Load sessions and check KB on mount
   useEffect(() => {
@@ -496,34 +496,29 @@ export default function AskHadronView({
         setIsLoading(false);
         setToolActivity(null);
 
-        // Save session to SQLite
-        setMessages((prev) => {
-          // Derive isNewSession from prev: if there's exactly 1 user message, it's new
-          const isNewSession = prev.filter((m) => m.role === "user").length === 1;
-          const existingSession = sessionsRef.current.find((s) => s.id === sessionId);
-
-          const title = isNewSession
-            ? generateSessionTitle(text)
-            : existingSession?.title || generateSessionTitle(text);
-
-          const session: ChatSession = {
-            id: sessionId!,
-            title,
-            messages: prev,
-            createdAt: existingSession?.createdAt || Date.now(),
-            updatedAt: Date.now(),
-          };
-          saveChatSession(session)
-            .then(() => getChatSessions().then(setSessions))
-            .catch((e) => {
-              logger.error("Failed to save chat session", { error: String(e) });
-              setErrorMsg("Warning: session could not be saved. Your conversation may be lost on restart.");
-            });
-          return prev;
-        });
+        // Save session to SQLite — use messagesRef to avoid impure setMessages updater
+        const currentMessages = messagesRef.current;
+        const isNewSession = currentMessages.filter((m) => m.role === "user").length === 1;
+        const existingSession = sessionsRef.current.find((s) => s.id === sessionId);
+        const title = isNewSession
+          ? generateSessionTitle(text)
+          : existingSession?.title || generateSessionTitle(text);
+        const session: ChatSession = {
+          id: sessionId!,
+          title,
+          messages: currentMessages,
+          createdAt: existingSession?.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        };
+        saveChatSession(session)
+          .then(() => getChatSessions().then(setSessions))
+          .catch((e) => {
+            logger.error("Failed to save chat session", { error: String(e) });
+            setErrorMsg("Warning: session could not be saved. Your conversation may be lost on restart.");
+          });
       }
     },
-    [input, isLoading, activeSessionId, messages, useRag, useKb, kbAvailable, wonVersion, customer, verbosity]
+    [input, isLoading, activeSessionId, messages, useRag, useKb, kbAvailable, wonVersion, customer, verbosity, selectedAnalysisId]
   );
 
   // ============================================================================
