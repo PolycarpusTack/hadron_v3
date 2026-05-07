@@ -117,10 +117,11 @@ export interface ChatStreamCallbacks {
 const CHAT_POLL_INTERVAL_MS = 80;
 
 /**
- * Start polling the chat stream state and dispatch to callbacks.
+ * Start polling the chat stream state for the given requestId and dispatch to callbacks.
  * Returns a cancel function. Polling stops when `done` is received or cancelled.
  */
 function startChatPollLoop(
+  requestId: string,
   callbacks: ChatStreamCallbacks | undefined,
   onDone: () => void,
 ): () => void {
@@ -130,7 +131,7 @@ function startChatPollLoop(
   (async () => {
     while (!cancelled) {
       try {
-        const poll = await invoke<ChatPollResponse>("poll_chat_stream");
+        const poll = await invoke<ChatPollResponse>("poll_chat_stream", { request_id: requestId });
         if (cancelled) break;
 
         // Dispatch accumulated text as a stream event
@@ -279,11 +280,14 @@ export async function sendChatMessage(
 
   const kbConfig = await getOpenSearchConfig().catch(() => null);
 
-  // Start polling loop BEFORE invoke — the backend writes to shared state
-  // as soon as streaming begins, and invoke blocks until complete.
+  // Always have a request ID so both the poll loop and the backend use the same key.
+  const effectiveRequestId = options.requestId ?? createRequestId();
+
+  // Start polling loop BEFORE invoke — the backend writes to the stream keyed by
+  // effectiveRequestId as soon as streaming begins, and invoke blocks until complete.
   const pollState = { cancel: (() => {}) as () => void };
   const pollDone = new Promise<void>((resolve) => {
-    pollState.cancel = startChatPollLoop(options.callbacks, resolve);
+    pollState.cancel = startChatPollLoop(effectiveRequestId, options.callbacks, resolve);
   });
 
   try {
@@ -306,7 +310,7 @@ export async function sendChatMessage(
       jira_project_key: jiraProjectKey,
       auxiliary_model: auxiliaryModel,
       analysis_id: options.analysisId ?? null,
-      request_id: options.requestId ?? null,
+      request_id: effectiveRequestId,
       date_from: options.dateFrom ?? null,
       date_to: options.dateTo ?? null,
       analysis_types: options.analysisTypes ?? null,
@@ -327,8 +331,8 @@ export async function sendChatMessage(
 // Chat Cancellation
 // ============================================================================
 
-export async function cancelChat(_requestId: string): Promise<void> {
-  await invoke("cancel_chat_stream").catch(() => {});
+export async function cancelChat(requestId: string): Promise<void> {
+  await invoke("cancel_chat_stream", { request_id: requestId }).catch(() => {});
 }
 
 // ============================================================================
@@ -442,19 +446,24 @@ export function getChatFeedback(messageId: string): ChatFeedback | null {
 // Session Persistence (SQLite via Tauri)
 // ============================================================================
 
+// SQLite returns snake_case column names; map to camelCase in the callers below.
 interface ChatSessionRecord {
   id: string;
   title: string;
-  createdAt: number;
-  updatedAt: number;
+  created_at: number;
+  updated_at: number;
+  is_starred?: number;
+  tags?: string | null;
+  customer?: string | null;
+  won_version?: string | null;
 }
 
 interface ChatMessageRecord {
   id: string;
-  sessionId: string;
+  session_id: string;
   role: string;
   content: string;
-  sourcesJson: string | null;
+  sources_json: string | null;
   timestamp: number;
 }
 
@@ -494,8 +503,12 @@ export async function getChatSessions(): Promise<ChatSession[]> {
       id: r.id,
       title: r.title,
       messages: [],
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      isStarred: !!r.is_starred,
+      tags: r.tags ?? undefined,
+      customer: r.customer ?? undefined,
+      wonVersion: r.won_version ?? undefined,
       hasGoldAnswers: feedbackSessionIds.has(r.id),
       hasSummary: summarySessionIds.has(r.id),
     }));
@@ -513,7 +526,7 @@ export async function getChatSessionMessages(sessionId: string): Promise<ChatMes
       role: r.role as "user" | "assistant" | "system",
       content: r.content,
       timestamp: r.timestamp,
-      sources: r.sourcesJson ? JSON.parse(r.sourcesJson) : undefined,
+      sources: r.sources_json ? JSON.parse(r.sources_json) : undefined,
     }));
   } catch (e) {
     logger.warn("Failed to load chat messages from DB", { error: String(e) });

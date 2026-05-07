@@ -21,8 +21,10 @@ const settingsStore = new Store({ name: 'settings' })
 const MAX_AGENT_ITERATIONS = 5
 
 // ── Per-request stream state ─────────────────────────────────────────────────
-// Each chat_send creates a fresh state object and stores it here.
-// poll_chat_stream drains from it. No singleton mutation race.
+// Each chat_send creates a fresh state object keyed by requestId.
+// poll_chat_stream drains from it and deletes the entry when done.
+// Using a Map instead of a singleton prevents concurrent requests
+// (main view + widget + drawer) from overwriting each other's state.
 
 interface StreamState {
   pendingText: string
@@ -31,11 +33,11 @@ interface StreamState {
   events: Array<{ kind: string; [k: string]: unknown }>
 }
 
-let activeStream: StreamState | null = null
+const streams = new Map<string, StreamState>()
 
-function streamReset(): StreamState {
+function streamCreate(requestId: string): StreamState {
   const s: StreamState = { pendingText: '', done: false, error: null, events: [] }
-  activeStream = s
+  streams.set(requestId, s)
   return s
 }
 
@@ -192,16 +194,18 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     db.prepare(`UPDATE chat_sessions SET ${updates.join(', ')} WHERE id = ?`).run(...params)
   })
 
-  ipcMain.handle('chat_submit_feedback', (_e, args: {
-    session_id: string
-    message_id: string
-    rating: string
-    comment?: string
-    tools_used?: string
-    sources_cited?: string
-    query?: string
-    reason?: string
+  ipcMain.handle('chat_submit_feedback', (_e, rawArgs: {
+    request?: {
+      session_id: string; message_id: string; rating: string
+      comment?: string; tools_used?: string; sources_cited?: string; query?: string; reason?: string
+    }
+    session_id?: string; message_id?: string; rating?: string
+    comment?: string; tools_used?: string; sources_cited?: string; query?: string; reason?: string
   }) => {
+    const args = (rawArgs.request ?? rawArgs) as {
+      session_id: string; message_id: string; rating: string
+      comment?: string; tools_used?: string; sources_cited?: string; query?: string; reason?: string
+    }
     const db = getDb()
     const now = new Date().toISOString()
     db.prepare(`
@@ -225,43 +229,49 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     return { id: saved.id }
   })
 
-  ipcMain.handle('chat_delete_feedback', (_e, args: {
-    id?: number
-    session_id?: string
-    sessionId?: string
-    message_id?: string
-    messageId?: string
+  ipcMain.handle('chat_delete_feedback', (_e, rawArgs: {
+    request?: { id?: number; session_id?: string; message_id?: string }
+    id?: number; session_id?: string; sessionId?: string; message_id?: string; messageId?: string
   }) => {
+    const a = rawArgs.request ?? rawArgs
     const db = getDb()
-    if (args.id) {
-      db.prepare('DELETE FROM chat_feedback WHERE id = ?').run(args.id)
+    if (a.id) {
+      db.prepare('DELETE FROM chat_feedback WHERE id = ?').run(a.id)
     } else {
-      const sessionId = args.session_id ?? args.sessionId ?? ''
-      const messageId = args.message_id ?? args.messageId ?? ''
+      const sessionId = a.session_id ?? rawArgs.sessionId ?? ''
+      const messageId = a.message_id ?? rawArgs.messageId ?? ''
       db.prepare('DELETE FROM chat_feedback WHERE session_id = ? AND message_id = ?').run(sessionId, messageId)
     }
   })
 
-  // Poll the current streaming response chunk buffer.
-  // Returns done:false when no stream is active (not-yet-started, not complete) so the
-  // poll loop waits rather than exiting before chat_send has called streamReset().
-  ipcMain.handle('poll_chat_stream', () => {
-    if (!activeStream) return { text: '', done: false, error: null, events: [] }
-    const s = activeStream
+  // Poll the streaming buffer for a specific request.
+  // Returns done:false when the request is not yet started so the poll loop
+  // waits rather than exiting before chat_send has called streamCreate().
+  // Deletes the entry from the map once done:true is returned so memory is
+  // reclaimed without a separate cleanup step.
+  ipcMain.handle('poll_chat_stream', (_e, args?: { request_id?: string }) => {
+    const requestId = args?.request_id
+    if (!requestId) return { text: '', done: false, error: null, events: [] }
+    const s = streams.get(requestId)
+    if (!s) return { text: '', done: false, error: null, events: [] }
     const text = s.pendingText
     const done = s.done
     const error = s.error ?? undefined
     const events = [...s.events]
     s.pendingText = ''
     s.events = []
+    if (done) streams.delete(requestId)
     return { text, done, error, events }
   })
 
   // Cancel an in-flight streaming request.
-  ipcMain.handle('cancel_chat_stream', () => {
-    if (activeStream && !activeStream.done) {
-      activeStream.done = true
-      activeStream.error = 'Request cancelled'
+  ipcMain.handle('cancel_chat_stream', (_e, args?: { request_id?: string }) => {
+    const requestId = args?.request_id
+    if (!requestId) return
+    const s = streams.get(requestId)
+    if (s && !s.done) {
+      s.done = true
+      s.error = 'Request cancelled'
     }
   })
 
@@ -304,7 +314,8 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       keeper_secret_uid?: string; auxiliary_model?: string; verbosity?: string
     }
 
-    const ss = streamReset()
+    const requestId = args.request_id || `gen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const ss = streamCreate(requestId)
     try {
 
     // ── Resolve API key ────────────────────────────────────────────────────
@@ -571,8 +582,9 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     }
 
     } finally {
-      // Reset so the next chat's poll loop does not see a stale done:true state.
-      if (activeStream === ss) activeStream = null
+      // Ensure done is set on unexpected exit so the poll loop can drain and
+      // clean up the map entry (poll_chat_stream deletes the entry when done:true is returned).
+      if (!ss.done) ss.done = true
     }
   })
 }
