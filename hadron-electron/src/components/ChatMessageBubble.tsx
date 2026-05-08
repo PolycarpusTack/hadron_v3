@@ -434,13 +434,15 @@ function ChatMessageBubble({
 
         {/* Tool pill strip — always visible when tool traces exist */}
         {!isUser && !message.isStreaming && toolTraces && toolTraces.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-1">
+          <div className="mt-1.5 flex flex-wrap gap-1" role="list" aria-label="Tools used">
             {toolTraces.map((trace, idx) => (
               <span
-                key={idx}
-                className="px-1.5 py-0.5 rounded text-[10px] bg-gray-800/60 border border-gray-700/50 text-gray-500"
+                key={`${trace.name}-${idx}`}
+                role="listitem"
+                title={trace.summary}
+                className="px-1.5 py-0.5 rounded text-[10px] bg-gray-800/60 border border-gray-700/50 text-gray-400"
               >
-                {trace.summary}
+                {trace.name}
               </span>
             ))}
           </div>
