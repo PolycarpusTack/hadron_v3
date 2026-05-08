@@ -632,6 +632,16 @@ async function toolCreateJiraTicket(args: Record<string, unknown>, signal?: Abor
   return `Successfully created JIRA ticket **${created.key}**: "${summary}"\nIssue ID: ${created.id}`
 }
 
+// ── ADF (Atlassian Document Format) helper ───────────────────────────────────
+
+function adfToText(body: unknown): string {
+  if (!body || typeof body !== 'object') return '(no body)'
+  const adf = body as { content?: Array<{ content?: Array<{ text?: string }> }> }
+  return adf.content?.flatMap(block =>
+    block.content?.map(inline => inline.text ?? '').filter(Boolean) ?? []
+  ).join(' ').trim() || '(no body)'
+}
+
 // ── Native fallbacks for investigation tools (when MCP not available) ─────────
 
 // LLM-supplied ticket keys must match the canonical JIRA shape before flowing
@@ -664,12 +674,12 @@ async function toolNativeInvestigateTicket(args: Record<string, unknown>, signal
       issuetype: { name: string }
       labels: string[]
       components: Array<{ name: string }>
-      comment: { comments: Array<{ author: { displayName: string }; created: string }> }
+      comment: { comments: Array<{ author: { displayName: string }; created: string; body?: unknown }> }
     }
     changelog: { histories: Array<{ created: string; author: { displayName: string }; items: Array<{ field: string; fromString: string | null; toString: string | null }> }> }
   }
   const f = issue.fields
-  const comments = f.comment.comments.slice(-5).map(c => `  [${c.created.substring(0, 10)}] ${c.author.displayName}: (comment)`)
+  const comments = f.comment.comments.slice(-5).map(c => `  [${c.created.substring(0, 10)}] ${c.author.displayName}: ${adfToText((c as Record<string, unknown>).body)}`)
   const history = issue.changelog.histories.slice(-10).map(h =>
     `  [${h.created.substring(0, 10)}] ${h.author.displayName}: ` + h.items.map(i => `${i.field}: ${i.fromString ?? '(none)'} → ${i.toString ?? '(none)'}`).join(', ')
   )

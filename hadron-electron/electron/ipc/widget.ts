@@ -1,11 +1,13 @@
-import { IpcMain, BrowserWindow, screen } from 'electron'
+import { IpcMain, BrowserWindow, screen, shell } from 'electron'
 import path from 'path'
+import log from 'electron-log'
 import { is } from '@electron-toolkit/utils'
 
 let widgetWindow: BrowserWindow | null = null
 
+let _getMainWindow: (() => BrowserWindow | null) | null = null
 function getMainWindow(): BrowserWindow | null {
-  return BrowserWindow.getAllWindows().find(w => w !== widgetWindow) ?? null
+  return _getMainWindow ? _getMainWindow() : null
 }
 
 function getOrCreateWidgetWindow(): BrowserWindow {
@@ -45,8 +47,9 @@ function getOrCreateWidgetWindow(): BrowserWindow {
     try {
       const parsed = new URL(url)
       if (parsed.protocol === 'https:') {
-        const { shell } = require('electron') as typeof import('electron')
-        shell.openExternal(parsed.toString())
+        shell.openExternal(parsed.toString()).catch(err =>
+          log.warn('[widget] shell.openExternal failed:', err)
+        )
       }
     } catch { /* ignore malformed URLs */ }
     return { action: 'deny' }
@@ -60,10 +63,19 @@ function getOrCreateWidgetWindow(): BrowserWindow {
   return widgetWindow
 }
 
-export function registerWidgetHandlers(ipcMain: IpcMain): void {
+export function registerWidgetHandlers(ipcMain: IpcMain, getMainWin: () => BrowserWindow | null): void {
+  _getMainWindow = getMainWin
   ipcMain.handle('focus_main_window', () => {
     const win = getMainWindow()
     if (win) { win.show(); win.restore(); win.focus() }
+  })
+
+  ipcMain.handle('relay_to_main', (_e, args: { messages?: Array<{ role: string; content: string }> }) => {
+    const win = getMainWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('widget:open-in-main', { messages: args?.messages ?? [] })
+      win.show(); win.restore(); win.focus()
+    }
   })
 
   ipcMain.handle('show_widget', () => {

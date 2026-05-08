@@ -104,8 +104,8 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
     return app.getPath(n)
   })
 
-  ipcMain.handle('app:exit', (_e, { code }: { code: number }) => {
-    app.exit(code)
+  ipcMain.on('app:exit', (_e, { code }: { code: number }) => {
+    app.exit(typeof code === 'number' && Number.isFinite(code) ? Math.max(0, Math.min(255, code)) : 0)
   })
 
   ipcMain.handle('clipboard:write', (_e, text: string) => {

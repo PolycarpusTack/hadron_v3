@@ -71,6 +71,7 @@ function parseJsonResponse(content: string, fallback: unknown): unknown {
 
 interface PollerState {
   running: boolean
+  cycling: boolean
   lastPolledAt: string | null
   ticketsTriagedTotal: number
   intervalMins: number
@@ -79,6 +80,7 @@ interface PollerState {
 
 const pollerState: PollerState = {
   running: false,
+  cycling: false,
   lastPolledAt: null,
   ticketsTriagedTotal: 0,
   intervalMins: 15,
@@ -86,6 +88,16 @@ const pollerState: PollerState = {
 }
 
 async function runPollerCycle(): Promise<void> {
+  if (pollerState.cycling) return
+  pollerState.cycling = true
+  try {
+    await runPollerCycleInner()
+  } finally {
+    pollerState.cycling = false
+  }
+}
+
+async function runPollerCycleInner(): Promise<void> {
   let creds: { baseUrl: string; email: string; apiToken: string }
   let projectKey: string
   try {
@@ -187,6 +199,9 @@ async function runPollerCycle(): Promise<void> {
     }
   }
 
+  if (triaged > 0) {
+    try { db.exec("INSERT INTO ticket_briefs_fts(ticket_briefs_fts) VALUES('rebuild')") } catch { /* index may not exist yet */ }
+  }
   pollerState.lastPolledAt = new Date().toISOString()
   pollerState.ticketsTriagedTotal += triaged
   log.info(`Poller cycle complete: checked ${issues.length} tickets, triaged ${triaged} new`)
@@ -306,6 +321,7 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
         JSON.stringify(triage),
         now, jiraKey,
       )
+      try { db.exec("INSERT INTO ticket_briefs_fts(ticket_briefs_fts) VALUES('rebuild')") } catch { /* index may not exist yet */ }
 
       return triage
     } catch (err: unknown) {
@@ -383,6 +399,7 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
         SET brief_json=?, updated_at=?
         WHERE jira_key=?
       `).run(JSON.stringify(brief), now, jiraKey)
+      try { db.exec("INSERT INTO ticket_briefs_fts(ticket_briefs_fts) VALUES('rebuild')") } catch { /* index may not exist yet */ }
 
       return brief
     } catch (err: unknown) {
@@ -442,10 +459,6 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
     const limit = args.limit ?? 5
     const queryText = `${args.title} ${args.description ?? ''}`.replace(/[^\w\s]/g, ' ').trim()
     if (!queryText) return []
-
-    try {
-      db.exec("INSERT INTO ticket_briefs_fts(ticket_briefs_fts) VALUES('rebuild')")
-    } catch { /* index may not exist yet */ }
 
     try {
       const rows = db.prepare(`

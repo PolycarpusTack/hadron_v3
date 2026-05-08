@@ -95,7 +95,7 @@ function createWindow(splash: BrowserWindow | null): void {
 app.whenReady().then(() => {
   preloadSavedExportDir()
   initDatabase()
-  registerAllHandlers(ipcMain)
+  registerAllHandlers(ipcMain, () => mainWindow)
 
   const splash = createSplashWindow()
   createWindow(splash)

@@ -26,9 +26,21 @@ contextBridge.exposeInMainWorld('hadron', {
     return () => ipcRenderer.removeListener('stream:chunk', handler)
   },
 
+  onWidgetOpenInMain: (callback: (payload: { messages?: Array<{ role: string; content: string }> }) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, payload: { messages?: Array<{ role: string; content: string }> }): void => callback(payload)
+    ipcRenderer.on('widget:open-in-main', handler)
+    return () => ipcRenderer.removeListener('widget:open-in-main', handler)
+  },
+
+  onReleaseNotesProgress: (callback: (payload: { phase: string; progress: number; message: string; requestId?: string | null }) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, payload: { phase: string; progress: number; message: string; requestId?: string | null }): void => callback(payload)
+    ipcRenderer.on('release-notes-progress', handler)
+    return () => ipcRenderer.removeListener('release-notes-progress', handler)
+  },
+
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   relaunch: (): void => ipcRenderer.send('app:relaunch'),
-  exit: (code?: number): void => { ipcRenderer.invoke('app:exit', { code: code ?? 0 }) },
+  exit: (code?: number): void => { ipcRenderer.send('app:exit', { code: code ?? 0 }) },
   getPath: (name: string): Promise<string> => ipcRenderer.invoke('app:getPath', name),
   writeToClipboard: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
   readFromClipboard: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),

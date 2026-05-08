@@ -463,7 +463,7 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('export_release_notes', (_e, args: { id: number; format: string }) => {
     const db = getDb()
-    const row = db.prepare('SELECT * FROM release_notes WHERE id = ?').get(args.id) as Record<string, unknown> | undefined
+    const row = db.prepare('SELECT * FROM release_notes WHERE id = ? AND deleted_at IS NULL').get(args.id) as Record<string, unknown> | undefined
     if (!row) throw new Error(`Release notes ${args.id} not found`)
     const content = (row.markdown_content as string) ?? ''
     if (args.format === 'json') {

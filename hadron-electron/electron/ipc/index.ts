@@ -1,4 +1,4 @@
-import { IpcMain, ipcMain as electronIpcMain, app } from 'electron'
+import { IpcMain, BrowserWindow, ipcMain as electronIpcMain, app } from 'electron'
 import { registerSettingsHandlers } from './settings'
 import { registerDialogHandlers } from './dialog'
 import { registerAiHandlers } from './ai'
@@ -24,7 +24,7 @@ import { registerKeeperHandlers } from './keeper'
 import { registerInvestigationHandlers } from './investigation'
 import { registerRagHandlers } from './rag'
 
-export function registerAllHandlers(ipcMain: IpcMain): void {
+export function registerAllHandlers(ipcMain: IpcMain, getMainWindow?: () => BrowserWindow | null): void {
   registerSettingsHandlers(ipcMain)
   registerDialogHandlers(ipcMain)
   registerAiHandlers(ipcMain)
@@ -37,7 +37,7 @@ export function registerAllHandlers(ipcMain: IpcMain): void {
   registerBulkHandlers(ipcMain)
   registerInfoHandlers(ipcMain)
   registerExportHandlers(ipcMain)
-  registerWidgetHandlers(ipcMain)
+  registerWidgetHandlers(ipcMain, getMainWindow ?? (() => null))
   registerChatHandlers(ipcMain)
   registerGoldAnswerHandlers(ipcMain)
   registerSummaryHandlers(ipcMain)
