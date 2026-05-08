@@ -35,12 +35,12 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('store:set', (_e, { store, key, value }: { store: string; key: string; value: unknown }) => {
-    if (!isRendererWritable(store)) return
+    if (!isRendererWritable(store) || RENDERER_BLOCKED_STORES.has(store)) return
     getStore(store).set(key, value)
   })
 
   ipcMain.handle('store:delete', (_e, { store, key }: { store: string; key: string }) => {
-    if (!isRendererWritable(store)) return
+    if (!isRendererWritable(store) || RENDERER_BLOCKED_STORES.has(store)) return
     getStore(store).delete(key)
   })
 
@@ -62,7 +62,7 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   // Restrict account names to known identifiers so a compromised renderer
   // cannot create or overwrite arbitrary keychain entries (audit F6).
   const KEYTAR_ALLOWED_ACCOUNTS = new Set([
-    'openai', 'anthropic', 'zai', 'jira', 'confluence', 'sentry',
+    'openai', 'anthropic', 'zai', 'jira', 'confluence', 'sentry', 'opensearch',
   ])
   const isAllowedAccount = (account: unknown): account is string =>
     typeof account === 'string' && KEYTAR_ALLOWED_ACCOUNTS.has(account)
