@@ -23,6 +23,7 @@ import type { Analysis } from "../services/api";
 import { AnalysisProgressBar } from "./AnalysisProgressBar";
 import logger from "../services/logger";
 import type { SentryConfig, SentryIssue, SentryProjectInfo } from "../types";
+import type { SettingsSection } from "./settings/types";
 
 // Sub-components
 import SentryIssueBrowser from "./sentry/SentryIssueBrowser";
@@ -32,11 +33,12 @@ import TabBar from "./ui/TabBar";
 
 interface SentryAnalyzerViewProps {
   onAnalysisComplete?: (analysis: Analysis) => void;
+  onOpenSettings?: (section: SettingsSection) => void;
 }
 
 type TabId = "browse" | "import" | "history";
 
-export default function SentryAnalyzerView({ onAnalysisComplete }: SentryAnalyzerViewProps) {
+export default function SentryAnalyzerView({ onAnalysisComplete, onOpenSettings }: SentryAnalyzerViewProps) {
   // Config state
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [config, setConfig] = useState<SentryConfig | null>(null);
@@ -132,6 +134,17 @@ export default function SentryAnalyzerView({ onAnalysisComplete }: SentryAnalyze
           <Settings className="w-4 h-4" />
           <span>Settings &gt; Integrations &gt; Sentry Integration</span>
         </div>
+        {onOpenSettings && (
+          <button
+            type="button"
+            onClick={() => onOpenSettings('sentry')}
+            className="mt-3 flex items-center gap-1.5 text-xs font-medium cursor-pointer"
+            style={{ color: 'var(--hd-accent)' }}
+          >
+            <Settings className="w-3 h-3" />
+            Configure Sentry →
+          </button>
+        )}
       </div>
     );
   }

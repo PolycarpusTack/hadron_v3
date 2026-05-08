@@ -11,6 +11,7 @@ import {
   History,
   AlertCircle,
   Loader2,
+  Settings,
 } from "lucide-react";
 import AnalyzerEntryPanel from "./AnalyzerEntryPanel";
 import TabBar from "./ui/TabBar";
@@ -19,9 +20,11 @@ import JiraProjectFeed from "./jira/JiraProjectFeed";
 import JiraAnalysisHistory from "./JiraAnalysisHistory";
 import { isJiraEnabled } from "../services/jira";
 import type { Analysis } from "../services/api";
+import type { SettingsSection } from "./settings/types";
 
 interface JiraAnalyzerViewProps {
   onAnalysisComplete?: (analysis: Analysis) => void;
+  onOpenSettings?: (section: SettingsSection) => void;
 }
 
 type TabId = "analyze" | "feed" | "history";
@@ -32,7 +35,7 @@ const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "history", label: "History", icon: <History className="w-4 h-4" /> },
 ];
 
-export default function JiraAnalyzerView({ onAnalysisComplete }: JiraAnalyzerViewProps) {
+export default function JiraAnalyzerView({ onAnalysisComplete, onOpenSettings }: JiraAnalyzerViewProps) {
   const [activeTab, setActiveTab] = useState<TabId>("analyze");
   const [configured, setConfigured] = useState<boolean | null>(null);
 
@@ -81,6 +84,17 @@ export default function JiraAnalyzerView({ onAnalysisComplete }: JiraAnalyzerVie
                 Enable JIRA integration in Settings &rarr; Integrations &rarr; JIRA to connect
                 your Atlassian instance. You'll need your JIRA URL, email, and an API token.
               </p>
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={() => onOpenSettings('jira')}
+                  className="mt-3 flex items-center gap-1.5 text-xs font-medium cursor-pointer"
+                  style={{ color: 'var(--hd-accent)' }}
+                >
+                  <Settings className="w-3 h-3" />
+                  Configure JIRA →
+                </button>
+              )}
             </div>
           </div>
         </AnalyzerEntryPanel>

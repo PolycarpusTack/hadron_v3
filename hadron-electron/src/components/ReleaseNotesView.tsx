@@ -4,11 +4,12 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { FileText, Wand2, CheckCircle, BookOpen, History, AlertCircle, Loader2 } from "lucide-react";
+import { FileText, Wand2, CheckCircle, BookOpen, History, AlertCircle, Loader2, Settings } from "lucide-react";
 import { isJiraEnabled } from "../services/jira";
 import { getReleaseNotes } from "../services/release-notes";
 import logger from "../services/logger";
 import type { ReleaseNotesProgress, ReleaseNotesDraft } from "../types";
+import type { SettingsSection } from "./settings/types";
 
 import ReleaseNotesGenerator from "./release-notes/ReleaseNotesGenerator";
 import ReleaseNotesEditor from "./release-notes/ReleaseNotesEditor";
@@ -29,7 +30,11 @@ const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "history", label: "History", icon: <History className="w-4 h-4" /> },
 ];
 
-export default function ReleaseNotesView() {
+interface ReleaseNotesViewProps {
+  onOpenSettings?: (section: SettingsSection) => void;
+}
+
+export default function ReleaseNotesView({ onOpenSettings }: ReleaseNotesViewProps) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("generate");
   const [reviewSubTab, setReviewSubTab] = useState<ReviewSubTab>("editor");
@@ -110,6 +115,17 @@ export default function ReleaseNotesView() {
           The Release Notes Generator requires JIRA integration to fetch tickets.
           Configure your JIRA connection in Settings to get started.
         </p>
+        {onOpenSettings && (
+          <button
+            type="button"
+            onClick={() => onOpenSettings('jira')}
+            className="mt-3 flex items-center gap-1.5 text-xs font-medium mx-auto cursor-pointer"
+            style={{ color: 'var(--hd-accent)' }}
+          >
+            <Settings className="w-3 h-3" />
+            Configure JIRA →
+          </button>
+        )}
       </div>
     );
   }

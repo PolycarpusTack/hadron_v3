@@ -750,7 +750,7 @@ function App() {
           {currentView === "jira" && (
             <ViewErrorBoundary name="JIRA Analyzer">
               <div id="jira-panel" role="tabpanel">
-                <JiraAnalyzerView onAnalysisComplete={actions.viewAnalysis} />
+                <JiraAnalyzerView onAnalysisComplete={actions.viewAnalysis} onOpenSettings={handleOpenSettings} />
               </div>
             </ViewErrorBoundary>
           )}
@@ -759,7 +759,7 @@ function App() {
           {currentView === "sentry" && (
             <ViewErrorBoundary name="Sentry Analyzer">
               <div id="sentry-panel" role="tabpanel">
-                <SentryAnalyzerView onAnalysisComplete={actions.viewAnalysis} />
+                <SentryAnalyzerView onAnalysisComplete={actions.viewAnalysis} onOpenSettings={handleOpenSettings} />
               </div>
             </ViewErrorBoundary>
           )}
@@ -769,7 +769,7 @@ function App() {
             <ViewErrorBoundary name="Release Notes">
               <Suspense fallback={<LazyLoadFallback />}>
                 <div id="release_notes-panel" role="tabpanel">
-                  <ReleaseNotesView />
+                  <ReleaseNotesView onOpenSettings={handleOpenSettings} />
                 </div>
               </Suspense>
             </ViewErrorBoundary>
