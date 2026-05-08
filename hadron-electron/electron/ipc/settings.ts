@@ -171,11 +171,12 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('save_codexmgx_config', (_e, args: { scriptPath: string; enabled: boolean }) => {
     if (typeof args.enabled !== 'boolean') throw new Error('enabled must be boolean')
     const s = getStore('settings')
+    const wasEnabled = s.get('codexmgx_enabled', false) as boolean
     // Never persist a renderer-supplied script path (audit F1: renderer→RCE path).
     // The launcher always uses the bundled script; the override is silently dropped.
     s.delete('codexmgx_script_path')
     s.set('codexmgx_enabled', args.enabled)
-    shutdownMcpClient()
+    if (wasEnabled && !args.enabled) shutdownMcpClient()
     return { ok: true }
   })
 }

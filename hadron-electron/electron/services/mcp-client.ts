@@ -43,6 +43,20 @@ function getBundledScriptPath(): string {
   return path.join(resPath, 'codexmgx', 'scripts', 'start-codexmgx-mcp.ps1')
 }
 
+// Only the bundled script under resourcesPath/codexmgx/scripts may be spawned.
+// Renderer-supplied overrides are discarded — they were a renderer→main RCE path.
+function resolveSafeScriptPath(): string {
+  const bundled = path.resolve(getBundledScriptPath())
+  const override = (settingsStore.get('codexmgx_script_path', '') as string) || ''
+  if (!override) return bundled
+  const resolved = path.resolve(override)
+  const allowedDir = path.resolve(path.dirname(bundled))
+  const rel = path.relative(allowedDir, resolved)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return bundled
+  if (!resolved.toLowerCase().endsWith('.ps1')) return bundled
+  return resolved
+}
+
 class McpClient {
   private process: ChildProcess | null = null
   private nextId = 1
@@ -50,11 +64,12 @@ class McpClient {
   // Raw buffer for Content-Length framing (never decoded as a whole string)
   private rawBuffer = Buffer.alloc(0)
   private initialized = false
+  private initPromise: Promise<void> | null = null
   private tools: McpTool[] = []
 
-  /** Effective script path: stored override or bundled default. */
+  /** Effective script path — sanitised; never honours an arbitrary renderer override. */
   private get scriptPath(): string {
-    return (settingsStore.get('codexmgx_script_path', '') as string) || getBundledScriptPath()
+    return resolveSafeScriptPath()
   }
 
   /** Whether CodexMgX is enabled by the user. Bundled scripts are always present. */
@@ -64,7 +79,10 @@ class McpClient {
 
   async ensureInitialized(): Promise<void> {
     if (this.initialized) return
-    await this.start()
+    if (!this.initPromise) {
+      this.initPromise = this.start().finally(() => { this.initPromise = null })
+    }
+    return this.initPromise
   }
 
   private async start(): Promise<void> {
@@ -72,7 +90,7 @@ class McpClient {
     log.info('[MCP] Spawning CodexMgX server:', scriptPath)
 
     this.process = spawn('powershell.exe', [
-      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
+      '-NoProfile', '-ExecutionPolicy', 'AllSigned', '-File', scriptPath,
     ], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
@@ -141,6 +159,13 @@ class McpClient {
       const contentLength = parseInt(match[1], 10)
       const bodyStart = headerEnd + 4
 
+      const MAX_FRAME_BYTES = 10 * 1024 * 1024 // 10 MB
+      if (contentLength > MAX_FRAME_BYTES) {
+        log.error('[MCP] Oversized frame received, resetting buffer', { contentLength })
+        this.rawBuffer = Buffer.alloc(0)
+        break
+      }
+
       if (this.rawBuffer.length < bodyStart + contentLength) break // incomplete, wait for more data
 
       const body = this.rawBuffer.slice(bodyStart, bodyStart + contentLength).toString('utf8')
@@ -194,16 +219,27 @@ class McpClient {
 
   /** Write a single JSON-RPC message with Content-Length framing. */
   private writeFramed(msg: unknown): void {
+    if (!this.process?.stdin) throw new Error('MCP process stdin not available')
     const bodyBytes = Buffer.from(JSON.stringify(msg), 'utf8')
     const header = Buffer.from(`Content-Length: ${bodyBytes.length}\r\n\r\n`, 'ascii')
-    this.process!.stdin!.write(Buffer.concat([header, bodyBytes]))
+    this.process.stdin.write(Buffer.concat([header, bodyBytes]))
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<string> {
+  async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
     await this.ensureInitialized()
-    const result = await this.sendRequest('tools/call', { name, arguments: args }) as {
+    const requestPromise = this.sendRequest('tools/call', { name, arguments: args }) as Promise<{
       content?: Array<{ type: string; text?: string }>
       isError?: boolean
+    }>
+    let result: { content?: Array<{ type: string; text?: string }>; isError?: boolean }
+    if (signal) {
+      const abortPromise = new Promise<never>((_, reject) => {
+        if (signal.aborted) { reject(new Error('MCP tool call aborted')); return }
+        signal.addEventListener('abort', () => reject(new Error('MCP tool call aborted')), { once: true })
+      })
+      result = await Promise.race([requestPromise, abortPromise])
+    } else {
+      result = await requestPromise
     }
     const text = (result.content ?? [])
       .filter(c => c.type === 'text')
@@ -243,11 +279,11 @@ export function shutdownMcpClient(): void {
  * Try to call a CodexMgX MCP tool. Returns null if MCP is disabled or the call fails.
  * Safe to call at any time — catches all errors internally.
  */
-export async function tryMcpCallTool(name: string, args: Record<string, unknown>): Promise<string | null> {
+export async function tryMcpCallTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<string | null> {
   const client = getMcpClient()
   if (!client.isConfigured()) return null
   try {
-    return await client.callTool(name, args)
+    return await client.callTool(name, args, signal)
   } catch (e) {
     log.warn(`[MCP] Tool ${name} failed:`, e instanceof Error ? e.message : e)
     return null
