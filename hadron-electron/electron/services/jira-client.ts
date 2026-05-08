@@ -57,13 +57,15 @@ export async function jiraFetch(
   email: string,
   apiToken: string,
   path: string,
-  options: Record<string, unknown> = {}
+  options: Record<string, unknown> = {},
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const { default: fetch } = await import('node-fetch')
   const auth = Buffer.from(`${email}:${apiToken}`).toString('base64')
   const url = `${baseUrl.replace(/\/$/, '')}${path}`
   const res = await fetch(url, {
     ...options,
+    signal: signal ?? null,
     headers: {
       'Authorization': `Basic ${auth}`,
       'Content-Type': 'application/json',
