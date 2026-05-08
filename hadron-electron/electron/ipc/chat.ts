@@ -599,7 +599,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
         model,
         apiKey,
         systemPrompt: synthSystemPrompt,
-        messages: synthesisMessages,
+        messages: agentMessages,
         maxTokens: 4096,
         signal: ss.controller.signal,
         onChunk: (text) => {
