@@ -432,6 +432,20 @@ function ChatMessageBubble({
           </div>
         )}
 
+        {/* Tool pill strip — always visible when tool traces exist */}
+        {!isUser && !message.isStreaming && toolTraces && toolTraces.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {toolTraces.map((trace, idx) => (
+              <span
+                key={idx}
+                className="px-1.5 py-0.5 rounded text-[10px] bg-gray-800/60 border border-gray-700/50 text-gray-500"
+              >
+                {trace.summary}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Diagnostics panel (collapsed by default) */}
         {!isUser && !message.isStreaming && diagnostics && (
           <DiagnosticsPanel diagnostics={diagnostics} toolTraces={toolTraces} />
