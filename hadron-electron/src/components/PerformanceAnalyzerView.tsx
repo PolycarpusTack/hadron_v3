@@ -290,8 +290,8 @@ function FileUpload({
           const name = path.split(/[/\\]/).pop() || path;
           let size = 0;
           try {
-            const stats = await invoke<{ size: number }>("get_file_stats", { path });
-            size = stats.size;
+            const stats = await invoke<{ size_bytes: number }>("get_file_stats", { file_path: path });
+            size = stats.size_bytes;
           } catch {
             // Size is optional — not worth blocking on
           }
@@ -645,7 +645,7 @@ export default function PerformanceAnalyzerView() {
     sections.push({
       id: "metrics",
       label: "Performance Metrics",
-      content: `**Samples:** ${h.samples} (${h.avg_ms_per_sample.toFixed(2)}ms avg)\n**Active Time:** ${h.active_time.toFixed(1)}ms | **Real Time:** ${h.real_time.toFixed(1)}ms\n**CPU Utilization:** ${(d.cpu_utilization * 100).toFixed(1)}%\n**GC Pressure:** ${(d.gc_pressure * 100).toFixed(1)}% (${h.scavenges} scavenges, ${h.inc_gcs} incremental GCs)\n**Profiling Overhead:** ${h.profiling_overhead.toFixed(1)}%`,
+      content: `**Samples:** ${h.samples} (${h.avg_ms_per_sample.toFixed(2)}ms avg)\n**Active Time:** ${h.active_time.toFixed(1)}s | **Real Time:** ${h.real_time.toFixed(1)}s\n**CPU Utilization:** ${(d.cpu_utilization * 100).toFixed(1)}%\n**GC Pressure:** ${(d.gc_pressure * 100).toFixed(1)}% (${h.scavenges} scavenges, ${h.inc_gcs} incremental GCs)\n**Profiling Overhead:** ${h.profiling_overhead.toFixed(1)}%`,
       defaultOn: true,
     });
 
@@ -665,7 +665,7 @@ export default function PerformanceAnalyzerView() {
     // Detected Patterns
     if (result.patterns.length > 0) {
       const patternLines = result.patterns
-        .map((p) => `**[${p.severity.toUpperCase()}] ${p.title}** (${(p.confidence * 100).toFixed(0)}% confidence)\n${p.description}`)
+        .map((p) => `**[${p.severity.toUpperCase()}] ${p.title}** (${p.confidence.toFixed(0)}% confidence)\n${p.description}`)
         .join("\n\n");
       sections.push({
         id: "patterns",
@@ -731,6 +731,7 @@ export default function PerformanceAnalyzerView() {
   const handleAnalyze = async () => {
     setIsAnalyzing(true);
     setAnalysisResults([]);
+    setActiveTab(0);
     setAnalysisProgress({ current: 0, total: files.length });
 
     for (let i = 0; i < files.length; i++) {

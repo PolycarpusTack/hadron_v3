@@ -3,10 +3,12 @@ export {}
 declare global {
   interface Window {
     hadron: {
-      invoke(channel: string, args?: unknown): Promise<unknown>
+      invoke<T = unknown>(channel: string, args?: unknown): Promise<T>
       openFile(options?: { multiple?: boolean; filters?: Array<{ name: string; extensions: string[] }>; directory?: boolean; defaultPath?: string }): Promise<string[] | null>
       saveFile(options?: { defaultPath?: string; filters?: Array<{ name: string; extensions: string[] }> }): Promise<string | null>
       onStreamChunk(callback: (chunk: string) => void): () => void
+      onWidgetOpenInMain(callback: (payload: { messages?: Array<{ role: string; content: string }> }) => void): () => void
+      onReleaseNotesProgress(callback: (payload: { phase: string; progress: number; message: string; requestId?: string | null }) => void): () => void
       getAppVersion(): Promise<string>
       relaunch(): void
       exit(code?: number): void
