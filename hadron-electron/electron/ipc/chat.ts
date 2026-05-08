@@ -10,6 +10,7 @@ import { ftsPhrase } from '../services/db-helpers'
 import { getToolDefinitions, executeTool } from '../services/chat-tools'
 import type { ToolContext } from '../services/chat-tools'
 import { tryMcpCallTool } from '../services/mcp-client'
+import { aiRateLimiter } from '../services/rate-limiter'
 import Store from 'electron-store'
 
 const settingsStore = new Store({ name: 'settings' })
@@ -83,6 +84,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       messages?: Array<{ id: string; role: string; content: string; sources_json?: string | null; timestamp?: number }>
     }
     const id = (p.id ?? (p as Record<string, unknown>).sessionId) as string
+    if (!id || typeof id !== 'string') throw new Error('chat_save_session requires a non-empty string id')
     const wonVersion = p.won_version ?? p.wonVersion ?? null
     const db = getDb()
     const now = Date.now()
@@ -318,7 +320,17 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       keeper_secret_uid?: string; auxiliary_model?: string; verbosity?: string
     }
 
+    if (!aiRateLimiter.tryAcquire('ai')) {
+      throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
+    }
+
     const requestId = args.request_id || `gen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const existing = streams.get(requestId)
+    if (existing && !existing.done) {
+      existing.controller.abort()
+      existing.done = true
+      streams.delete(requestId)
+    }
     const ss = streamCreate(requestId)
     try {
 
@@ -350,7 +362,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
     const mcpEnabled = settingsStore.get('codexmgx_enabled', false) as boolean
     const mcpCallTool = mcpEnabled
       ? (name: string, mcpArgs: Record<string, unknown>) =>
-          tryMcpCallTool(name, mcpArgs).then(r => r ?? '(MCP unavailable)')
+          tryMcpCallTool(name, mcpArgs, ss.controller.signal).then(r => r ?? '(MCP unavailable)')
       : undefined
 
     // ── Tool context ───────────────────────────────────────────────────────
@@ -363,6 +375,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       customer: args.customer ?? null,
       useKb: args.use_kb ?? false,
       useMcp: mcpEnabled,
+      signal: ss.controller.signal,
     }
 
     // ── Filter tools by user toggles ───────────────────────────────────────
@@ -450,7 +463,6 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
 
     // ── Agent loop ────────────────────────────────────────────────────────
     let agentMessages: unknown[] = (args.messages ?? []).map(m => ({ role: m.role, content: m.content }))
-    const synthesisMessages = [...agentMessages]
 
     let totalToolCalls = 0
     const allToolResults: ToolResult[] = []
@@ -513,7 +525,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
             model,
             apiKey,
             systemPrompt: synthSystemPrompt,
-            messages: synthesisMessages,
+            messages: agentMessages,
             maxTokens: 4096,
             signal: ss.controller.signal,
             onChunk: (text) => {
@@ -611,16 +623,21 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       if (!ss.done) ss.done = true
       // Safety-net: if the renderer stops polling before draining done:true
       // (window close, early cancel), remove the stale entry after 30 s.
-      setTimeout(() => streams.delete(requestId), 30_000)
+      setTimeout(() => { if (streams.get(requestId) === ss) streams.delete(requestId) }, 30_000)
     }
   })
+}
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 function buildToolResultsXml(results: ToolResult[], names: string[]): string {
   if (results.length === 0) return ''
   return results.map((r, i) => {
-    const name = names[i] ?? 'tool'
-    if (r.isError) return `<tool_result name="${name}" error="true">\n${r.content}\n</tool_result>`
-    return `<tool_result name="${name}">\n${r.content.substring(0, 3000)}\n</tool_result>`
+    const name = escapeXml(names[i] ?? 'tool')
+    const body = escapeXml((r.content ?? '').substring(0, 3000))
+    if (r.isError) return `<tool_result name="${name}" error="true">\n${body}\n</tool_result>`
+    return `<tool_result name="${name}">\n${body}\n</tool_result>`
   }).join('\n\n')
 }
