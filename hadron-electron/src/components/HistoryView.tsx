@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Search, AlertCircle, SlidersHorizontal, X, CheckSquare, Download, Columns, Tag, Trash2 } from "lucide-react";
+import { Search, AlertCircle, SlidersHorizontal, X, CheckSquare, Download, Columns, Tag, Trash2, LogIn } from "lucide-react";
 import { format } from "date-fns";
 import {
   getAllAnalyses,
@@ -998,7 +998,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
               {visibleColumns.has("status") && <span style={{ width: 90, flexShrink: 0 }}>Type</span>}
               {visibleColumns.has("component") && <span style={{ flex: 1 }}>Component</span>}
               {visibleColumns.has("cost") && <span style={{ width: 52, flexShrink: 0, textAlign: "right" }}>Cost</span>}
-              <span style={{ width: 56, flexShrink: 0, textAlign: "right" }}>Actions</span>
+              <span style={{ width: 72, flexShrink: 0, textAlign: "right" }}>Actions</span>
             </div>
 
             {/* Scrollable list */}
@@ -1092,7 +1092,19 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
                           </div>
                         )}
 
-                        <div style={{ width: 56, flexShrink: 0, display: "flex", gap: 3, alignItems: "center", justifyContent: "flex-end" }}>
+                        <div style={{ width: 72, flexShrink: 0, display: "flex", gap: 3, alignItems: "center", justifyContent: "flex-end" }}>
+                          <button
+                            aria-label="Open"
+                            title={item.kind === "analysis" ? "Open full detail" : "Open in JIRA Analyzer"}
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (item.kind === "analysis") handleView((item.data as Analysis).id);
+                              else onViewJiraTicket((item.data as TicketBrief).jira_key);
+                            }}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--hd-text-dim)", padding: 2, display: "flex", alignItems: "center" }}
+                          >
+                            <LogIn style={{ width: 11, height: 11 }} />
+                          </button>
                           {item.kind === "analysis" && (
                             <button aria-label={(item.data as Analysis).is_favorite ? "Remove from favorites" : "Add to favorites"} title={(item.data as Analysis).is_favorite ? "Remove from favorites" : "Add to favorites"} onClick={e => { e.stopPropagation(); handleToggleFavorite((item.data as Analysis).id); }} style={{ background: "none", border: "none", cursor: "pointer", color: (item.data as Analysis).is_favorite ? "#fbbf24" : "var(--hd-text-dim)", fontSize: "var(--hd-font-sm)", padding: 2, lineHeight: 1 }}>\u2605</button>
                           )}
