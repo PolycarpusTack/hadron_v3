@@ -25,7 +25,7 @@ interface TabConfig {
 
 function NavSeparator({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-[5px] mx-1.5 flex-shrink-0">
+    <div className="flex items-center gap-[5px] mx-1.5 flex-shrink-0" aria-hidden="true">
       <div className="w-px h-[18px] bg-gray-600/30" />
       <span className="text-[8px] uppercase tracking-widest text-white/[.18]">
         {label}

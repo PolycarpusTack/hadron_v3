@@ -130,10 +130,6 @@ export default function SentryAnalyzerView({ onAnalysisComplete, onOpenSettings 
           Set up your Sentry integration in Settings &gt; Integrations to start
           analyzing Sentry issues with AI.
         </p>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Settings className="w-4 h-4" />
-          <span>Settings &gt; Integrations &gt; Sentry Integration</span>
-        </div>
         {onOpenSettings && (
           <button
             type="button"
