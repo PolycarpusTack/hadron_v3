@@ -23,6 +23,18 @@ interface TabConfig {
   settingsSection?: SettingsSection;
 }
 
+function NavSeparator({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-[5px] mx-1.5 flex-shrink-0">
+      <div className="w-px h-[18px] bg-gray-600/30" />
+      <span className="text-[8px] uppercase tracking-widest text-white/[.18]">
+        {label}
+      </span>
+      <div className="w-px h-[18px] bg-gray-600/30" />
+    </div>
+  )
+}
+
 export default function Navigation({
   currentView,
   onViewChange,
@@ -43,11 +55,12 @@ export default function Navigation({
   ];
 
   const integrationTabs: TabConfig[] = [
-    { id: "jira",          label: "JIRA Analyzer",   icon: Ticket,        enabled: showJiraAnalyzer,   settingsSection: "jira"  },
-    { id: "sentry",        label: "Sentry Analyzer",  icon: AlertTriangle, enabled: showSentryAnalyzer, settingsSection: "sentry" },
-    { id: "release_notes", label: "Release Notes",    icon: FileText,      enabled: showReleaseNotes,   settingsSection: "jira"  },
-    { id: "history",       label: "History",          icon: History },
+    { id: "jira",          label: "JIRA Analyzer",  icon: Ticket,        enabled: showJiraAnalyzer,   settingsSection: "jira"   },
+    { id: "sentry",        label: "Sentry Analyzer", icon: AlertTriangle, enabled: showSentryAnalyzer, settingsSection: "sentry" },
+    { id: "release_notes", label: "Release Notes",   icon: FileText,      enabled: showReleaseNotes,   settingsSection: "jira"   },
   ];
+
+  const historyTab: TabConfig = { id: "history", label: "History", icon: History };
 
   const isAskHadronActive = currentView === "chat";
 
@@ -99,10 +112,13 @@ export default function Navigation({
     >
       {coreTabs.map(renderTab)}
 
-      {/* Visual separator between core tools and integrations */}
-      <div className="w-px h-5 self-center mx-1 bg-gray-600/30 shrink-0" aria-hidden="true" />
+      <NavSeparator label="Integrations" />
 
       {integrationTabs.map(renderTab)}
+
+      <NavSeparator label="History" />
+
+      {renderTab(historyTab)}
 
       {/* Spacer pushes Ask Hadron to right */}
       <div className="flex-1" />
