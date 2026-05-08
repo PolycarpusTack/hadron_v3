@@ -96,7 +96,10 @@ export function registerCrudHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('toggle_translation_favorite', (_e, args: { id: number }) => {
-    getDb().prepare('UPDATE translations SET is_favorite = NOT is_favorite WHERE id = ?').run(args.id)
+    const db = getDb()
+    db.prepare('UPDATE translations SET is_favorite = NOT is_favorite WHERE id = ?').run(args.id)
+    const row = db.prepare('SELECT is_favorite FROM translations WHERE id = ?').get(args.id) as { is_favorite: number } | undefined
+    return { is_favorite: !!row?.is_favorite }
   })
 
   ipcMain.handle('optimize_fts_index', () => {

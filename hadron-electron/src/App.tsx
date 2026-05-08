@@ -94,6 +94,12 @@ function App() {
     crashAnalysisResult,
   } = state;
 
+  // When Keeper is active, apiKey holds the sentinel 'keeper-managed'.
+  // Never forward this sentinel to backend invoke calls — the backend expects
+  // an empty string to trigger Keeper key resolution via keeper_secret_uid.
+  // Use apiKey (not effectiveApiKey) only for UI truthiness checks like !apiKey.
+  const effectiveApiKey = apiKey === 'keeper-managed' ? '' : apiKey;
+
   const runtimeStateRef = useRef({
     currentView,
     analyzing,
@@ -452,7 +458,7 @@ function App() {
       // For quick analysis, allow retries
       const isComprehensive = analysisType === 'comprehensive' || analysisMode === 'deep_scan';
       const result = await retryOperation(
-        () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType, analysisMode),
+        () => analyzeCrashLog(filePath, effectiveApiKey, model, provider, analysisType, analysisMode),
         { maxAttempts: isComprehensive ? 1 : 3, delayMs: 1000, backoff: true }
       );
 
@@ -525,7 +531,7 @@ function App() {
 
           const isBatchComprehensive = analysisType === 'comprehensive' || analysisMode === 'deep_scan';
           await retryOperation(
-            () => analyzeCrashLog(filePath, apiKey, model, provider, analysisType, analysisMode),
+            () => analyzeCrashLog(filePath, effectiveApiKey, model, provider, analysisType, analysisMode),
             { maxAttempts: isBatchComprehensive ? 1 : 3, delayMs: 1000, backoff: true }
           );
 

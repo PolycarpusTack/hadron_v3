@@ -303,22 +303,36 @@ export async function getAllAnalyses(): Promise<Analysis[]> {
  * Pagination options for list queries
  */
 export interface PaginationOptions {
-  limit?: number;  // Number of items to return (-1 for unlimited)
-  offset?: number; // Number of items to skip
+  limit?: number;  // Number of items to return (-1 for unlimited; uses SQLite LIMIT -1 which returns all rows)
+  offset?: number; // Number of items to skip (ignored when limit is -1)
 }
 
 /**
  * Get analyses with pagination support
  * Results are cached per limit/offset combination
  * @param options - Pagination options (limit, offset)
+ *   Pass limit=-1 to fetch all analyses (no cap). The backend receives page_size=-1
+ *   which SQLite interprets as LIMIT -1 (return all rows).
  */
 export async function getAnalysesPaginated(options?: PaginationOptions): Promise<Analysis[]> {
   const limit = options?.limit ?? 50;
   const offset = options?.offset ?? 0;
 
+  // limit=-1 means "all rows": pass page_size=-1 to the backend so SQLite uses LIMIT -1
+  if (limit === -1) {
+    return apiCache.fetch(
+      CacheKeys.ANALYSES_PAGINATED(-1, 0),
+      () => invoke<{ items: Analysis[] }>("get_analyses_paginated", { page: 1, page_size: -1 }).then(r => r.items),
+      { ttlMs: CacheTTL.DEFAULT }
+    );
+  }
+
+  const page_size = limit > 0 ? limit : 50;
+  const page = Math.floor(offset / page_size) + 1;
+
   return apiCache.fetch(
     CacheKeys.ANALYSES_PAGINATED(limit, offset),
-    () => invoke<Analysis[]>("get_analyses_paginated", { limit, offset }),
+    () => invoke<{ items: Analysis[] }>("get_analyses_paginated", { page, page_size }).then(r => r.items),
     { ttlMs: CacheTTL.DEFAULT }
   );
 }
@@ -427,11 +441,11 @@ export async function searchAnalyses(
  * @returns New favorite status
  */
 export async function toggleFavorite(id: number): Promise<boolean> {
-  const result = await invoke<boolean>("toggle_favorite", { id });
+  const result = await invoke<{ is_favorite: boolean }>("toggle_favorite", { id });
   // Invalidate analysis and stats caches (favorite count changes)
   apiCache.invalidateByPrefix(CacheKeys.PREFIX_ANALYSES);
   apiCache.invalidateByPrefix(CacheKeys.PREFIX_STATS);
-  return result;
+  return result.is_favorite;
 }
 
 /**
@@ -546,9 +560,9 @@ export async function deleteTranslation(id: number): Promise<void> {
  * Invalidates translation cache after toggling
  */
 export async function toggleTranslationFavorite(id: number): Promise<boolean> {
-  const result = await invoke<boolean>("toggle_translation_favorite", { id });
+  const result = await invoke<{ is_favorite: boolean }>("toggle_translation_favorite", { id });
   apiCache.invalidateByPrefix(CacheKeys.PREFIX_TRANSLATIONS);
-  return result;
+  return result.is_favorite;
 }
 
 // -------- Provider models (for Settings) --------
