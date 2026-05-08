@@ -341,33 +341,34 @@ function App() {
   // Widget event listeners — handle "Open in Main" from widget window
   useEffect(() => {
     let cancelled = false;
-    const unlisteners: Array<() => void> = [];
+    let cleanupFns: Array<() => void> = [];
 
-    const setupListeners = async () => {
-      const { listen } = await import("./lib/tauri-event-shim");
+    // "widget:open-in-main" is sent by the main process via webContents.send after
+    // the widget renderer invokes relay_to_main — must use the real IPC channel,
+    // not the in-process tauri-event-shim which cannot cross BrowserWindow boundaries.
+    const unlistenOpenInMain = window.hadron.onWidgetOpenInMain((payload) => {
       if (cancelled) return;
+      const baseTimestamp = Date.now();
+      const importedMessages = (payload.messages || [])
+        .filter((message): message is { role: ChatMessage["role"]; content: string } =>
+          (message.role === "user" || message.role === "assistant" || message.role === "system")
+          && typeof message.content === "string"
+        )
+        .map((message, index) => ({
+          id: `widget-import-${baseTimestamp}-${index}`,
+          role: message.role,
+          content: message.content,
+          timestamp: baseTimestamp + index,
+        }));
+      setPendingWidgetMessages(importedMessages);
+      actions.setView("chat");
+    });
+    cleanupFns.push(unlistenOpenInMain);
 
-      const unlistenOpenInMain = await listen<{ messages?: Array<{ role: string; content: string }> }>(
-        "widget:open-in-main",
-        (event) => {
-          const baseTimestamp = Date.now();
-          const importedMessages = (event.payload.messages || [])
-            .filter((message): message is { role: ChatMessage["role"]; content: string } =>
-              (message.role === "user" || message.role === "assistant" || message.role === "system")
-              && typeof message.content === "string"
-            )
-            .map((message, index) => ({
-              id: `widget-import-${baseTimestamp}-${index}`,
-              role: message.role,
-              content: message.content,
-              timestamp: baseTimestamp + index,
-            }));
-          setPendingWidgetMessages(importedMessages);
-          actions.setView("chat");
-        }
-      );
-      unlisteners.push(unlistenOpenInMain);
-      if (cancelled) { unlistenOpenInMain(); return; }
+    const setupListeners = async (): Promise<Array<() => void>> => {
+      const fns: Array<() => void> = [];
+      const { listen } = await import("./lib/tauri-event-shim");
+      if (cancelled) return fns;
 
       const unlistenOpenAnalysis = await listen<{ analysisId: string }>(
         "widget:open-analysis-in-main",
@@ -387,15 +388,21 @@ function App() {
           }
         }
       );
-      unlisteners.push(unlistenOpenAnalysis);
-      if (cancelled) { unlistenOpenAnalysis(); return; }
+      fns.push(unlistenOpenAnalysis);
+      return fns;
     };
 
-    setupListeners();
+    setupListeners().then((fns) => {
+      if (cancelled) {
+        fns.forEach((fn) => fn());
+      } else {
+        cleanupFns = cleanupFns.concat(fns);
+      }
+    });
 
     return () => {
       cancelled = true;
-      unlisteners.forEach((u) => u());
+      cleanupFns.forEach((fn) => fn());
     };
   }, [actions]);
 

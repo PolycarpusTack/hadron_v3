@@ -5,7 +5,6 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FileText, Wand2, CheckCircle, BookOpen, History, AlertCircle, Loader2 } from "lucide-react";
-import { listen } from "../lib/tauri-event-shim";
 import { isJiraEnabled } from "../services/jira";
 import { getReleaseNotes } from "../services/release-notes";
 import logger from "../services/logger";
@@ -49,27 +48,24 @@ export default function ReleaseNotesView() {
     isJiraEnabled().then(setConfigured).catch(() => setConfigured(false));
   }, []);
 
-  // Listen for progress events (stable listener — no re-subscription on requestId change)
+  // Listen for progress events sent by the main process via webContents.send —
+  // must use the real IPC bridge, not the in-process tauri-event-shim.
   useEffect(() => {
-    const unlisten = listen<ReleaseNotesProgress>("release-notes-progress", (event) => {
-      const payloadRequestId = event.payload.requestId || null;
+    const unlisten = window.hadron.onReleaseNotesProgress((payload) => {
+      const payloadRequestId = payload.requestId || null;
       const currentRequestId = activeRequestIdRef.current;
-      if (currentRequestId) {
-        if (payloadRequestId !== currentRequestId) return;
-      } else if (payloadRequestId) {
-        return;
+      if (currentRequestId && payloadRequestId && payloadRequestId !== currentRequestId) {
+        return;  // Only filter out events from a different active request
       }
 
-      setProgress(event.payload);
-      if (event.payload.phase === "complete" || event.payload.phase === "failed") {
+      setProgress(payload as ReleaseNotesProgress);
+      if (payload.phase === "complete" || payload.phase === "failed") {
         setActiveRequestId(null);
         setTimeout(() => setProgress(null), 3000);
       }
     });
 
-    return () => {
-      unlisten.then((fn) => fn());
-    };
+    return unlisten;
   }, []);
 
   const handleGenerationStart = useCallback((requestId: string) => {

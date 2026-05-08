@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "../../lib/tauri-core-shim";
-import { emit, listen } from "../../lib/tauri-event-shim";
+import { listen } from "../../lib/tauri-event-shim";
 import { currentMonitor } from "../../lib/tauri-window-shim";
 import WidgetFAB from "./WidgetFAB";
 import WidgetPanel from "./WidgetPanel";
@@ -80,8 +80,22 @@ export default function WidgetApp() {
     withWidgetLock(async () => {
       const saved = localStorage.getItem(POSITION_STORAGE_KEY);
       if (saved) {
-        const { x, y } = JSON.parse(saved);
-        await invoke("move_widget", { x, y });
+        try {
+          const parsed = JSON.parse(saved) as unknown;
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            typeof (parsed as Record<string, unknown>).x === 'number' &&
+            typeof (parsed as Record<string, unknown>).y === 'number'
+          ) {
+            const { x, y } = parsed as { x: number; y: number };
+            await invoke('move_widget', { x, y });
+          } else {
+            localStorage.removeItem(POSITION_STORAGE_KEY);
+          }
+        } catch {
+          localStorage.removeItem(POSITION_STORAGE_KEY);
+        }
       }
     }).catch((e) => console.warn("Widget: failed to restore position", e));
   }, []);
@@ -97,7 +111,7 @@ export default function WidgetApp() {
         withWidgetLock(async () => { await invoke("hide_widget"); }).catch((e) => console.warn("Widget: failed to hide", e));
       }
     });
-    return () => { unlisten.then(fn => fn()); };
+    return () => { unlisten.then(fn => fn()).catch(() => {}); };
   }, []);
 
   const handleMessagesChange = useCallback((messages: ChatMessage[]) => {
@@ -106,8 +120,7 @@ export default function WidgetApp() {
 
   const handleOpenInMain = useCallback(async () => {
     try {
-      await emit("widget:open-in-main", { messages: widgetMessagesRef.current });
-      await invoke("focus_main_window");
+      await invoke("relay_to_main", { messages: widgetMessagesRef.current });
     } catch {
       // Main window may not be available; silently fail
     }
