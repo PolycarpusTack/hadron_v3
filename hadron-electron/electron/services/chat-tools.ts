@@ -15,6 +15,7 @@ export interface ToolContext {
   customer?: string | null
   useKb: boolean
   useMcp: boolean
+  signal?: AbortSignal
 }
 
 // ── Tool Definitions ────────────────────────────────────────────────────────
@@ -313,27 +314,29 @@ async function executeToolInner(
     case 'compare_crashes': return toolCompareCrashes(args, ctx)
     case 'get_component_health': return toolGetComponentHealth(args, ctx)
     case 'search_gold_answers': return toolSearchGoldAnswers(args, ctx)
-    case 'search_kb': return toolSearchKb(args, ctx)
-    case 'search_jira': return toolSearchJira(args)
-    case 'create_jira_ticket': return toolCreateJiraTicket(args)
+    case 'search_kb':
+      if (mcpCallTool) return mcpCallTool('search_kb', { query: args.query, top_k: args.top_k })
+      return toolSearchKb(args, ctx)
+    case 'search_jira': return toolSearchJira(args, ctx.signal)
+    case 'create_jira_ticket': return toolCreateJiraTicket(args, ctx.signal)
     case 'investigate_jira_ticket':
       if (mcpCallTool) return mcpCallTool('investigate_ticket', { ticket_key: args.ticket_key })
-      return toolNativeInvestigateTicket(args)
+      return toolNativeInvestigateTicket(args, ctx.signal)
     case 'investigate_regression_family':
       if (mcpCallTool) return mcpCallTool('investigate_regression_family', { ticket_key: args.ticket_key })
-      return toolNativeRegressionFamily(args)
+      return toolNativeRegressionFamily(args, ctx.signal)
     case 'investigate_expected_behavior':
       if (mcpCallTool) return mcpCallTool('investigate_expected_behavior', { ticket_key: args.ticket_key ?? '', query: args.query })
-      return toolNativeExpectedBehavior(args)
+      return toolNativeExpectedBehavior(args, ctx.signal)
     case 'investigate_customer_history':
       if (mcpCallTool) return mcpCallTool('investigate_customer_history', { ticket_key: args.ticket_key })
-      return toolNativeCustomerHistory(args)
+      return toolNativeCustomerHistory(args, ctx.signal)
     case 'search_confluence':
       if (mcpCallTool) return mcpCallTool('confluence_search_content', { query: args.query, space_key: args.space_key, limit: args.limit })
-      return toolNativeSearchConfluence(args)
+      return toolNativeSearchConfluence(args, ctx.signal)
     case 'get_confluence_page':
       if (mcpCallTool) return mcpCallTool('confluence_get_content', { content_id: args.content_id })
-      return toolNativeGetConfluencePage(args)
+      return toolNativeGetConfluencePage(args, ctx.signal)
     default:
       throw new Error(`Unknown tool: ${name}`)
   }
@@ -560,9 +563,9 @@ function toolSearchGoldAnswers(args: Record<string, unknown>, ctx: ToolContext):
   const rows = ctx.db.prepare(`
     SELECT id, question, answer, won_version, customer, created_at
     FROM gold_answers
-    WHERE question LIKE ? OR answer LIKE ?
+    WHERE question LIKE ? ESCAPE '\\' OR answer LIKE ? ESCAPE '\\'
     ORDER BY created_at DESC LIMIT 5
-  `).all(`%${query}%`, `%${query}%`) as Row[]
+  `).all(`%${escapeLike(query)}%`, `%${escapeLike(query)}%`) as Row[]
   if (rows.length === 0) return `No verified answers found for "${query}".`
   return `Found ${rows.length} verified answers:\n\n` + rows.map(r =>
     `**Q**: ${r.question.substring(0, 200)}\n**A**: ${r.answer.substring(0, 400)}\n` +
@@ -594,14 +597,14 @@ async function toolSearchKb(args: Record<string, unknown>, ctx: ToolContext): Pr
 
 // ── JIRA native tools ────────────────────────────────────────────────────────
 
-async function toolSearchJira(args: Record<string, unknown>): Promise<string> {
+async function toolSearchJira(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
   const query = String(args.query ?? '')
   if (!query) throw new Error("Missing 'query' parameter")
   const maxResults = Number(args.max_results ?? 5)
   const { baseUrl, email, apiToken } = readJiraCreds()
   const isJql = /\b(project|status|assignee|priority|AND|OR|ORDER BY|issuetype)\b/i.test(query)
   const jql = isJql ? query : `text ~ "${query.replace(/"/g, '\\"')}" ORDER BY updated DESC`
-  const data = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=${maxResults}&fields=summary,status,assignee,priority,issuetype`) as {
+  const data = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=${maxResults}&fields=summary,status,assignee,priority,issuetype`, {}, signal) as {
     issues: Array<{ key: string; fields: { summary: string; status: { name: string }; assignee: { displayName: string } | null; priority: { name: string } | null; issuetype: { name: string } } }>
   }
   if (!data.issues?.length) return 'No JIRA tickets found.'
@@ -610,7 +613,7 @@ async function toolSearchJira(args: Record<string, unknown>): Promise<string> {
   ).join('\n')
 }
 
-async function toolCreateJiraTicket(args: Record<string, unknown>): Promise<string> {
+async function toolCreateJiraTicket(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
   const { project_key, summary, description, issue_type = 'Bug', priority = 'Medium' } = args as {
     project_key: string; summary: string; description: string; issue_type?: string; priority?: string
   }
@@ -625,17 +628,32 @@ async function toolCreateJiraTicket(args: Record<string, unknown>): Promise<stri
       priority: { name: priority },
     },
   }
-  const created = await jiraFetch(baseUrl, email, apiToken, '/rest/api/3/issue', { method: 'POST', body: JSON.stringify(body) }) as { key: string; id: string }
+  const created = await jiraFetch(baseUrl, email, apiToken, '/rest/api/3/issue', { method: 'POST', body: JSON.stringify(body) }, signal) as { key: string; id: string }
   return `Successfully created JIRA ticket **${created.key}**: "${summary}"\nIssue ID: ${created.id}`
 }
 
 // ── Native fallbacks for investigation tools (when MCP not available) ─────────
 
-async function toolNativeInvestigateTicket(args: Record<string, unknown>): Promise<string> {
-  const ticketKey = String(args.ticket_key ?? '')
-  if (!ticketKey) throw new Error("Missing 'ticket_key' parameter")
+// LLM-supplied ticket keys must match the canonical JIRA shape before flowing
+// into URL paths or JQL strings (audit F2).
+const JIRA_KEY_RE = /^[A-Z][A-Z0-9_]+-\d+$/
+function assertJiraKey(value: unknown): string {
+  if (typeof value !== 'string' || !JIRA_KEY_RE.test(value)) {
+    throw new Error('Invalid JIRA ticket key')
+  }
+  return value
+}
+function escapeJqlString(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').slice(0, 200)
+}
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, '\\$&')
+}
+
+async function toolNativeInvestigateTicket(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+  const ticketKey = assertJiraKey(args.ticket_key)
   const { baseUrl, email, apiToken } = readJiraCreds()
-  const issue = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/${ticketKey}?expand=changelog,renderedFields&fields=summary,description,status,priority,assignee,reporter,issuetype,labels,components,comment,attachment`) as {
+  const issue = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/${ticketKey}?expand=changelog,renderedFields&fields=summary,description,status,priority,assignee,reporter,issuetype,labels,components,comment,attachment`, {}, signal) as {
     key: string
     fields: {
       summary: string
@@ -664,13 +682,12 @@ async function toolNativeInvestigateTicket(args: Record<string, unknown>): Promi
     `*Tip: For deeper investigation including Confluence docs and hypotheses, configure CodexMgX in Settings.*`
 }
 
-async function toolNativeRegressionFamily(args: Record<string, unknown>): Promise<string> {
-  const ticketKey = String(args.ticket_key ?? '')
-  if (!ticketKey) throw new Error("Missing 'ticket_key' parameter")
+async function toolNativeRegressionFamily(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+  const ticketKey = assertJiraKey(args.ticket_key)
   const { baseUrl, email, apiToken } = readJiraCreds()
   const project = ticketKey.split('-')[0]
-  const jql = `project = "${project}" AND created >= -90d AND text ~ "${ticketKey}" ORDER BY created DESC`
-  const data = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=10&fields=summary,status,created`) as {
+  const jql = `project = "${project}" AND created >= -90d AND text ~ "${escapeJqlString(ticketKey)}" ORDER BY created DESC`
+  const data = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=10&fields=summary,status,created`, {}, signal) as {
     issues: Array<{ key: string; fields: { summary: string; status: { name: string }; created: string } }>
   }
   if (!data.issues?.length) return `No related issues found for ${ticketKey} in the last 90 days.`
@@ -679,14 +696,14 @@ async function toolNativeRegressionFamily(args: Record<string, unknown>): Promis
     `\n\n*For cross-project analysis, configure CodexMgX in Settings.*`
 }
 
-async function toolNativeExpectedBehavior(args: Record<string, unknown>): Promise<string> {
+async function toolNativeExpectedBehavior(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
   const query = String(args.query ?? '')
   if (!query) throw new Error("Missing 'query' parameter")
   try {
     const { baseUrl, email, apiToken } = readConfluenceCreds()
     const confluenceBase = baseUrl.replace(/\/rest\/api.*/, '')
     const data = await jiraFetch(confluenceBase, email, apiToken,
-      `/wiki/rest/api/content/search?cql=${encodeURIComponent(`type=page AND text ~ "${query}"`)}&limit=5&expand=excerpt`) as {
+      `/wiki/rest/api/content/search?cql=${encodeURIComponent(`type=page AND text ~ "${query}"`)}&limit=5&expand=excerpt`, {}, signal) as {
       results: Array<{ id: string; title: string; _links: { webui: string }; excerpt?: string }>
     }
     if (!data.results?.length) return `No Confluence documentation found for "${query}".`
@@ -698,17 +715,16 @@ async function toolNativeExpectedBehavior(args: Record<string, unknown>): Promis
   }
 }
 
-async function toolNativeCustomerHistory(args: Record<string, unknown>): Promise<string> {
-  const ticketKey = String(args.ticket_key ?? '')
-  if (!ticketKey) throw new Error("Missing 'ticket_key' parameter")
+async function toolNativeCustomerHistory(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+  const ticketKey = assertJiraKey(args.ticket_key)
   const { baseUrl, email, apiToken } = readJiraCreds()
-  const issue = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/${ticketKey}?fields=reporter`) as {
+  const issue = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/issue/${ticketKey}?fields=reporter`, {}, signal) as {
     fields: { reporter: { accountId: string; displayName: string } | null }
   }
   const reporter = issue.fields.reporter
   if (!reporter) return `No reporter found for ${ticketKey}.`
-  const jql = `reporter = "${reporter.accountId}" ORDER BY created DESC`
-  const data = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=10&fields=summary,status,created,priority`) as {
+  const jql = `reporter = "${escapeJqlString(reporter.accountId)}" ORDER BY created DESC`
+  const data = await jiraFetch(baseUrl, email, apiToken, `/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=10&fields=summary,status,created,priority`, {}, signal) as {
     issues: Array<{ key: string; fields: { summary: string; status: { name: string }; created: string; priority: { name: string } | null } }>
   }
   if (!data.issues?.length) return `No ticket history found for reporter ${reporter.displayName}.`
@@ -716,15 +732,15 @@ async function toolNativeCustomerHistory(args: Record<string, unknown>): Promise
     data.issues.map(i => `- **${i.key}**: ${i.fields.summary} (${i.fields.status.name}, ${i.fields.priority?.name ?? 'N/A'}, ${i.fields.created.substring(0, 10)})`).join('\n')
 }
 
-async function toolNativeSearchConfluence(args: Record<string, unknown>): Promise<string> {
+async function toolNativeSearchConfluence(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
   const query = String(args.query ?? '')
   const limit = Number(args.limit ?? 10)
   const { baseUrl, email, apiToken } = readConfluenceCreds()
   const confluenceBase = baseUrl.replace(/\/rest\/api.*/, '')
   let cql = `type=page AND text ~ "${query.replace(/"/g, '\\"')}"`
-  if (args.space_key) cql += ` AND space.key = "${args.space_key}"`
+  if (args.space_key) cql += ` AND space.key = "${escapeJqlString(String(args.space_key))}"`
   const data = await jiraFetch(confluenceBase, email, apiToken,
-    `/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=${limit}&expand=excerpt`) as {
+    `/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=${limit}&expand=excerpt`, {}, signal) as {
     results: Array<{ id: string; title: string; _links: { webui: string }; excerpt?: string }>
   }
   if (!data.results?.length) return `No Confluence pages found for "${query}".`
@@ -733,13 +749,13 @@ async function toolNativeSearchConfluence(args: Record<string, unknown>): Promis
   ).join('\n\n')
 }
 
-async function toolNativeGetConfluencePage(args: Record<string, unknown>): Promise<string> {
+async function toolNativeGetConfluencePage(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
   const contentId = String(args.content_id ?? '')
   if (!contentId) throw new Error("Missing 'content_id' parameter")
   const { baseUrl, email, apiToken } = readConfluenceCreds()
   const confluenceBase = baseUrl.replace(/\/rest\/api.*/, '')
   const data = await jiraFetch(confluenceBase, email, apiToken,
-    `/wiki/rest/api/content/${contentId}?expand=body.view,version`) as {
+    `/wiki/rest/api/content/${contentId}?expand=body.view,version`, {}, signal) as {
     title: string
     _links: { webui: string }
     body: { view: { value: string } }

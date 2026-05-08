@@ -5,6 +5,12 @@ import { callAi } from '../services/ai-service'
 import { readJiraCreds, jiraFetch } from '../services/jira-client'
 import { getApiKeyFromKeeper } from './keeper'
 
+function validateJqlFilter(raw: string): string {
+  if (/[(){}]/.test(raw)) throw new Error('jqlFilter must not contain parentheses or braces')
+  if (raw.length > 500) throw new Error('jqlFilter exceeds maximum length')
+  return raw
+}
+
 const RELEASE_NOTES_SYSTEM_PROMPT = `You are a technical writer creating release notes for WHATS'ON broadcast management software.
 Format as structured markdown with these sections:
 ## New Features
@@ -72,7 +78,7 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
   // 1. generate_release_notes
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('generate_release_notes', async (event, args: {
-    config: { fixVersion: string; jql?: string; title?: string }
+    config: { fixVersion: string; jqlFilter?: string; title?: string }
     requestId?: string
     provider: string
     model: string
@@ -82,21 +88,23 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
     const win = BrowserWindow.fromWebContents(event.sender)
     const requestId = args.requestId ?? null
 
-    const sendProgress = (progress: number, message: string) => {
-      win?.webContents.send('release-notes:progress', { progress, message, request_id: requestId })
+    const sendProgress = (phase: string, progress: number, message: string) => {
+      win?.webContents.send('release-notes-progress', { phase, progress, message, requestId })
     }
 
     try {
-      sendProgress(10, 'Fetching JIRA tickets...')
+      sendProgress('fetching_tickets', 10, 'Fetching JIRA tickets...')
 
       const { baseUrl, email, apiToken } = readJiraCreds()
       const escapedVersion = args.config.fixVersion.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
       const defaultJql = `fixVersion = "${escapedVersion}" ORDER BY created DESC`
-      const jql = args.config.jql ?? defaultJql
+      const jql = args.config.jqlFilter != null
+        ? validateJqlFilter(args.config.jqlFilter)
+        : defaultJql
 
       const issues = await fetchJiraTickets(baseUrl, email, apiToken, jql)
 
-      sendProgress(40, `Generating release notes for ${issues.length} ticket(s)...`)
+      sendProgress('generating_draft', 40, `Generating release notes for ${issues.length} ticket(s)...`)
 
       const ticketKeys = issues.map(i => i.key)
       const ticketPrompt = buildTicketPrompt(issues)
@@ -150,7 +158,7 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
         now,
       )
 
-      sendProgress(100, 'Release notes generated.')
+      sendProgress('complete', 100, 'Release notes generated.')
 
       return {
         id: row.lastInsertRowid,
@@ -354,7 +362,8 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('append_to_release_notes', async (_e, args: {
     id: number
-    additionalJql: string
+    config: { jqlFilter?: string; fixVersion?: string }
+    requestId?: string | null
     provider: string
     model: string
     apiKey: string
@@ -368,8 +377,13 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
 
       if (!existing) throw new Error(`Release notes not found: ${args.id}`)
 
+      const jqlFilter = args.config?.jqlFilter != null
+        ? validateJqlFilter(args.config.jqlFilter)
+        : (args.config?.fixVersion ? `fixVersion = "${args.config.fixVersion}"` : null)
+      if (!jqlFilter) throw new Error('Missing config.jqlFilter or config.fixVersion for append_to_release_notes')
+
       const { baseUrl, email, apiToken } = readJiraCreds()
-      const newIssues = await fetchJiraTickets(baseUrl, email, apiToken, args.additionalJql)
+      const newIssues = await fetchJiraTickets(baseUrl, email, apiToken, jqlFilter)
 
       const existingKeys: string[] = JSON.parse((existing.ticket_keys as string) ?? '[]')
       const newKeys = newIssues.map(i => i.key).filter(k => !existingKeys.includes(k))
@@ -532,8 +546,10 @@ Return ONLY valid JSON. No markdown fences.`
 
       // Escape JQL string values to prevent injection (same as generate_release_notes)
       const escJql = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-      let jql = jqlFilter || `fixVersion = "${escJql(fixVersion)}"`
-      if (projectKey && !jqlFilter) jql = `project = "${escJql(projectKey)}" AND fixVersion = "${escJql(fixVersion)}"`
+      let jql = jqlFilter != null
+        ? validateJqlFilter(jqlFilter)
+        : `fixVersion = "${escJql(fixVersion)}"`
+      if (projectKey && jqlFilter == null) jql = `project = "${escJql(projectKey)}" AND fixVersion = "${escJql(fixVersion)}"`
 
       const issues = await fetchJiraTickets(baseUrl, email, apiToken, jql, 100)
       return issues.map(issue => ({
