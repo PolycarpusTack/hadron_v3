@@ -237,22 +237,40 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
   // 5. triage_jira_ticket
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('triage_jira_ticket', async (_e, args: {
-    request?: { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string; keeperSecretUid?: string | null }
-    jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string; keeperSecretUid?: string | null
+    request?: {
+      jira_key?: string; jiraKey?: string; title: string; description: string
+      issue_type?: string; priority?: string; status?: string
+      components?: string[]; labels?: string[]; comments?: string[]
+      provider: string; model: string; keeperSecretUid?: string | null
+    }
+    jira_key?: string; jiraKey?: string; title?: string; description?: string
+    issue_type?: string; priority?: string; status?: string
+    components?: string[]; labels?: string[]; comments?: string[]
+    provider?: string; model?: string; keeperSecretUid?: string | null
   }) => {
     try {
       if (!aiRateLimiter.tryAcquire('ai')) {
         throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
       }
       // Accept both direct args and Tauri-style { request } wrapper; accept jira_key or jiraKey
-      const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string; keeperSecretUid?: string | null })
+      const p = args.request ?? args as typeof args
       const jiraKey = p.jira_key ?? p.jiraKey ?? ''
-      const apiKey = await resolveApiKey(p.provider, p.keeperSecretUid)
-      const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${wrapField('TITLE', p.title)}\n\nDescription:\n${wrapField('DESCRIPTION', p.description)}`
+      const apiKey = await resolveApiKey(p.provider!, p.keeperSecretUid)
+      const commentBlock = Array.isArray(p.comments) && p.comments.length > 0
+        ? `\n\nComments (${p.comments.length}):\n${p.comments.slice(0, 5).map((c, i) => `${i + 1}. ${c}`).join('\n')}`
+        : ''
+      const userPrompt =
+        `JIRA Key: ${jiraKey}\n` +
+        `Title: ${wrapField('TITLE', p.title ?? '')}\n` +
+        `Type: ${p.issue_type ?? 'Unknown'} | Priority: ${p.priority ?? 'None'} | Status: ${p.status ?? 'Unknown'}\n` +
+        `Components: ${Array.isArray(p.components) ? p.components.join(', ') || 'none' : 'none'}\n` +
+        `Labels: ${Array.isArray(p.labels) ? p.labels.join(', ') || 'none' : 'none'}\n\n` +
+        `Description:\n${wrapField('DESCRIPTION', p.description ?? '')}` +
+        commentBlock
 
       const aiResult = await callAi({
-        provider: p.provider,
-        model: p.model,
+        provider: p.provider!,
+        model: p.model!,
         apiKey,
         systemPrompt: TRIAGE_SYSTEM_PROMPT,
         userPrompt,
@@ -264,24 +282,29 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
       const now = new Date().toISOString()
 
       db.prepare(`
-        INSERT OR REPLACE INTO ticket_briefs
-          (jira_key, title, severity, category, tags, triage_json, brief_json,
-           posted_to_jira, posted_at, engineer_rating, engineer_notes,
-           created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?,
-            COALESCE((SELECT brief_json FROM ticket_briefs WHERE jira_key=?), NULL),
-            COALESCE((SELECT posted_to_jira FROM ticket_briefs WHERE jira_key=?), 0),
-            COALESCE((SELECT posted_at FROM ticket_briefs WHERE jira_key=?), NULL),
-            COALESCE((SELECT engineer_rating FROM ticket_briefs WHERE jira_key=?), NULL),
-            COALESCE((SELECT engineer_notes FROM ticket_briefs WHERE jira_key=?), NULL),
-            COALESCE((SELECT created_at FROM ticket_briefs WHERE jira_key=?), ?), ?)
+        INSERT OR IGNORE INTO ticket_briefs
+          (jira_key, title, severity, category, tags, triage_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        jiraKey, p.title,
+        jiraKey, p.title ?? '',
         (triage.severity as string) ?? null,
         (triage.category as string) ?? null,
         triage.tags ? JSON.stringify(triage.tags) : null,
         JSON.stringify(triage),
-        jiraKey, jiraKey, jiraKey, jiraKey, jiraKey, jiraKey, now, now,
+        now, now,
+      )
+
+      db.prepare(`
+        UPDATE ticket_briefs
+        SET title=?, severity=?, category=?, tags=?, triage_json=?, updated_at=?
+        WHERE jira_key=?
+      `).run(
+        p.title ?? '',
+        (triage.severity as string) ?? null,
+        (triage.category as string) ?? null,
+        triage.tags ? JSON.stringify(triage.tags) : null,
+        JSON.stringify(triage),
+        now, jiraKey,
       )
 
       return triage
@@ -296,22 +319,40 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
   // 6. generate_ticket_brief
   // ──────────────────────────────────────────────────────────────────────────
   ipcMain.handle('generate_ticket_brief', async (_e, args: {
-    request?: { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string; keeperSecretUid?: string | null }
-    jira_key?: string; jiraKey?: string; title?: string; description?: string; provider?: string; model?: string; keeperSecretUid?: string | null
+    request?: {
+      jira_key?: string; jiraKey?: string; title: string; description: string
+      issue_type?: string; priority?: string; status?: string
+      components?: string[]; labels?: string[]; comments?: string[]
+      provider: string; model: string; keeperSecretUid?: string | null
+    }
+    jira_key?: string; jiraKey?: string; title?: string; description?: string
+    issue_type?: string; priority?: string; status?: string
+    components?: string[]; labels?: string[]; comments?: string[]
+    provider?: string; model?: string; keeperSecretUid?: string | null
   }) => {
     try {
       if (!aiRateLimiter.tryAcquire('ai')) {
         throw new Error('Rate limit exceeded: too many AI requests. Please wait a moment.')
       }
       // Accept both direct args and Tauri-style { request } wrapper; accept jira_key or jiraKey
-      const p = args.request ?? (args as { jira_key?: string; jiraKey?: string; title: string; description: string; provider: string; model: string; keeperSecretUid?: string | null })
+      const p = args.request ?? args as typeof args
       const jiraKey = p.jira_key ?? p.jiraKey ?? ''
-      const apiKey = await resolveApiKey(p.provider, p.keeperSecretUid)
-      const userPrompt = `JIRA Key: ${jiraKey}\nTitle: ${wrapField('TITLE', p.title)}\n\nDescription:\n${wrapField('DESCRIPTION', p.description)}`
+      const apiKey = await resolveApiKey(p.provider!, p.keeperSecretUid)
+      const commentBlock = Array.isArray(p.comments) && p.comments.length > 0
+        ? `\n\nComments (${p.comments.length}):\n${p.comments.slice(0, 5).map((c, i) => `${i + 1}. ${c}`).join('\n')}`
+        : ''
+      const userPrompt =
+        `JIRA Key: ${jiraKey}\n` +
+        `Title: ${wrapField('TITLE', p.title ?? '')}\n` +
+        `Type: ${p.issue_type ?? 'Unknown'} | Priority: ${p.priority ?? 'None'} | Status: ${p.status ?? 'Unknown'}\n` +
+        `Components: ${Array.isArray(p.components) ? p.components.join(', ') || 'none' : 'none'}\n` +
+        `Labels: ${Array.isArray(p.labels) ? p.labels.join(', ') || 'none' : 'none'}\n\n` +
+        `Description:\n${wrapField('DESCRIPTION', p.description ?? '')}` +
+        commentBlock
 
       const aiResult = await callAi({
-        provider: p.provider,
-        model: p.model,
+        provider: p.provider!,
+        model: p.model!,
         apiKey,
         systemPrompt: BRIEF_SYSTEM_PROMPT,
         userPrompt,
@@ -324,25 +365,24 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
       const now = new Date().toISOString()
 
       db.prepare(`
-        INSERT OR REPLACE INTO ticket_briefs
-          (jira_key, title, severity, category, tags, triage_json, brief_json,
-           posted_to_jira, posted_at, engineer_rating, engineer_notes,
-           created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?,
-            COALESCE((SELECT posted_to_jira FROM ticket_briefs WHERE jira_key=?), 0),
-            COALESCE((SELECT posted_at FROM ticket_briefs WHERE jira_key=?), NULL),
-            COALESCE((SELECT engineer_rating FROM ticket_briefs WHERE jira_key=?), NULL),
-            COALESCE((SELECT engineer_notes FROM ticket_briefs WHERE jira_key=?), NULL),
-            COALESCE((SELECT created_at FROM ticket_briefs WHERE jira_key=?), ?), ?)
+        INSERT OR IGNORE INTO ticket_briefs
+          (jira_key, title, severity, category, tags, triage_json, brief_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        jiraKey, p.title,
+        jiraKey, p.title ?? '',
         (triage.severity as string) ?? null,
         (triage.category as string) ?? null,
         triage.tags ? JSON.stringify(triage.tags) : null,
         triage ? JSON.stringify(triage) : null,
         JSON.stringify(brief),
-        jiraKey, jiraKey, jiraKey, jiraKey, jiraKey, now, now,
+        now, now,
       )
+
+      db.prepare(`
+        UPDATE ticket_briefs
+        SET brief_json=?, updated_at=?
+        WHERE jira_key=?
+      `).run(JSON.stringify(brief), now, jiraKey)
 
       return brief
     } catch (err: unknown) {
