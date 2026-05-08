@@ -1094,7 +1094,7 @@ export default function HistoryView({ onViewAnalysis, onViewJiraTicket }: Histor
 
                         <div style={{ width: 72, flexShrink: 0, display: "flex", gap: 3, alignItems: "center", justifyContent: "flex-end" }}>
                           <button
-                            aria-label="Open"
+                            aria-label={item.kind === "analysis" ? "Open full detail" : "Open in JIRA Analyzer"}
                             title={item.kind === "analysis" ? "Open full detail" : "Open in JIRA Analyzer"}
                             onClick={e => {
                               e.stopPropagation();
