@@ -344,7 +344,7 @@ function ChatMessageBubble({
                 className={`p-1 rounded transition ${
                   rating === "positive"
                     ? "bg-emerald-500/20 text-emerald-400"
-                    : "text-gray-500 hover:bg-gray-700/50 hover:text-gray-300"
+                    : "text-gray-500 hover:bg-[var(--hd-bg-hover)] hover:text-gray-300"
                 }`}
                 title="Good response"
               >
@@ -356,7 +356,7 @@ function ChatMessageBubble({
                 className={`p-1 rounded transition ${
                   rating === "negative"
                     ? "bg-red-500/20 text-red-400"
-                    : "text-gray-500 hover:bg-gray-700/50 hover:text-gray-300"
+                    : "text-gray-500 hover:bg-[var(--hd-bg-hover)] hover:text-gray-300"
                 }`}
                 title="Poor response"
               >
@@ -365,7 +365,7 @@ function ChatMessageBubble({
               {/* Copy */}
               <button
                 onClick={() => onCopy(message.id, message.content)}
-                className="p-1 rounded hover:bg-gray-700/50 transition text-gray-500 hover:text-gray-300"
+                className="p-1 rounded hover:bg-[var(--hd-bg-hover)] transition text-gray-500 hover:text-gray-300"
                 title="Copy to clipboard"
               >
                 {copiedId === message.id ? (
@@ -385,7 +385,7 @@ function ChatMessageBubble({
                   className={`p-1 rounded transition ${
                     isGold
                       ? "text-amber-400"
-                      : "text-gray-500 hover:bg-gray-700/50 hover:text-gray-300"
+                      : "text-gray-500 hover:bg-[var(--hd-bg-hover)] hover:text-gray-300"
                   }`}
                   title={isGold ? "Saved as gold answer" : "Save as gold answer"}
                 >
@@ -398,7 +398,7 @@ function ChatMessageBubble({
               {isLastAssistant && onRegenerate && (
                 <button
                   onClick={onRegenerate}
-                  className="p-1 rounded hover:bg-gray-700/50 transition text-gray-500 hover:text-gray-300"
+                  className="p-1 rounded hover:bg-[var(--hd-bg-hover)] transition text-gray-500 hover:text-gray-300"
                   title="Regenerate response"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
