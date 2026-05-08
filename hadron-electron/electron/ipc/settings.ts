@@ -15,6 +15,14 @@ function isRendererWritable(name: string): boolean {
   return !name.startsWith('_')
 }
 
+// Stores that contain main-process secrets — blocked for both reads and writes
+// from the renderer (audit F5: secure-storage ciphertext was readable via
+// store:get and decryptable on-host by any same-user process).
+const RENDERER_BLOCKED_STORES = new Set(['secure-storage'])
+function isRendererReadable(name: string): boolean {
+  return !name.startsWith('_') && !RENDERER_BLOCKED_STORES.has(name)
+}
+
 function getStore(name: string): InstanceType<typeof Store> {
   if (!stores.has(name)) stores.set(name, new Store({ name }))
   return stores.get(name)!
@@ -22,6 +30,7 @@ function getStore(name: string): InstanceType<typeof Store> {
 
 export function registerSettingsHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('store:get', (_e, { store, key }: { store: string; key: string }) => {
+    if (!isRendererReadable(store)) return null
     return getStore(store).get(key) ?? null
   })
 
@@ -36,11 +45,12 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('store:has', (_e, { store, key }: { store: string; key: string }) => {
+    if (!isRendererReadable(store)) return false
     return getStore(store).has(key)
   })
 
   ipcMain.handle('store:entries', (_e, { store }: { store: string }) => {
-    if (!isRendererWritable(store)) return []
+    if (!isRendererReadable(store)) return []
     return Object.entries(getStore(store).store)
   })
 
@@ -49,7 +59,16 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   // credentials that belong to other applications.
   const KEYTAR_SERVICE = 'hadron-electron'
 
+  // Restrict account names to known identifiers so a compromised renderer
+  // cannot create or overwrite arbitrary keychain entries (audit F6).
+  const KEYTAR_ALLOWED_ACCOUNTS = new Set([
+    'openai', 'anthropic', 'zai', 'jira', 'confluence', 'sentry',
+  ])
+  const isAllowedAccount = (account: unknown): account is string =>
+    typeof account === 'string' && KEYTAR_ALLOWED_ACCOUNTS.has(account)
+
   ipcMain.handle('keytar:get', (_e, { account }: { service?: string; account: string }) => {
+    if (!isAllowedAccount(account)) return null
     try {
       return getSecret(KEYTAR_SERVICE, account)
     } catch (err) {
@@ -59,10 +78,16 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('keytar:set', (_e, { account, password }: { service?: string; account: string; password: string }) => {
+    if (!isAllowedAccount(account)) {
+      log.warn('keytar:set rejected: invalid account', { account })
+      return
+    }
+    if (typeof password !== 'string' || password.length > 4096) return
     setSecret(KEYTAR_SERVICE, account, password)
   })
 
   ipcMain.handle('keytar:delete', (_e, { account }: { service?: string; account: string }) => {
+    if (!isAllowedAccount(account)) return
     deleteSecret(KEYTAR_SERVICE, account)
   })
 
@@ -144,8 +169,11 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('save_codexmgx_config', (_e, args: { scriptPath: string; enabled: boolean }) => {
+    if (typeof args.enabled !== 'boolean') throw new Error('enabled must be boolean')
     const s = getStore('settings')
-    s.set('codexmgx_script_path', args.scriptPath)
+    // Never persist a renderer-supplied script path (audit F1: renderer→RCE path).
+    // The launcher always uses the bundled script; the override is silently dropped.
+    s.delete('codexmgx_script_path')
     s.set('codexmgx_enabled', args.enabled)
     shutdownMcpClient()
     return { ok: true }
