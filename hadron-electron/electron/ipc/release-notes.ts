@@ -377,9 +377,10 @@ export function registerReleaseNotesHandlers(ipcMain: IpcMain): void {
 
       if (!existing) throw new Error(`Release notes not found: ${args.id}`)
 
+      const escJql = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
       const jqlFilter = args.config?.jqlFilter != null
         ? validateJqlFilter(args.config.jqlFilter)
-        : (args.config?.fixVersion ? `fixVersion = "${args.config.fixVersion}"` : null)
+        : (args.config?.fixVersion ? `fixVersion = "${escJql(args.config.fixVersion)}"` : null)
       if (!jqlFilter) throw new Error('Missing config.jqlFilter or config.fixVersion for append_to_release_notes')
 
       const { baseUrl, email, apiToken } = readJiraCreds()
