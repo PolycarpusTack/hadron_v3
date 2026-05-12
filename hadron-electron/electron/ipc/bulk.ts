@@ -29,6 +29,7 @@ export function registerBulkHandlers(ipcMain: IpcMain): void {
     const db = getDb()
     const stmt = db.prepare(`UPDATE analyses SET deleted_at = datetime('now') WHERE id = ?`)
     db.transaction((xs: number[]) => xs.forEach(id => stmt.run(id)))(ids)
+    return { successCount: ids.length, totalRequested: ids.length }
   })
 
   ipcMain.handle('bulk_delete_translations', (_e, args: { ids: number[] }) => {
@@ -36,25 +37,28 @@ export function registerBulkHandlers(ipcMain: IpcMain): void {
     const db = getDb()
     const stmt = db.prepare(`UPDATE translations SET deleted_at = datetime('now') WHERE id = ?`)
     db.transaction((xs: number[]) => xs.forEach(id => stmt.run(id)))(ids)
+    return { successCount: ids.length, totalRequested: ids.length }
   })
 
   // Frontend sends { analysisIds, tagId } (camelCase)
   ipcMain.handle('bulk_add_tag_to_analyses', (_e, args: { analysisIds?: number[]; analysis_ids?: number[]; tagId?: number; tag_id?: number }) => {
     const ids = sanitiseIds(args?.analysis_ids ?? args?.analysisIds ?? [])
     const tag_id = sanitiseId(args?.tag_id ?? args?.tagId)
-    if (tag_id === null) return
+    if (tag_id === null) return { successCount: 0, totalRequested: ids.length }
     const db = getDb()
     const stmt = db.prepare('INSERT OR IGNORE INTO analysis_tags (analysis_id, tag_id) VALUES (?, ?)')
     db.transaction((xs: number[]) => xs.forEach(id => stmt.run(id, tag_id)))(ids)
+    return { successCount: ids.length, totalRequested: ids.length }
   })
 
   ipcMain.handle('bulk_remove_tag_from_analyses', (_e, args: { analysisIds?: number[]; analysis_ids?: number[]; tagId?: number; tag_id?: number }) => {
     const ids = sanitiseIds(args?.analysis_ids ?? args?.analysisIds ?? [])
     const tag_id = sanitiseId(args?.tag_id ?? args?.tagId)
-    if (tag_id === null) return
+    if (tag_id === null) return { successCount: 0, totalRequested: ids.length }
     const db = getDb()
     const stmt = db.prepare('DELETE FROM analysis_tags WHERE analysis_id = ? AND tag_id = ?')
     db.transaction((xs: number[]) => xs.forEach(id => stmt.run(id, tag_id)))(ids)
+    return { successCount: ids.length, totalRequested: ids.length }
   })
 
   // Frontend sends { analysisIds, favorite } (camelCase, boolean)
@@ -64,6 +68,7 @@ export function registerBulkHandlers(ipcMain: IpcMain): void {
     const db = getDb()
     const stmt = db.prepare('UPDATE analyses SET is_favorite = ? WHERE id = ?')
     db.transaction((xs: number[]) => xs.forEach(id => stmt.run(val, id)))(ids)
+    return { successCount: ids.length, totalRequested: ids.length }
   })
 
   // Frontend sends { translationIds, favorite }
@@ -73,5 +78,6 @@ export function registerBulkHandlers(ipcMain: IpcMain): void {
     const db = getDb()
     const stmt = db.prepare('UPDATE translations SET is_favorite = ? WHERE id = ?')
     db.transaction((xs: number[]) => xs.forEach(id => stmt.run(val, id)))(ids)
+    return { successCount: ids.length, totalRequested: ids.length }
   })
 }

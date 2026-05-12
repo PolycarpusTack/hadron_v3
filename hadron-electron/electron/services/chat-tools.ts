@@ -281,7 +281,7 @@ export async function executeTool(
   name: string,
   args: Record<string, unknown>,
   ctx: ToolContext,
-  mcpCallTool?: (name: string, args: Record<string, unknown>) => Promise<string>,
+  mcpCallTool?: (name: string, args: Record<string, unknown>) => Promise<string | null>,
 ): Promise<ToolResult> {
   const id = `${name}-${Date.now()}`
   try {
@@ -298,7 +298,7 @@ async function executeToolInner(
   name: string,
   args: Record<string, unknown>,
   ctx: ToolContext,
-  mcpCallTool?: (name: string, args: Record<string, unknown>) => Promise<string>,
+  mcpCallTool?: (name: string, args: Record<string, unknown>) => Promise<string | null>,
 ): Promise<string> {
   switch (name) {
     case 'search_analyses': return toolSearchAnalyses(args, ctx)
@@ -315,28 +315,28 @@ async function executeToolInner(
     case 'get_component_health': return toolGetComponentHealth(args, ctx)
     case 'search_gold_answers': return toolSearchGoldAnswers(args, ctx)
     case 'search_kb':
-      if (mcpCallTool) return mcpCallTool('search_kb', { query: args.query, top_k: args.top_k })
-      return toolSearchKb(args, ctx)
+      return (mcpCallTool ? await mcpCallTool('search_kb', { query: args.query, top_k: args.top_k }) : null)
+        ?? toolSearchKb(args, ctx)
     case 'search_jira': return toolSearchJira(args, ctx.signal)
     case 'create_jira_ticket': return toolCreateJiraTicket(args, ctx.signal)
     case 'investigate_jira_ticket':
-      if (mcpCallTool) return mcpCallTool('investigate_ticket', { ticket_key: args.ticket_key })
-      return toolNativeInvestigateTicket(args, ctx.signal)
+      return (mcpCallTool ? await mcpCallTool('investigate_ticket', { ticket_key: args.ticket_key }) : null)
+        ?? toolNativeInvestigateTicket(args, ctx.signal)
     case 'investigate_regression_family':
-      if (mcpCallTool) return mcpCallTool('investigate_regression_family', { ticket_key: args.ticket_key })
-      return toolNativeRegressionFamily(args, ctx.signal)
+      return (mcpCallTool ? await mcpCallTool('investigate_regression_family', { ticket_key: args.ticket_key }) : null)
+        ?? toolNativeRegressionFamily(args, ctx.signal)
     case 'investigate_expected_behavior':
-      if (mcpCallTool) return mcpCallTool('investigate_expected_behavior', { ticket_key: args.ticket_key ?? '', query: args.query })
-      return toolNativeExpectedBehavior(args, ctx.signal)
+      return (mcpCallTool ? await mcpCallTool('investigate_expected_behavior', { ticket_key: args.ticket_key ?? '', query: args.query }) : null)
+        ?? toolNativeExpectedBehavior(args, ctx.signal)
     case 'investigate_customer_history':
-      if (mcpCallTool) return mcpCallTool('investigate_customer_history', { ticket_key: args.ticket_key })
-      return toolNativeCustomerHistory(args, ctx.signal)
+      return (mcpCallTool ? await mcpCallTool('investigate_customer_history', { ticket_key: args.ticket_key }) : null)
+        ?? toolNativeCustomerHistory(args, ctx.signal)
     case 'search_confluence':
-      if (mcpCallTool) return mcpCallTool('confluence_search_content', { query: args.query, space_key: args.space_key, limit: args.limit })
-      return toolNativeSearchConfluence(args, ctx.signal)
+      return (mcpCallTool ? await mcpCallTool('confluence_search_content', { query: args.query, space_key: args.space_key, limit: args.limit }) : null)
+        ?? toolNativeSearchConfluence(args, ctx.signal)
     case 'get_confluence_page':
-      if (mcpCallTool) return mcpCallTool('confluence_get_content', { content_id: args.content_id })
-      return toolNativeGetConfluencePage(args, ctx.signal)
+      return (mcpCallTool ? await mcpCallTool('confluence_get_content', { content_id: args.content_id }) : null)
+        ?? toolNativeGetConfluencePage(args, ctx.signal)
     default:
       throw new Error(`Unknown tool: ${name}`)
   }

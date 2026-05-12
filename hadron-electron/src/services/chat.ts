@@ -115,6 +115,17 @@ export interface ChatStreamCallbacks {
 
 /** Poll interval for chat stream (ms). */
 const CHAT_POLL_INTERVAL_MS = 80;
+const CHAT_FINAL_POLL_GRACE_MS = 2500;
+
+async function waitForPollDone(
+  pollDone: Promise<string | null>,
+  timeoutMs: number
+): Promise<string | null | undefined> {
+  return Promise.race([
+    pollDone,
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), timeoutMs)),
+  ]);
+}
 
 /**
  * Start polling the chat stream state for the given requestId and dispatch to callbacks.
@@ -123,7 +134,7 @@ const CHAT_POLL_INTERVAL_MS = 80;
 function startChatPollLoop(
   requestId: string,
   callbacks: ChatStreamCallbacks | undefined,
-  onDone: () => void,
+  onDone: (error: string | null) => void,
 ): () => void {
   let cancelled = false;
   const cancel = () => { cancelled = true; };
@@ -176,7 +187,7 @@ function startChatPollLoop(
           } else {
             callbacks?.onStream?.({ token: "", done: true, error: null });
           }
-          onDone();
+          onDone(poll.error ?? null);
           break;
         }
 
@@ -286,7 +297,7 @@ export async function sendChatMessage(
   // Start polling loop BEFORE invoke — the backend writes to the stream keyed by
   // effectiveRequestId as soon as streaming begins, and invoke blocks until complete.
   const pollState = { cancel: (() => {}) as () => void };
-  const pollDone = new Promise<void>((resolve) => {
+  const pollDone = new Promise<string | null>((resolve) => {
     pollState.cancel = startChatPollLoop(effectiveRequestId, options.callbacks, resolve);
   });
 
@@ -318,8 +329,11 @@ export async function sendChatMessage(
     },
   });
 
-    // Wait for the poll loop to process the final `done` signal
-    await pollDone;
+    // Wait briefly for the poll loop to process the final `done` signal.
+    // The invoke result is authoritative, so do not keep the UI loading forever
+    // if stream state was already cleaned up or the final poll is missed.
+    const streamError = await waitForPollDone(pollDone, CHAT_FINAL_POLL_GRACE_MS);
+    if (streamError) throw new Error(streamError);
     return response;
   } finally {
     // Ensure poll loop is stopped even on error/cancellation

@@ -99,7 +99,7 @@ export default function AskHadronDrawer({ isOpen, onClose, onOpenFullView }: Ask
     const requestId = createRequestId();
 
     try {
-      await sendChatMessage(newMessages, {
+      const response = await sendChatMessage(newMessages, {
         useRag: true,
         requestId,
         callbacks: {
@@ -129,7 +129,16 @@ export default function AskHadronDrawer({ isOpen, onClose, onOpenFullView }: Ask
       });
 
       // Persist session to SQLite
-      const finalContent = streamingContentRef.current;
+      const finalContent = streamingContentRef.current || response.content || "";
+      if (finalContent) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: finalContent, isStreaming: false }
+              : m
+          )
+        );
+      }
       const allMessages: ChatMessage[] = [
         ...newMessages,
         {

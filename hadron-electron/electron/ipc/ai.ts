@@ -747,6 +747,40 @@ Return only valid JSON, no markdown fences.`
       }
     }
 
-    return { filename, ...parsed }
+    const analysisResult = { filename, ...parsed }
+
+    // Persist to analyses table so it appears in History
+    const db = getDb()
+    const overallSeverity = (String(parsed.overall_severity ?? 'low')).toUpperCase()
+    const dbSeverity = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(overallSeverity) ? overallSeverity : 'LOW'
+    const patterns = (parsed.patterns as Array<{ title?: string; description?: string }> | undefined) ?? []
+    const recommendations = (parsed.recommendations as Array<{ title?: string; description?: string }> | undefined) ?? []
+    const topProcess = ((parsed.processes as Array<{ name?: string }> | undefined) ?? [])[0]?.name ?? 'Performance'
+    const rootCause = patterns.map(p => p.title ?? '').filter(Boolean).join('; ') || String(parsed.summary ?? '')
+    const suggestedFixes = recommendations.map(r => r.title ?? '').filter(Boolean).join('; ')
+
+    const { lastInsertRowid } = db.prepare(`
+      INSERT INTO analyses (filename, file_size_kb, error_type, error_message, severity, component,
+        root_cause, suggested_fixes, confidence, analyzed_at, ai_model, ai_provider,
+        tokens_used, cost, was_truncated, full_data, analysis_type, source_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, 0, ?, 'performance', 'performance')
+    `).run(
+      filename,
+      Math.round(stat.size / 1024),
+      'Performance Issue',
+      String(parsed.summary ?? ''),
+      dbSeverity,
+      topProcess,
+      rootCause,
+      suggestedFixes,
+      'HIGH',
+      model,
+      provider,
+      (result.inputTokens ?? 0) + (result.outputTokens ?? 0),
+      result.cost ?? 0,
+      JSON.stringify(analysisResult),
+    )
+
+    return { id: Number(lastInsertRowid), ...analysisResult }
   })
 }

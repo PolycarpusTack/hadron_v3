@@ -823,7 +823,12 @@ function App() {
             <ViewErrorBoundary name="Analysis Details">
               <Suspense fallback={<LazyLoadFallback />}>
                 {/* Route to appropriate detail view based on analysis type */}
-                {(selectedAnalysis.analysis_type === "whatson" || selectedAnalysis.analysis_type === "comprehensive") ? (
+                {selectedAnalysis.analysis_type === "performance" ? (
+                  <PerformanceAnalyzerView
+                    initialResult={selectedAnalysis.full_data ? JSON.parse(selectedAnalysis.full_data) : undefined}
+                    onBack={actions.backToHistory}
+                  />
+                ) : (selectedAnalysis.analysis_type === "whatson" || selectedAnalysis.analysis_type === "comprehensive") ? (
                   <WhatsOnDetailView
                     analysis={selectedAnalysis}
                     onBack={actions.backToHistory}

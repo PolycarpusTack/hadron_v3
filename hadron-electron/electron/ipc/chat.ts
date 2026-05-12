@@ -360,9 +360,10 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
 
     // ── CodexMgX MCP availability ──────────────────────────────────────────
     const mcpEnabled = settingsStore.get('codexmgx_enabled', false) as boolean
+    // Returns null on failure so executeToolInner can fall back to native.
     const mcpCallTool = mcpEnabled
       ? (name: string, mcpArgs: Record<string, unknown>) =>
-          tryMcpCallTool(name, mcpArgs, ss.controller.signal).then(r => r ?? '(MCP unavailable)')
+          tryMcpCallTool(name, mcpArgs, ss.controller.signal)
       : undefined
 
     // ── Tool context ───────────────────────────────────────────────────────
@@ -463,6 +464,11 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
 
     // ── Agent loop ────────────────────────────────────────────────────────
     let agentMessages: unknown[] = (args.messages ?? []).map(m => ({ role: m.role, content: m.content }))
+    // Snapshot before tool turns are appended. Synthesis calls use this so
+    // null-content tool-call assistant messages never reach the Responses API
+    // (the Responses API rejects content:null). Tool context is already in
+    // the synthesis system prompt as XML.
+    const conversationMessages = [...agentMessages]
 
     let totalToolCalls = 0
     const allToolResults: ToolResult[] = []
@@ -520,12 +526,12 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
 
         try {
           let finalContent = ''
-          await callAiStreaming({
+          const streamingResult = await callAiStreaming({
             provider,
             model,
             apiKey,
             systemPrompt: synthSystemPrompt,
-            messages: agentMessages,
+            messages: conversationMessages,
             maxTokens: 4096,
             signal: ss.controller.signal,
             onChunk: (text) => {
@@ -534,6 +540,10 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
               finalContent += text
             },
           })
+          if (!finalContent && streamingResult.content) {
+            finalContent = streamingResult.content
+            if (!ss.done) ss.pendingText += streamingResult.content
+          }
           if (!ss.done) ss.done = true
           return { content: finalContent, inputTokens: 0, outputTokens: 0, cost: 0 }
         } catch (e) {
@@ -594,12 +604,12 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
 
     try {
       let finalContent = ''
-      await callAiStreaming({
+      const streamingResult = await callAiStreaming({
         provider,
         model,
         apiKey,
         systemPrompt: synthSystemPrompt,
-        messages: agentMessages,
+        messages: conversationMessages,
         maxTokens: 4096,
         signal: ss.controller.signal,
         onChunk: (text) => {
@@ -608,6 +618,10 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
           finalContent += text
         },
       })
+      if (!finalContent && streamingResult.content) {
+        finalContent = streamingResult.content
+        if (!ss.done) ss.pendingText += streamingResult.content
+      }
       if (!ss.done) ss.done = true
       return { content: finalContent, inputTokens: 0, outputTokens: 0, cost: 0 }
     } catch (e) {

@@ -45,7 +45,7 @@ export default function Splashscreen({
         }`}
       >
         <img
-          src="/logo.png"
+          src="./logo.png"
           alt="Hadron - AI Support Assistant"
           className="w-80 h-80 object-contain drop-shadow-2xl"
           onLoad={() => setImageLoaded(true)}

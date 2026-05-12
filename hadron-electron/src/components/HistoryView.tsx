@@ -87,6 +87,8 @@ const SEV_COL: Record<string, string> = {
 const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 function getTypeInfo(kind: string, analysisType?: string): { icon: string; color: string } {
   if (kind === "jira") return { icon: "◉", color: "#8b5cf6" };
+  if (analysisType === "performance") return { icon: "◷", color: "#06b6d4" };
+  if (analysisType === "code") return { icon: "⌥", color: "#818cf8" };
   if (analysisType === "comprehensive" || analysisType === "whatson") return { icon: "◈", color: "#10b981" };
   if (analysisType === "quick") return { icon: "◎", color: "#22d3ee" };
   if (analysisType === "sentry") return { icon: "⊕", color: "#f59e0b" };

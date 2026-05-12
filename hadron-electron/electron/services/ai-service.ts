@@ -175,6 +175,10 @@ function openAiModelCapability(model: string): OpenAiModelCapability | undefined
   return undefined
 }
 
+function openAiChatCompletionsTokenParam(model: string): 'max_tokens' | 'max_completion_tokens' {
+  return /^(gpt-5|o[1-9])/.test(model) ? 'max_completion_tokens' : 'max_tokens'
+}
+
 export async function callAi(opts: AiCallOptions): Promise<AiCallResult> {
   if (opts.provider === 'anthropic') return callAnthropic(opts)
   if (opts.provider === 'openai') return callOpenAi(opts)
@@ -271,7 +275,7 @@ async function callOpenAi(opts: AiCallOptions): Promise<AiCallResult> {
     ? [{ role: 'system', content: opts.systemPrompt }, ...opts.messages.filter(m => m.role !== 'system')]
     : [{ role: 'system', content: opts.systemPrompt }, { role: 'user', content: opts.userPrompt }]
   const isOSeries = /^o[1-9]/.test(opts.model)
-  const tokenParam = isOSeries ? 'max_completion_tokens' : 'max_tokens'
+  const tokenParam = openAiChatCompletionsTokenParam(opts.model)
   // o-series reasoning models don't support streaming
   const useStream = !isOSeries && opts.stream && !!opts.onChunk
 
@@ -529,13 +533,14 @@ async function callAiWithToolsOpenAi(opts: {
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters },
   }))
+  const tokenParam = openAiChatCompletionsTokenParam(opts.model)
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.apiKey}` },
     body: JSON.stringify({
       model: opts.model,
-      max_tokens: opts.maxTokens ?? 4000,
+      [tokenParam]: opts.maxTokens ?? 4000,
       messages: openAiMessages,
       tools: openAiTools,
       tool_choice: 'auto',

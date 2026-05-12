@@ -314,7 +314,7 @@ function FileUpload({
         className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors border-gray-600 hover:border-gray-500 ${isAnalyzing ? 'opacity-50 pointer-events-none' : ''}`}
       >
         <Upload size={48} className="mx-auto mb-4 text-gray-400" />
-        <p className="text-xl font-semibold text-white mb-2">
+        <p className="text-xl font-semibold dark:text-white text-gray-900 mb-2">
           Select one or more performance trace files
         </p>
         <p className="text-sm text-gray-400 mb-6">
@@ -342,7 +342,7 @@ function FileUpload({
 
       {files.length > 0 && (
         <div className="space-y-2">
-          <p className="text-sm font-medium text-gray-300">{files.length} file(s) selected:</p>
+          <p className="text-sm font-medium dark:text-gray-300 text-gray-700">{files.length} file(s) selected:</p>
           {files.map((file, index) => (
             <div key={index} className="flex items-center justify-between bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-2">
               <div className="flex items-center gap-3">
@@ -618,11 +618,18 @@ function AnalysisResultView({ result }: { result: PerformanceAnalysisResult }) {
   );
 }
 
+interface PerformanceAnalyzerViewProps {
+  initialResult?: PerformanceAnalysisResult;
+  onBack?: () => void;
+}
+
 // Main Performance Analyzer View
-export default function PerformanceAnalyzerView() {
+export default function PerformanceAnalyzerView({ initialResult, onBack }: PerformanceAnalyzerViewProps = {}) {
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResults, setAnalysisResults] = useState<PerformanceAnalysisResult[]>([]);
+  const [analysisResults, setAnalysisResults] = useState<PerformanceAnalysisResult[]>(
+    initialResult ? [initialResult] : []
+  );
   const [activeTab, setActiveTab] = useState(0);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
@@ -918,13 +925,22 @@ export default function PerformanceAnalyzerView() {
                 <p className="text-sm text-gray-400">{analysisResults.length} trace{analysisResults.length !== 1 ? 's' : ''} analyzed</p>
               </div>
             </div>
-            <Button
-              onClick={handleReset}
-              variant="ghost"
-              icon={<RefreshCw size={18} />}
-            >
-              New Analysis
-            </Button>
+            <div className="flex items-center gap-2">
+              {onBack && (
+                <Button onClick={onBack} variant="ghost">
+                  ← Back to History
+                </Button>
+              )}
+              {!onBack && (
+                <Button
+                  onClick={handleReset}
+                  variant="ghost"
+                  icon={<RefreshCw size={18} />}
+                >
+                  New Analysis
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Tabs for multiple files */}

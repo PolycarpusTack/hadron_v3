@@ -49,7 +49,7 @@ export default function AppHeader({
       <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
         <div className="flex items-center gap-3">
           <img
-            src="/elena-button.png"
+            src="./elena-button.png"
             alt="Hadron"
             className="h-10 w-10 rounded-[10px] object-cover"
             style={{ boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)" }}

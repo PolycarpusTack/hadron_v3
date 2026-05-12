@@ -564,7 +564,7 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
+  color-scheme: dark;
   color: rgba(255, 255, 255, 0.87);
   background-color: #0a0a0c;
 
@@ -580,7 +580,7 @@
   --text-color: #f3f4f6;
   --text-muted: #9ca3af;
 
-  /* Hadron Design Tokens */
+  /* Hadron Design Tokens — dark (default) */
   --hd-font-sans: 'IBM Plex Sans', 'Poppins', system-ui, sans-serif;
   --hd-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
   --hd-bg-base: #0a0a0c;
@@ -625,6 +625,104 @@
   --hd-lh-tight:   1.35;
   --hd-lh-normal:  1.5;
   --hd-lh-relaxed: 1.65;
+}
+
+/* ============================================================================
+   Light mode — overrides applied when .dark is absent from <html>
+   ============================================================================ */
+html:not(.dark) {
+  color-scheme: light;
+  color: #111827;
+  background-color: #f4f6f8;
+
+  /* Feedback component */
+  --border-color: #d1d5db;
+  --input-bg: #ffffff;
+  --text-color: #111827;
+  --text-muted: #6b7280;
+
+  /* Surfaces */
+  --hd-bg-base: #f4f6f8;
+  --hd-bg-raised: #ffffff;
+  --hd-bg-surface: #f0f2f5;
+  --hd-bg-surface-2: #e8eaed;
+  --hd-bg-hover: #e2e6ea;
+
+  /* Borders */
+  --hd-border: #d1d5db;
+  --hd-border-subtle: #e5e7eb;
+
+  /* Text */
+  --hd-text: #111827;
+  --hd-text-muted: #4b5563;
+  --hd-text-dim: #9ca3af;
+
+  /* Accent stays emerald but slightly deeper for light contrast */
+  --hd-accent: #059669;
+  --hd-accent-dim: rgba(5, 150, 105, 0.12);
+  --hd-accent-glow: rgba(5, 150, 105, 0.2);
+
+  /* Shadows — much lighter on white */
+  --hd-shadow: 0 8px 32px rgba(0,0,0,0.08);
+  --hd-shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* Components with hardcoded dark colours that need explicit light overrides */
+html:not(.dark) .hd-modal-shell {
+  background: rgba(255, 255, 255, 0.98);
+}
+
+html:not(.dark) .hd-card {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+html:not(.dark) .hd-config-row {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+html:not(.dark) .hd-status-pill {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+html:not(.dark) .hd-header-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+html:not(.dark) .hd-version-badge {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+html:not(.dark) .hd-chip-neutral {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+html:not(.dark) .hd-badge-neutral {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+html:not(.dark) .hd-drawer {
+  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.12);
+}
+
+html:not(.dark) .hd-pill-btn {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+html:not(.dark) .hd-segmented-btn-active {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+html:not(.dark) .analysis-progress-bar {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: #e5e7eb;
+}
+
+html:not(.dark) .progress-phase {
+  color: #1f2937;
+}
+
+html:not(.dark) .progress-track {
+  background: #e5e7eb;
 }
 
 body {
@@ -735,21 +833,6 @@ body {
   text-align: left;
 }
 
-/* Dark mode adjustments - already dark by default */
-@media (prefers-color-scheme: light) {
-  .analysis-progress-bar {
-    background: rgba(255, 255, 255, 0.95);
-    border-color: #e5e7eb;
-  }
-
-  .progress-phase {
-    color: #1f2937;
-  }
-
-  .progress-track {
-    background: #e5e7eb;
-  }
-}
 
 /* ============================================================================
    Feedback System Styles (Phase 1-2)

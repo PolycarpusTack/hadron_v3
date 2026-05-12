@@ -108,7 +108,7 @@ export default function Navigation({
       className="hd-nav-bar mb-3.5"
       role="tablist"
       aria-label="Main navigation"
-      style={{ background: 'rgba(12, 18, 34, 0.7)', borderColor: 'var(--hd-border-subtle)' }}
+      style={{ borderColor: 'var(--hd-border-subtle)' }}
     >
       {coreTabs.map(renderTab)}
 

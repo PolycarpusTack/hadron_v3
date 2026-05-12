@@ -162,7 +162,7 @@ export default function WidgetFAB({ onClick, onTemplate, onDragEnd }: WidgetFABP
         title="Hadron Quick — Click to expand, right-click for quick actions, drag to move"
       >
         <img
-          src="/elena-button.png"
+          src="./elena-button.png"
           alt="Hadron"
           className="w-[60px] h-[60px] rounded-full pointer-events-none"
           draggable={false}
