@@ -59,6 +59,50 @@ function createWindow(splash: BrowserWindow | null): void {
     mainWindow?.show()
   })
 
+  // === Widget Lifecycle Coordination ===
+  // Track whether widget was visible before minimize to restore it on restore
+  let widgetWasVisibleBeforeMinimize = false
+
+  const getWidgetWindow = () => {
+    const allWins = BrowserWindow.getAllWindows()
+    return allWins.find(w => {
+      try {
+        return w.webContents.getURL().includes('widget.html')
+      } catch {
+        return false
+      }
+    })
+  }
+
+  mainWindow.on('minimize', () => {
+    log.debug('[main] Window minimized, hiding widget to prevent white square')
+    mainWindow?.webContents.send('app:window-state-changed', { state: 'minimized' })
+    const widgetWindow = getWidgetWindow()
+    if (widgetWindow && !widgetWindow.isDestroyed()) {
+      widgetWasVisibleBeforeMinimize = widgetWindow.isVisible()
+      widgetWindow.hide()
+    }
+  })
+
+  mainWindow.on('restore', () => {
+    log.debug('[main] Window restored, restoring widget if it was visible before minimize')
+    mainWindow?.webContents.send('app:window-state-changed', { state: 'restored' })
+    if (widgetWasVisibleBeforeMinimize) {
+      const widgetWindow = getWidgetWindow()
+      if (widgetWindow && !widgetWindow.isDestroyed()) {
+        widgetWindow.show()
+      }
+    }
+  })
+
+  mainWindow.on('close', () => {
+    log.debug('[main] Main window closing, cleaning up widget')
+    const widgetWindow = getWidgetWindow()
+    if (widgetWindow && !widgetWindow.isDestroyed()) {
+      widgetWindow.close()
+    }
+  })
+
   // SECURITY: only forward https:// URLs to the OS. We re-parse via the URL
   // constructor and re-check the protocol so that crafted strings such as
   // "https://" + "javascript:..." or "https:\\\\foo" cannot smuggle a non-web
@@ -112,5 +156,18 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  log.debug('[main] App quitting, cleaning up widget and MCP')
   shutdownMcpClient()
+  // Ensure widget window is destroyed before quit
+  const allWins = BrowserWindow.getAllWindows()
+  const widgetWindow = allWins.find(w => {
+    try {
+      return w.webContents.getURL().includes('widget.html')
+    } catch {
+      return false
+    }
+  })
+  if (widgetWindow && !widgetWindow.isDestroyed()) {
+    widgetWindow.destroy()
+  }
 })

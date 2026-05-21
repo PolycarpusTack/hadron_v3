@@ -1,5 +1,41 @@
 # Version History
 
+## v5.0.1 — Bug Fixes (May 2026)
+
+### Ask Hadron / Chat
+
+- **Fixed OpenAI 400 error on follow-up questions** — Conversations with OpenAI models (GPT-5, GPT-4.1) now correctly handle multi-turn exchanges. Previously, when the AI used tools (search, JIRA lookup, etc.) on any turn, subsequent messages triggered a 400 error: *"Invalid type for input[N].content: got null instead."* The root cause was that OpenAI's Chat Completions API sends `content: null` on tool-calling assistant turns; those null values were being forwarded to the Responses API, which rejects them. The conversation history sent to synthesis is now snapshotted before tool-call turns are appended.
+- **Fixed MCP tool failures silently returning garbage** — When CodexMgX MCP was enabled but a tool call failed (server offline, wrong tool name, network error), the failure was masked as the string `"(MCP unavailable)"` and sent to the AI as if it were real tool output. The AI would then hallucinate answers based on that placeholder. Now all MCP-dispatched tools (`search_kb`, `investigate_jira_ticket`, all investigation and Confluence tools) properly fall back to their native implementations when MCP returns nothing.
+
+### UI / Visual
+
+- **Fixed loading screen broken image** — The native splash window showed a broken image icon because its inline `<script>` was blocked by the page's own Content-Security-Policy (`default-src 'none'` covers `script-src`). The image path is now set via a direct relative `src="splash.png"` attribute — no script needed.
+- **Fixed app header and widget icon missing after install** — The Hadron logo in the header and the floating widget button both used absolute paths (`/elena-button.png`, `/logo.png`) that work in the Vite dev server but resolve to the filesystem root under `file://` in a packaged Electron app. Paths changed to relative (`./`).
+- **Fixed floating widget showing scrollbars instead of icon** — Caused by the same broken image path above: the alt text `"Hadron"` overflowed the 68 × 68 transparent window, producing visible scroll arrows. Resolved by the relative path fix.
+
+### History
+
+- **Performance traces now saved to History** — Analyzing a `.trace` / time-profile file now writes a row to the `analyses` table with `analysis_type = 'performance'`, so results appear in the History tab and can be reopened.
+- **Distinct icons per analysis type in History** — Code analysis shows `⌥` (indigo), performance shows `◷` (cyan), comprehensive/WCR shows `◈` (green), quick shows `◎`, Sentry shows `⊕`, JIRA shows `◉`.
+
+### Bulk Actions
+
+- **Fixed Select → Delete / Favorite / Unfavorite / Export doing nothing** — All six bulk IPC handlers (`bulk_delete_analyses`, `bulk_delete_translations`, `bulk_add_tag_to_analyses`, `bulk_remove_tag_from_analyses`, `bulk_set_favorite_analyses`, `bulk_set_favorite_translations`) were returning `undefined` instead of a result object. The frontend accessed `result.successCount` on `undefined` and threw a TypeError before any UI update could run. DB writes were succeeding, but the list never refreshed.
+
+### Light Mode
+
+- **Light mode toggle now works** — All design tokens (`--hd-*`) were only defined in `:root` (always dark). Added a full `html:not(.dark)` override block with correct light values for backgrounds, borders, text, and accent colours.
+- **Nav bar now responds to light mode** — An inline `background: rgba(12,18,34,0.7)` style on the nav element overrode the CSS class. Removed; the `.hd-nav-bar` class now controls background through the token system.
+- **Fixed invisible text in dropzone and performance results in light mode** — Several components used hardcoded `text-white` / `text-gray-300` classes on transparent backgrounds, making text invisible on light backgrounds. Changed to `dark:text-white text-gray-900` equivalents.
+
+---
+
+## v5.0.0 — Electron Relaunch (May 2026)
+
+Hadron migrated from the Tauri + Rust stack to **Electron + Node.js**, keeping the same React/TypeScript frontend. This is a ground-up rebuild of the desktop shell; all analysis, history, chat, and integration features carry over.
+
+---
+
 ## v4.6.0 — Deep Investigation (April 2026)
 
 ### Investigation Engine

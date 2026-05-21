@@ -7,6 +7,7 @@ import WidgetPanel from "./WidgetPanel";
 import WidgetChat from "./WidgetChat";
 import ClipboardWatcher from "./ClipboardWatcher";
 import { withWidgetLock } from "./widgetLock";
+import logger from "../../services/logger";
 import type { ChatMessage } from "../../services/chat";
 
 type WidgetState = "fab" | "expanded";
@@ -15,6 +16,18 @@ const FAB_SIZE = { width: 44, height: 44 };
 const PANEL_SIZE = { width: 400, height: 520 };
 const POSITION_STORAGE_KEY = "hadron-widget-position";
 const SCREEN_MARGIN = 8; // px padding from screen edges
+
+/** Validate that a stored position is a valid coordinate pair with finite numbers */
+function isValidPosition(pos: unknown): pos is { x: number; y: number } {
+  return (
+    pos !== null &&
+    typeof pos === 'object' &&
+    typeof (pos as Record<string, unknown>).x === 'number' &&
+    typeof (pos as Record<string, unknown>).y === 'number' &&
+    Number.isFinite((pos as Record<string, unknown>).x as number) &&
+    Number.isFinite((pos as Record<string, unknown>).y as number)
+  )
+}
 
 /**
  * Calculate where to position the widget window when expanding from FAB to panel.
@@ -70,10 +83,12 @@ async function calcExpandPosition(): Promise<{ x: number; y: number } | null> {
 
 export default function WidgetApp() {
   const [widgetState, setWidgetState] = useState<WidgetState>("fab");
+  const [isAnimating, setIsAnimating] = useState(false);
   const [pendingClipboard, setPendingClipboard] = useState<string | null>(null);
   const [pendingInput, setPendingInput] = useState<string | null>(null);
   const widgetMessagesRef = useRef<ChatMessage[]>([]);
   const fabPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const animationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Restore saved position on mount
   useEffect(() => {
@@ -82,22 +97,26 @@ export default function WidgetApp() {
       if (saved) {
         try {
           const parsed = JSON.parse(saved) as unknown;
-          if (
-            parsed !== null &&
-            typeof parsed === 'object' &&
-            typeof (parsed as Record<string, unknown>).x === 'number' &&
-            typeof (parsed as Record<string, unknown>).y === 'number'
-          ) {
-            const { x, y } = parsed as { x: number; y: number };
-            await invoke('move_widget', { x, y });
-          } else {
+          if (!isValidPosition(parsed)) {
+            logger.warn('Widget: invalid saved position, clearing', { saved });
             localStorage.removeItem(POSITION_STORAGE_KEY);
+            return;
           }
-        } catch {
+          const { x, y } = parsed;
+          await invoke('move_widget', { x, y });
+          logger.debug('Widget: restored position', { x, y });
+        } catch (e) {
+          logger.warn('Widget: failed to parse saved position, clearing', { error: e, saved });
           localStorage.removeItem(POSITION_STORAGE_KEY);
         }
       }
-    }).catch((e) => console.warn("Widget: failed to restore position", e));
+    }).catch((e) => logger.warn("Widget: failed to restore position", { error: e }));
+
+    return () => {
+      if (animationTimeoutRef.current) {
+        clearTimeout(animationTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Track whether hover button feature is enabled
@@ -108,8 +127,17 @@ export default function WidgetApp() {
     const unlisten = listen<{ enabled: boolean }>("settings:hover-button-changed", (event) => {
       hoverEnabledRef.current = event.payload.enabled;
       if (!event.payload.enabled) {
-        withWidgetLock(async () => { await invoke("hide_widget"); }).catch((e) => console.warn("Widget: failed to hide", e));
+        withWidgetLock(async () => { await invoke("hide_widget"); }).catch((e) => logger.warn("Widget: failed to hide on setting change", { error: e }));
       }
+    });
+    return () => { unlisten.then(fn => fn()).catch(() => {}); };
+  }, []);
+
+  // Listen for main window state changes (minimize/restore/close)
+  useEffect(() => {
+    const unlisten = listen<{ state: string }>("app:window-state-changed", (event) => {
+      logger.debug('Widget: main window state changed', { state: event.payload.state });
+      // Main window handles hiding us on minimize; we just log for debugging
     });
     return () => { unlisten.then(fn => fn()).catch(() => {}); };
   }, []);
@@ -142,11 +170,16 @@ export default function WidgetApp() {
   }), []);
 
   const expand = useCallback(async () => {
+    setIsAnimating(true);
+    if (animationTimeoutRef.current) clearTimeout(animationTimeoutRef.current);
     await expandToPanel();
     setWidgetState("expanded");
+    animationTimeoutRef.current = setTimeout(() => setIsAnimating(false), 250);
   }, [expandToPanel]);
 
   const collapse = useCallback(() => withWidgetLock(async () => {
+    setIsAnimating(true);
+    if (animationTimeoutRef.current) clearTimeout(animationTimeoutRef.current);
     try {
       await invoke("resize_widget", FAB_SIZE);
       // Restore FAB to its original position before expansion
@@ -160,6 +193,7 @@ export default function WidgetApp() {
     setPendingClipboard(null);
     setPendingInput(null);
     setWidgetState("fab");
+    animationTimeoutRef.current = setTimeout(() => setIsAnimating(false), 250);
   }), []);
 
   const handleClipboardAnalyze = useCallback(async (content: string) => {
@@ -191,14 +225,16 @@ export default function WidgetApp() {
   }
 
   return (
-    <WidgetPanel onCollapse={collapse} onOpenInMain={handleOpenInMain}>
-      <WidgetChat
-        initialMessage={pendingClipboard}
-        onInitialMessageConsumed={() => setPendingClipboard(null)}
-        initialInput={pendingInput}
-        onInitialInputConsumed={() => setPendingInput(null)}
-        onMessagesChange={handleMessagesChange}
-      />
-    </WidgetPanel>
+    <div className={isAnimating ? "widget-panel-entering" : ""}>
+      <WidgetPanel onCollapse={collapse} onOpenInMain={handleOpenInMain}>
+        <WidgetChat
+          initialMessage={pendingClipboard}
+          onInitialMessageConsumed={() => setPendingClipboard(null)}
+          initialInput={pendingInput}
+          onInitialInputConsumed={() => setPendingInput(null)}
+          onMessagesChange={handleMessagesChange}
+        />
+      </WidgetPanel>
+    </div>
   );
 }

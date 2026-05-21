@@ -48,8 +48,19 @@ export default function WidgetChat({ initialMessage, onInitialMessageConsumed, i
     const storedId = localStorage.getItem(WIDGET_SESSION_KEY);
     if (storedId) {
       getChatSessionMessages(storedId)
-        .then((msgs) => { setSessionId(storedId); setMessages(msgs); })
-        .catch(() => localStorage.removeItem(WIDGET_SESSION_KEY));
+        .then((msgs) => {
+          if (!Array.isArray(msgs)) {
+            throw new Error('Invalid messages format: expected array');
+          }
+          setSessionId(storedId);
+          setMessages(msgs);
+        })
+        .catch((err) => {
+          logger.warn('Widget chat: failed to load session, clearing', { error: err, sessionId: storedId });
+          localStorage.removeItem(WIDGET_SESSION_KEY);
+          setSessionId(null);
+          setMessages([]);
+        });
     }
   }, []);
 

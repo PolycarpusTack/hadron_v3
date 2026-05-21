@@ -365,6 +365,72 @@
     transform: translateX(0);
   }
 
+  /* Widget animations and transitions */
+  @keyframes widget-expand {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes widget-collapse {
+    from {
+      opacity: 1;
+      transform: scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+  }
+
+  .widget-panel-entering {
+    animation: widget-expand 0.2s ease-out forwards;
+  }
+
+  .widget-panel-exiting {
+    animation: widget-collapse 0.2s ease-in forwards;
+  }
+
+  /* Widget FAB with hover effects */
+  .widget-fab {
+    @apply transition-all duration-200;
+  }
+
+  .widget-fab:hover {
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.25);
+    transform: translateY(-2px);
+  }
+
+  .widget-fab:active {
+    transform: translateY(0);
+  }
+
+  /* Widget position transition for drag operations */
+  .widget-smooth-move {
+    transition: left 0.15s ease-out, top 0.15s ease-out;
+  }
+
+  /* Widget menu animation */
+  @keyframes menu-slide-in {
+    from {
+      opacity: 0;
+      transform: scale(0.92);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .widget-menu {
+    animation: menu-slide-in 0.2s ease-out;
+  }
+
   /* Analyzer master-detail layout */
   .hd-analyzer-layout {
     @apply flex overflow-hidden rounded-xl;

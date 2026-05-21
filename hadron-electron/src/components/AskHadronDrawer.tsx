@@ -12,6 +12,7 @@ import {
   type ChatStreamEvent,
   type ChatToolUseEvent,
 } from "../services/chat";
+import logger from "../services/logger";
 
 interface AskHadronDrawerProps {
   isOpen: boolean;
@@ -36,10 +37,19 @@ export default function AskHadronDrawer({ isOpen, onClose, onOpenFullView }: Ask
     if (storedId) {
       getChatSessionMessages(storedId)
         .then((msgs) => {
+          if (!Array.isArray(msgs)) {
+            throw new Error('Invalid messages format: expected array');
+          }
           setSessionId(storedId);
           setMessages(msgs);
+          logger.debug('Ask Hadron drawer: restored session', { sessionId: storedId, messageCount: msgs.length });
         })
-        .catch(() => localStorage.removeItem(DRAWER_SESSION_KEY));
+        .catch((err) => {
+          logger.warn('Ask Hadron drawer: failed to load session, clearing', { error: err, sessionId: storedId });
+          localStorage.removeItem(DRAWER_SESSION_KEY);
+          setSessionId(null);
+          setMessages([]);
+        });
     }
   }, []);
 

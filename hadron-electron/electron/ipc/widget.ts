@@ -58,7 +58,10 @@ function getOrCreateWidgetWindow(): BrowserWindow {
     event.preventDefault()
   })
 
-  widgetWindow.on('closed', () => { widgetWindow = null })
+  widgetWindow.on('closed', () => {
+    log.debug('[widget] Widget window closed, cleaning up reference')
+    widgetWindow = null
+  })
 
   return widgetWindow
 }
@@ -79,12 +82,16 @@ export function registerWidgetHandlers(ipcMain: IpcMain, getMainWin: () => Brows
   })
 
   ipcMain.handle('show_widget', () => {
+    log.debug('[widget] Showing widget window')
     const win = getOrCreateWidgetWindow()
     win.show()
   })
 
   ipcMain.handle('hide_widget', () => {
-    if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.hide()
+    if (widgetWindow && !widgetWindow.isDestroyed()) {
+      log.debug('[widget] Hiding widget window')
+      widgetWindow.hide()
+    }
   })
 
   ipcMain.handle('toggle_widget', () => {
@@ -145,9 +152,13 @@ export function registerWidgetHandlers(ipcMain: IpcMain, getMainWin: () => Brows
   ipcMain.handle('set_hover_button_enabled', (_e, args: { enabled: boolean } | boolean) => {
     const enabled = typeof args === 'boolean' ? args : (args as { enabled: boolean }).enabled
     if (enabled) {
+      log.debug('[widget] Hover button enabled, showing widget')
       getOrCreateWidgetWindow().show()
-    } else if (widgetWindow && !widgetWindow.isDestroyed()) {
-      widgetWindow.hide()
+    } else {
+      log.debug('[widget] Hover button disabled, hiding widget')
+      if (widgetWindow && !widgetWindow.isDestroyed()) {
+        widgetWindow.hide()
+      }
     }
   })
 }
