@@ -255,7 +255,15 @@ class McpClient {
 
   shutdown(): void {
     try { this.process?.stdin?.end() } catch { /* ignore */ }
-    try { this.process?.kill() } catch { /* ignore */ }
+    if (this.process?.pid) {
+      try {
+        if (process.platform === 'win32') {
+          spawn('taskkill', ['/F', '/T', '/PID', String(this.process.pid)], { windowsHide: true })
+        } else {
+          this.process.kill()
+        }
+      } catch { /* ignore */ }
+    }
     this.process = null
     this.initialized = false
     this.rawBuffer = Buffer.alloc(0)

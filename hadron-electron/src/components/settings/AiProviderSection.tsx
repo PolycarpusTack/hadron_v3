@@ -185,7 +185,7 @@ export default function AiProviderSection({ settings, isOpen, onUpdateSettings, 
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-gray-300">{label}</label>
+          <label className="text-sm font-medium" style={{ color: 'var(--hd-text-muted)' }}>{label}</label>
           <div className={`flex items-center gap-1.5 text-xs ${status.color}`}>
             {status.icon}<span>{status.label}</span>
           </div>
@@ -197,11 +197,11 @@ export default function AiProviderSection({ settings, isOpen, onUpdateSettings, 
               value={settings.apiKeys[provider]}
               onChange={e => onUpdateSettings({ apiKeys: { ...settings.apiKeys, [provider]: e.target.value } })}
               placeholder={placeholder}
-              className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-blue-500 text-sm"
+              className="w-full hd-input rounded-lg px-4 py-2.5 pr-10 text-sm"
             />
             <button
               onClick={() => setShowApiKeys(prev => ({ ...prev, [provider]: !prev[provider] }))}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-700 rounded"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
             >
               {showApiKeys[provider] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
@@ -232,7 +232,7 @@ export default function AiProviderSection({ settings, isOpen, onUpdateSettings, 
           <select
             value={settings.provider}
             onChange={e => handleProviderChange(e.target.value)}
-            className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 text-sm"
+            className="w-full hd-input rounded-lg px-4 py-2.5 text-sm"
           >
             {AI_PROVIDERS.filter(p => settings.activeProviders[p.value]).map(provider => (
               <option key={provider.value} value={provider.value}>{provider.label}</option>
@@ -246,8 +246,8 @@ export default function AiProviderSection({ settings, isOpen, onUpdateSettings, 
                 <div>
                   <p className="text-xs font-medium text-blue-300">llama.cpp (Local)</p>
                   <p className="text-xs text-gray-400 mt-1">
-                    No API key required. Start <code className="bg-gray-900 px-1 py-0.5 rounded text-blue-400">llama-server</code> on{' '}
-                    <code className="bg-gray-900 px-1 py-0.5 rounded text-blue-400">localhost:8080</code>
+                    No API key required. Start <code className="bg-gray-100 dark:bg-gray-900 px-1 py-0.5 rounded text-blue-600 dark:text-blue-400">llama-server</code> on{' '}
+                    <code className="bg-gray-100 dark:bg-gray-900 px-1 py-0.5 rounded text-blue-600 dark:text-blue-400">localhost:8080</code>
                   </p>
                 </div>
               </div>
@@ -337,7 +337,7 @@ export default function AiProviderSection({ settings, isOpen, onUpdateSettings, 
             value={modelFilter}
             onChange={e => setModelFilter(e.target.value)}
             placeholder={`Filter ${currentModels.length} models… (e.g. "gpt-5", "400k", "1m")`}
-            className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 text-sm placeholder-gray-500"
+            className="w-full hd-input rounded-lg px-4 py-2 text-sm"
           />
           <ModelPicker
             provider={settings.provider}
@@ -355,7 +355,7 @@ export default function AiProviderSection({ settings, isOpen, onUpdateSettings, 
               value={settings.customModel}
               onChange={e => onUpdateSettings({ customModel: e.target.value })}
               placeholder="Enter custom model name"
-              className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 text-sm"
+              className="w-full hd-input rounded-lg px-4 py-2.5 text-sm"
             />
           )}
           {modelsMessage && <p className="text-xs text-green-400">{modelsMessage}</p>}
@@ -370,7 +370,7 @@ export default function AiProviderSection({ settings, isOpen, onUpdateSettings, 
           <select
             value={settings.auxiliaryModel}
             onChange={e => onUpdateSettings({ auxiliaryModel: e.target.value })}
-            className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 text-sm"
+            className="w-full hd-input rounded-lg px-4 py-2.5 text-sm"
           >
             <option value="">Same as main model (no savings)</option>
             {settings.provider === 'openai' && (

@@ -70,6 +70,21 @@
     border: 1px solid var(--hd-border);
   }
 
+  .hd-input {
+    background: var(--hd-bg-raised);
+    color: var(--hd-text);
+    border: 1px solid var(--hd-border);
+  }
+
+  .hd-input::placeholder {
+    color: var(--hd-text-dim);
+  }
+
+  .hd-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+  }
+
   .hd-toggle {
     @apply relative h-8 w-14 rounded-full transition-colors;
   }

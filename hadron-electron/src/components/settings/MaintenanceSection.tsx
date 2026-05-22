@@ -149,7 +149,7 @@ export default function MaintenanceSection({ className, isOnline, parentScrollRe
             <div className="flex items-center gap-2">
               <input
                 type="text" value={crashLogDir} readOnly
-                className="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs font-mono"
+                className="flex-1 hd-input rounded px-2 py-1 text-xs font-mono"
                 style={{ color: 'var(--hd-text-muted)' }}
                 title={crashLogDir}
               />
@@ -248,7 +248,7 @@ export default function MaintenanceSection({ className, isOnline, parentScrollRe
             <div className="flex items-center gap-2">
               <input
                 type="text" value={defaultExportDir} readOnly
-                className="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs font-mono"
+                className="flex-1 hd-input rounded px-2 py-1 text-xs font-mono"
                 style={{ color: 'var(--hd-text-muted)' }}
                 placeholder="Not set"
                 title={defaultExportDir || 'Not set'}

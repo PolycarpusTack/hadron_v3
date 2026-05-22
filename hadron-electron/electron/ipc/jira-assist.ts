@@ -418,6 +418,7 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
     pollerState.timer = setInterval(() => {
       runPollerCycle().catch(err => log.warn('Poller cycle error:', err))
     }, pollerState.intervalMins * 60 * 1000)
+    pollerState.timer.unref()
     runPollerCycle().catch(err => log.warn('Poller initial cycle error:', err))
     return { status: 'started', message: `Polling every ${pollerState.intervalMins} minutes` }
   }
