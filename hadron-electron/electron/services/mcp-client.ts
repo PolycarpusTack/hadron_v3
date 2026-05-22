@@ -254,20 +254,26 @@ class McpClient {
   }
 
   shutdown(): void {
-    try { this.process?.stdin?.end() } catch { /* ignore */ }
-    if (this.process?.pid) {
-      try {
-        if (process.platform === 'win32') {
-          spawn('taskkill', ['/F', '/T', '/PID', String(this.process.pid)], { windowsHide: true })
-        } else {
-          this.process.kill()
-        }
-      } catch { /* ignore */ }
-    }
+    const proc = this.process
+    if (!proc) return
+    // Null immediately so re-entrant calls and stale event handlers that
+    // close over `this` cannot corrupt a new session started after restart.
     this.process = null
     this.initialized = false
     this.rawBuffer = Buffer.alloc(0)
     this.pending.clear()
+    proc.stdout?.removeAllListeners()
+    proc.stderr?.removeAllListeners()
+    proc.removeAllListeners()
+    if (process.platform === 'win32') {
+      try {
+        const killer = spawn('taskkill', ['/F', '/T', '/PID', String(proc.pid!)], { windowsHide: true })
+        killer.unref()
+      } catch { /* ignore */ }
+    } else {
+      try { proc.stdin?.end() } catch { /* ignore */ }
+      try { proc.kill() } catch { /* ignore */ }
+    }
   }
 }
 

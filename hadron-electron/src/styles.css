@@ -74,6 +74,7 @@
     background: var(--hd-bg-raised);
     color: var(--hd-text);
     border: 1px solid var(--hd-border);
+    transition: border-color var(--hd-transition);
   }
 
   .hd-input::placeholder {
@@ -82,7 +83,11 @@
 
   .hd-input:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: var(--hd-accent);
+  }
+
+  .hd-input[readonly] {
+    color: var(--hd-text-muted);
   }
 
   .hd-toggle {

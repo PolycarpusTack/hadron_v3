@@ -112,6 +112,28 @@ async function runPollerCycleInner(): Promise<void> {
     return
   }
 
+  // Resolve AI provider once before fetching tickets — avoids per-ticket vault lookups.
+  const POLLER_PROVIDERS = ['openai', 'anthropic'] as const
+  let provider: (typeof POLLER_PROVIDERS)[number] | null = null
+  let apiKey = ''
+  for (const p of POLLER_PROVIDERS) {
+    const direct = getSecret(SERVICE_NAME, p)
+    if (direct) { provider = p; apiKey = direct; break }
+  }
+  if (!provider) {
+    for (const p of POLLER_PROVIDERS) {
+      const uid = getKeeperUidForProvider(p)
+      if (uid) {
+        try { apiKey = await getApiKeyFromKeeper(uid); provider = p; break } catch { /* try next */ }
+      }
+    }
+  }
+  if (!provider || !apiKey) {
+    log.debug('Poller: no AI provider configured, skipping cycle')
+    return
+  }
+  const model = provider === 'openai' ? 'gpt-4.1-mini' : 'claude-3-5-haiku-20241022'
+
   const db = getDb()
   const { default: fetch } = await import('node-fetch')
   const auth = Buffer.from(`${creds.email}:${creds.apiToken}`).toString('base64')
@@ -145,25 +167,6 @@ async function runPollerCycleInner(): Promise<void> {
       const description = fields.description
         ? (typeof fields.description === 'string' ? fields.description : JSON.stringify(fields.description)).substring(0, 2000)
         : ''
-
-      const POLLER_PROVIDERS = ['openai', 'anthropic'] as const
-      let provider: (typeof POLLER_PROVIDERS)[number] | null = null
-      let apiKey = ''
-      for (const p of POLLER_PROVIDERS) {
-        const direct = getSecret(SERVICE_NAME, p)
-        if (direct) { provider = p; apiKey = direct; break }
-      }
-      if (!provider) {
-        for (const p of POLLER_PROVIDERS) {
-          const uid = getKeeperUidForProvider(p)
-          if (uid) {
-            try { apiKey = await getApiKeyFromKeeper(uid); provider = p; break } catch { /* try next */ }
-          }
-        }
-      }
-      if (!provider || !apiKey) continue
-
-      const model = provider === 'openai' ? 'gpt-4.1-mini' : 'claude-3-5-haiku-20241022'
 
       // Rate limiter is intentionally not applied here — the poller runs on a
       // server-side timer, not from a renderer IPC call, so it cannot be
@@ -297,9 +300,13 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
       const now = new Date().toISOString()
 
       db.prepare(`
-        INSERT OR IGNORE INTO ticket_briefs
+        INSERT INTO ticket_briefs
           (jira_key, title, severity, category, tags, triage_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(jira_key) DO UPDATE SET
+          title=excluded.title, severity=excluded.severity,
+          category=excluded.category, tags=excluded.tags,
+          triage_json=excluded.triage_json, updated_at=excluded.updated_at
       `).run(
         jiraKey, p.title ?? '',
         (triage.severity as string) ?? null,
@@ -307,19 +314,6 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
         triage.tags ? JSON.stringify(triage.tags) : null,
         JSON.stringify(triage),
         now, now,
-      )
-
-      db.prepare(`
-        UPDATE ticket_briefs
-        SET title=?, severity=?, category=?, tags=?, triage_json=?, updated_at=?
-        WHERE jira_key=?
-      `).run(
-        p.title ?? '',
-        (triage.severity as string) ?? null,
-        (triage.category as string) ?? null,
-        triage.tags ? JSON.stringify(triage.tags) : null,
-        JSON.stringify(triage),
-        now, jiraKey,
       )
       try { db.exec("INSERT INTO ticket_briefs_fts(ticket_briefs_fts) VALUES('rebuild')") } catch { /* index may not exist yet */ }
 
@@ -381,9 +375,11 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
       const now = new Date().toISOString()
 
       db.prepare(`
-        INSERT OR IGNORE INTO ticket_briefs
+        INSERT INTO ticket_briefs
           (jira_key, title, severity, category, tags, triage_json, brief_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(jira_key) DO UPDATE SET
+          brief_json=excluded.brief_json, updated_at=excluded.updated_at
       `).run(
         jiraKey, p.title ?? '',
         (triage.severity as string) ?? null,
@@ -393,12 +389,6 @@ export function registerJiraAssistHandlers(ipcMain: IpcMain): void {
         JSON.stringify(brief),
         now, now,
       )
-
-      db.prepare(`
-        UPDATE ticket_briefs
-        SET brief_json=?, updated_at=?
-        WHERE jira_key=?
-      `).run(JSON.stringify(brief), now, jiraKey)
       try { db.exec("INSERT INTO ticket_briefs_fts(ticket_briefs_fts) VALUES('rebuild')") } catch { /* index may not exist yet */ }
 
       return brief

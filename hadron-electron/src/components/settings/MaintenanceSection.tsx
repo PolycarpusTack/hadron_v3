@@ -150,7 +150,6 @@ export default function MaintenanceSection({ className, isOnline, parentScrollRe
               <input
                 type="text" value={crashLogDir} readOnly
                 className="flex-1 hd-input rounded px-2 py-1 text-xs font-mono"
-                style={{ color: 'var(--hd-text-muted)' }}
                 title={crashLogDir}
               />
               <button
@@ -249,7 +248,6 @@ export default function MaintenanceSection({ className, isOnline, parentScrollRe
               <input
                 type="text" value={defaultExportDir} readOnly
                 className="flex-1 hd-input rounded px-2 py-1 text-xs font-mono"
-                style={{ color: 'var(--hd-text-muted)' }}
                 placeholder="Not set"
                 title={defaultExportDir || 'Not set'}
               />
